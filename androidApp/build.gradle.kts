@@ -31,6 +31,10 @@ dependencies {
 android {
     namespace = "com.chencohen.ptt"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
+    // AGP strips the native libraries only with an installed NDK; libsignal_jni.so comes with its debug info
+    // (130 MB per ABI, 10 MB stripped). This is the NDK on the Mac; CI's SDK installs it on demand.
+    // Override with -PndkVersion=<installed version>.
+    ndkVersion = findProperty("ndkVersion") as String? ?: "30.0.16248370"
 
     defaultConfig {
         applicationId = "com.chencohen.ptt"
