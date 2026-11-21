@@ -175,3 +175,7 @@ friend's own name is a display name (`Contact.displayName`, shown as "Dana Cohen
 
 Linking a second phone (`PROVISIONING`) and contact sync between one's own phones; then messages and FCM (phase
 3), groups, push-to-talk, calls and iOS, as the plan says.
+
+The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
+Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3
+adds them. That file holds only public identifiers; the server's service-account key never goes in git.
