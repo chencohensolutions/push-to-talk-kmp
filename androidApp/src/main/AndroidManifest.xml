@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 17+: the server is often on the local network; without this, connections to it time out. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+
+    <!-- No backup and no phone-to-phone transfer: a copied app would think it is enrolled without its key, which
+         can't leave the phone's secure hardware (res/xml/data_extraction_rules.xml). -->
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Talk">
+        <!-- singleTask: an enrollment link opened from the camera comes to the running app (onNewIntent). -->
+        <activity
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:name=".MainActivity"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- ptt://enroll?code=…&server=…: the QR code `ptt-server enroll-code` prints. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="ptt" android:host="enroll" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
