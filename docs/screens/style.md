@@ -15,11 +15,11 @@ system's light or dark theme.
 
 | Color | Is for | Never for |
 |---|---|---|
-| Ink (`Inverse` / `OnInverse`: ink on light, paper on dark) | The one main action of a screen (later the talk button), the selected tab, text actions, the profile circle | |
+| Ink (`Inverse` / `OnInverse`: ink on light, paper on dark) | The one main action of a screen (later the talk button), the selected tab, text actions, the profile circle, the new-chat pencil | |
 | Teal (`Accent`) | "Live" and progress: a running step, a check, later someone talking | Buttons and links |
-| Red (`Error`) | Actions that leave, remove or revoke (Register again, later Remove contact, Revoke device), failures | Anything that only changes a setting |
-| Orange (`Warning`) | Warnings: the Offline pill's cloud, the rejected card's mark, "Can’t reach your server right now" | Links and buttons |
-| `Muted` | Second lines, notes, section labels, outlines, a control that isn't there yet (the pencil) | |
+| Red (`Error`) | Actions that leave, remove or revoke (Register again, Block, Remove contact, later Revoke device), failures | Anything that only changes a setting |
+| Orange (`Warning`) | Warnings: the Offline pill's cloud, the rejected card's mark, "Can’t reach your server right now", "Safety number changed" | Links and buttons |
+| `Muted` | Second lines, notes, section labels, outlines, a control that isn't there yet | |
 | `Raised` | Cards and tiles on `Background` | |
 
 Material mapping: primary = Inverse (onPrimary = OnInverse), secondary and tertiary = Accent, surface and background
@@ -82,7 +82,11 @@ The same paddings everywhere (32 dp).
 
 Line icons in `LibraryIcons` (24 dp, stroke 2): no typed characters as icons, no Material icon set, and no Signal
 icon or artwork. Person (the profile circle before the server says who this is), Chat and Call (the tabs' empty
-states) and Edit (the new-chat pencil) were added for this app.
+states), Edit (the new-chat pencil), Scan (scan a QR code), Shield (a verified safety number) and Block were added
+for this app.
+
+QR codes (`ui/Qr.kt`, ZXing, as journal) are drawn black on white in both themes, on a white tile with 8 dp corners;
+they are scanned with Google's code scanner from Play services (no camera permission).
 
 ## Messages
 

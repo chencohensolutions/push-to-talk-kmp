@@ -90,7 +90,6 @@
     <string name="calls_title">Calls</string>
     <string name="chats_profile">Settings</string>
     <string name="chats_new">New chat</string>
-    <string name="chats_new_soon">Pairing comes next: adding a contact by QR code isn’t built yet.</string>
     <string name="chats_empty">No chats yet. Add a contact by scanning their QR code.</string>
     <string name="calls_empty">No calls yet. Calls you make and get show here.</string>
     <string name="home_rejected_title">This phone isn’t registered with the server</string>
@@ -117,4 +116,105 @@
     <string name="settings_register_again">Register again</string>
     <string name="settings_register_again_body">Enroll this phone again with a new code, at this server or another.</string>
     <string name="settings_app_version">Talk %1$s</string>
+    <!-- Chats list (docs/screens/chats.md) -->
+    <string name="chats_request_title">%1$s wants to pair</string>
+    <string name="chats_request_body">They scanned your QR code. Check it’s them before you pair.</string>
+    <string name="chats_request_action">Review</string>
+    <string name="chats_other_identity_title">Another phone of yours holds your keys</string>
+    <string name="chats_other_identity_body">This account’s identity key is on another phone. To use this one alone, start over with a new key: your contacts see a changed safety number.</string>
+    <string name="chats_other_identity_action">Start over</string>
+    <string name="chats_keys_failed">Your keys couldn’t be sent to the server: %1$s</string>
+    <string name="chats_waiting">Waiting for them to confirm</string>
+    <string name="chats_blocked">Blocked</string>
+    <string name="chats_key_changed">Safety number changed</string>
+    <string name="chats_paired">Paired</string>
+    <string name="chats_you">You: %1$s</string>
+    <string name="chats_contact">Open %1$s</string>
+
+    <!-- New chat (docs/screens/contacts.md) -->
+    <string name="new_chat_title">New chat</string>
+    <string name="new_chat_add">Add contact</string>
+    <string name="new_chat_add_body">Scan their QR code, or show them yours</string>
+    <string name="new_chat_contacts">Contacts</string>
+    <string name="new_chat_none">No contacts yet. You add someone by scanning their QR code in person.</string>
+
+    <!-- Add contact (docs/screens/add-contact.md) -->
+    <string name="add_title">Add contact</string>
+    <string name="add_intro">Meet in person. They scan your code, or you scan theirs: one scan pairs you both.</string>
+    <string name="add_code_label">Your QR code</string>
+    <string name="add_code_expires">Works once, until %1$s</string>
+    <string name="add_code_retry">Make a code</string>
+    <string name="add_scan">Scan their code</string>
+    <string name="add_scan_failed">The camera couldn’t read a code. Try again.</string>
+    <string name="add_scanned_title">Pair with %1$s?</string>
+    <string name="add_scanned_body">You’ll both see each other in Chats, and messages between you are end-to-end encrypted.</string>
+    <string name="add_pair">Pair</string>
+    <string name="add_cancel">Cancel</string>
+    <string name="add_sending">Pairing with %1$s…</string>
+    <string name="add_waiting_title">Waiting for %1$s</string>
+    <string name="add_waiting_body">You confirmed. You’re paired as soon as they confirm on their phone.</string>
+    <string name="add_paired_title">You and %1$s are paired</string>
+    <string name="add_paired_body">Compare your safety numbers on the contact’s page to be sure no one is in between.</string>
+    <string name="add_done">Done</string>
+    <string name="add_review_title">Pair with %1$s?</string>
+    <string name="add_review_body">%1$s scanned your QR code. Pair only if it was them, in front of you.</string>
+    <string name="add_decline">Decline</string>
+    <string name="add_failed_title">Not paired</string>
+    <string name="add_back">Back to your code</string>
+    <string name="pair_error_not_a_code">That isn’t a Talk contact code.</string>
+    <string name="pair_error_newer_version">That code is from a newer version of Talk. Update this app, then scan again.</string>
+    <string name="pair_error_own_code">That’s your own code. Scan the code on their phone.</string>
+    <string name="pair_error_other_server">That code is from a phone on another server. You can only pair with people on your server.</string>
+    <string name="pair_error_expired">That code was used or is too old. Ask them to show their code again.</string>
+    <string name="pair_error_keys_differ">The server gave other keys than their code. Don’t pair now; scan their code again in person.</string>
+    <string name="pair_error_no_devices">Their phone isn’t ready yet. Ask them to open Talk, then scan again.</string>
+    <string name="pair_error_blocked">You can’t pair: one of you blocked the other.</string>
+    <string name="pair_error_not_found">The server doesn’t know that user.</string>
+    <string name="pair_error_rate_limited">Too many codes in a short time. Wait a minute and try again.</string>
+    <string name="pair_error_not_ready">Your keys aren’t on the server yet. Wait until you’re connected, then try again.</string>
+    <string name="pair_error_unreachable">Can’t reach your server right now. Try again.</string>
+
+    <!-- Contact (docs/screens/contacts.md) -->
+    <plurals name="contact_paired_devices">
+        <item quantity="one">Paired · %1$d phone</item>
+        <item quantity="other">Paired · %1$d phones</item>
+    </plurals>
+    <string name="contact_waiting">Waiting for them to confirm the pair</string>
+    <string name="contact_blocked">You blocked %1$s</string>
+    <string name="contact_key_changed_title">%1$s’s safety number changed</string>
+    <string name="contact_key_changed_body">They may have registered again on a new phone, or someone may be in between. Check the new safety number with them, then accept it.</string>
+    <string name="contact_key_changed_action">Accept the new number</string>
+    <string name="contact_safety">Safety number</string>
+    <string name="contact_safety_verified">Verified</string>
+    <string name="contact_safety_unverified">Not verified: compare it with them</string>
+    <string name="contact_test_title">Test message</string>
+    <string name="contact_test_note">Chats come in the next version. This sends one end-to-end encrypted line, to check the way there.</string>
+    <string name="contact_test_hint">A short message</string>
+    <string name="contact_test_send">Send</string>
+    <string name="contact_test_sent">Sent to %1$s</string>
+    <string name="contact_test_last_in">%1$s: %2$s</string>
+    <string name="contact_test_last_out">You: %1$s</string>
+    <string name="contact_block">Block %1$s</string>
+    <string name="contact_block_body">They can’t reach you and you can’t reach them until you unblock.</string>
+    <string name="contact_unblock">Unblock %1$s</string>
+    <string name="contact_unpair">Remove %1$s</string>
+    <string name="contact_unpair_body">You both stop seeing each other; pair again by QR code.</string>
+    <string name="contact_unpair_confirm">Remove %1$s from your contacts?</string>
+    <string name="contact_unpair_action">Remove</string>
+    <string name="contact_done_blocked">%1$s is blocked</string>
+    <string name="contact_done_unblocked">%1$s is unblocked</string>
+    <string name="contact_done_unpaired">%1$s was removed</string>
+    <string name="contact_failed">That didn’t work: %1$s</string>
+    <string name="contact_gone">This contact isn’t in your list anymore.</string>
+
+    <!-- Safety number (docs/screens/contacts.md) -->
+    <string name="safety_title">Safety number</string>
+    <string name="safety_intro">If this number is the same on %1$s’s phone, no one is in between. Compare it in person, or scan their code.</string>
+    <string name="safety_scan">Scan their code</string>
+    <string name="safety_match">The numbers match. %1$s is verified.</string>
+    <string name="safety_mismatch">That code doesn’t match this safety number. Don’t trust messages until you’ve checked with %1$s.</string>
+    <string name="safety_mark">Mark as verified</string>
+    <string name="safety_unmark">Clear verification</string>
+    <string name="safety_verified">Verified</string>
+    <string name="safety_loading_failed">The safety number can’t be shown for this contact.</string>
 </resources>

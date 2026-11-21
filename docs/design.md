@@ -134,6 +134,10 @@ QR only, as the plan says:
    in it is the envelope's sender, and the identity key is the one the session came on; then it asks its user. On
    Pair it calls `confirmPair` (`PAIRED`), and both phones get a `PAIRED` envelope.
 
+The screens: [Add contact](screens/add-contact.md) (from the pencil, New chat), and New chat, a contact's page and
+the safety number in [screens/contacts.md](screens/contacts.md); pair requests are cards in [Chats](screens/chats.md).
+A contact's page has one test line, sent end to end, to check the transport before phase 3's conversations.
+
 A contact paired by QR is marked verified. `contacts` brings the list in line with the server (unpaired by the other
 side, blocked, devices, another identity key). Unpair forgets the contact, its sessions and its messages; block and
 unblock only change the server's block and the contact's flag.

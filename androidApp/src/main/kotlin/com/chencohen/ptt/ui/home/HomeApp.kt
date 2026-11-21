@@ -39,6 +39,30 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chencohen.ptt.R
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import com.chencohen.ptt.messaging.Contact
+import com.chencohen.ptt.messaging.ContactResult
+import com.chencohen.ptt.messaging.KeysState
+import com.chencohen.ptt.messaging.MessagingController
+import com.chencohen.ptt.messaging.MessagingState
+import com.chencohen.ptt.messaging.PairRequest
+import com.chencohen.ptt.messaging.PairingController
+import com.chencohen.ptt.messaging.TextMessage
+import com.chencohen.ptt.ui.contacts.AddContactActions
+import com.chencohen.ptt.ui.contacts.AddContactScreen
+import com.chencohen.ptt.ui.contacts.ContactActions
+import com.chencohen.ptt.ui.contacts.ContactRow
+import com.chencohen.ptt.ui.contacts.ContactScreen
+import com.chencohen.ptt.ui.contacts.NewChatScreen
+import com.chencohen.ptt.ui.contacts.SafetyNumberActions
+import com.chencohen.ptt.ui.contacts.SafetyNumberLoad
+import com.chencohen.ptt.ui.contacts.SafetyNumberScreen
+import com.chencohen.ptt.ui.scanQrCode
+import com.chencohen.ptt.ui.style.PageNote
 import com.chencohen.ptt.connection.ConnectionController
 import com.chencohen.ptt.connection.ServerHealth
 import com.chencohen.ptt.settings.SettingsController
@@ -61,59 +85,209 @@ import com.chencohen.ptt.ui.style.statusBarRoom
 /** The home tabs, Signal's two (docs/screens/chats.md). */
 enum class HomeTab { CHATS, CALLS }
 
-/** What the home screens render: the server's health and who this is (the profile circle's letter). */
-data class HomeState(val health: ServerHealth, val user: String?)
+/** What the home screens render: the server's health, who this is (the profile circle's letter), and messaging's. */
+data class HomeState(val health: ServerHealth, val user: String?, val messaging: MessagingState = MessagingState())
 
 class HomeActions(
     val openSettings: () -> Unit = {},
     val registerAgain: () -> Unit = {},
     val newChat: () -> Unit = {},
+    val reviewRequest: (String) -> Unit = {},
+    val openContact: (String) -> Unit = {},
+    val replaceIdentityKey: () -> Unit = {},
 )
 
-/** Home and Settings: the routing after enrollment. */
+/**
+ * Where home is: the pages over it, last on top. Kept as one string ("settings", "new", "add", "review/<user>",
+ * "contact/<user>", "safety/<user>", one per line) so it survives a rotation; user names have no line breaks.
+ */
+private fun pages(saved: String): List<String> = saved.split('\n').filter { it.isNotEmpty() }
+
+/** Home and the pages over it: Settings, New chat, Add contact, a contact and their safety number. */
 @Composable
-fun HomeApp(connection: ConnectionController, settings: SettingsController, onRegisterAgain: () -> Unit) {
+fun HomeApp(
+    connection: ConnectionController,
+    settings: SettingsController,
+    messaging: MessagingController,
+    pairing: PairingController,
+    onRegisterAgain: () -> Unit,
+) {
     val state by connection.state.collectAsStateWithLifecycle()
-    var inSettings by rememberSaveable { mutableStateOf(false) }
+    val messagingState by messaging.state.collectAsStateWithLifecycle()
+    var saved by rememberSaveable { mutableStateOf("") }
+    val stack = pages(saved)
+    fun push(page: String) {
+        saved = (stack + page).joinToString("\n")
+    }
+    fun pop() {
+        saved = stack.dropLast(1).joinToString("\n")
+    }
+    fun home() {
+        saved = ""
+    }
     var tab by rememberSaveable { mutableStateOf(HomeTab.CHATS) }
     val messages = remember { Messages() }
-    BackHandler(enabled = inSettings) { inSettings = false }
+    val context = LocalContext.current
+    val resources = LocalResources.current
+    BackHandler(enabled = stack.isNotEmpty()) { pop() }
     CompositionLocalProvider(LocalMessages provides messages) {
         Box(Modifier.fillMaxSize()) {
-            if (inSettings) {
-                val settingsState by settings.state.collectAsStateWithLifecycle()
-                SettingsScreen(
-                    state = settingsState,
-                    back = { inSettings = false },
-                    refresh = settings::refresh,
-                    registerAgain = onRegisterAgain,
-                )
-            } else {
-                val note = stringResource(R.string.chats_new_soon)
-                HomeScreen(
-                    state = HomeState(state.health, state.device?.user),
+            val page = stack.lastOrNull()
+            val name = page.orEmpty()
+            val pageUser = page?.substringAfter('/', "")?.takeIf { it.isNotEmpty() }
+            when {
+                page == null -> HomeScreen(
+                    state = HomeState(state.health, state.device?.user, messagingState),
                     tab = tab,
                     selectTab = { tab = it },
                     actions = HomeActions(
-                        openSettings = { inSettings = true },
+                        openSettings = { push("settings") },
                         registerAgain = onRegisterAgain,
-                        newChat = { messages.post(note) },
+                        newChat = { push("new") },
+                        reviewRequest = { push("review/$it") },
+                        openContact = { push("contact/$it") },
+                        replaceIdentityKey = {
+                            messaging.replaceIdentityKey { result ->
+                                if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
+                            }
+                        },
                     ),
                 )
+                name == "settings" -> {
+                    val settingsState by settings.state.collectAsStateWithLifecycle()
+                    SettingsScreen(
+                        state = settingsState,
+                        back = ::pop,
+                        refresh = settings::refresh,
+                        registerAgain = onRegisterAgain,
+                    )
+                }
+                name == "new" -> NewChatScreen(
+                    contacts = messagingState.contacts,
+                    back = ::pop,
+                    addContact = { push("add") },
+                    openContact = { push("contact/$it") },
+                )
+                name == "add" || name.startsWith("review/") -> {
+                    val pairingState by pairing.state.collectAsStateWithLifecycle()
+                    DisposableEffect(page) {
+                        pairing.open()
+                        if (pageUser != null) pairing.review(pageUser)
+                        onDispose { pairing.leave() }
+                    }
+                    AddContactScreen(
+                        state = pairingState,
+                        user = state.device?.user,
+                        actions = AddContactActions(
+                            back = ::pop,
+                            retryCode = pairing::open,
+                            scan = { scanQrCode(context, pairing::scanned) { messages.post(resources.getString(R.string.add_scan_failed)) } },
+                            pair = pairing::pair,
+                            accept = pairing::accept,
+                            decline = {
+                                pairing.decline()
+                                pop()
+                            },
+                            backToCode = pairing::back,
+                            done = ::home,
+                        ),
+                    )
+                }
+                name.startsWith("contact/") && pageUser != null -> {
+                    var sending by remember(pageUser) { mutableStateOf(false) }
+                    val user = pageUser
+                    ContactScreen(
+                        user = user,
+                        contact = messagingState.contacts.firstOrNull { it.user == user },
+                        last = messagingState.lastMessages[user],
+                        sending = sending,
+                        actions = ContactActions(
+                            back = ::pop,
+                            acceptKeyChange = { messaging.acceptKeyChange(user) },
+                            openSafetyNumber = { push("safety/$user") },
+                            sendTest = { body ->
+                                sending = true
+                                messaging.sendTest(user, body) { result ->
+                                    sending = false
+                                    messages.post(
+                                        when (result) {
+                                            ContactResult.Done -> resources.getString(R.string.contact_test_sent, user)
+                                            is ContactResult.Failed -> resources.getString(R.string.contact_failed, result.message)
+                                        },
+                                    )
+                                }
+                            },
+                            setBlocked = { blocked ->
+                                messaging.setBlocked(user, blocked) { result ->
+                                    messages.post(
+                                        when (result) {
+                                            ContactResult.Done -> resources.getString(if (blocked) R.string.contact_done_blocked else R.string.contact_done_unblocked, user)
+                                            is ContactResult.Failed -> resources.getString(R.string.contact_failed, result.message)
+                                        },
+                                    )
+                                }
+                            },
+                            // Removing is asked for in the message bar, Journal's way instead of a dialog.
+                            unpair = {
+                                messages.post(resources.getString(R.string.contact_unpair_confirm, user), resources.getString(R.string.contact_unpair_action)) {
+                                    messaging.unpair(user) { result ->
+                                        when (result) {
+                                            ContactResult.Done -> {
+                                                messages.post(resources.getString(R.string.contact_done_unpaired, user))
+                                                home()
+                                            }
+                                            is ContactResult.Failed -> messages.post(resources.getString(R.string.contact_failed, result.message))
+                                        }
+                                    }
+                                }
+                            },
+                        ),
+                    )
+                }
+                name.startsWith("safety/") && pageUser != null -> {
+                    val user = pageUser
+                    val contact = messagingState.contacts.firstOrNull { it.user == user }
+                    var load by remember(user) { mutableStateOf<SafetyNumberLoad>(SafetyNumberLoad.Loading) }
+                    LaunchedEffect(user, contact?.identityKey) {
+                        messaging.safetyNumber(user) { number -> load = number?.let { SafetyNumberLoad.Shown(it) } ?: SafetyNumberLoad.Missing }
+                    }
+                    SafetyNumberScreen(
+                        user = user,
+                        load = load,
+                        verified = contact?.verified == true,
+                        actions = SafetyNumberActions(
+                            back = ::pop,
+                            scan = {
+                                scanQrCode(
+                                    context,
+                                    { text ->
+                                        messaging.verifyScanned(user, text) { same ->
+                                            messages.post(resources.getString(if (same) R.string.safety_match else R.string.safety_mismatch, user))
+                                        }
+                                    },
+                                    { messages.post(resources.getString(R.string.add_scan_failed)) },
+                                )
+                            },
+                            setVerified = { messaging.setVerified(user, it) },
+                        ),
+                    )
+                }
+                else -> LaunchedEffect(page) { home() }
             }
-            MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarRoom().padding(bottom = 88.dp))
+            MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarRoom().imePadding().padding(bottom = if (page == null) 88.dp else 16.dp))
         }
     }
 }
 
 /**
  * Chats or Calls: the top bar (the profile circle that opens Settings, the tab's title, Offline while the server
- * can't be reached), Register again when the server refuses this phone, the tab's list (empty in phase 1), the
+ * can't be reached), the cards (Register again, a pair request, another phone holding the keys), the tab's list, the
  * pencil, and the tabs at the bottom.
  */
 @Composable
 internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> Unit, actions: HomeActions) {
     val insets = barsRoom()
+    val chats = state.messaging
     Box(Modifier.fillMaxSize().background(LibraryColors.Background)) {
         Column(
             Modifier
@@ -130,10 +304,40 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                     warning = true,
                 )
             }
-            Spacer(Modifier.height(96.dp))
             when (tab) {
-                HomeTab.CHATS -> EmptyTab(LibraryIcons.Chat, stringResource(R.string.chats_empty))
-                HomeTab.CALLS -> EmptyTab(LibraryIcons.Call, stringResource(R.string.calls_empty))
+                HomeTab.CHATS -> {
+                    if (chats.keys is KeysState.OtherIdentity) {
+                        HomeCard(
+                            title = stringResource(R.string.chats_other_identity_title),
+                            body = stringResource(R.string.chats_other_identity_body),
+                            action = stringResource(R.string.chats_other_identity_action),
+                            onAction = actions.replaceIdentityKey,
+                            warning = true,
+                        )
+                    }
+                    (chats.keys as? KeysState.Failed)?.let { PageNote(stringResource(R.string.chats_keys_failed, it.message), top = 4, bottom = 4) }
+                    chats.requests.forEach { request ->
+                        HomeCard(
+                            title = stringResource(R.string.chats_request_title, request.user),
+                            body = stringResource(R.string.chats_request_body),
+                            action = stringResource(R.string.chats_request_action),
+                            onAction = { actions.reviewRequest(request.user) },
+                        )
+                    }
+                    if (chats.contacts.isEmpty()) {
+                        Spacer(Modifier.height(96.dp))
+                        EmptyTab(LibraryIcons.Chat, stringResource(R.string.chats_empty))
+                    } else {
+                        // The latest text first, then the newest contacts.
+                        chats.contacts
+                            .sortedWith(compareByDescending<Contact> { chats.lastMessages[it.user]?.at ?: 0L }.thenByDescending { it.addedAt })
+                            .forEach { contact -> ContactRow(contact, chats.lastMessages[contact.user]) { actions.openContact(contact.user) } }
+                    }
+                }
+                HomeTab.CALLS -> {
+                    Spacer(Modifier.height(96.dp))
+                    EmptyTab(LibraryIcons.Call, stringResource(R.string.calls_empty))
+                }
             }
         }
         TopBar(state, tab, actions.openSettings, Modifier.align(Alignment.TopCenter))
@@ -193,10 +397,7 @@ private fun ProfileCircle(user: String?, onClick: () -> Unit) {
     }
 }
 
-/**
- * The pencil for a new chat. Pairing comes in phase 2, so it looks disabled (Muted on Raised) and a tap only says
- * that it comes next.
- */
+/** The pencil for a new chat, in ink: the screen's one main action. */
 @Composable
 private fun NewChatButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val label = stringResource(R.string.chats_new)
@@ -205,12 +406,12 @@ private fun NewChatButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
             .size(56.dp)
             .shadow(8.dp, CircleShape)
             .clip(CircleShape)
-            .background(LibraryColors.Raised)
+            .background(LibraryColors.Inverse)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(LibraryIcons.Edit, null, tint = LibraryColors.Muted, modifier = Modifier.size(24.dp))
+        Icon(LibraryIcons.Edit, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(24.dp))
     }
 }
 
@@ -240,4 +441,25 @@ private fun ChatsOfflinePreview() {
 @Composable
 private fun ChatsRejectedPreview() {
     TalkTheme { HomeScreen(HomeState(ServerHealth.REJECTED, null), HomeTab.CALLS, {}, HomeActions()) }
+}
+
+@Preview
+@Composable
+private fun ChatsListPreview() {
+    TalkTheme {
+        HomeScreen(
+            HomeState(
+                ServerHealth.OK,
+                "hen",
+                MessagingState(
+                    contacts = listOf(Contact("dana", "", paired = true, addedAt = 2), Contact("avi", "", paired = false, addedAt = 1)),
+                    requests = listOf(PairRequest("noa", "", 0)),
+                    lastMessages = mapOf("dana" to TextMessage("1", "dana", outgoing = true, body = "Testing the way there", at = 5)),
+                ),
+            ),
+            HomeTab.CHATS,
+            {},
+            HomeActions(),
+        )
+    }
 }

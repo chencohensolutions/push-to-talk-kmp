@@ -84,6 +84,9 @@ fun EnrollmentWizard(
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Taken here, not from the context inside the callbacks, so they follow a configuration change.
+    val scanFailed = stringResource(R.string.enroll_scan_failed)
+    val pasteNothing = stringResource(R.string.enroll_paste_nothing)
     // Enrollment is outside the library, so it hosts its own message bar.
     val messages = remember { Messages() }
     BackHandler(enabled = state.step !is EnrollmentStep.Welcome && state.step !is EnrollmentStep.Enrolled) {
@@ -104,12 +107,12 @@ fun EnrollmentWizard(
                     val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
                     GmsBarcodeScanning.getClient(context, options).startScan()
                         .addOnSuccessListener { barcode -> barcode.rawValue?.let(controller::openScanned) }
-                        .addOnFailureListener { messages.post(context.getString(R.string.enroll_scan_failed)) }
+                        .addOnFailureListener { messages.post(scanFailed) }
                 },
                 // Read only when tapped: Android lets a focused app read the clipboard and says so in its own note.
                 paste = {
                     if (controller.openPasted(pastedText(context)) == PasteResult.NOTHING) {
-                        messages.post(context.getString(R.string.enroll_paste_nothing))
+                        messages.post(pasteNothing)
                     }
                 },
                 register = controller::register,

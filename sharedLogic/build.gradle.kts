@@ -120,3 +120,11 @@ tasks.register<Copy>("syncServerSchema") {
     }
     into(layout.projectDirectory.dir("src/commonMain/graphql"))
 }
+
+// Each test's name and result in the build's output, so CI's log shows that the libsignal tests ran.
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}

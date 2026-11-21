@@ -268,4 +268,9 @@ internal object LibraryIcons {
     val Chat = icon("Chat", false, "M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.6A8 8 0 1 1 21 12z")
     val Call = icon("Call", false, "M5 4h3.5l1.5 4.5-2.2 1.4a11 11 0 0 0 6.3 6.3l1.4-2.2L20 15.5V19a1.5 1.5 0 0 1-1.6 1.5A16.5 16.5 0 0 1 3.5 5.6 1.5 1.5 0 0 1 5 4z")
     val Photo = icon("Photo", false, "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", "M8.5 10a1.5 1.5 0 1 0 0.01 0", "M21 15l-5-5L5 21")
+    /** Scan a QR code: the four corners of a viewfinder and a line across. */
+    val Scan = icon("Scan", false, "M3 8V5a2 2 0 0 1 2-2h3", "M16 3h3a2 2 0 0 1 2 2v3", "M21 16v3a2 2 0 0 1-2 2h-3", "M8 21H5a2 2 0 0 1-2-2v-3", "M7 12h10")
+    /** The safety number: a shield with a check. */
+    val Shield = icon("Shield", false, "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z", "M8.5 12l2.5 2.5 4.5-5")
+    val Block = icon("Block", false, "M12 3a9 9 0 1 0 0.01 0", "M5.6 5.6l12.8 12.8")
 }

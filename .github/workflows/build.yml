@@ -41,12 +41,23 @@ jobs:
       - name: Build the debug APK
         run: ./gradlew :androidApp:assembleDebug
 
+      - name: Lint the app
+        run: ./gradlew :androidApp:lintDebug
+
       - name: Test results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-results
           path: sharedLogic/build/test-results/
+          if-no-files-found: ignore
+
+      - name: Lint report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: lint-report
+          path: androidApp/build/reports/lint-results-debug.*
           if-no-files-found: ignore
 
       - name: Debug APK

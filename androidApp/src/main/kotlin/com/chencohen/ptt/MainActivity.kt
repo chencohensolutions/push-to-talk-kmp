@@ -57,12 +57,15 @@ class MainActivity : ComponentActivity() {
                             showWizard = false
                             viewModel.enrollment.reset()
                             viewModel.connection.connect()
+                            viewModel.messaging.start()
                         },
                     )
                 } else {
                     HomeApp(
                         connection = viewModel.connection,
                         settings = viewModel.settings,
+                        messaging = viewModel.messaging,
+                        pairing = viewModel.pairing,
                         onRegisterAgain = {
                             viewModel.enrollment.reset()
                             showWizard = true
@@ -73,14 +76,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Each time the app comes to the front it checks the connection (and finds the server if it moved); in the back
-    // it stops checking again while offline. Staying connected in the background is a setting in phase 5.
+    // Each time the app comes to the front it checks the connection (and finds the server if it moved), checks the
+    // keys and opens /ws; in the back it stops checking again while offline and closes /ws. Staying connected in the
+    // background is a setting in phase 5 (FCM wakes the phone in phase 3).
     override fun onStart() {
         super.onStart()
-        if (viewModel.connection.currentState.enrolled) viewModel.connection.connect()
+        if (viewModel.connection.currentState.enrolled) {
+            viewModel.connection.connect()
+            viewModel.messaging.start()
+        }
     }
 
     override fun onStop() {
+        viewModel.messaging.stop()
         viewModel.connection.stop()
         super.onStop()
     }

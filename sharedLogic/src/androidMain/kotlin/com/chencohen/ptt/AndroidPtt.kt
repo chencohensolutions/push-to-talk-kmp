@@ -73,18 +73,23 @@ fun createSettingsController(context: Context, connection: ConnectionController)
 @OptIn(ExperimentalCoroutinesApi::class)
 private val messagingWork = Dispatchers.IO.limitedParallelism(1)
 
-private var messaging: Messaging? = null
+/** The encrypted database: one per process, opened on [messagingWork] at first use. */
+private var secureStore: SqlCipherStore? = null
+
+/** The hub and the connection controller it was made for: a new ViewModel (a new controller) gets a new hub. */
+private var messaging: Pair<ConnectionController, Messaging>? = null
 
 /**
- * Keys, /ws, pairing and contacts; one per process. The database opens on [messagingWork] at first use. A revoked
- * device ([onRevoked], close code 4003) checks the connection again, so home shows Register again.
+ * Keys, /ws, pairing and contacts, for the screens' two controllers. A revoked device ([onRevoked], close code 4003)
+ * checks the connection again, so home shows Register again.
  */
 @Synchronized
-private fun messaging(context: Context, connection: ConnectionController): Messaging = messaging ?: run {
+private fun messaging(context: Context, connection: ConnectionController): Messaging {
+    messaging?.let { (owner, hub) -> if (owner === connection) return hub }
     val settings = settings(context)
     val http = serverHttp(context)
-    val store = SqlCipherStore(context.applicationContext)
-    Messaging(
+    val store = secureStore ?: SqlCipherStore(context.applicationContext).also { secureStore = it }
+    return Messaging(
         settings = settings,
         engine = LibsignalCryptoEngine(store) { settings.device?.let { DeviceAddress(it.user, it.deviceNumber) } },
         store = MessagingStore(store),
@@ -93,7 +98,7 @@ private fun messaging(context: Context, connection: ConnectionController): Messa
         scope = CoroutineScope(SupervisorJob() + messagingWork),
         now = { System.currentTimeMillis() },
         onRevoked = { connection.connect() },
-    ).also { messaging = it }
+    ).also { messaging = connection to it }
 }
 
 /** Keys, /ws, contacts and pair requests (docs/screens/contacts.md). */

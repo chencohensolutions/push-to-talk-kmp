@@ -24,7 +24,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -65,8 +65,8 @@ internal val LocalMessages = staticCompositionLocalOf { AppMessages }
 @Composable
 internal fun rememberSay(): (Int) -> Unit {
     val messages = LocalMessages.current
-    val context = LocalContext.current
-    return { id: Int -> messages.post(context.getString(id)) }
+    val resources = LocalResources.current
+    return { id: Int -> messages.post(resources.getString(id)) }
 }
 
 /** How long a plain note stays. */

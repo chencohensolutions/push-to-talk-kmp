@@ -33,8 +33,10 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
 - `androidApp/` — Jetpack Compose UI. `ui/style/`: Journal's style (`LibraryStyle.kt` colors, type, shapes, icons;
   `LibraryButtons.kt`; `LibraryPages.kt` with `SettingsScaffold`, `EmptyState`, `TitleBar`; `LibraryMessages.kt`;
   `LibraryChrome.kt` with the Offline pill, the tabs, `HomeCard`, settings cards and rows). The names stay Journal's
-  so its style.md applies. `ui/EnrollmentWizard.kt`, `ui/home/HomeApp.kt` (Chats and Calls, routing to Settings),
-  `ui/settings/SettingsScreen.kt`. `PttViewModel.kt` keeps the controllers alive. Strings in
+  so its style.md applies. `ui/EnrollmentWizard.kt`, `ui/home/HomeApp.kt` (Chats and Calls, the stack of pages over home),
+  `ui/settings/SettingsScreen.kt`, `ui/contacts/` (New chat, Add contact, a contact's page, the safety number;
+  `ContactParts.kt` with the letter circle and `ContactRow`), `ui/Qr.kt` (ZXing QR codes, Google's code scanner).
+  `PttViewModel.kt` keeps the controllers alive. Strings in
   `res/values/strings.xml`.
 
 ## Conventions
