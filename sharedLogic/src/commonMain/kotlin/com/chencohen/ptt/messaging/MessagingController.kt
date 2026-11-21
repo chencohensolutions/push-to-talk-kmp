@@ -1,0 +1,124 @@
+package com.chencohen.ptt.messaging
+
+import com.chencohen.ptt.connection.ObservationHandle
+import com.chencohen.ptt.network.describe
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
+
+/** What a contact's page shows of the safety number: its digits in 12 groups of 5 and the code to scan. */
+data class SafetyNumberView(val groups: List<String>, val code: String)
+
+/** What became of an action on a contact; the screens post it as a message. */
+sealed interface ContactResult {
+    data object Done : ContactResult
+    data class Failed(val message: String) : ContactResult
+}
+
+/**
+ * Keys, /ws, contacts and pair requests for the screens (docs/screens/contacts.md): [start] when the app comes to the
+ * front (uploads the keys if needed, opens /ws), [stop] when it goes to the back. The pairing itself is
+ * [PairingController]'s.
+ */
+class MessagingController internal constructor(
+    private val messaging: Messaging,
+    /** Messaging's own: one thing at a time (the crypto engine and the store aren't thread-safe). */
+    private val work: CoroutineDispatcher,
+    /** Where the callbacks run (the UI's thread). */
+    main: CoroutineDispatcher = Dispatchers.Main,
+) {
+    private val scope = CoroutineScope(SupervisorJob() + main)
+
+    val state: StateFlow<MessagingState> = messaging.state
+
+    /** Same as `state.value`, typed for Swift. */
+    val currentState: MessagingState get() = state.value
+
+    private var startJob: Job? = null
+
+    fun start() {
+        if (startJob?.isActive == true) return
+        startJob = scope.launch { withContext(work) { messaging.start() } }
+    }
+
+    fun stop() {
+        startJob?.cancel()
+        scope.launch { withContext(work) { messaging.stop() } }
+    }
+
+    fun refreshContacts() {
+        scope.launch { withContext(work) { messaging.refreshContacts() } }
+    }
+
+    fun accept(user: String, done: (ContactResult) -> Unit) = act(done) { messaging.accept(user) }
+
+    fun decline(user: String) {
+        scope.launch { withContext(work) { messaging.decline(user) } }
+    }
+
+    fun unpair(user: String, done: (ContactResult) -> Unit) = act(done) { messaging.unpair(user) }
+
+    fun setBlocked(user: String, blocked: Boolean, done: (ContactResult) -> Unit) = act(done) { messaging.setBlocked(user, blocked) }
+
+    fun acceptKeyChange(user: String) {
+        scope.launch { withContext(work) { messaging.acceptKeyChange(user) } }
+    }
+
+    fun setVerified(user: String, verified: Boolean) {
+        scope.launch { withContext(work) { messaging.setVerified(user, verified) } }
+    }
+
+    /** The safety number with [user], made on the work thread; null when there is no such contact. */
+    fun safetyNumber(user: String, done: (SafetyNumberView?) -> Unit) {
+        scope.launch {
+            val number = withContext(work) { runCatching { messaging.safetyNumber(user) }.getOrNull() }
+            done(number?.let { SafetyNumberView(it.digits.chunked(5), SafetyCode.format(it.scannable)) })
+        }
+    }
+
+    /** What the camera read on their safety number screen: true when it is the same safety number (now verified). */
+    fun verifyScanned(user: String, text: String, done: (Boolean) -> Unit) {
+        scope.launch {
+            val scanned = SafetyCode.parse(text)
+            done(scanned != null && withContext(work) { messaging.verifyScanned(user, scanned) })
+        }
+    }
+
+    /** Sends [body] to [user] end to end (phase 2's test of the transport). */
+    fun sendTest(user: String, body: String, done: (ContactResult) -> Unit) = act(done) { messaging.sendText(user, body) }
+
+    /** Starts over with a new identity key, when every other phone of the user is revoked (KeysState.OtherIdentity). */
+    fun replaceIdentityKey(done: (ContactResult) -> Unit) = act(done) { messaging.replaceIdentityKey() }
+
+    private fun act(done: (ContactResult) -> Unit, block: suspend () -> Unit) {
+        scope.launch {
+            val result = try {
+                withContext(work) { block() }
+                ContactResult.Done
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ContactResult.Failed(e.describe())
+            }
+            done(result)
+        }
+    }
+
+    /** Callback-style observation for Swift; Android collects [state] directly. */
+    fun observe(onChange: (MessagingState) -> Unit): ObservationHandle {
+        val job = scope.launch { state.collect(onChange) }
+        return ObservationHandle { job.cancel() }
+    }
+
+    fun close() {
+        scope.cancel()
+        messaging.close()
+    }
+}

@@ -125,6 +125,19 @@ class ServerFinderTest {
     }
 
     @Test
+    fun theEnrolledAddressIsTriedBeforeThePublicOnes() = realTime {
+        // The server lists its public addresses first; the phone enrolled at home, at the link's LAN server=.
+        val settings = settings(listOf("https://203.0.113.9:56400", "https://198.51.100.1:56400", "https://192.168.1.20:56400")).apply {
+            serverUrl = "https://203.0.113.9:56400/query"
+            serverDiscovery = serverDiscovery!!.copy(enrolled = "https://192.168.1.20:56400")
+        }
+        val log = mutableListOf<String>()
+        val http = ServerHttp(settings, server(up = setOf("192.168.1.20", "198.51.100.1"), log), ServerFinder(settings, dht = { _, _ -> null }, shared = ServerFinder.Shared()))
+        assertEquals("ok:192.168.1.20", http.client()!!.get(http.url("/query")).bodyAsText())
+        assertEquals(listOf("203.0.113.9/query", "192.168.1.20/query"), log.take(2))
+    }
+
+    @Test
     fun theDhtIsAskedWhenNoKeptAddressAnswers() = realTime {
         val settings = settings(listOf("https://old.example:56400", "https://203.0.113.9:56400"))
         var asked = 0

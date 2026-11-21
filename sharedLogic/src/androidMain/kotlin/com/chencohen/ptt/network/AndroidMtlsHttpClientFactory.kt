@@ -8,6 +8,7 @@ import com.chencohen.ptt.tls.parseX509Certificate
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.websocket.WebSockets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -46,6 +47,8 @@ internal class AndroidMtlsHttpClientFactory(context: Context) : MtlsHttpClientFa
                 engine { preconfigured = okHttp }
                 // No limits of its own: a request that needs others than OkHttp's sets them.
                 install(HttpTimeout)
+                // /ws (relay/RelaySocket.kt): OkHttp speaks HTTP/1.1 for it, as the server needs.
+                install(WebSockets)
             }
         }
 

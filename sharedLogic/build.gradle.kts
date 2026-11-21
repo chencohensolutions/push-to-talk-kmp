@@ -42,6 +42,7 @@ kotlin {
             implementation(libs.apollo.runtime)
             implementation(libs.apollo.engine.ktor)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.serialization.protobuf)
             implementation(libs.okio)
         }
         androidMain.dependencies {
@@ -50,6 +51,10 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.okhttp)
             implementation(libs.okhttp.tls)
+            // CryptoEngine's Android implementation; the host tests run it on libsignal-client's desktop library.
+            implementation(libs.libsignal.android)
+            // The encrypted store (store/SqlCipherStore.kt).
+            implementation(libs.sqlcipher.android)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
@@ -75,12 +80,13 @@ apollo {
     }
 }
 
-// The server repo owns the GraphQL schema (gqlgen is schema-first). Copy it here and commit the result:
+// The server repo owns the GraphQL schema (gqlgen is schema-first) and the /ws frames (proto/ptt.proto). Copy them
+// here and commit the result:
 //   ./gradlew :sharedLogic:syncServerSchema
 // Override the server checkout location with -PpttServerDir=<path> (default: sibling push-to-talk-server-go).
-val serverSchemaDir: File = rootProject.file(
-    (findProperty("pttServerDir") as String? ?: "../push-to-talk-server-go") + "/graph/schema"
-)
+val serverDir: String = findProperty("pttServerDir") as String? ?: "../push-to-talk-server-go"
+val serverSchemaDir: File = rootProject.file("$serverDir/graph/schema")
+val serverProto: File = rootProject.file("$serverDir/proto/ptt.proto")
 
 // Separate task because Copy skips its own actions (NO-SOURCE) when the source folder is missing.
 val checkServerSchemaDir = tasks.register("checkServerSchemaDir") {
@@ -92,10 +98,19 @@ val checkServerSchemaDir = tasks.register("checkServerSchemaDir") {
     }
 }
 
+// The frames are decoded by hand-written classes (relay/Frames.kt, FramesTest checks them against the server's
+// encoding); the .proto file is kept beside them as the reference.
+val syncServerProto = tasks.register<Copy>("syncServerProto") {
+    description = "Copies proto/ptt.proto from push-to-talk-server-go into src/commonMain/proto."
+    dependsOn(checkServerSchemaDir)
+    from(serverProto)
+    into(layout.projectDirectory.dir("src/commonMain/proto"))
+}
+
 tasks.register<Copy>("syncServerSchema") {
     group = "apollo"
-    description = "Copies the GraphQL schema from push-to-talk-server-go into src/commonMain/graphql."
-    dependsOn(checkServerSchemaDir)
+    description = "Copies the GraphQL schema (and proto/ptt.proto) from push-to-talk-server-go into src/commonMain."
+    dependsOn(checkServerSchemaDir, syncServerProto)
 
     from(serverSchemaDir) {
         include("*.graphql")

@@ -32,8 +32,10 @@ import kotlin.time.TimeSource
 
 /**
  * Finds the server again when it stops answering at its address (docs/design.md, "Finding the server"). The request
- * that failed went to the last address that worked; then the kept addresses are tried in their order (the address
- * enrolled at and the ones `serverInfo` listed, newest first: [KeptDiscovery.merge]), the next started [stagger] after
+ * that failed went to the last address that worked; then the address enrolled at (the link's `server=` when it
+ * answered), then the other kept addresses in their order (the ones `serverInfo` listed, newest first:
+ * [KeptDiscovery.merge]): the enrolled one first, because the server lists its public addresses before its LAN ones
+ * whoever asks, and a phone at home behind a router without hairpin NAT only reaches the LAN one. The next is started [stagger] after
  * the one before, the first to answer wins; then the server is looked up in the DHT, at most every [dhtEvery], and the
  * addresses its record lists are tried the same way. The address that works becomes `serverUrl` and goes first in the kept list. Only
  * once a fingerprint is kept: the mTLS clients then pin the server's key, so an address that answers is the server,
@@ -72,7 +74,7 @@ internal class ServerFinder(
         if (shared.lastRound?.let { it.elapsedNow() < addressesEvery } == true) return null
         shared.lastRound = TimeSource.Monotonic.markNow()
 
-        race(kept.addresses.filter { it != failed }, probe)?.let { return use(it) }
+        race(kept.candidates().filter { it != failed }, probe)?.let { return use(it) }
 
         val key = kept.key ?: return null
         if (shared.lastDht?.let { it.elapsedNow() < dhtEvery } == true) return null

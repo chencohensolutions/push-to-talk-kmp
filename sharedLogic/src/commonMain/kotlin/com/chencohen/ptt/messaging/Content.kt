@@ -1,0 +1,71 @@
+@file:OptIn(ExperimentalSerializationApi::class)
+
+package com.chencohen.ptt.messaging
+
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.protobuf.ProtoBuf
+import kotlinx.serialization.protobuf.ProtoNumber
+
+// What travels inside the ciphertext of an envelope (docs/design.md, "Inside an envelope"): one protobuf message,
+// padded to a multiple of 160 bytes before it is encrypted, so the server can't tell a pair request from a text by
+// its size. Only the phones read it; the server's ptt.proto doesn't know it. Version 1: new kinds get new field numbers
+// and an old phone skips what it doesn't know.
+
+/** One message between phones. Exactly one of the kinds is set; [destination] only on copies to the sender's own devices. */
+@Serializable
+internal data class Content(
+    @ProtoNumber(1) val pairRequest: PairRequestContent? = null,
+    @ProtoNumber(2) val text: TextContent? = null,
+    /** On a copy for the sender's own other devices: the user the message went to. */
+    @ProtoNumber(15) val destination: String = "",
+)
+
+/**
+ * The first message of a pairing (docs/design.md, "Pairing"): sent by the phone that scanned an Add contact code to
+ * every device of the user who showed it. [secret] is the code's secret, which only reaches whoever saw the screen.
+ */
+@Serializable
+internal data class PairRequestContent(
+    @ProtoNumber(1) val secret: ByteArray = ByteArray(0),
+    @ProtoNumber(2) val user: String = "",
+    @ProtoNumber(3) val identityKey: ByteArray = ByteArray(0),
+) {
+    override fun equals(other: Any?): Boolean = other is PairRequestContent && secret.contentEquals(other.secret) &&
+        user == other.user && identityKey.contentEquals(other.identityKey)
+
+    override fun hashCode(): Int = user.hashCode()
+}
+
+/** A text message. Phase 2 only sends one as a test of the transport; the conversation screen is phase 3. */
+@Serializable
+internal data class TextContent(
+    @ProtoNumber(1) val body: String = "",
+    /** When it was written, milliseconds since 1970 (UTC). */
+    @ProtoNumber(2) val sentAt: Long = 0,
+)
+
+internal object ContentCodec {
+    const val BLOCK = 160
+
+    /** [content] encoded and padded: a 0x80 byte after it, then zeros to a multiple of [BLOCK] (Signal's padding). */
+    fun encode(content: Content): ByteArray {
+        val bytes = ProtoBuf.encodeToByteArray(Content.serializer(), content)
+        val padded = ByteArray(((bytes.size + 1 + BLOCK - 1) / BLOCK) * BLOCK)
+        bytes.copyInto(padded)
+        padded[bytes.size] = 0x80.toByte()
+        return padded
+    }
+
+    /** The content of a decrypted message; null when it isn't padded content. */
+    fun decode(padded: ByteArray): Content? {
+        var end = padded.size - 1
+        while (end >= 0 && padded[end] == 0.toByte()) end--
+        if (end < 0 || padded[end] != 0x80.toByte()) return null
+        return try {
+            ProtoBuf.decodeFromByteArray(Content.serializer(), padded.copyOf(end))
+        } catch (_: Exception) {
+            null
+        }
+    }
+}

@@ -11,9 +11,9 @@ https://claude.ai/artifact/CPewKaHcVw4FeLyKthu2Cm; this page only keeps what the
 - **iOS is stubbed.** `sharedLogic` keeps its iOS targets, so common code stays Swift-friendly, but `iosMain` has only
   the actuals common code expects (`resolveIpv4`). There is no `iosApp` until phase 6.
 - **Strings are English only** for now (`values/strings.xml`), with curly apostrophes.
-- **The GraphQL schema** in `sharedLogic/src/commonMain/graphql/schema.graphqls` was written by hand to match
-  ptt-server's phase 1. Replace it with the server's own: `./gradlew :sharedLogic:syncServerSchema`
-  (`-PpttServerDir=…` when the server isn't in `../push-to-talk-server-go`).
+- **The GraphQL schema** (`sharedLogic/src/commonMain/graphql/*.graphqls`) and **the /ws frames**
+  (`sharedLogic/src/commonMain/proto/ptt.proto`) are the server's, copied by `./gradlew :sharedLogic:syncServerSchema`
+  (`-PpttServerDir=…` when the server isn't in `../push-to-talk-server-go`). Commit what it copies.
 
 ## Phase 1: enroll and find the server
 
@@ -54,7 +54,91 @@ is kept: then the mTLS client pins the server's key, so any address that answers
 `DhtRecordTest.opensTheRecordSealedByPttServersOwnTest` opens a record sealed by the server's own test, so the two
 repos can't drift apart.
 
+## Phase 2: keys, the encrypted transport and pairing
+
+The server side is `docs/messaging.md` in push-to-talk-server-go; the plan's
+"End-to-end encryption" section is the design. The server only routes and stores ciphertext.
+
+### Keys and sessions
+
+- **`CryptoEngine`** (`crypto/CryptoEngine.kt`) is the one door to the Signal protocol: identity key, prekeys
+  (signed EC, Kyber last resort, one-time EC and Kyber), PQXDH session start from a bundle, Double Ratchet
+  encrypt/decrypt, safety numbers. Android implements it on **libsignal** (`LibsignalCryptoEngine`,
+  `org.signal:libsignal-android` 0.108.5 from Signal's Maven repository, content-filtered to `org.signal` in
+  `settings.gradle.kts`; its stores are `SignalStore`). The shared tests use `FakeCryptoEngine`, and
+  `LibsignalCryptoEngineTest` (androidHostTest) runs libsignal itself on the JVM (the plan's risk check R2): a session
+  from a checked bundle, both ways, replay refused, matching safety numbers, forged and untrusted keys refused.
+- **One identity key per user**, made by the user's first phone. A phone that finds another key on the server
+  (`me.identityKey`) uploads nothing (`KeysState.OtherIdentity`): linking it from the phone that has the key comes
+  later; until then it can start over with a new key (`replaceIdentityKey`) once the other phones are revoked.
+- **Upload** (`KeyUploader`): on a device's first connection the identity key, registration id, a signed prekey, the
+  last-resort Kyber prekey and 100 one-time prekeys of each kind; a new signed prekey every 7 days (old ones kept 30
+  days); 100 more of a kind whenever `prekeyCount` is under `refillBelow`, checked at each start and before each /ws
+  connection. `MISSING_KEYS` (the server dropped the device's keys) uploads the full set again.
+- **Trust.** A user's identity key is trusted from their QR code (the scanning side), from a pair request that carried
+  this phone's secret (the showing side), or, for a contact this phone didn't pair itself, from the server's
+  `contacts` until the safety number is compared. A bundle whose identity key isn't the trusted one is refused, and so
+  is a message from another key; libsignal checks every bundle's signatures against the key. An
+  `IDENTITY_KEY_CHANGED` envelope (or another key in `contacts`) marks the contact "security key changed" until the
+  user accepts it.
+- **Safety numbers** are libsignal's numeric fingerprints, version 2, 5200 iterations, the user names as the stable
+  identifiers: 60 digits in 12 groups of 5, and a QR code `ptt://safety?v=1&n=<scannable, base64url>` to compare.
+
+### The encrypted store
+
+Keys, sessions, contacts, pair requests and messages live in one SQLCipher database, `ptt.db`
+(`store/SqlCipherStore.kt`, `net.zetetic:sqlcipher-android`), opened with a random 32-byte raw key that an AES-256-GCM
+key in the Android Keystore wraps (`DatabaseKey`). It is a set of named spaces of keys and values (`SecureStore`,
+`Spaces`; `MemoryStore` in tests), one table, so no code generator is needed; the plan named SQLDelight, and phase 3's
+history can move to tables of its own in the same database. Nothing of it is backed up. The store belongs to one user
+on one server: enrolled as another, it is wiped. A database whose key is lost is replaced by an empty one.
+
+### /ws
+
+`RelaySocket` (`relay/`) holds the device's WebSocket, `wss://<server>/ws`, over Ktor on the same OkHttp mTLS client
+(which speaks HTTP/1.1 for a WebSocket and pins the server's key). Each binary message is one `ptt.v1.Frame`,
+encoded by `relay/Frames.kt` with kotlinx-serialization-protobuf (hand-written classes, one runtime library, no code
+generator; `FramesTest` decodes frames the server's Go code encoded and encodes as it does). An envelope is
+acknowledged once it is handled; a Send waits for its `SendResult`. A dropped connection opens again after 1, 2, 5,
+10, then every 30 seconds (with jitter), and a GraphQL call (`prekeyCount`) runs first so the finder follows the
+server to a new address. Close code 4001 (this device connected elsewhere) and 4003 (revoked; the connection is
+checked again so home shows Register again) stop it. **Foreground only**: `MessagingController.start` and `stop` run
+with the app's onStart and onStop; background delivery is phase 3 (FCM).
+
+`Sender` sends one message as the server's rules want: one envelope for each device of the recipient and each other
+device of this user (with `recipient_registration_id`), and on `STALE_DEVICES` it drops the sessions with gone
+devices, opens sessions with new ones from their bundles and sends again (3 tries).
+
+### Inside an envelope
+
+A `PREKEY_MESSAGE` or `MESSAGE` envelope's ciphertext opens to one protobuf `Content` (`messaging/Content.kt`, only
+the phones read it), padded to a multiple of 160 bytes (a 0x80 byte, then zeros): `pair_request` (1: `secret`,
+`user`, `identity_key`), `text` (2: `body`, `sent_at`), and on the copies for the sender's own devices `destination`
+(15). Phase 2 sends a text only as a test of the transport; the conversation is phase 3.
+
+### Pairing
+
+QR only, as the plan says:
+
+1. **The Add contact code.** The showing phone asks `pairingToken` and shows
+   `ptt://pair?v=1&u=<user>&k=<identity key>&t=<token>&s=<secret>&f=<server>` (`PairCode`): the user name, the
+   33-byte identity key, the token, 16 random bytes kept on the phone for a week (`Invite`) and never sent to the
+   server, and the first 16 hex digits of the server key's fingerprint (a code from another server is told apart).
+   Bytes are base64url without padding. A phone that reads a higher `v` says it needs a newer app. A new code is made
+   30 seconds before the old one expires while the screen is open.
+2. **Scan and send.** The scanning phone trusts the code's identity key, fetches `prekeyBundles(user, token)`, refuses
+   them when their identity key isn't the code's, opens a session with each device and sends a `pair_request` with
+   the secret, its user name and its identity key, every envelope carrying the token. Then it calls `confirmPair`
+   (`WAITING`).
+3. **Check and confirm.** The showing phone keeps the request only when the secret is one of its codes', the user
+   in it is the envelope's sender, and the identity key is the one the session came on; then it asks its user. On
+   Pair it calls `confirmPair` (`PAIRED`), and both phones get a `PAIRED` envelope.
+
+A contact paired by QR is marked verified. `contacts` brings the list in line with the server (unpaired by the other
+side, blocked, devices, another identity key). Unpair forgets the contact, its sessions and its messages; block and
+unblock only change the server's block and the contact's flag.
+
 ## Next
 
-Phase 2 is pairing (adding a contact by QR code, which is why the pencil is disabled) and libsignal sessions; then
-messages, push-to-talk, calls and iOS, as the plan says.
+Linking a second phone (`PROVISIONING`) and contact sync between one's own phones; then messages and FCM (phase
+3), groups, push-to-talk, calls and iOS, as the plan says.

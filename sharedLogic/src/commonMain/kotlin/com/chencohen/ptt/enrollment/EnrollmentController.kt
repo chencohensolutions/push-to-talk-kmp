@@ -418,7 +418,8 @@ class EnrollmentController internal constructor(
         }
         try {
             val probe: suspend (String) -> Boolean = { http.answersAt(it) }
-            firstToAnswer(link.addresses.filter { it != failed }, 400.milliseconds, probe)?.let { return it }
+            val tries = (listOfNotNull(link.server?.let(KeptDiscovery::originOf)) + link.addresses).distinct()
+            firstToAnswer(tries.filter { it != failed }, 400.milliseconds, probe)?.let { return it }
             val key = link.key ?: return null
             val record = try {
                 dhtLookup(key, fingerprint)
@@ -451,7 +452,8 @@ class EnrollmentController internal constructor(
             fingerprint = fingerprint,
             id = ServerId.format(fingerprint).orEmpty(),
             key = link.key,
-            addresses = link.addresses,
+            // The link's own server first: it is where the server's owner said to find it.
+            addresses = (listOfNotNull(link.server?.let(KeptDiscovery::originOf)) + link.addresses).distinct(),
         )
     }
 

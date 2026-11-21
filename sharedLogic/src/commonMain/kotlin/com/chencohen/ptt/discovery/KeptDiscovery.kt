@@ -66,6 +66,9 @@ data class KeptDiscovery(
         }.getOrNull()
     }
 
+    /** The addresses in the order the finder tries them: the enrolled one, then the others as kept. */
+    fun candidates(): List<String> = (listOfNotNull(enrolled) + addresses).distinct()
+
     /** [address] moved to the front: it is the one that works now. */
     fun working(address: String): KeptDiscovery {
         val origin = originOf(address) ?: return this

@@ -1,0 +1,62 @@
+# Keys, pairing and contacts (phase 2; the server's docs/messaging.md). Called by ApolloMessagingApi.
+
+query MyIdentityKey {
+  me { identityKey }
+}
+
+mutation UploadPrekeys($input: UploadPrekeysInput!) {
+  uploadPrekeys(input: $input) { oneTimePrekeys oneTimeKyberPrekeys refillBelow }
+}
+
+query PrekeyCount {
+  prekeyCount { oneTimePrekeys oneTimeKyberPrekeys refillBelow }
+}
+
+query PrekeyBundles($user: String!, $routingToken: String) {
+  prekeyBundles(user: $user, routingToken: $routingToken) {
+    user
+    identityKey
+    devices {
+      deviceNumber
+      registrationId
+      signedPrekey { keyId publicKey signature }
+      prekey { keyId publicKey }
+      kyberPrekey { keyId publicKey signature lastResort }
+    }
+  }
+}
+
+mutation ReplaceIdentityKey($identityKey: String!) {
+  replaceIdentityKey(identityKey: $identityKey)
+}
+
+mutation PairingToken {
+  pairingToken { token expiresAt }
+}
+
+mutation ConfirmPair($user: String!) {
+  confirmPair(user: $user)
+}
+
+mutation Unpair($user: String!) {
+  unpair(user: $user)
+}
+
+mutation Block($user: String!) {
+  block(user: $user)
+}
+
+mutation Unblock($user: String!) {
+  unblock(user: $user)
+}
+
+query Contacts {
+  contacts {
+    user
+    identityKey
+    since
+    blocked
+    devices { deviceNumber registrationId }
+  }
+  blocked
+}
