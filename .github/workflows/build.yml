@@ -26,8 +26,12 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      # The SDK's licenses accepted; the Android Gradle plugin downloads the platform (compileSdk 37) it needs.
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      # The runner's preinstalled SDK (ANDROID_HOME), its licenses accepted; the Android Gradle plugin downloads the
+      # platform (compileSdk 37) it needs. android-actions/setup-android failed installing the removed "tools" package.
+      - name: Accept the Android SDK licenses
+        run: |
+          sdkmanager=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)
+          yes | "$sdkmanager" --licenses > /dev/null
 
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
