@@ -1,0 +1,44 @@
+# Invites (the server's docs/authentication.md, "Invites"): making one (ApolloMessagingApi), and redeeming one on a
+# phone that isn't enrolled (EnrollmentApi) or is (ApolloMessagingApi).
+
+mutation CreateInvite($email: String) {
+  createInvite(email: $email) {
+    code
+    invite { id email expiresAt }
+  }
+}
+
+mutation AcceptInvite($code: String!) {
+  acceptInvite(code: $code) {
+    __typename
+    ... on InvitePairing { inviter pairingToken { token expiresAt } }
+    ... on InviteRejected { reason }
+  }
+}
+
+query InvitePreview($code: String!) {
+  invitePreview(code: $code) {
+    __typename
+    ... on InvitePreview { inviter inviterDisplayName email expiresAt }
+    ... on InviteRejected { reason }
+  }
+}
+
+mutation InviteEmailCode($code: String!, $email: String!) {
+  inviteEmailCode(code: $code, email: $email) {
+    __typename
+    ... on InviteEmailSent { email expiresAt }
+    ... on InviteRejected { reason }
+  }
+}
+
+mutation EnrollWithInvite($input: InviteEnrollInput!) {
+  enrollWithInvite(input: $input) {
+    __typename
+    ... on InviteEnrolled {
+      device { user deviceName deviceNumber certificate serial expiresAt caCertificate }
+      pairing { inviter pairingToken { token expiresAt } }
+    }
+    ... on InviteRejected { reason }
+  }
+}

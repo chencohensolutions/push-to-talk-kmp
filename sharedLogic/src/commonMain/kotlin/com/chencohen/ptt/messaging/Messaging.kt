@@ -4,6 +4,7 @@ import com.chencohen.ptt.crypto.CryptoEngine
 import com.chencohen.ptt.crypto.CryptoException
 import com.chencohen.ptt.crypto.DeviceAddress
 import com.chencohen.ptt.crypto.SafetyNumber
+import com.chencohen.ptt.discovery.KeptDiscovery
 import com.chencohen.ptt.network.describe
 import com.chencohen.ptt.relay.Envelope
 import com.chencohen.ptt.relay.EnvelopeType
@@ -64,7 +65,11 @@ internal class Messaging(
         onEnvelope = ::receive,
         beforeConnect = { deviceKey()?.let { keys.check(it) }?.let { count -> _state.update { it.copy(keys = KeysState.Ready(count)) } } },
         onRevoked = onRevoked,
-        onLive = { refreshContacts() },
+        onLive = {
+            refreshContacts()
+            // Not awaited here: the pair request's SendResult comes through the very read loop onLive runs in.
+            scope.launch { pairPendingInvite() }
+        },
     )
 
     private val sender = Sender(engine, api, socket::send, { settings.device })
@@ -150,9 +155,72 @@ internal class Messaging(
         val secret = random.nextBytes(PairCode.SECRET_BYTES)
         val expires = parseTime(expiresAt) ?: (now() + 10 * 60_000)
         store.putInvite(Invite(PairCode.base64Url.encode(secret), token, expires, now()))
-        // Old secrets go after the week a pairing may wait on the server.
-        store.invites().filter { now() - it.madeAt > 7.days.inWholeMilliseconds }.forEach(store::removeInvite)
+        dropOldInvites()
         return PairCode(self.user, identity, token, secret, PairCode.serverOf(settings.serverFingerprint)) to expires
+    }
+
+    /** Old secrets go after the week a pairing may wait on the server. */
+    private fun dropOldInvites() {
+        store.invites().filter { now() > it.keptUntil() }.forEach(store::removeInvite)
+    }
+
+    /**
+     * A new Invite a friend link from this phone (for [email] when not null): the server's invite code, where the
+     * server is, and this phone's pairing part, with a secret kept to recognise the friend's pair request. Gives the
+     * link and when it expires.
+     */
+    suspend fun newInvite(email: String?): Pair<InviteLink, Long> {
+        val self = device() ?: throw IllegalStateException("This phone isn't registered")
+        val identity = engine.identityKey() ?: throw IllegalStateException("No identity key yet")
+        val discovery = settings.serverDiscovery ?: throw IllegalStateException("The server hasn't said who it is yet")
+        val wanted = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val (code, expiresAt) = api.createInvite(wanted)
+        val secret = random.nextBytes(PairCode.SECRET_BYTES)
+        val expires = parseTime(expiresAt) ?: (now() + 7.days.inWholeMilliseconds)
+        store.putInvite(Invite(PairCode.base64Url.encode(secret), code, expires, now(), viaLink = true))
+        dropOldInvites()
+        val link = InviteLink(
+            code = code,
+            server = KeptDiscovery.originOf(settings.serverUrl),
+            fingerprint = discovery.fingerprint,
+            key = discovery.key,
+            addresses = discovery.candidates(),
+            inviter = self.user,
+            identityKey = identity,
+            secret = secret,
+            email = wanted,
+        )
+        return link to expires
+    }
+
+    /** Redeems [link] on this enrolled phone and pairs with the inviter. True when the pair is made. */
+    suspend fun acceptInvite(link: InviteLink): Boolean {
+        val pairing = api.acceptInvite(link.code)
+        val token = pairing.token ?: throw ApiException(ApiCodes.RATE_LIMITED, "The server couldn't make a pairing token")
+        return pairWith(link.pairCode(token), verified = false)
+    }
+
+    /**
+     * After enrolling with an invite link: pairs with the inviter (settings.pendingInvitePair) once the socket is live,
+     * and forgets it when that worked or can't work any more. Not verified: the link may have been forwarded.
+     */
+    private suspend fun pairPendingInvite() {
+        val text = settings.pendingInvitePair ?: return
+        val code = (PairCode.parse(text) as? PairCodeParse.Code)?.code
+        if (code == null || device() == null) {
+            settings.pendingInvitePair = null
+            return
+        }
+        if (_state.value.keys !is KeysState.Ready) return
+        try {
+            pairWith(code, verified = false)
+            settings.pendingInvitePair = null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Kept for the next connection when the server or the socket wasn't there; else it can't work any more.
+            if (e.toPairingError() != PairingError.UNREACHABLE) settings.pendingInvitePair = null
+        }
     }
 
     /**
@@ -160,7 +228,7 @@ internal class Messaging(
      * secret) to their devices through the server, and confirms. True when the pair is made, false while they haven't
      * confirmed.
      */
-    suspend fun pairWith(code: PairCode): Boolean {
+    suspend fun pairWith(code: PairCode, verified: Boolean): Boolean {
         val self = device() ?: throw IllegalStateException("This phone isn't registered")
         val identity = engine.identityKey() ?: throw IllegalStateException("No identity key yet")
         // A new start: the key from the code replaces whatever was trusted for them.
@@ -174,7 +242,8 @@ internal class Messaging(
                 identityKey = key,
                 paired = old?.paired == true && old.identityKey == key,
                 since = old?.since,
-                verified = true,
+                // Their code scanned in person; a link (an invite) may have been forwarded.
+                verified = verified || (old?.verified == true && old.identityKey == key),
                 addedAt = old?.addedAt ?: now(),
             )
         )
@@ -209,8 +278,9 @@ internal class Messaging(
                 identityKey = request.identityKey,
                 paired = paired,
                 since = old?.since,
-                // The request carried the secret of this phone's code: whoever sent it saw the screen.
-                verified = true,
+                // The request carried the secret of this phone's code: whoever sent it saw the screen. An invite
+                // link's secret may have been forwarded, so that one isn't verified.
+                verified = !request.viaLink || (old?.verified == true && old.identityKey == request.identityKey),
                 addedAt = old?.addedAt ?: now(),
             )
         )
@@ -257,6 +327,7 @@ internal class Messaging(
             val serverKey = server.identityKey?.let(Base64::encode)
             store.putContact(
                 contact.copy(
+                    displayName = server.displayName ?: contact.displayName,
                     paired = true,
                     since = server.since,
                     blocked = server.blocked,
@@ -272,7 +343,7 @@ internal class Messaging(
             engine.trustIdentity(server.user, key)
             store.putContact(
                 Contact(
-                    user = server.user, identityKey = Base64.encode(key), paired = true, since = server.since,
+                    user = server.user, displayName = server.displayName, identityKey = Base64.encode(key), paired = true, since = server.since,
                     blocked = server.blocked, devices = server.devices.size, verified = false, addedAt = now(),
                 )
             )
@@ -394,14 +465,26 @@ internal class Messaging(
      */
     private fun pairRequest(sender: String, request: PairRequestContent, sessionKey: ByteArray) {
         val secret = PairCode.base64Url.encode(request.secret)
-        val invite = store.invites().firstOrNull { it.secret == secret && now() - it.madeAt <= 7.days.inWholeMilliseconds }
+        val invite = store.invites().firstOrNull { it.secret == secret && now() <= it.keptUntil() }
         if (invite == null || request.user != sender || !request.identityKey.contentEquals(sessionKey)) {
             if (store.contact(sender) == null) engine.forget(sender)
             return
         }
         store.removeInvite(invite)
         engine.trustIdentity(sender, sessionKey)
-        store.putRequest(PairRequest(sender, Base64.encode(sessionKey), now()))
+        store.putRequest(PairRequest(sender, Base64.encode(sessionKey), now(), viaLink = invite.viaLink))
+        // Inviting them was the decision: an invite's request is confirmed without asking again.
+        if (invite.viaLink) {
+            scope.launch {
+                try {
+                    accept(sender)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Left as a request: the user confirms it by hand.
+                }
+            }
+        }
     }
 
     /** Publishes what the store holds now. */

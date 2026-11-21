@@ -272,6 +272,50 @@ class EnrollmentControllerTest {
         awaitStep { it is EnrollmentStep.Confirm }
     }
 
+    /**
+     * An invite link on a phone that isn't enrolled: the invite is looked up, a code goes to the email typed, and
+     * enrolling with it keeps the inviter's pairing code for Messaging.
+     */
+    @Test
+    fun anInviteLinkEnrollsByEmailAndKeepsTheInvitersCode() = runTest {
+        val identity = byteArrayOf(5) + ByteArray(32) { 3 }
+        val link = com.chencohen.ptt.messaging.InviteLink(
+            code = "abcdefghijklmnopqrstuv", server = "https://192.168.50.2:8080", fingerprint = "ab".repeat(32),
+            key = null, addresses = emptyList(), inviter = "hen", identityKey = identity, secret = ByteArray(16) { 1 },
+            email = null,
+        )
+        val enrolledWithInvite = """{"data":{"enrollWithInvite":{"__typename":"InviteEnrolled","device":""" +
+            ENROLLED_JSON.substringAfter("\"enrollDevice\":").substringBefore("}}}").replace("\"__typename\":\"EnrolledDevice\",", "") +
+            "}," + """"pairing":{"inviter":"hen","pairingToken":{"token":"tokentokentokentokento","expiresAt":"2026-10-17T14:34:00Z"}}}}}"""
+        val controller = controller(server(mapOf(
+            "InvitePreview" to """{"data":{"invitePreview":{"__typename":"InvitePreview","inviter":"hen","inviterDisplayName":"Hen Cohen","email":null,"expiresAt":"2026-10-24T14:24:00Z"}}}""",
+            "InviteEmailCode" to """{"data":{"inviteEmailCode":{"__typename":"InviteEmailSent","email":"dana@example.com","expiresAt":"2026-10-17T14:39:00Z"}}}""",
+            "EnrollWithInvite" to enrolledWithInvite,
+        )))
+        controller.start()
+        controller.openPasted("Hen invited you: ${link.format()}")
+        controller.awaitStep { it == EnrollmentStep.InviteEmail() }
+        assertEquals(com.chencohen.ptt.enrollment.InviteInfo("hen", "Hen Cohen", null), controller.currentState.invite)
+
+        controller.updateEmail("Dana@Example.com")
+        controller.sendEmailCode()
+        assertEquals(EnrollmentStep.InviteCode("dana@example.com"), controller.awaitStep { it is EnrollmentStep.InviteCode })
+        controller.updateEmailCode("12 34 5")
+        controller.registerWithInvite()
+        assertEquals(
+            EnrollmentStep.InviteCode("dana@example.com", error = EnrollmentError.Invite(com.chencohen.ptt.enrollment.InviteProblem.WRONG_EMAIL_CODE)),
+            controller.currentState.step,
+        )
+        controller.updateEmailCode("123456")
+        controller.updateDisplayName("Dana Cohen")
+        controller.registerWithInvite()
+        assertIs<EnrollmentStep.Enrolled>(controller.awaitStep { it is EnrollmentStep.Enrolled || it is EnrollmentStep.Failed })
+        val request = requests.single { "EnrollWithInvite" in it }
+        assertContains(request, "\"emailCode\":\"123456\"")
+        assertContains(request, "\"displayName\":\"Dana Cohen\"")
+        assertEquals(link.pairCode("tokentokentokentokento").format(), PttSettings(store).pendingInvitePair)
+    }
+
     @Test
     fun validCodeShowsAccountWithoutClientCertificate() = runTest {
         val controller = controller()

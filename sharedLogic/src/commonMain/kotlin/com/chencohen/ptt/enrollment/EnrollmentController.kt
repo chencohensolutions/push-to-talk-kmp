@@ -11,6 +11,7 @@ import com.chencohen.ptt.discovery.answersAt
 import com.chencohen.ptt.discovery.firstToAnswer
 import kotlin.time.Duration.Companion.milliseconds
 import com.chencohen.ptt.graphql.type.EnrollmentRejectedReason
+import com.chencohen.ptt.graphql.type.InviteRejectedReason
 import com.chencohen.ptt.network.MtlsHttpClientFactory
 import com.chencohen.ptt.network.createApolloClient
 import com.chencohen.ptt.network.describe
@@ -50,6 +51,15 @@ sealed interface EnrollmentStep {
 
     /** The code is valid for [user]; [minutesLeft] until it expires. */
     data class Confirm(val user: String, val minutesLeft: Int) : EnrollmentStep
+
+    /**
+     * An invite link was opened ([EnrollmentState.invite]): the friend types their email, and a code is sent there.
+     * [checking] while the invite is looked up or the code is sent.
+     */
+    data class InviteEmail(val checking: Boolean = false, val error: EnrollmentError? = null) : EnrollmentStep
+
+    /** The code was sent to [email]: the friend types it, and their name. */
+    data class InviteCode(val email: String, val sending: Boolean = false, val error: EnrollmentError? = null) : EnrollmentStep
 
     data class Registering(val progress: RegistrationProgress) : EnrollmentStep
 
@@ -92,7 +102,28 @@ sealed interface EnrollmentError {
 
     /** The certificate was issued but signing in with it did not work. */
     data class ConnectionTestFailed(val message: String) : EnrollmentError
+
+    /** The server turned the invite down. */
+    data class Invite(val problem: InviteProblem) : EnrollmentError
 }
+
+/** Why an invite didn't work, as the screens say it. */
+enum class InviteProblem {
+    /** Wrong, used, canceled or expired: ask for a new link. */
+    INVALID_INVITE,
+    INVALID_EMAIL,
+    /** The invite is for another address. */
+    EMAIL_MISMATCH,
+    /** This email has an account already: enroll with a code from the server's owner instead. */
+    EMAIL_TAKEN,
+    WRONG_EMAIL_CODE,
+    MISSING_NAME,
+    RATE_LIMITED,
+    MAIL_FAILED,
+}
+
+/** The invite being redeemed: who it is from, and the address it is for (null: any). */
+data class InviteInfo(val inviter: String, val inviterDisplayName: String?, val email: String?)
 
 data class EnrollmentState(
     val serverAddress: String,
@@ -104,6 +135,12 @@ data class EnrollmentState(
      * instead of the CA and the host name. Null otherwise.
      */
     val serverId: String? = null,
+    /** The invite link being redeemed; null for an enrollment code. */
+    val invite: InviteInfo? = null,
+    /** What the friend typed on the invite screens. */
+    val email: String = "",
+    val emailCode: String = "",
+    val displayName: String = "",
 )
 
 /** What a finished enrollment hands the app (ConnectionController.useEnrolledIdentity). */
@@ -155,6 +192,9 @@ class EnrollmentController internal constructor(
      */
     private var pinned: EnrollmentLink? = null
 
+    /** The invite link opened, until enrolled or left. */
+    private var inviteLink: com.chencohen.ptt.messaging.InviteLink? = null
+
     private val _state = MutableStateFlow(
         EnrollmentState(
             serverAddress = serverAddress(settings.serverUrl),
@@ -174,17 +214,134 @@ class EnrollmentController internal constructor(
 
     /** A whole enrollment link pasted into the address (or code) field opens it, as [openPasted] does. */
     fun updateServerAddress(address: String) {
+        com.chencohen.ptt.messaging.InviteLink.find(address)?.let { return openInvite(it) }
         findEnrollmentLink(address)?.let { return openLink(it) }
         _state.update { it.copy(serverAddress = address, step = clearedCodeError(it.step)) }
     }
 
     fun updateCode(code: String) {
+        com.chencohen.ptt.messaging.InviteLink.find(code)?.let { return openInvite(it) }
         findEnrollmentLink(code)?.let { return openLink(it) }
         _state.update { it.copy(code = cleanCode(code), step = clearedCodeError(it.step)) }
     }
 
     fun updateDeviceName(name: String) {
         _state.update { it.copy(deviceName = name) }
+    }
+
+    fun updateEmail(email: String) {
+        _state.update { it.copy(email = email.trim(), step = clearedInviteError(it.step)) }
+    }
+
+    /** Keeps the six digits of what was typed or pasted. */
+    fun updateEmailCode(code: String) {
+        _state.update { it.copy(emailCode = code.filter(Char::isDigit).take(6), step = clearedInviteError(it.step)) }
+    }
+
+    fun updateDisplayName(name: String) {
+        _state.update { it.copy(displayName = name, step = clearedInviteError(it.step)) }
+    }
+
+    /**
+     * Opens an Invite a friend link on a phone that isn't enrolled: pins the server's key from it, looks the invite up
+     * (who it is from), and goes to the email screen, with the address filled in when the invite is for one.
+     */
+    fun openInvite(link: com.chencohen.ptt.messaging.InviteLink) {
+        if (_state.value.step is EnrollmentStep.Registering) return
+        job?.cancel()
+        forgetPin()
+        val enrollment = link.enrollmentLink()
+        pinned = enrollment
+        inviteLink = link
+        _state.update {
+            it.copy(
+                serverAddress = enrollment.server ?: enrollment.addresses.firstOrNull() ?: it.serverAddress,
+                code = "",
+                serverId = ServerId.format(link.fingerprint),
+                invite = InviteInfo(link.inviter, null, link.email),
+                email = link.email ?: it.email,
+                emailCode = "",
+                step = EnrollmentStep.InviteEmail(checking = true),
+            )
+        }
+        val address = _state.value.serverAddress
+        job = scope.launch {
+            val next = try {
+                val (found, preview) = reachServer(address) { previewInvite(it, link.code) }
+                _state.update {
+                    it.copy(
+                        serverAddress = found,
+                        invite = InviteInfo(preview.inviter, preview.inviterDisplayName, preview.email),
+                        email = preview.email ?: it.email,
+                    )
+                }
+                EnrollmentStep.InviteEmail()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                EnrollmentStep.Failed(e.toEnrollmentError())
+            }
+            setStep(next)
+        }
+    }
+
+    /** InviteEmail → InviteCode: sends the code to the email typed. Also "Send a new code" on InviteCode. */
+    fun sendEmailCode() {
+        val link = inviteLink ?: return
+        val current = _state.value
+        val resend = current.step is EnrollmentStep.InviteCode
+        when (val step = current.step) {
+            is EnrollmentStep.InviteEmail -> if (step.checking) return
+            is EnrollmentStep.InviteCode -> if (step.sending) return
+            else -> return
+        }
+        if (!current.email.contains('@')) {
+            return setStep(EnrollmentStep.InviteEmail(error = EnrollmentError.Invite(InviteProblem.INVALID_EMAIL)))
+        }
+        setStep(if (resend) EnrollmentStep.InviteCode(current.email, sending = true) else EnrollmentStep.InviteEmail(checking = true))
+        job = scope.launch {
+            val next = try {
+                val (_, email) = reachServer(current.serverAddress) { sendInviteEmailCode(it, link.code, current.email) }
+                _state.update { it.copy(email = email, emailCode = "") }
+                EnrollmentStep.InviteCode(email)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val error = e.toEnrollmentError()
+                if (resend) EnrollmentStep.InviteCode(current.email, error = error) else EnrollmentStep.InviteEmail(error = error)
+            }
+            setStep(next)
+        }
+    }
+
+    /**
+     * InviteCode → Registering → Enrolled or Failed: enrolls with the invite, the email and its code, and keeps the
+     * inviter's pairing code for Messaging to pair with once this phone's keys are on the server.
+     */
+    fun registerWithInvite() {
+        val link = inviteLink ?: return
+        val current = _state.value
+        val step = current.step as? EnrollmentStep.InviteCode ?: return
+        if (step.sending) return
+        when {
+            current.emailCode.length != 6 -> return setStep(step.copy(error = EnrollmentError.Invite(InviteProblem.WRONG_EMAIL_CODE)))
+            current.displayName.isBlank() -> return setStep(step.copy(error = EnrollmentError.Invite(InviteProblem.MISSING_NAME)))
+        }
+        var pairing: String? = null
+        runRegistration(
+            current,
+            enroll = { apollo, deviceName, csr, protection ->
+                val issued = enrollWithInvite(
+                    apollo, link.code, current.email, current.emailCode, current.displayName.trim(), deviceName, csr, protection,
+                )
+                pairing = issued.pairingToken?.let { link.pairCode(it).format() }
+                issued.certificate
+            },
+            onSaved = {
+                settings.pendingInvitePair = pairing
+                inviteLink = null
+            },
+        )
     }
 
     /** EnterCode → Confirm: looks the code up without using it. */
@@ -214,6 +371,22 @@ class EnrollmentController internal constructor(
     fun register() {
         val current = _state.value
         if (current.step !is EnrollmentStep.Confirm) return
+        runRegistration(
+            current,
+            enroll = { apollo, deviceName, csr, protection -> enrollDevice(apollo, current.code, deviceName, csr, protection) },
+            onSaved = {},
+        )
+    }
+
+    /**
+     * Creates the key, has [enroll] trade the certificate request for a certificate where the server answers, saves
+     * it, tests the connection and hands the identity over; [onSaved] runs just before [onEnrolled].
+     */
+    private fun runRegistration(
+        current: EnrollmentState,
+        enroll: suspend (com.apollographql.apollo.ApolloClient, String, ByteArray, KeyProtection) -> IssuedCertificate,
+        onSaved: () -> Unit,
+    ) {
         var endpoint = graphQlEndpoint(current.serverAddress)
         val alias = IDENTITY_ALIAS_PREFIX + clock.now().toEpochMilliseconds()
         val deviceName = current.deviceName.trim()
@@ -237,7 +410,7 @@ class EnrollmentController internal constructor(
                         CertificateRequest.build(deviceName, key.publicKeyInfo, key::sign)
                     }
                     val (address, issued) = reachServer(current.serverAddress) {
-                        enrollDevice(it, current.code, deviceName, csr, key.protection)
+                        enroll(it, deviceName, csr, key.protection)
                     }
                     endpoint = graphQlEndpoint(address)
                     issued
@@ -272,6 +445,7 @@ class EnrollmentController internal constructor(
                 }
 
                 val previous = settings.identityAlias
+                onSaved()
                 settings.certificateExpiresAt = runCatching { Instant.parse(issued.expiresAt).toEpochMilliseconds() }.getOrNull()
                 onEnrolled(
                     EnrolledIdentity(
@@ -311,8 +485,15 @@ class EnrollmentController internal constructor(
         _state.update {
             when (it.step) {
                 is EnrollmentStep.EnterCode -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
-                is EnrollmentStep.Confirm, is EnrollmentStep.Registering -> it.copy(step = EnrollmentStep.EnterCode())
-                is EnrollmentStep.Failed -> it.copy(code = "", step = EnrollmentStep.EnterCode())
+                is EnrollmentStep.InviteEmail -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
+                is EnrollmentStep.InviteCode -> it.copy(step = EnrollmentStep.InviteEmail())
+                is EnrollmentStep.Registering -> it.copy(step = if (inviteLink != null) EnrollmentStep.InviteCode(it.email) else EnrollmentStep.EnterCode())
+                is EnrollmentStep.Confirm -> it.copy(step = EnrollmentStep.EnterCode())
+                is EnrollmentStep.Failed -> when {
+                    inviteLink != null && it.step.error is EnrollmentError.Invite -> it.copy(step = EnrollmentStep.InviteEmail())
+                    inviteLink != null -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
+                    else -> it.copy(code = "", step = EnrollmentStep.EnterCode())
+                }
                 EnrollmentStep.Welcome, is EnrollmentStep.Enrolled -> it
             }
         }
@@ -339,8 +520,9 @@ class EnrollmentController internal constructor(
         checkCode()
     }
 
-    /** What a QR code scan read: an enrollment link (see [openLink]), or else just the code. */
+    /** What a QR code scan read: an invite or enrollment link (see [openInvite], [openLink]), or else just the code. */
     fun openScanned(text: String) {
+        com.chencohen.ptt.messaging.InviteLink.parse(text)?.let { return openInvite(it) }
         parseEnrollmentLink(text)?.let(::openLink) ?: updateCode(text)
     }
 
@@ -350,6 +532,10 @@ class EnrollmentController internal constructor(
      * fills in the code. [PasteResult.NOTHING] when it has neither, and nothing changes.
      */
     fun openPasted(text: String): PasteResult {
+        com.chencohen.ptt.messaging.InviteLink.find(text)?.let {
+            openInvite(it)
+            return PasteResult.LINK
+        }
         findEnrollmentLink(text)?.let {
             openLink(it)
             return PasteResult.LINK
@@ -438,10 +624,11 @@ class EnrollmentController internal constructor(
     private suspend fun enrollmentClient(identityAlias: String?): HttpClient =
         pinned?.fingerprint?.let { clientFactory.createPinned(identityAlias, it) } ?: clientFactory.create(identityAlias, trustedCas)
 
-    /** Forgets the link's key, when the user leaves without enrolling. */
+    /** Forgets the link's key (and the invite), when the user leaves without enrolling. */
     private fun forgetPin() {
         pinned = null
-        _state.update { it.copy(serverId = null) }
+        inviteLink = null
+        _state.update { it.copy(serverId = null, invite = null) }
     }
 
     private fun discoveryOf(link: EnrollmentLink, endpoint: String): KeptDiscovery {
@@ -467,6 +654,12 @@ class EnrollmentController internal constructor(
 
     private fun clearedCodeError(step: EnrollmentStep): EnrollmentStep =
         if (step is EnrollmentStep.EnterCode && step.error != null) step.copy(error = null) else step
+
+    private fun clearedInviteError(step: EnrollmentStep): EnrollmentStep = when {
+        step is EnrollmentStep.InviteEmail && step.error != null -> step.copy(error = null)
+        step is EnrollmentStep.InviteCode && step.error != null -> step.copy(error = null)
+        else -> step
+    }
 
     companion object {
         /** Aliases of keys created by enrollment, as opposed to identities imported by the user. */
@@ -544,6 +737,18 @@ internal fun cleanCode(input: String): String {
 }
 
 private fun Exception.toEnrollmentError(): EnrollmentError = when (this) {
+    is InviteRejectedException -> EnrollmentError.Invite(
+        when (reason) {
+            InviteRejectedReason.INVALID_EMAIL -> InviteProblem.INVALID_EMAIL
+            InviteRejectedReason.EMAIL_MISMATCH -> InviteProblem.EMAIL_MISMATCH
+            InviteRejectedReason.EMAIL_TAKEN -> InviteProblem.EMAIL_TAKEN
+            InviteRejectedReason.WRONG_EMAIL_CODE -> InviteProblem.WRONG_EMAIL_CODE
+            InviteRejectedReason.RATE_LIMITED -> InviteProblem.RATE_LIMITED
+            InviteRejectedReason.MAIL_FAILED -> InviteProblem.MAIL_FAILED
+            InviteRejectedReason.INVALID_CSR -> return EnrollmentError.RequestRejected
+            else -> InviteProblem.INVALID_INVITE
+        }
+    )
     is EnrollmentRejectedException -> when (reason) {
         EnrollmentRejectedReason.INVALID_CODE -> EnrollmentError.InvalidCode
         EnrollmentRejectedReason.RATE_LIMITED -> EnrollmentError.RateLimited

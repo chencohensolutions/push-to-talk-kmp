@@ -7,7 +7,9 @@ import com.apollographql.apollo.api.Optional
 import com.chencohen.ptt.crypto.PrekeyBundle
 import com.chencohen.ptt.crypto.PublicPrekey
 import com.chencohen.ptt.crypto.SignedPublicPrekey
+import com.chencohen.ptt.graphql.AcceptInviteMutation
 import com.chencohen.ptt.graphql.BlockMutation
+import com.chencohen.ptt.graphql.CreateInviteMutation
 import com.chencohen.ptt.graphql.ConfirmPairMutation
 import com.chencohen.ptt.graphql.ContactsQuery
 import com.chencohen.ptt.graphql.MyIdentityKeyQuery
@@ -48,6 +50,8 @@ internal class ServerContact(
     val since: String,
     val blocked: Boolean,
     val devices: Map<Int, Int>,
+    /** The name they gave for themselves when they joined by an invite; null otherwise. */
+    val displayName: String? = null,
 )
 
 internal class ServerContacts(val contacts: List<ServerContact>, val blocked: List<String>)
@@ -94,7 +98,19 @@ internal interface MessagingApi {
     suspend fun unblock(user: String): Boolean
 
     suspend fun contacts(): ServerContacts
+
+    /** An invite from this user (for [email] when not null): its code, and when it expires (RFC 3339). */
+    suspend fun createInvite(email: String?): Pair<String, String>
+
+    /** Redeems an invite on this enrolled phone: the inviter's pairing token. */
+    suspend fun acceptInvite(code: String): InvitePairing
 }
+
+/** What redeeming an invite gave: the inviter, and their pairing token (null when the server couldn't make one). */
+internal class InvitePairing(val inviter: String, val token: String?)
+
+/** acceptInvite was turned down; [reason] is the server's `InviteRejectedReason`. */
+class InviteRefusedException(val reason: String) : Exception("Invite refused: $reason")
 
 /** [MessagingApi] over the app's mTLS GraphQL client (and its finder, which follows the server to a new address). */
 internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
@@ -168,6 +184,7 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
             contacts = data.contacts.map { c ->
                 ServerContact(
                     user = c.user,
+                    displayName = c.displayName,
                     identityKey = c.identityKey?.let(Base64::decode),
                     since = c.since,
                     blocked = c.blocked,
@@ -176,6 +193,18 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
             },
             blocked = data.blocked,
         )
+    }
+
+    override suspend fun createInvite(email: String?): Pair<String, String> {
+        val created = run { it.mutation(CreateInviteMutation(Optional.presentIfNotNull(email))).execute() }.createInvite
+        return created.code to created.invite.expiresAt
+    }
+
+    override suspend fun acceptInvite(code: String): InvitePairing {
+        val answer = run { it.mutation(AcceptInviteMutation(code)).execute() }.acceptInvite
+        answer.onInviteRejected?.let { throw InviteRefusedException(it.reason.rawValue) }
+        val pairing = answer.onInvitePairing ?: throw ApiException(null, "Unexpected answer ${answer.__typename}")
+        return InvitePairing(pairing.inviter, pairing.pairingToken?.token)
     }
 
     private fun SignedPublicPrekey.toInput() = SignedPrekeyInput(keyId, Base64.encode(publicKey), Base64.encode(signature))

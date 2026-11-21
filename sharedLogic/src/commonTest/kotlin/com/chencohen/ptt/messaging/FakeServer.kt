@@ -45,6 +45,9 @@ internal class FakeServer {
     private val tokenFetches = mutableMapOf<String, Int>()
     private val pending = mutableMapOf<Set<String>, MutableSet<String>>()
     val pairs = mutableSetOf<Set<String>>()
+    /** Invite codes and who made them (createInvite), until redeemed. */
+    val invites = mutableMapOf<String, String>()
+    val displayNames = mutableMapOf<String, String>()
     val blocks = mutableSetOf<Pair<String, String>>()
     val queues = mutableMapOf<DeviceAddress, MutableList<Envelope>>()
     private val connections = mutableMapOf<DeviceAddress, Connection>()
@@ -131,10 +134,30 @@ internal class FakeServer {
         override suspend fun contacts(): ServerContacts = ServerContacts(
             contacts = pairs.filter { device.user in it }.map { pair ->
                 val other = (pair - device.user).first()
-                ServerContact(other, identityKeys[other], "2026-11-21T10:00:00Z", (device.user to other) in blocks, active(other))
+                ServerContact(other, identityKeys[other], "2026-11-21T10:00:00Z", (device.user to other) in blocks, active(other), displayNames[other])
             },
             blocked = blocks.filter { it.first == device.user }.map { it.second },
         )
+
+        override suspend fun createInvite(email: String?): Pair<String, String> {
+            val code = "invite${nextId++}".padEnd(22, 'i')
+            invites[code] = device.user
+            return code to "2026-11-28T10:00:00Z"
+        }
+
+        override suspend fun acceptInvite(code: String): InvitePairing {
+            val inviter = invites[code] ?: throw InviteRefusedException("INVALID_CODE")
+            if (inviter == device.user) throw InviteRefusedException("OWN_INVITE")
+            invites.remove(code)
+            return InvitePairing(inviter, newToken(inviter))
+        }
+    }
+
+    /** A pairing token of [user], as pairingToken and redeeming an invite make. */
+    fun newToken(user: String): String {
+        val token = "token${nextId++}".padEnd(22, 'x')
+        tokens[token] = user
+        return token
     }
 
     private fun announce(type: Int, about: String, payload: ByteArray, to: String) {

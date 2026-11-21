@@ -62,6 +62,89 @@ private class Phone(val server: FakeServer, val user: String, val number: Int, s
 
 class MessagingTest {
     @Test
+    fun anInviteLinkPairsAFriendWhoIsEnrolledAlready() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        hen.controller.start()
+        dana.controller.start()
+        advanceUntilIdle()
+
+        hen.pairing.makeInvite(" Dana@Example.com ")
+        advanceUntilIdle()
+        val invite = assertNotNull(hen.pairing.currentState.invite)
+        assertEquals("dana@example.com", invite.email)
+        val link = assertNotNull(InviteLink.parse(invite.link))
+        assertEquals("hen", link.inviter)
+        assertEquals(FINGERPRINT, link.fingerprint)
+        assertEquals(listOf("https://203.0.113.7:56400"), listOfNotNull(link.server))
+
+        // Hen's own link is refused on her phone; on Dana's it asks "Pair with hen?", then pairs.
+        assertTrue(hen.pairing.openInvite("Join me: ${invite.link}."))
+        assertEquals(PairingStep.Failed(PairingError.OWN_CODE, "hen"), hen.pairing.currentState.step)
+        assertTrue(dana.pairing.openInvite("Join me: ${invite.link}."))
+        assertEquals(PairingStep.Scanned("hen"), dana.pairing.currentState.step)
+        dana.pairing.pair()
+        advanceUntilIdle()
+        // Hen's phone knew the invite's secret, so it confirmed without a tap.
+        assertEquals(PairingStep.Paired("hen"), dana.pairing.currentState.step)
+        assertTrue(setOf("hen", "dana") in server.pairs)
+        val henOnDana = assertNotNull(dana.store.contact("hen"))
+        val danaOnHen = assertNotNull(hen.store.contact("dana"))
+        assertTrue(henOnDana.paired && danaOnHen.paired)
+        assertFalse(henOnDana.verified, "a link may have been forwarded: not verified")
+        assertFalse(danaOnHen.verified)
+        assertTrue(hen.state.requests.isEmpty())
+
+        // The invite worked once.
+        dana.pairing.back()
+        dana.pairing.openInvite(invite.link)
+        dana.pairing.pair()
+        advanceUntilIdle()
+        assertEquals(PairingStep.Failed(PairingError.EXPIRED, "hen"), dana.pairing.currentState.step)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aPhoneEnrolledByAnInvitePairsWithTheInviterOnceItsKeysAreUp() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        hen.controller.start()
+        advanceUntilIdle()
+        val (link, _) = hen.messaging.newInvite(null)
+        server.displayNames["dana"] = "Dana Cohen"
+
+        // What enrollWithInvite left: the inviter's code with the token the server gave.
+        val dana = Phone(server, "dana", 1, this, 2)
+        dana.settings.pendingInvitePair = link.pairCode(server.newToken("hen")).format()
+        dana.controller.start()
+        advanceUntilIdle()
+        assertNull(dana.settings.pendingInvitePair)
+        assertTrue(setOf("hen", "dana") in server.pairs)
+        assertTrue(assertNotNull(dana.store.contact("hen")).paired)
+        hen.messaging.refreshContacts()
+        assertEquals("Dana Cohen", assertNotNull(hen.store.contact("dana")).displayName)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun anInviteLinkReadsBack() {
+        val link = InviteLink(
+            code = "abcdefghijklmnopqrstuv", server = "https://192.168.50.2:56400", fingerprint = FINGERPRINT,
+            key = null, addresses = listOf("https://192.168.50.2:56400", "https://[2001:db8::1]:56400"), inviter = "hen",
+            identityKey = byteArrayOf(5) + ByteArray(32) { it.toByte() }, secret = ByteArray(16) { 9 }, email = "dana@example.com",
+        )
+        assertEquals(link, InviteLink.parse(link.format()))
+        assertEquals(link, InviteLink.find("Hen invited you: ${link.format()}!"))
+        assertNull(InviteLink.parse(link.format().replace("v=1", "v=2")))
+        assertNull(InviteLink.parse(link.format().replace("fingerprint=", "fingerprint=0")))
+        assertEquals("abcdefghijklmnopqrstuv", link.enrollmentLink().code)
+        assertEquals("ab12ab12ab12ab12", link.pairCode("t").server)
+    }
+
+    @Test
     fun uploadsTheKeysOnceAndRefillsBelowTheMark() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)
@@ -166,7 +249,7 @@ class MessagingTest {
         advanceUntilIdle()
         val code = (PairCode.parse(hen.pairing.currentState.code!!) as PairCodeParse.Code).code
         // Eve has the token (say, from the server) but not the secret on Hen's screen.
-        eve.messaging.pairWith(code.copy(secret = ByteArray(16)))
+        eve.messaging.pairWith(code.copy(secret = ByteArray(16)), verified = true)
         advanceUntilIdle()
         assertTrue(hen.state.requests.isEmpty())
         assertNull(hen.engine.trustedIdentity("eve"))

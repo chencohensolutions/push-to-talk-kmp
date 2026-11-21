@@ -63,7 +63,9 @@ internal fun ContactRow(contact: Contact, last: TextMessage?, onClick: () -> Uni
         Avatar(contact.user)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(contact.user, color = LibraryColors.OnBackground, style = LibraryType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // The name they gave, with the user name the server knows them by: two people may both be "Dana".
+            val title = contact.displayName?.takeIf { it.isNotBlank() }?.let { "$it · ${contact.user}" } ?: contact.user
+            Text(title, color = LibraryColors.OnBackground, style = LibraryType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val (line, warn) = when {
                 contact.blocked -> stringResource(R.string.chats_blocked) to false
                 contact.changedKey != null -> stringResource(R.string.chats_key_changed) to true
@@ -101,5 +103,8 @@ internal fun pairingErrorText(error: PairingError): String = stringResource(
         PairingError.RATE_LIMITED -> R.string.pair_error_rate_limited
         PairingError.NOT_READY -> R.string.pair_error_not_ready
         PairingError.UNREACHABLE -> R.string.pair_error_unreachable
+        PairingError.INVITE_FOR_SOMEONE_ELSE -> R.string.pair_error_invite_someone_else
+        PairingError.INVALID_EMAIL -> R.string.pair_error_invalid_email
+        PairingError.INVITES_OFF -> R.string.pair_error_invites_off
     },
 )

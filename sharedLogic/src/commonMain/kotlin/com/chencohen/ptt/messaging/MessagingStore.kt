@@ -27,19 +27,39 @@ data class Contact(
     val devices: Int = 0,
     /** When this phone first saw them, milliseconds since 1970. */
     val addedAt: Long = 0,
+    /** The name they gave for themselves when they joined by an invite (the server's `displayName`); null otherwise. */
+    val displayName: String? = null,
 )
 
 /** Someone scanned this phone's Add contact code and asks to pair; waits for the user to confirm or decline. */
 @Serializable
-data class PairRequest(val user: String, val identityKey: String, val receivedAt: Long)
+data class PairRequest(
+    val user: String,
+    val identityKey: String,
+    val receivedAt: Long,
+    /** It carried the secret of an invite link this phone made, which may have been forwarded: not verified. */
+    val viaLink: Boolean = false,
+)
 
 /** A text message (phase 2 sends them only as a test of the transport). */
 @Serializable
 data class TextMessage(val id: String, val user: String, val outgoing: Boolean, val body: String, val at: Long)
 
-/** The secret of an Add contact code this phone showed, kept for a week so a late pair request is still recognised. */
+/**
+ * The secret of an Add contact code this phone showed, or of an invite link it made ([viaLink]; [token] is then the
+ * invite's code), kept a week past its end so a late pair request is still recognised.
+ */
 @Serializable
-internal data class Invite(val secret: String, val token: String, val expiresAt: Long, val madeAt: Long)
+internal data class Invite(
+    val secret: String,
+    val token: String,
+    val expiresAt: Long,
+    val madeAt: Long,
+    val viaLink: Boolean = false,
+) {
+    /** Until when a pair request with its secret is taken: a week past whichever is later, made or expired. */
+    fun keptUntil(): Long = maxOf(expiresAt, madeAt) + 7 * 24 * 3600_000L
+}
 
 /** This phone's counters and flags. */
 @Serializable

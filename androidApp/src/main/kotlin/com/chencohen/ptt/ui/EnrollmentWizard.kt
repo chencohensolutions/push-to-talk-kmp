@@ -117,6 +117,11 @@ fun EnrollmentWizard(
                 },
                 register = controller::register,
                 openApp = onOpenApp,
+                updateEmail = controller::updateEmail,
+                updateEmailCode = controller::updateEmailCode,
+                updateDisplayName = controller::updateDisplayName,
+                sendEmailCode = controller::sendEmailCode,
+                registerWithInvite = controller::registerWithInvite,
             ),
         )
         MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 96.dp))
@@ -134,6 +139,11 @@ internal class EnrollmentActions(
     val paste: () -> Unit = {},
     val register: () -> Unit = {},
     val openApp: () -> Unit = {},
+    val updateEmail: (String) -> Unit = {},
+    val updateEmailCode: (String) -> Unit = {},
+    val updateDisplayName: (String) -> Unit = {},
+    val sendEmailCode: () -> Unit = {},
+    val registerWithInvite: () -> Unit = {},
 )
 
 @Composable
@@ -149,6 +159,8 @@ internal fun EnrollmentContent(state: EnrollmentState, actions: EnrollmentAction
                 EnrollmentStep.Welcome -> WelcomeStep(actions)
                 is EnrollmentStep.EnterCode -> EnterCodeStep(state, step, actions)
                 is EnrollmentStep.Confirm -> ConfirmStep(state, step, actions)
+                is EnrollmentStep.InviteEmail -> InviteEmailStep(state, step, actions)
+                is EnrollmentStep.InviteCode -> InviteCodeStep(state, step, actions)
                 is EnrollmentStep.Registering -> RegisteringStep(state, step, actions)
                 is EnrollmentStep.Enrolled -> EnrolledStep(step, actions)
                 is EnrollmentStep.Failed -> FailedStep(state, step, actions)
@@ -274,6 +286,107 @@ private fun ColumnScope.ConfirmStep(state: EnrollmentState, step: EnrollmentStep
     }
 }
 
+/** Who an invite is from, as the invite screens say it: "Hen Cohen (hen)", or the user name alone. */
+private fun inviterName(state: EnrollmentState): String {
+    val invite = state.invite ?: return ""
+    return invite.inviterDisplayName?.let { "$it (${invite.inviter})" } ?: invite.inviter
+}
+
+@Composable
+private fun ColumnScope.InviteEmailStep(state: EnrollmentState, step: EnrollmentStep.InviteEmail, actions: EnrollmentActions) {
+    WizardHeader(stepNumber = 1, label = R.string.enroll_step_invite, onBack = actions.back)
+    StepBody {
+        Title(stringResource(R.string.invite_join_title, inviterName(state)), Modifier.padding(top = 24.dp))
+        Body(stringResource(R.string.invite_join_body), Modifier.padding(top = 8.dp))
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            shape = com.chencohen.ptt.ui.style.LibraryShapes.Card,
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+        ) {
+            DetailRow(Icons.Server, stringResource(R.string.enroll_server), state.serverAddress.removePrefix("https://"),
+                state.serverId?.let { stringResource(R.string.enroll_server_verified_id, shortServerId(it)) }
+                    ?: stringResource(R.string.enroll_server_verified))
+        }
+        val bound = state.invite?.email
+        OutlinedTextField(
+            value = state.email,
+            onValueChange = actions.updateEmail,
+            label = { Text(stringResource(R.string.invite_email)) },
+            supportingText = {
+                Text(step.error?.let { errorMessage(it) } ?: if (bound != null) stringResource(R.string.invite_email_bound) else stringResource(R.string.invite_email_help))
+            },
+            isError = step.error != null,
+            singleLine = true,
+            enabled = !step.checking && bound == null,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { actions.sendEmailCode() }),
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+        )
+    }
+    BottomActions {
+        PrimaryButton(stringResource(R.string.invite_send_code), onClick = actions.sendEmailCode, loading = step.checking)
+    }
+}
+
+@Composable
+private fun ColumnScope.InviteCodeStep(state: EnrollmentState, step: EnrollmentStep.InviteCode, actions: EnrollmentActions) {
+    WizardHeader(stepNumber = 2, label = R.string.enroll_step_confirm, onBack = actions.back)
+    StepBody {
+        Title(stringResource(R.string.invite_code_title), Modifier.padding(top = 24.dp))
+        Body(stringResource(R.string.invite_code_body, step.email), Modifier.padding(top = 8.dp))
+        val codeError = step.error?.takeIf { (it as? EnrollmentError.Invite)?.problem != com.chencohen.ptt.enrollment.InviteProblem.MISSING_NAME }
+        OutlinedTextField(
+            value = state.emailCode,
+            onValueChange = actions.updateEmailCode,
+            label = { Text(stringResource(R.string.invite_code)) },
+            supportingText = { Text(codeError?.let { errorMessage(it) } ?: stringResource(R.string.invite_code_help)) },
+            isError = codeError != null,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace, letterSpacing = 6.sp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
+        )
+        TextButton(onClick = actions.sendEmailCode, enabled = !step.sending) {
+            Text(stringResource(if (step.sending) R.string.invite_sending else R.string.invite_resend))
+        }
+        val nameError = step.error?.takeIf { (it as? EnrollmentError.Invite)?.problem == com.chencohen.ptt.enrollment.InviteProblem.MISSING_NAME }
+        OutlinedTextField(
+            value = state.displayName,
+            onValueChange = actions.updateDisplayName,
+            label = { Text(stringResource(R.string.invite_name)) },
+            supportingText = { Text(nameError?.let { errorMessage(it) } ?: stringResource(R.string.invite_name_help, inviterName(state))) },
+            isError = nameError != null,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        OutlinedTextField(
+            value = state.deviceName,
+            onValueChange = actions.updateDeviceName,
+            label = { Text(stringResource(R.string.enroll_device_name)) },
+            supportingText = { Text(stringResource(R.string.enroll_device_name_help)) },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { actions.registerWithInvite() }),
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            shape = com.chencohen.ptt.ui.style.LibraryShapes.Tile,
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+        ) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Lock, contentDescription = null, modifier = Modifier.size(20.dp))
+                Text(stringResource(R.string.enroll_key_notice), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+    BottomActions {
+        PrimaryButton(stringResource(R.string.invite_join, state.invite?.inviter.orEmpty()), onClick = actions.registerWithInvite, loading = step.sending)
+    }
+}
+
 @Composable
 private fun ColumnScope.RegisteringStep(state: EnrollmentState, step: EnrollmentStep.Registering, actions: EnrollmentActions) {
     WizardHeader(stepNumber = 3, label = R.string.enroll_step_register, onBack = null)
@@ -342,6 +455,11 @@ private fun ColumnScope.FailedStep(state: EnrollmentState, step: EnrollmentStep.
         Badge(Icons.Error, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
         val title = if (step.error == EnrollmentError.InvalidCode) R.string.enroll_failed_code_title else R.string.enroll_failed_title
         Title(stringResource(title), Modifier.padding(top = 28.dp))
+        if (state.invite != null) {
+            Body(errorMessage(step.error), Modifier.padding(top = 12.dp))
+            Body(stringResource(R.string.invite_failed_ask, state.invite!!.inviter), Modifier.padding(top = 12.dp))
+            return@StepBody
+        }
         Body(
             if (step.error == EnrollmentError.InvalidCode) {
                 stringResource(R.string.enroll_failed_code_body, state.code.uppercase())
@@ -377,7 +495,7 @@ private fun ColumnScope.FailedStep(state: EnrollmentState, step: EnrollmentStep.
         )
     }
     BottomActions {
-        PrimaryButton(stringResource(R.string.enroll_new_code), onClick = actions.back)
+        PrimaryButton(stringResource(if (state.invite != null) R.string.enroll_back else R.string.enroll_new_code), onClick = actions.back)
     }
 }
 
@@ -391,6 +509,18 @@ private fun errorMessage(error: EnrollmentError): String = when (error) {
     is EnrollmentError.Unreachable -> stringResource(R.string.enroll_error_unreachable, error.message)
     is EnrollmentError.KeyStoreFailed -> stringResource(R.string.enroll_error_key_store, error.message)
     is EnrollmentError.ConnectionTestFailed -> stringResource(R.string.enroll_error_connection_test, error.message)
+    is EnrollmentError.Invite -> stringResource(
+        when (error.problem) {
+            com.chencohen.ptt.enrollment.InviteProblem.INVALID_INVITE -> R.string.invite_error_invalid
+            com.chencohen.ptt.enrollment.InviteProblem.INVALID_EMAIL -> R.string.invite_error_email
+            com.chencohen.ptt.enrollment.InviteProblem.EMAIL_MISMATCH -> R.string.invite_error_mismatch
+            com.chencohen.ptt.enrollment.InviteProblem.EMAIL_TAKEN -> R.string.invite_error_taken
+            com.chencohen.ptt.enrollment.InviteProblem.WRONG_EMAIL_CODE -> R.string.invite_error_code
+            com.chencohen.ptt.enrollment.InviteProblem.MISSING_NAME -> R.string.invite_error_name
+            com.chencohen.ptt.enrollment.InviteProblem.RATE_LIMITED -> R.string.invite_error_rate_limited
+            com.chencohen.ptt.enrollment.InviteProblem.MAIL_FAILED -> R.string.invite_error_mail
+        },
+    )
 }
 
 private fun KeyProtection.label(): Int = when (this) {

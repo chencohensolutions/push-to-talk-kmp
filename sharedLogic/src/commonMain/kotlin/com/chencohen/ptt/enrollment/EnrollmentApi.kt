@@ -4,7 +4,12 @@ import com.apollographql.apollo.ApolloClient
 import com.apollographql.apollo.api.ApolloResponse
 import com.apollographql.apollo.api.Operation
 import com.chencohen.ptt.graphql.EnrollDeviceMutation
+import com.chencohen.ptt.graphql.EnrollWithInviteMutation
 import com.chencohen.ptt.graphql.EnrollmentPreviewQuery
+import com.chencohen.ptt.graphql.InviteEmailCodeMutation
+import com.chencohen.ptt.graphql.InvitePreviewQuery
+import com.chencohen.ptt.graphql.type.InviteEnrollInput
+import com.chencohen.ptt.graphql.type.InviteRejectedReason
 import com.chencohen.ptt.graphql.type.EnrollDeviceInput
 import com.chencohen.ptt.graphql.type.EnrollmentRejectedReason
 import com.chencohen.ptt.network.describe
@@ -56,6 +61,58 @@ internal suspend fun enrollDevice(
     return IssuedCertificate(
         enrolled.user, enrolled.deviceName, enrolled.deviceNumber, Base64.decode(enrolled.certificate), enrolled.expiresAt,
         enrolled.caCertificate,
+    )
+}
+
+/** The server turned an invite down; see `InviteRejectedReason` in the server schema. */
+internal class InviteRejectedException(val reason: InviteRejectedReason) : Exception("Invite rejected: $reason")
+
+internal data class InvitePreview(val inviter: String, val inviterDisplayName: String?, val email: String?, val expiresAt: String)
+
+internal suspend fun previewInvite(apollo: ApolloClient, code: String): InvitePreview {
+    val result = apollo.query(InvitePreviewQuery(code)).execute().dataOrThrow().invitePreview
+    result.onInviteRejected?.let { throw InviteRejectedException(it.reason) }
+    val preview = result.onInvitePreview ?: throw EnrollmentTransportException("Unexpected answer ${result.__typename}")
+    return InvitePreview(preview.inviter, preview.inviterDisplayName, preview.email, preview.expiresAt)
+}
+
+/** Sends the six-digit code to [email]; gives the address as the server keeps it. */
+internal suspend fun sendInviteEmailCode(apollo: ApolloClient, code: String, email: String): String {
+    val result = apollo.mutation(InviteEmailCodeMutation(code, email)).execute().dataOrThrow().inviteEmailCode
+    result.onInviteRejected?.let { throw InviteRejectedException(it.reason) }
+    return result.onInviteEmailSent?.email ?: throw EnrollmentTransportException("Unexpected answer ${result.__typename}")
+}
+
+/** The certificate, and the inviter's pairing token (null when the server couldn't make one). */
+internal class InviteIssued(val certificate: IssuedCertificate, val inviter: String, val pairingToken: String?)
+
+internal suspend fun enrollWithInvite(
+    apollo: ApolloClient,
+    code: String,
+    email: String,
+    emailCode: String,
+    displayName: String,
+    deviceName: String,
+    csrDer: ByteArray,
+    protection: KeyProtection,
+): InviteIssued {
+    val input = InviteEnrollInput(
+        code = code,
+        email = email,
+        emailCode = emailCode,
+        displayName = displayName,
+        deviceName = deviceName,
+        csr = Base64.encode(csrDer),
+        keyProtection = GraphQlKeyProtection.safeValueOf(protection.name),
+    )
+    val result = apollo.mutation(EnrollWithInviteMutation(input)).execute().dataOrThrow().enrollWithInvite
+    result.onInviteRejected?.let { throw InviteRejectedException(it.reason) }
+    val enrolled = result.onInviteEnrolled ?: throw EnrollmentTransportException("Unexpected answer ${result.__typename}")
+    val d = enrolled.device
+    return InviteIssued(
+        IssuedCertificate(d.user, d.deviceName, d.deviceNumber, Base64.decode(d.certificate), d.expiresAt, d.caCertificate),
+        enrolled.pairing.inviter,
+        enrolled.pairing.pairingToken?.token,
     )
 }
 

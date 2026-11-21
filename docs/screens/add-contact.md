@@ -10,7 +10,8 @@ One scan pairs both: either phone may scan the other's code. Each step takes the
   this phone's QR code (black on white, 240 dp), the user's name under it, and "Works once, until <time>". A new code
   is made 30 seconds before it expires while the page is open. While it is made: Loading…; when it can't be (offline,
   too many codes, keys not uploaded yet), why, and **Make a code**. **Scan their code** (ink, the Scan icon) opens
-  Google's code scanner.
+  Google's code scanner. **Invite a friend** (outlined, the Share icon) opens [Invite a friend](invite.md), for a
+  friend who isn't there. An invite link opened on this phone opens here on Scanned ("Pair with <inviter>?").
 - **Scanned:** their letter, "Pair with <user>?", "You’ll both see each other in Chats, and messages between you are
   end-to-end encrypted.", **Pair** and **Cancel** (back to the code).
 - **Review** (a pair request): "Pair with <user>?", "<user> scanned your QR code. Pair only if it was them, in front

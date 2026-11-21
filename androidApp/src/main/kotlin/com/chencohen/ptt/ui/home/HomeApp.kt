@@ -52,6 +52,11 @@ import com.chencohen.ptt.messaging.MessagingState
 import com.chencohen.ptt.messaging.PairRequest
 import com.chencohen.ptt.messaging.PairingController
 import com.chencohen.ptt.messaging.TextMessage
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import com.chencohen.ptt.ui.contacts.InviteActions
+import com.chencohen.ptt.ui.contacts.InviteScreen
 import com.chencohen.ptt.ui.contacts.AddContactActions
 import com.chencohen.ptt.ui.contacts.AddContactScreen
 import com.chencohen.ptt.ui.contacts.ContactActions
@@ -111,6 +116,9 @@ fun HomeApp(
     messaging: MessagingController,
     pairing: PairingController,
     onRegisterAgain: () -> Unit,
+    /** An invite link opened on this enrolled phone (MainActivity), until Add contact took it. */
+    openedInvite: String? = null,
+    onInviteTaken: () -> Unit = {},
 ) {
     val state by connection.state.collectAsStateWithLifecycle()
     val messagingState by messaging.state.collectAsStateWithLifecycle()
@@ -130,6 +138,10 @@ fun HomeApp(
     val context = LocalContext.current
     val resources = LocalResources.current
     BackHandler(enabled = stack.isNotEmpty()) { pop() }
+    // An invite link: Add contact asks "Pair with them?".
+    LaunchedEffect(openedInvite) {
+        if (openedInvite != null && stack.lastOrNull() != "join") push("join")
+    }
     CompositionLocalProvider(LocalMessages provides messages) {
         Box(Modifier.fillMaxSize()) {
             val page = stack.lastOrNull()
@@ -168,11 +180,37 @@ fun HomeApp(
                     addContact = { push("add") },
                     openContact = { push("contact/$it") },
                 )
-                name == "add" || name.startsWith("review/") -> {
+                name == "invite" -> {
+                    val pairingState by pairing.state.collectAsStateWithLifecycle()
+                    DisposableEffect(page) { onDispose { pairing.clearInvite() } }
+                    InviteScreen(
+                        state = pairingState,
+                        actions = InviteActions(
+                            back = ::pop,
+                            make = pairing::makeInvite,
+                            share = { invite ->
+                                val text = resources.getString(R.string.invite_share_text, invite.inviter, invite.link)
+                                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+                                context.startActivity(Intent.createChooser(send, resources.getString(R.string.invite_share)))
+                            },
+                            copy = { invite ->
+                                val clipboard = context.getSystemService(ClipboardManager::class.java)
+                                clipboard?.setPrimaryClip(ClipData.newPlainText(resources.getString(R.string.invite_title), invite.link))
+                                messages.post(resources.getString(R.string.invite_copied))
+                            },
+                            another = pairing::clearInvite,
+                        ),
+                    )
+                }
+                name == "add" || name == "join" || name.startsWith("review/") -> {
                     val pairingState by pairing.state.collectAsStateWithLifecycle()
                     DisposableEffect(page) {
                         pairing.open()
                         if (pageUser != null) pairing.review(pageUser)
+                        if (name == "join") {
+                            openedInvite?.let(pairing::openInvite)
+                            onInviteTaken()
+                        }
                         onDispose { pairing.leave() }
                     }
                     AddContactScreen(
@@ -182,6 +220,7 @@ fun HomeApp(
                             back = ::pop,
                             retryCode = pairing::open,
                             scan = { scanQrCode(context, pairing::scanned) { messages.post(resources.getString(R.string.add_scan_failed)) } },
+                            invite = { push("invite") },
                             pair = pairing::pair,
                             accept = pairing::accept,
                             decline = {

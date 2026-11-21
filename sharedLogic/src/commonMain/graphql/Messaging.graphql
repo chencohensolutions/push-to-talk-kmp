@@ -53,6 +53,7 @@ mutation Unblock($user: String!) {
 query Contacts {
   contacts {
     user
+    displayName
     identityKey
     since
     blocked

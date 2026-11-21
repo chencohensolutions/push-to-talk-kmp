@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.chencohen.ptt.enrollment.parseEnrollmentLink
+import com.chencohen.ptt.messaging.InviteLink
 import com.chencohen.ptt.ui.EnrollmentWizard
 import com.chencohen.ptt.ui.TalkTheme
 import com.chencohen.ptt.ui.home.HomeApp
@@ -25,6 +26,9 @@ class MainActivity : ComponentActivity() {
 
     /** Set when an enrollment link arrives, to open the wizard on it. */
     private var linkOpened by mutableStateOf(false)
+
+    /** An invite link opened on an enrolled phone, for Add contact. */
+    private var openedInvite by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -70,6 +74,8 @@ class MainActivity : ComponentActivity() {
                             viewModel.enrollment.reset()
                             showWizard = true
                         },
+                        openedInvite = openedInvite,
+                        onInviteTaken = { openedInvite = null },
                     )
                 }
             }
@@ -100,6 +106,16 @@ class MainActivity : ComponentActivity() {
 
     private fun openLink(intent: Intent?) {
         val data = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
+        InviteLink.parse(data)?.let { invite ->
+            // Enrolled on that server: pair with the inviter. Not yet (or on another): enroll with it, then pair.
+            if (viewModel.connection.currentState.enrolled && viewModel.pairing.isForThisServer(invite)) {
+                openedInvite = data
+            } else {
+                viewModel.enrollment.openInvite(invite)
+                linkOpened = true
+            }
+            return
+        }
         val link = parseEnrollmentLink(data) ?: return
         viewModel.enrollment.openLink(link)
         linkOpened = true

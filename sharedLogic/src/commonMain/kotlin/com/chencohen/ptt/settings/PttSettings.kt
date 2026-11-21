@@ -55,7 +55,16 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_SERVER_VERSION)
         set(value) = store.putString(KEY_SERVER_VERSION, value)
 
+    /**
+     * The inviter's Add contact code (PairCode.format) after enrolling with an invite link: the phone pairs with them
+     * once its keys are on the server (Messaging.start), then forgets it. Null otherwise.
+     */
+    var pendingInvitePair: String?
+        get() = store.getString(KEY_PENDING_INVITE_PAIR)
+        set(value) = store.putString(KEY_PENDING_INVITE_PAIR, value)
+
     companion object {
+        private const val KEY_PENDING_INVITE_PAIR = "pending_invite_pair"
         private val json = Json { ignoreUnknownKeys = true }
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_SERVER_DISCOVERY = "server_discovery"

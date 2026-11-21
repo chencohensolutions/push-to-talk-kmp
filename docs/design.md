@@ -142,6 +142,31 @@ A contact paired by QR is marked verified. `contacts` brings the list in line wi
 side, blocked, devices, another identity key). Unpair forgets the contact, its sessions and its messages; block and
 unblock only change the server's block and the contact's flag.
 
+### Invites
+
+One link that enrolls a friend and pairs them with whoever invited them (the server's docs/authentication.md,
+"Invites"), for a friend who isn't in front of you:
+
+1. **Make it.** Add contact → **Invite a friend**: `createInvite(email)` (the email optional; with one, only that
+   address can use it) answers a code that works once, for 7 days. `Messaging.newInvite` builds
+   `ptt://invite?v=1&code=…&server=…&fingerprint=…&key=…&address=…&u=…&k=…&s=…&e=…` (`InviteLink`): an enrollment
+   link's server part, the invite code, and the Add contact code's pairing part without a token, with a new secret
+   kept as an `Invite` with `viaLink`. Shared by the share sheet, copied, or shown as a QR code.
+2. **A phone that isn't enrolled** opens it (the app's `ptt://invite` intent filter, or Paste in the wizard):
+   `EnrollmentController.openInvite` pins the server's key from the link, `invitePreview` says who it is from, the
+   friend types their email, `inviteEmailCode` sends six digits there, and `enrollWithInvite` (the digits, their name,
+   the certificate request) makes the user and the certificate in one step. Its pairing token goes into
+   `PttSettings.pendingInvitePair` as the inviter's `PairCode`, and `Messaging` pairs with it once the keys are up
+   and `/ws` is live, as after a scan.
+3. **An enrolled phone** opens it: Add contact asks "Pair with <inviter>?" (`PairingController.openInvite`); Pair
+   calls `acceptInvite` for a token, then pairs the same way.
+4. **The inviter's phone** recognises the pair request by the invite's secret and confirms it without a tap: making
+   the invite was the decision. Both sides mark the contact **not verified**, since a link can be forwarded; they
+   compare safety numbers to verify.
+
+The email is what makes an invited account unique; the server names the user from it (`dana.cohen`), and the
+friend's own name is a display name (`Contact.displayName`, shown as "Dana Cohen · dana.cohen").
+
 ## Next
 
 Linking a second phone (`PROVISIONING`) and contact sync between one's own phones; then messages and FCM (phase

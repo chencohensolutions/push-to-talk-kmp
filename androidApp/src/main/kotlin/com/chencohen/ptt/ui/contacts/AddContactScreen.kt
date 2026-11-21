@@ -37,6 +37,7 @@ class AddContactActions(
     val back: () -> Unit = {},
     val retryCode: () -> Unit = {},
     val scan: () -> Unit = {},
+    val invite: () -> Unit = {},
     val pair: () -> Unit = {},
     val accept: () -> Unit = {},
     val decline: () -> Unit = {},
@@ -125,6 +126,13 @@ private fun Showing(state: PairingState, user: String?, actions: AddContactActio
             actions.scan,
             Modifier.fillMaxWidth().padding(top = 28.dp),
             icon = LibraryIcons.Scan,
+        )
+        // Not together: one link, sent over any chat, enrolls them on this server and pairs them with you.
+        SecondaryButton(
+            stringResource(R.string.add_invite),
+            actions.invite,
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            icon = LibraryIcons.Share,
         )
     }
 }

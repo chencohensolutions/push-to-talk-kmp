@@ -39,3 +39,21 @@ per address). With a `fingerprint`, every connection of the enrollment trusts th
 doesn't answer, the link's other addresses are tried, then the DHT under `key` ([design.md](../design.md), "Finding
 the server"). The wizard goes on at the address that answered. Nothing is written to the settings until the phone is
 enrolled. An address typed by hand, with no link, must have a certificate the system trusts.
+
+## Joining by an invite
+
+An Invite a friend link ([invite.md](invite.md)) opened on a phone that isn't enrolled, or pasted, skips the code:
+
+1. **Invite** (step 1): "<Hen Cohen (hen)> invited you", "Type your email. We’ll send you a code to confirm it’s
+   yours.", the server (with its id, from the link), and **Email** (filled in and locked when the invite is for one
+   address). **Send code**.
+2. **Check your email** (step 2): "We sent a 6-digit code to <email>.", **Code** (six digits, "It works for 15
+   minutes."), **Send a new code**, **Your name** ("How <inviter> and your other contacts see you."), **Device name**,
+   the key note, and **Join and pair with <inviter>**.
+3. Registering and You’re connected as with a code. Then the phone pairs with the inviter on its own, and they show
+   in Chats.
+
+Errors say what to do: the link was used, canceled or expired (ask for a new one); not an email; the invite is for
+another address; the email has an account already (register with a code from the server's owner); a wrong or
+expired code; no name; too many tries; the server couldn't send the email. A failed registration says "Ask
+<inviter> for a new invite link." instead of the enroll-code command.
