@@ -332,22 +332,30 @@ private fun ColumnScope.InviteEmailStep(state: EnrollmentState, step: Enrollment
 private fun ColumnScope.InviteCodeStep(state: EnrollmentState, step: EnrollmentStep.InviteCode, actions: EnrollmentActions) {
     WizardHeader(stepNumber = 2, label = R.string.enroll_step_confirm, onBack = actions.back)
     StepBody {
-        Title(stringResource(R.string.invite_code_title), Modifier.padding(top = 24.dp))
-        Body(stringResource(R.string.invite_code_body, step.email), Modifier.padding(top = 8.dp))
+        Title(stringResource(if (step.fromInviter) R.string.invite_join_title else R.string.invite_code_title, inviterName(state)), Modifier.padding(top = 24.dp))
+        Body(
+            if (step.fromInviter) stringResource(R.string.invite_code_body_inviter, inviterName(state), step.email)
+            else stringResource(R.string.invite_code_body, step.email),
+            Modifier.padding(top = 8.dp),
+        )
         val codeError = step.error?.takeIf { (it as? EnrollmentError.Invite)?.problem != com.chencohen.ptt.enrollment.InviteProblem.MISSING_NAME }
         OutlinedTextField(
             value = state.emailCode,
             onValueChange = actions.updateEmailCode,
             label = { Text(stringResource(R.string.invite_code)) },
-            supportingText = { Text(codeError?.let { errorMessage(it) } ?: stringResource(R.string.invite_code_help)) },
+            supportingText = {
+                Text(codeError?.let { errorMessage(it) } ?: stringResource(if (step.fromInviter) R.string.invite_code_help_inviter else R.string.invite_code_help))
+            },
             isError = codeError != null,
             singleLine = true,
             textStyle = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace, letterSpacing = 6.sp),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
         )
-        TextButton(onClick = actions.sendEmailCode, enabled = !step.sending) {
-            Text(stringResource(if (step.sending) R.string.invite_sending else R.string.invite_resend))
+        if (!step.fromInviter) {
+            TextButton(onClick = actions.sendEmailCode, enabled = !step.sending) {
+                Text(stringResource(if (step.sending) R.string.invite_sending else R.string.invite_resend))
+            }
         }
         val nameError = step.error?.takeIf { (it as? EnrollmentError.Invite)?.problem == com.chencohen.ptt.enrollment.InviteProblem.MISSING_NAME }
         OutlinedTextField(

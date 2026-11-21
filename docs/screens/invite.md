@@ -10,8 +10,11 @@ what each phone does are in [design.md](../design.md), "Invites"; the friend's s
   can use the link."); **Make invite link** (ink, a spinner while it is made). Errors under the field: not an email,
   invites off on the server, too many invites waiting (5), the server can't be reached.
 - **Made:** the link's QR code (240 dp, black on white), "For <email>. Works once, until <date>." or "For whoever
-  opens it first. …"; **Share link** (ink, the Share icon: Android's share sheet with "<user> invited you to Talk.
-  Install the app, then open this link: <link>"), **Copy link** (a message "Link copied"), **Make another**; and
+  opens it first. …". With an email: **Email the invite** (ink) opens the user's mail app with a message to that
+  address, from their own address ("<user> invited you to Talk", the steps, the link and the six-digit code), and
+  "Opens your mail app with the link and a code, sent from your own address."; the server sends no mail for it.
+  **Share link** (Android's share sheet with "<user> invited you to Talk. Install the app, then open this link:
+  <link>", without the code; ink when there is no email), **Copy link** (a message "Link copied"), **Make another**; and
   "They’ll show as not verified until you compare safety numbers, since a link can be forwarded."
 
 A friend who joins shows in Chats as "<their name> · <user name>", paired, not verified.

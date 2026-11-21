@@ -74,6 +74,7 @@ class MessagingTest {
         advanceUntilIdle()
         val invite = assertNotNull(hen.pairing.currentState.invite)
         assertEquals("dana@example.com", invite.email)
+        assertEquals("123456", invite.emailCode, "the code to email with the link")
         val link = assertNotNull(InviteLink.parse(invite.link))
         assertEquals("hen", link.inviter)
         assertEquals(FINGERPRINT, link.fingerprint)
@@ -112,7 +113,7 @@ class MessagingTest {
         val hen = Phone(server, "hen", 1, this, 1)
         hen.controller.start()
         advanceUntilIdle()
-        val (link, _) = hen.messaging.newInvite(null)
+        val link = hen.messaging.newInvite(null).link
         server.displayNames["dana"] = "Dana Cohen"
 
         // What enrollWithInvite left: the inviter's code with the token the server gave.

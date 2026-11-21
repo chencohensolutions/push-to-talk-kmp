@@ -139,10 +139,10 @@ internal class FakeServer {
             blocked = blocks.filter { it.first == device.user }.map { it.second },
         )
 
-        override suspend fun createInvite(email: String?): Pair<String, String> {
+        override suspend fun createInvite(email: String?): CreatedInvite {
             val code = "invite${nextId++}".padEnd(22, 'i')
             invites[code] = device.user
-            return code to "2026-11-28T10:00:00Z"
+            return CreatedInvite(code, "2026-11-28T10:00:00Z", email?.let { "123456" })
         }
 
         override suspend fun acceptInvite(code: String): InvitePairing {

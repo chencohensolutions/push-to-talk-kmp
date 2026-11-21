@@ -98,6 +98,8 @@ data class MadeInvite(
     val expiresAt: Long,
     /** The user who made it, for the message around the link. */
     val inviter: String,
+    /** For an invite with an email: the six digits this phone emails there with the link (not in the link). */
+    val emailCode: String? = null,
 )
 
 data class PairingState(
@@ -183,9 +185,10 @@ class PairingController internal constructor(
         _state.update { it.copy(inviteLoading = true, inviteError = null, invite = null) }
         scope.launch {
             try {
-                val (link, expires) = withContext(work) { messaging.newInvite(email.takeIf { it.isNotBlank() }) }
+                val made = withContext(work) { messaging.newInvite(email.takeIf { it.isNotBlank() }) }
+                val link = made.link
                 _state.update {
-                    it.copy(invite = MadeInvite(link.format(), link.email, expires, link.inviter), inviteLoading = false)
+                    it.copy(invite = MadeInvite(link.format(), link.email, made.expiresAt, link.inviter, made.emailCode), inviteLoading = false)
                 }
             } catch (e: CancellationException) {
                 throw e

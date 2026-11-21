@@ -230,6 +230,19 @@
     <string name="invite_made_anyone">For whoever opens it first. Works once, until %1$s.</string>
     <string name="invite_share">Share link</string>
     <string name="invite_copy">Copy link</string>
+    <string name="invite_email_it">Email the invite</string>
+    <string name="invite_email_it_note">Opens your mail app with the link and a code, sent from your own address.</string>
+    <string name="invite_email_subject">%1$s invited you to Talk</string>
+    <string name="invite_email_body">%1$s invited you to Talk.
+
+1. Install the Talk app on your phone.
+2. Open this link on your phone: %2$s
+3. When the app asks, type this code: %3$s
+
+The link works once, until %4$s. If you weren’t expecting this, ignore this email.</string>
+    <string name="invite_no_mail_app">No mail app on this phone. Copy the link and send it another way.</string>
+    <string name="invite_code_body_inviter">%1$s emailed you a 6-digit code at %2$s, with the link.</string>
+    <string name="invite_code_help_inviter">It’s in the same email as the link.</string>
     <string name="invite_copied">Link copied</string>
     <string name="invite_another">Make another</string>
     <string name="invite_note">They’ll show as not verified until you compare safety numbers, since a link can be forwarded.</string>

@@ -41,6 +41,7 @@ class InviteActions(
     val back: () -> Unit = {},
     val make: (email: String) -> Unit = {},
     val share: (MadeInvite) -> Unit = {},
+    val email: (MadeInvite) -> Unit = {},
     val copy: (MadeInvite) -> Unit = {},
     val another: () -> Unit = {},
 )
@@ -94,7 +95,14 @@ internal fun InviteScreen(state: PairingState, actions: InviteActions) {
                     style = LibraryType.Body,
                     textAlign = TextAlign.Center,
                 )
-                PrimaryButton(stringResource(R.string.invite_share), { actions.share(invite) }, Modifier.fillMaxWidth().padding(top = 12.dp), icon = LibraryIcons.Share)
+                if (invite.emailCode != null) {
+                    // The link and its code from the user's own mail app: the server sends no mail for it.
+                    PrimaryButton(stringResource(R.string.invite_email_it), { actions.email(invite) }, Modifier.fillMaxWidth().padding(top = 12.dp), icon = LibraryIcons.Chat)
+                    Text(stringResource(R.string.invite_email_it_note), color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center)
+                    SecondaryButton(stringResource(R.string.invite_share), { actions.share(invite) }, Modifier.fillMaxWidth(), icon = LibraryIcons.Share)
+                } else {
+                    PrimaryButton(stringResource(R.string.invite_share), { actions.share(invite) }, Modifier.fillMaxWidth().padding(top = 12.dp), icon = LibraryIcons.Share)
+                }
                 SecondaryButton(stringResource(R.string.invite_copy), { actions.copy(invite) }, Modifier.fillMaxWidth(), icon = LibraryIcons.Copy)
                 SecondaryButton(stringResource(R.string.invite_another), actions.another, Modifier.fillMaxWidth())
                 Text(stringResource(R.string.invite_note), color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center)
@@ -113,6 +121,6 @@ private fun InviteFormPreview() {
 @Composable
 private fun InviteMadePreview() {
     TalkTheme {
-        InviteScreen(PairingState(invite = MadeInvite("ptt://invite?v=1&code=x", "dana@example.com", 1_800_000_000_000, "hen")), InviteActions())
+        InviteScreen(PairingState(invite = MadeInvite("ptt://invite?v=1&code=x", "dana@example.com", 1_800_000_000_000, "hen", "123456")), InviteActions())
     }
 }

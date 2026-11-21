@@ -167,16 +167,17 @@ internal class Messaging(
     /**
      * A new Invite a friend link from this phone (for [email] when not null): the server's invite code, where the
      * server is, and this phone's pairing part, with a secret kept to recognise the friend's pair request. Gives the
-     * link and when it expires.
+     * link, when it expires, and for an invite with an email the code to email there with it.
      */
-    suspend fun newInvite(email: String?): Pair<InviteLink, Long> {
+    suspend fun newInvite(email: String?): NewInvite {
         val self = device() ?: throw IllegalStateException("This phone isn't registered")
         val identity = engine.identityKey() ?: throw IllegalStateException("No identity key yet")
         val discovery = settings.serverDiscovery ?: throw IllegalStateException("The server hasn't said who it is yet")
         val wanted = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
-        val (code, expiresAt) = api.createInvite(wanted)
+        val created = api.createInvite(wanted)
+        val code = created.code
         val secret = random.nextBytes(PairCode.SECRET_BYTES)
-        val expires = parseTime(expiresAt) ?: (now() + 7.days.inWholeMilliseconds)
+        val expires = parseTime(created.expiresAt) ?: (now() + 7.days.inWholeMilliseconds)
         store.putInvite(Invite(PairCode.base64Url.encode(secret), code, expires, now(), viaLink = true))
         dropOldInvites()
         val link = InviteLink(
@@ -190,7 +191,7 @@ internal class Messaging(
             secret = secret,
             email = wanted,
         )
-        return link to expires
+        return NewInvite(link, expires, created.emailCode)
     }
 
     /** Redeems [link] on this enrolled phone and pairs with the inviter. True when the pair is made. */
@@ -508,6 +509,9 @@ internal class Messaging(
         }
     }
 }
+
+/** [Messaging.newInvite]'s answer. */
+internal class NewInvite(val link: InviteLink, val expiresAt: Long, val emailCode: String?)
 
 @OptIn(kotlin.time.ExperimentalTime::class)
 private fun parseTime(rfc3339: String): Long? = runCatching { kotlin.time.Instant.parse(rfc3339).toEpochMilliseconds() }.getOrNull()

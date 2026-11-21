@@ -47,7 +47,9 @@ An Invite a friend link ([invite.md](invite.md)) opened on a phone that isn't en
 1. **Invite** (step 1): "<Hen Cohen (hen)> invited you", "Type your email. We’ll send you a code to confirm it’s
    yours.", the server (with its id, from the link), and **Email** (filled in and locked when the invite is for one
    address). **Send code**.
-2. **Check your email** (step 2): "We sent a 6-digit code to <email>.", **Code** (six digits, "It works for 15
+   When the inviter emailed the invite with its code, this step is skipped.
+2. **Check your email** (step 2): "We sent a 6-digit code to <email>." (or, when the inviter emailed it, "<inviter>
+   invited you" and "<inviter> emailed you a 6-digit code at <email>, with the link.", without Send a new code), **Code** (six digits, "It works for 15
    minutes."), **Send a new code**, **Your name** ("How <inviter> and your other contacts see you."), **Device name**,
    the key note, and **Join and pair with <inviter>**.
 3. Registering and You’re connected as with a code. Then the phone pairs with the inviter on its own, and they show

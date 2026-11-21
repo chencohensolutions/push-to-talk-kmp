@@ -58,8 +58,16 @@ sealed interface EnrollmentStep {
      */
     data class InviteEmail(val checking: Boolean = false, val error: EnrollmentError? = null) : EnrollmentStep
 
-    /** The code was sent to [email]: the friend types it, and their name. */
-    data class InviteCode(val email: String, val sending: Boolean = false, val error: EnrollmentError? = null) : EnrollmentStep
+    /**
+     * The code was sent to [email]: the friend types it, and their name. [fromInviter]: the inviter emailed it with
+     * the link, so there is no "Send a new code".
+     */
+    data class InviteCode(
+        val email: String,
+        val sending: Boolean = false,
+        val error: EnrollmentError? = null,
+        val fromInviter: Boolean = false,
+    ) : EnrollmentStep
 
     data class Registering(val progress: RegistrationProgress) : EnrollmentStep
 
@@ -195,6 +203,9 @@ class EnrollmentController internal constructor(
     /** The invite link opened, until enrolled or left. */
     private var inviteLink: com.chencohen.ptt.messaging.InviteLink? = null
 
+    /** The inviter's phone emailed the invite's code (invitePreview.codeFromInviter). */
+    private var invitedByEmail = false
+
     private val _state = MutableStateFlow(
         EnrollmentState(
             serverAddress = serverAddress(settings.serverUrl),
@@ -275,7 +286,13 @@ class EnrollmentController internal constructor(
                         email = preview.email ?: it.email,
                     )
                 }
-                EnrollmentStep.InviteEmail()
+                // The inviter emailed the code with the link: straight to typing it.
+                invitedByEmail = preview.codeFromInviter && preview.email != null
+                if (invitedByEmail && preview.email != null) {
+                    EnrollmentStep.InviteCode(preview.email, fromInviter = true)
+                } else {
+                    EnrollmentStep.InviteEmail()
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -486,11 +503,13 @@ class EnrollmentController internal constructor(
             when (it.step) {
                 is EnrollmentStep.EnterCode -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
                 is EnrollmentStep.InviteEmail -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
-                is EnrollmentStep.InviteCode -> it.copy(step = EnrollmentStep.InviteEmail())
-                is EnrollmentStep.Registering -> it.copy(step = if (inviteLink != null) EnrollmentStep.InviteCode(it.email) else EnrollmentStep.EnterCode())
+                is EnrollmentStep.InviteCode ->
+                    if (it.step.fromInviter) it.copy(step = EnrollmentStep.Welcome).also { forgetPin() } else it.copy(step = EnrollmentStep.InviteEmail())
+                is EnrollmentStep.Registering -> it.copy(step = if (inviteLink != null) EnrollmentStep.InviteCode(it.email, fromInviter = invitedByEmail) else EnrollmentStep.EnterCode())
                 is EnrollmentStep.Confirm -> it.copy(step = EnrollmentStep.EnterCode())
                 is EnrollmentStep.Failed -> when {
-                    inviteLink != null && it.step.error is EnrollmentError.Invite -> it.copy(step = EnrollmentStep.InviteEmail())
+                    inviteLink != null && it.step.error is EnrollmentError.Invite ->
+                        it.copy(step = if (invitedByEmail) EnrollmentStep.InviteCode(it.email, fromInviter = true) else EnrollmentStep.InviteEmail())
                     inviteLink != null -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
                     else -> it.copy(code = "", step = EnrollmentStep.EnterCode())
                 }
@@ -628,6 +647,7 @@ class EnrollmentController internal constructor(
     private fun forgetPin() {
         pinned = null
         inviteLink = null
+        invitedByEmail = false
         _state.update { it.copy(serverId = null, invite = null) }
     }
 

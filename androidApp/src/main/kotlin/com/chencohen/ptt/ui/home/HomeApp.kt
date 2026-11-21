@@ -193,6 +193,20 @@ fun HomeApp(
                                 val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
                                 context.startActivity(Intent.createChooser(send, resources.getString(R.string.invite_share)))
                             },
+                            email = { invite ->
+                                val date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(invite.expiresAt))
+                                val body = resources.getString(R.string.invite_email_body, invite.inviter, invite.link, invite.emailCode, date)
+                                // mailto: only mail apps answer it; the user's own app sends it, from their address.
+                                val mail = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:"))
+                                    .putExtra(Intent.EXTRA_EMAIL, arrayOf(invite.email))
+                                    .putExtra(Intent.EXTRA_SUBJECT, resources.getString(R.string.invite_email_subject, invite.inviter))
+                                    .putExtra(Intent.EXTRA_TEXT, body)
+                                try {
+                                    context.startActivity(mail)
+                                } catch (_: android.content.ActivityNotFoundException) {
+                                    messages.post(resources.getString(R.string.invite_no_mail_app))
+                                }
+                            },
                             copy = { invite ->
                                 val clipboard = context.getSystemService(ClipboardManager::class.java)
                                 clipboard?.setPrimaryClip(ClipData.newPlainText(resources.getString(R.string.invite_title), invite.link))

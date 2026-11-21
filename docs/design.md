@@ -151,10 +151,14 @@ One link that enrolls a friend and pairs them with whoever invited them (the ser
    address can use it) answers a code that works once, for 7 days. `Messaging.newInvite` builds
    `ptt://invite?v=1&code=…&server=…&fingerprint=…&key=…&address=…&u=…&k=…&s=…&e=…` (`InviteLink`): an enrollment
    link's server part, the invite code, and the Add contact code's pairing part without a token, with a new secret
-   kept as an `Invite` with `viaLink`. Shared by the share sheet, copied, or shown as a QR code.
+   kept as an `Invite` with `viaLink`. Shared by the share sheet, copied, or shown as a QR code. **An invite with an
+   email** also comes with a six-digit code (`emailCode`, not in the link): **Email the invite** opens the user's own
+   mail app (`mailto:`) with the link and the code, from their own address, so the server sends no mail and holds no
+   mail password.
 2. **A phone that isn't enrolled** opens it (the app's `ptt://invite` intent filter, or Paste in the wizard):
-   `EnrollmentController.openInvite` pins the server's key from the link, `invitePreview` says who it is from, the
-   friend types their email, `inviteEmailCode` sends six digits there, and `enrollWithInvite` (the digits, their name,
+   `EnrollmentController.openInvite` pins the server's key from the link, `invitePreview` says who it is from. When
+   the inviter emailed the code (`codeFromInviter`) the wizard goes straight to typing it; for an invite without an
+   email the friend types theirs and `inviteEmailCode` has the server send six digits there. `enrollWithInvite` (the digits, their name,
    the certificate request) makes the user and the certificate in one step. Its pairing token goes into
    `PttSettings.pendingInvitePair` as the inviter's `PairCode`, and `Messaging` pairs with it once the keys are up
    and `/ws` is live, as after a scan.

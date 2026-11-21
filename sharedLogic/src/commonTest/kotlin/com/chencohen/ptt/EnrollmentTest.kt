@@ -276,6 +276,23 @@ class EnrollmentControllerTest {
      * An invite link on a phone that isn't enrolled: the invite is looked up, a code goes to the email typed, and
      * enrolling with it keeps the inviter's pairing code for Messaging.
      */
+    /** An invite the inviter emailed with its code: straight to typing the code, and nothing asked of the server. */
+    @Test
+    fun anEmailedInviteGoesStraightToTheCode() = runTest {
+        val link = com.chencohen.ptt.messaging.InviteLink(
+            code = "abcdefghijklmnopqrstuv", server = "https://192.168.50.2:8080", fingerprint = "ab".repeat(32),
+            key = null, addresses = emptyList(), inviter = "hen", identityKey = byteArrayOf(5) + ByteArray(32) { 3 },
+            secret = ByteArray(16) { 1 }, email = "dana@example.com",
+        )
+        val controller = controller(server(mapOf(
+            "InvitePreview" to """{"data":{"invitePreview":{"__typename":"InvitePreview","inviter":"hen","inviterDisplayName":null,"email":"dana@example.com","expiresAt":"2026-10-24T14:24:00Z","codeFromInviter":true}}}""",
+        )))
+        controller.openInvite(link)
+        assertEquals(EnrollmentStep.InviteCode("dana@example.com", fromInviter = true), controller.awaitStep { it is EnrollmentStep.InviteCode || it is EnrollmentStep.Failed })
+        assertEquals("dana@example.com", controller.currentState.email)
+        assertTrue(requests.none { "InviteEmailCode" in it })
+    }
+
     @Test
     fun anInviteLinkEnrollsByEmailAndKeepsTheInvitersCode() = runTest {
         val identity = byteArrayOf(5) + ByteArray(32) { 3 }
@@ -288,7 +305,7 @@ class EnrollmentControllerTest {
             ENROLLED_JSON.substringAfter("\"enrollDevice\":").substringBefore("}}}").replace("\"__typename\":\"EnrolledDevice\",", "") +
             "}," + """"pairing":{"inviter":"hen","pairingToken":{"token":"tokentokentokentokento","expiresAt":"2026-10-17T14:34:00Z"}}}}}"""
         val controller = controller(server(mapOf(
-            "InvitePreview" to """{"data":{"invitePreview":{"__typename":"InvitePreview","inviter":"hen","inviterDisplayName":"Hen Cohen","email":null,"expiresAt":"2026-10-24T14:24:00Z"}}}""",
+            "InvitePreview" to """{"data":{"invitePreview":{"__typename":"InvitePreview","inviter":"hen","inviterDisplayName":"Hen Cohen","email":null,"expiresAt":"2026-10-24T14:24:00Z","codeFromInviter":false}}}""",
             "InviteEmailCode" to """{"data":{"inviteEmailCode":{"__typename":"InviteEmailSent","email":"dana@example.com","expiresAt":"2026-10-17T14:39:00Z"}}}""",
             "EnrollWithInvite" to enrolledWithInvite,
         )))

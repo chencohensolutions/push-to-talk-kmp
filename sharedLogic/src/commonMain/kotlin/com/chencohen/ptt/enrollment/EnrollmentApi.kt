@@ -67,13 +67,20 @@ internal suspend fun enrollDevice(
 /** The server turned an invite down; see `InviteRejectedReason` in the server schema. */
 internal class InviteRejectedException(val reason: InviteRejectedReason) : Exception("Invite rejected: $reason")
 
-internal data class InvitePreview(val inviter: String, val inviterDisplayName: String?, val email: String?, val expiresAt: String)
+internal data class InvitePreview(
+    val inviter: String,
+    val inviterDisplayName: String?,
+    val email: String?,
+    val expiresAt: String,
+    /** The inviter's phone emailed the code with the link: no code is asked of the server. */
+    val codeFromInviter: Boolean,
+)
 
 internal suspend fun previewInvite(apollo: ApolloClient, code: String): InvitePreview {
     val result = apollo.query(InvitePreviewQuery(code)).execute().dataOrThrow().invitePreview
     result.onInviteRejected?.let { throw InviteRejectedException(it.reason) }
     val preview = result.onInvitePreview ?: throw EnrollmentTransportException("Unexpected answer ${result.__typename}")
-    return InvitePreview(preview.inviter, preview.inviterDisplayName, preview.email, preview.expiresAt)
+    return InvitePreview(preview.inviter, preview.inviterDisplayName, preview.email, preview.expiresAt, preview.codeFromInviter)
 }
 
 /** Sends the six-digit code to [email]; gives the address as the server keeps it. */
