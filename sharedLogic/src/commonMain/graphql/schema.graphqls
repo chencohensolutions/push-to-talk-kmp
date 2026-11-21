@@ -1,0 +1,118 @@
+# Phase 1 of ptt-server's schema, written with the server's (push-to-talk-server-go/graph/schema) on Nov 21, 2026.
+# Replace it with ./gradlew :sharedLogic:syncServerSchema once the server repo has it; the server's copy wins.
+#
+# Every root field requires a client certificate unless it is marked @public: only the two enrollment fields.
+
+scalar Time
+
+"Root field that clients may call without a client certificate."
+directive @public on FIELD_DEFINITION
+
+type Query {
+  "Which account an enrollment code belongs to. Does not use up the code."
+  enrollmentPreview(code: String!): EnrollmentPreviewResult! @public
+  "Who this server is and where, and what it can do."
+  serverInfo: ServerInfo!
+  "The calling device: its user, number and name."
+  me: Me!
+}
+
+type Mutation {
+  "Trades a one-time enrollment code and a certificate request for a client certificate."
+  enrollDevice(input: EnrollDeviceInput!): EnrollDeviceResult! @public
+  "A new certificate for a new key, asked with the current certificate in its last 30 days."
+  renewCertificate(csr: String!, keyProtection: KeyProtection!): EnrollDeviceResult!
+}
+
+type ServerInfo {
+  "The API's version: raised when a change needs newer apps."
+  api: Int!
+  "A device can renew its certificate (renewCertificate) before it expires."
+  renewCertificates: Boolean!
+  "The server's version and build."
+  version: String!
+  "The CA that signs this server's certificates (its own and the devices'), PEM; null when the server can't read it."
+  caCertificate: String
+  "The calling device's number (1 to 127)."
+  deviceNumber: Int!
+  "How to find this server when its address changes; null when the server can't read its own key."
+  discovery: ServerDiscovery
+}
+
+"""
+Who this server is and where it is now. An app pins the fingerprint (checking the server's key instead of the host
+name, so any address works), keeps the addresses to try when the one it uses stops answering, and looks the server up
+in the BitTorrent DHT under key when none answers (BEP 44 mutable item, salt "ptt-server/v1").
+"""
+type ServerDiscovery {
+  "The sha256 of the server certificate's public key (SubjectPublicKeyInfo), 64 hex digits."
+  fingerprint: String!
+  "The same as a server id, as people type it: base32 in 8 groups of 7 with check letters."
+  id: String!
+  "The server's ed25519 key in the DHT, 64 hex digits; null when it doesn't publish there."
+  key: String
+  "Where the server can be reached now, https://host:port, the most likely first."
+  addresses: [String!]!
+}
+
+type Me {
+  user: String!
+  "1 to 127, unique among the user's devices; libsignal and LiveKit use it."
+  deviceNumber: Int!
+  deviceName: String!
+}
+
+input EnrollDeviceInput {
+  "As shown by `ptt-server enroll-code`; case, dashes and spaces are ignored."
+  code: String!
+  "Shown in `ptt-server devices` so the device can be told apart and revoked."
+  deviceName: String!
+  "PKCS#10 certificate request for an EC P-256 key, base64-encoded DER."
+  csr: String!
+  keyProtection: KeyProtection!
+}
+
+"Where the device keeps its private key."
+enum KeyProtection {
+  STRONGBOX
+  TEE
+  SECURE_ENCLAVE
+  SOFTWARE
+}
+
+union EnrollmentPreviewResult = EnrollmentPreview | EnrollmentRejected
+
+type EnrollmentPreview {
+  user: String!
+  expiresAt: Time!
+}
+
+union EnrollDeviceResult = EnrolledDevice | EnrollmentRejected
+
+type EnrolledDevice {
+  user: String!
+  deviceName: String!
+  "1 to 127, unique among the user's devices."
+  deviceNumber: Int!
+  "Issued client certificate, base64-encoded DER."
+  certificate: String!
+  serial: String!
+  expiresAt: Time!
+  "The CA that signs this server's certificates, PEM."
+  caCertificate: String
+}
+
+type EnrollmentRejected {
+  reason: EnrollmentRejectedReason!
+}
+
+enum EnrollmentRejectedReason {
+  "Wrong, expired or already used code."
+  INVALID_CODE
+  "The certificate request is malformed, badly signed or not for an EC P-256 key."
+  INVALID_CSR
+  "Too many wrong codes from this address; wait a minute."
+  RATE_LIMITED
+  "renewCertificate: the certificate wasn't issued by enrollment, or is revoked; enroll again."
+  NOT_ENROLLED
+}
