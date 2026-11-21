@@ -55,6 +55,7 @@ kotlin {
             implementation(libs.libsignal.android)
             // The encrypted store (store/SqlCipherStore.kt).
             implementation(libs.sqlcipher.android)
+            implementation(libs.androidx.sqlite)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
