@@ -293,6 +293,32 @@ class EnrollmentControllerTest {
         assertTrue(requests.none { "InviteEmailCode" in it })
     }
 
+    /** A wrong code from the email stays on the code screen, with what was wrong, and nothing is kept. */
+    @Test
+    fun aWrongInviteCodeStaysOnTheCodeScreen() = runTest {
+        val link = com.chencohen.ptt.messaging.InviteLink(
+            code = "abcdefghijklmnopqrstuv", server = "https://192.168.50.2:8080", fingerprint = "ab".repeat(32),
+            key = null, addresses = emptyList(), inviter = "hen", identityKey = byteArrayOf(5) + ByteArray(32) { 3 },
+            secret = ByteArray(16) { 1 }, email = "dana@example.com",
+        )
+        val controller = controller(server(mapOf(
+            "InvitePreview" to """{"data":{"invitePreview":{"__typename":"InvitePreview","inviter":"hen","inviterDisplayName":null,"email":"dana@example.com","expiresAt":"2026-10-24T14:24:00Z","codeFromInviter":true}}}""",
+            "EnrollWithInvite" to """{"data":{"enrollWithInvite":{"__typename":"InviteRejected","reason":"WRONG_EMAIL_CODE"}}}""",
+        )))
+        controller.openInvite(link)
+        controller.awaitStep { it is EnrollmentStep.InviteCode }
+        controller.updateEmailCode("111111")
+        controller.updateDisplayName("Dana")
+        controller.registerWithInvite()
+        val step = controller.awaitStep { it is EnrollmentStep.InviteCode && it.error != null || it is EnrollmentStep.Failed }
+        assertEquals(
+            EnrollmentStep.InviteCode("dana@example.com", error = EnrollmentError.Invite(com.chencohen.ptt.enrollment.InviteProblem.WRONG_EMAIL_CODE), fromInviter = true),
+            step,
+        )
+        assertNull(PttSettings(store).pendingInvitePair)
+        assertTrue(keyStore.keys.isEmpty(), "the key made for it is gone")
+    }
+
     @Test
     fun anInviteLinkEnrollsByEmailAndKeepsTheInvitersCode() = runTest {
         val identity = byteArrayOf(5) + ByteArray(32) { 3 }

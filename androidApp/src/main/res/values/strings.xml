@@ -271,7 +271,7 @@ The link works once, until %4$s. If you weren’t expecting this, ignore this em
     <string name="invite_error_email">That isn’t an email address.</string>
     <string name="invite_error_mismatch">This invite is for another email address.</string>
     <string name="invite_error_taken">This email already has an account. Register this phone with a code from your server’s owner.</string>
-    <string name="invite_error_code">That code isn’t right, or it expired. Check it, or send a new one.</string>
+    <string name="invite_error_code">That code isn’t right, or it expired. Check the email and try again.</string>
     <string name="invite_error_name">Type your name.</string>
     <string name="invite_error_rate_limited">Too many tries. Wait a minute, then try again.</string>
     <string name="invite_error_mail">The server couldn’t send the email. Try again later.</string>

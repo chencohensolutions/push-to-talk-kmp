@@ -433,7 +433,12 @@ class EnrollmentController internal constructor(
                     issued
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
-                    return@launch setStep(EnrollmentStep.Failed(e.toEnrollmentError()))
+                    val error = e.toEnrollmentError()
+                    // An invite's wrong code or email: back to typing it, with what was wrong.
+                    if (inviteLink != null && error is EnrollmentError.Invite && error.problem != InviteProblem.INVALID_INVITE) {
+                        return@launch setStep(EnrollmentStep.InviteCode(current.email, error = error, fromInviter = invitedByEmail))
+                    }
+                    return@launch setStep(EnrollmentStep.Failed(error))
                 }
 
                 setStep(EnrollmentStep.Registering(RegistrationProgress.SAVING_CERTIFICATE))
