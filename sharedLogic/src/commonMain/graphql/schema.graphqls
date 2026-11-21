@@ -1,7 +1,8 @@
-# Phase 1 of ptt-server's schema, written with the server's (push-to-talk-server-go/graph/schema) on Nov 21, 2026.
-# Replace it with ./gradlew :sharedLogic:syncServerSchema once the server repo has it; the server's copy wins.
+# --- Authentication -----------------------------------------------------------
+# Every root field requires a client certificate unless it is marked @public (auth/access.go: deny by default).
+# See docs/authentication.md.
 #
-# Every root field requires a client certificate unless it is marked @public: only the two enrollment fields.
+# Errors a device acts on carry a code in extensions.code: UNAUTHORIZED.
 
 scalar Time
 
@@ -11,17 +12,10 @@ directive @public on FIELD_DEFINITION
 type Query {
   "Which account an enrollment code belongs to. Does not use up the code."
   enrollmentPreview(code: String!): EnrollmentPreviewResult! @public
-  "Who this server is and where, and what it can do."
+  "What this server is and can do, and the calling device's number."
   serverInfo: ServerInfo!
-  "The calling device: its user, number and name."
+  "The calling device and its user: what an app asks to check it is connected."
   me: Me!
-}
-
-type Mutation {
-  "Trades a one-time enrollment code and a certificate request for a client certificate."
-  enrollDevice(input: EnrollDeviceInput!): EnrollDeviceResult! @public
-  "A new certificate for a new key, asked with the current certificate in its last 30 days."
-  renewCertificate(csr: String!, keyProtection: KeyProtection!): EnrollDeviceResult!
 }
 
 type ServerInfo {
@@ -29,37 +23,38 @@ type ServerInfo {
   api: Int!
   "A device can renew its certificate (renewCertificate) before it expires."
   renewCertificates: Boolean!
-  "The server's version and build."
-  version: String!
-  "The CA that signs this server's certificates (its own and the devices'), PEM; null when the server can't read it."
+  """
+  The CA that signs this server's certificates (its server certificate and the devices'), PEM. Each server has its own
+  (ptt-server setup makes one), so an app keeps it once enrolled and trusts this server by it from then on, whatever
+  address it is reached at. Null when the server can't read it.
+  """
   caCertificate: String
-  "The calling device's number (1 to 127)."
+  "The server's version and build: \"2026.11.21 (3f2a9c1 2026-11-21)\", or just the version when built without git."
+  version: String!
+  "The calling device's number among its user's devices, 1 to 127 (Me.deviceNumber); 0 for a certificate made outside enrollment."
   deviceNumber: Int!
-  "How to find this server when its address changes; null when the server can't read its own key."
-  discovery: ServerDiscovery
-}
-
-"""
-Who this server is and where it is now. An app pins the fingerprint (checking the server's key instead of the host
-name, so any address works), keeps the addresses to try when the one it uses stops answering, and looks the server up
-in the BitTorrent DHT under key when none answers (BEP 44 mutable item, salt "ptt-server/v1").
-"""
-type ServerDiscovery {
-  "The sha256 of the server certificate's public key (SubjectPublicKeyInfo), 64 hex digits."
-  fingerprint: String!
-  "The same as a server id, as people type it: base32 in 8 groups of 7 with check letters."
-  id: String!
-  "The server's ed25519 key in the DHT, 64 hex digits; null when it doesn't publish there."
-  key: String
-  "Where the server can be reached now, https://host:port, the most likely first."
-  addresses: [String!]!
 }
 
 type Me {
+  "The user the device's certificate names (CN)."
   user: String!
-  "1 to 127, unique among the user's devices; libsignal and LiveKit use it."
+  "The device's number among the user's devices, 1 to 127: libsignal's device id, and the device in user.device."
   deviceNumber: Int!
+  "The name the device enrolled with."
   deviceName: String!
+}
+
+type Mutation {
+  "Trades a one-time enrollment code and a certificate request for a client certificate."
+  enrollDevice(input: EnrollDeviceInput!): EnrollDeviceResult! @public
+  """
+  Renews the calling device's certificate (serverInfo.renewCertificates): a new certificate for a new key, for the same
+  user and device, with the same device number. The old certificate works until the new one is first used, and is
+  then revoked. A device renews in the last 30 days of its certificate (expiresAt). NOT_ENROLLED for a certificate
+  made outside enrollment, or revoked; RATE_LIMITED more than 60 days before it expires, or after 5 renewals of the
+  same certificate.
+  """
+  renewCertificate(csr: String!, keyProtection: KeyProtection!): EnrollDeviceResult!
 }
 
 input EnrollDeviceInput {
@@ -74,9 +69,13 @@ input EnrollDeviceInput {
 
 "Where the device keeps its private key."
 enum KeyProtection {
+  "Android StrongBox security chip"
   STRONGBOX
+  "Android Keystore in the trusted execution environment"
   TEE
+  "Apple Secure Enclave"
   SECURE_ENCLAVE
+  "Ordinary software key (emulators and simulators)"
   SOFTWARE
 }
 
@@ -92,13 +91,13 @@ union EnrollDeviceResult = EnrolledDevice | EnrollmentRejected
 type EnrolledDevice {
   user: String!
   deviceName: String!
-  "1 to 127, unique among the user's devices."
+  "The device's number among the user's devices, 1 to 127; a renewed certificate keeps it."
   deviceNumber: Int!
   "Issued client certificate, base64-encoded DER."
   certificate: String!
   serial: String!
   expiresAt: Time!
-  "The CA that signs this server's certificates, PEM."
+  "The server's CA, PEM, as serverInfo.caCertificate."
   caCertificate: String
 }
 
@@ -107,7 +106,7 @@ type EnrollmentRejected {
 }
 
 enum EnrollmentRejectedReason {
-  "Wrong, expired or already used code."
+  "Wrong, expired or already used code (or one for a user since removed)."
   INVALID_CODE
   "The certificate request is malformed, badly signed or not for an EC P-256 key."
   INVALID_CSR
