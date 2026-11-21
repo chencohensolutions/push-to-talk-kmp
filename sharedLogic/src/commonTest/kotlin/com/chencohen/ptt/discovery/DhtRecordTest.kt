@@ -51,6 +51,21 @@ class DhtRecordTest {
         assertEquals(DhtFixtures.REPLY, Bencode.encode(reply).toByteString().hex())
     }
 
+    /** The record in push-to-talk-server-go's own test (discovery_test.go, TestASealedRecordFixtureOpens). */
+    @Test
+    fun opensTheRecordSealedByPttServersOwnTest() {
+        assertEquals(
+            "2eec171705bfb33df312a4a692f7848aaf8b041c36c71ba683336f8d2f358cb4",
+            DhtRecord.sealKey(DhtFixtures.FINGERPRINT).toByteString().hex(),
+        )
+        val sealed = "c5ba5fb85d3cc87d71649a251e4447631c3fae9bf4478d9677383ba317e1389b44147d5bbe18d75e1071bc0da0843557590e46e2" +
+            "9470575442c32749d01e6e3d30d181a9d053a264f874844da3da78d2212a8177c277728db356704d851762f5ac9dad38bb0c41b527a1" +
+            "7e57400667ad794a1f336db1c4a19394f81d6332b5f66b6f102fdbaa8bf6dc"
+        val record = assertNotNull(DhtRecord.open(hex(sealed), DhtFixtures.FINGERPRINT))
+        assertEquals(listOf("https://203.0.113.7:56400", "https://192.168.1.20:56400"), record.addresses)
+        assertEquals(Instant.parse("2026-11-21T12:00:00Z").toEpochMilliseconds(), record.at)
+    }
+
     @Test
     fun sealsAndOpensAgain() {
         val record = ServerRecord(listOf("https://198.51.100.4:56400"), Instant.parse("2026-11-21T20:00:00Z").toEpochMilliseconds())
