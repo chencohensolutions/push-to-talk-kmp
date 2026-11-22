@@ -117,31 +117,39 @@ internal fun QuickTalkHome(
                         modifier = Modifier.semantics { heading() },
                     )
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    talkLine(page.chat, talk, nameOf, me),
-                    color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
-                    style = LibraryType.RowTitle,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 24.dp),
-                )
+                // Only while someone talks (no hint text otherwise).
+                val line = talkLine(page.chat, talk, nameOf, me)
+                if (line.isNotEmpty()) {
+                    Text(
+                        line,
+                        color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
+                        style = LibraryType.RowTitle,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                }
                 // The page on screen keeps the camera warm for its chat.
                 if (pager.currentPage == i) WarmCamera(page.chat, pushVideo, warmCamera)
                 // Centred above the button: someone's video burst, or this phone's camera while Video is on.
                 val video = talk.playing?.takeIf { it.chat == page.chat && it.video } != null
-                TalkVideoBox(video, pushVideo && pager.currentPage == i, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp))
-                TalkCircle(
-                    live = live,
-                    someoneTalking = someone != null,
-                    press = { microphone { press(page.chat) } },
-                    release = release,
+                TalkStage(
+                    video, pushVideo && pager.currentPage == i,
+                    circle = { size ->
+                        TalkCircle(
+                            live = live,
+                            someoneTalking = someone != null,
+                            press = { microphone { press(page.chat) } },
+                            release = release,
+                            diameter = size,
+                        )
+                    },
+                    actions = {
+                        TalkChatActions(
+                            openChat = { openChat(page.chat) }, call = { v -> call(page.chat, v) },
+                            pushVideo = pushVideo, setPushVideo = setPushVideo,
+                        )
+                    },
                 )
-                Spacer(Modifier.height(16.dp))
-                TalkChatActions(
-                    openChat = { openChat(page.chat) }, call = { v -> call(page.chat, v) },
-                    pushVideo = pushVideo, setPushVideo = setPushVideo,
-                )
-                Spacer(Modifier.height(16.dp))
             }
         }
         if (pages.size > 1) PageDots(pages.size, pager.currentPage, Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp))

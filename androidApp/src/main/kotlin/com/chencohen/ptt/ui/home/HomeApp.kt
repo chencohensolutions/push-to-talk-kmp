@@ -765,7 +765,9 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 groups[chat]?.let { g -> com.chencohen.ptt.ui.talk.QuickTalkPage(chat, g.name.ifBlank { unnamed }, g.picture) }
                     ?: com.chencohen.ptt.ui.talk.QuickTalkPage(chat, contactNames.getValue(chat))
             }
-            Column(Modifier.fillMaxSize().padding(top = insets.calculateTopPadding() + 64.dp, bottom = insets.calculateBottomPadding() + 80.dp)) {
+            // No top bar on Talk (2026-11-22, hen): the profile circle sits small in the corner instead.
+            val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            Column(Modifier.fillMaxSize().padding(top = insets.calculateTopPadding() + 8.dp, bottom = insets.calculateBottomPadding() + if (landscape) 60.dp else 80.dp)) {
             state.update?.let { release -> UpdateCard(release, actions.update) }
             com.chencohen.ptt.ui.talk.QuickTalkHome(
                 pages = pages,
@@ -878,7 +880,17 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 }
             }
         }
-        TopBar(state, tab, actions.openSettings, Modifier.align(Alignment.TopCenter))
+        if (tab == HomeTab.TALK) {
+            Row(Modifier.align(Alignment.TopStart).statusBarRoom().padding(start = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProfileCircle(state.user, actions.openSettings)
+                if (state.health == ServerHealth.OFFLINE) {
+                    Spacer(Modifier.width(8.dp))
+                    OfflinePill()
+                }
+            }
+        } else {
+            TopBar(state, tab, actions.openSettings, Modifier.align(Alignment.TopCenter))
+        }
         if (tab == HomeTab.CHATS) {
             NewChatButton(actions.newChat, Modifier.align(Alignment.BottomEnd).navigationBarRoom().padding(end = 20.dp, bottom = 84.dp))
         }
@@ -890,7 +902,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
             ),
             selected = tab,
             onSelect = selectTab,
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarRoom().padding(bottom = 16.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarRoom().padding(bottom = if (androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 4.dp else 16.dp),
         )
     }
 }

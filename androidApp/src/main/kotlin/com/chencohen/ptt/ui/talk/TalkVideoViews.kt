@@ -12,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
@@ -187,5 +188,59 @@ internal fun TalkVideoView(modifier: Modifier = Modifier) {
             // The frames as captured, turned upright by the sender's rotation.
             modifier = Modifier.requiredSize(if (turned) h else w, if (turned) w else h).graphicsLayer { rotationZ = rotation.toFloat() },
         )
+    }
+}
+
+/**
+ * A Talk screen's middle: the video box, the big button, and the round buttons under it. Upright, the video is centred
+ * above the button; on its side (2026-11-22, hen) the video sits on the side of the front camera, the button and its
+ * buttons beside it.
+ */
+@Composable
+internal fun androidx.compose.foundation.layout.ColumnScope.TalkStage(
+    playingVideo: Boolean,
+    pushVideo: Boolean,
+    circle: @Composable (androidx.compose.ui.unit.Dp) -> Unit,
+    actions: @Composable () -> Unit,
+) {
+    val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    if (!landscape) {
+        TalkVideoBox(playingVideo, pushVideo, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp))
+        circle(220.dp)
+        androidx.compose.foundation.layout.Spacer(Modifier.size(16.dp))
+        actions()
+        androidx.compose.foundation.layout.Spacer(Modifier.size(16.dp))
+        return
+    }
+    // Turned left (the top to the left) the front camera is on the left; turned right, on the right.
+    val cameraLeft = androidx.compose.ui.platform.LocalView.current.display?.rotation != Surface.ROTATION_270
+    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
+        androidx.compose.foundation.layout.Row(Modifier.weight(1f).fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            @Composable
+            fun androidx.compose.foundation.layout.RowScope.video() =
+                TalkVideoBox(playingVideo, pushVideo, Modifier.weight(1f).fillMaxSize().padding(8.dp))
+
+            @Composable
+            fun androidx.compose.foundation.layout.RowScope.controls() =
+                BoxWithConstraints(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // The round button as big as fits above its round buttons (52 dp and a gap), at most 220 dp.
+                    val size = minOf(220.dp, maxHeight - 76.dp, maxWidth * 0.8f).coerceAtLeast(96.dp)
+                    androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides direction) {
+                            circle(size)
+                            androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
+                            actions()
+                        }
+                    }
+                }
+            if (cameraLeft) {
+                video()
+                controls()
+            } else {
+                controls()
+                video()
+            }
+        }
     }
 }
