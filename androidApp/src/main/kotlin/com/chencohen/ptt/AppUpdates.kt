@@ -124,6 +124,7 @@ object AppUpdates {
 
     /** The notification's tap (MainActivity): update to what is offered, or look again first. */
     fun updateFromNotification(app: TalkApp) {
+        if (debuggable(app)) return
         NotificationManagerCompat.from(app).cancel(NOTIFICATION_ID)
         val offered = (_state.value as? UpdateState.Available)?.release
         if (offered != null) update(app, offered) else check(app) { offer -> if (offer != null) update(app, offer) }
@@ -155,6 +156,11 @@ object AppUpdates {
 
     /** Update: download, verify and install [release]. */
     fun update(app: TalkApp, release: AppRelease) {
+        // A debug build never updates itself (hen, 2026-11-22): it offers nothing, and nothing starts it here.
+        if (debuggable(app)) {
+            _state.value = UpdateState.DebugBuild
+            return
+        }
         if (busy()) return
         if (!app.packageManager.canRequestPackageInstalls()) {
             _state.value = UpdateState.NeedsPermission(release)
