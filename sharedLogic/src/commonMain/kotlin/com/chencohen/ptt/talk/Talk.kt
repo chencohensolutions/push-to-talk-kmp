@@ -86,6 +86,8 @@ data class NowPlaying(
     val playedMs: Long = 0,
     /** How far behind the newest audio the playback is (the debug readout's catch-up time). */
     val behindMs: Long = 0,
+    /** Push-to-video: its pictures show where the burst is shown. */
+    val video: Boolean = false,
 )
 
 /** What the talk screens render. */
@@ -156,13 +158,18 @@ internal class Talk(
     /** The live path (phase 5b); null without it. */
     var live: LiveTalk? = null
 
+    /** Push-to-video: the camera, whether a press sends it (the Talk screen's Video), and where bursts' video shows. */
+    var videoCapture: TalkVideoCapture? = null
+    var sendVideo: () -> Boolean = { false }
+    var videoOut: TalkVideoOut? = null
+
     private val _state = MutableStateFlow(TalkUiState())
     val state: StateFlow<TalkUiState> = _state.asStateFlow()
 
     // --- Talking --------------------------------------------------------------------------------------------------
 
     private sealed interface Captured {
-        class Packet(val bytes: ByteArray) : Captured
+        class Packet(val bytes: ByteArray, val audio: Boolean = true) : Captured
         data object End : Captured
     }
 
@@ -183,6 +190,11 @@ internal class Talk(
         var cancelled = false
         var consumer: Job? = null
         var mic: TalkCapture? = null
+        /** The camera goes too (push-to-video): every packet is tagged (TalkVideo). */
+        var video = false
+        var videoNumber = 0
+        var pendingBytes = 0
+        var pendingAudio = 0
     }
 
     private var outgoing: Outgoing? = null
@@ -206,7 +218,17 @@ internal class Talk(
         val out = Outgoing(chat, voiceOnly)
         out.mic = mic
         stopPlaying()
-        if (!mic.start { out.packets.trySend(Captured.Packet(it)) }) return refuse(chat, OwnTalk.MIC)
+        // The camera first, so the voice's packets are tagged from the first one.
+        val camera = videoCapture?.takeIf { !voiceOnly && sendVideo() }
+        if (camera != null) {
+            out.video = camera.start { frame ->
+                TalkVideo.pieces(out.videoNumber++ and 0xffff, frame).forEach { out.packets.trySend(Captured.Packet(it, audio = false)) }
+            }
+        }
+        if (!mic.start { out.packets.trySend(Captured.Packet(if (out.video) TalkVideo.audio(it) else it)) }) {
+            if (out.video) camera?.stop()
+            return refuse(chat, OwnTalk.MIC)
+        }
         outgoing = out
         if (!voiceOnly) {
             live?.burst(chat, null)
@@ -240,6 +262,7 @@ internal class Talk(
     fun release(send: Boolean = true) {
         val out = outgoing ?: return
         if (!send) out.cancelled = true
+        if (out.video) videoCapture?.stop()
         out.mic?.stop()
         out.packets.trySend(Captured.End)
         if (!out.voiceOnly) scope.launch { live?.talking(out.chat, false) }
@@ -250,8 +273,13 @@ internal class Talk(
             when (item) {
                 is Captured.Packet -> {
                     out.pending += item.bytes
-                    out.frames++
-                    if (out.pending.size == TalkAudioFormat.FRAMES_PER_SEGMENT) segment(out, last = false)
+                    out.pendingBytes += item.bytes.size
+                    if (item.audio) {
+                        out.frames++
+                        out.pendingAudio++
+                    }
+                    // 200 ms of voice, or less when the camera's pieces fill it (under the server's 16 KB).
+                    if (out.pendingAudio == TalkAudioFormat.FRAMES_PER_SEGMENT || out.pendingBytes > SEGMENT_BYTES) segment(out, last = false)
                 }
                 Captured.End -> {
                     segment(out, last = true)
@@ -269,6 +297,8 @@ internal class Talk(
         val segment = ClipSegment(out.id, out.index, last, ciphertext)
         out.index++
         out.pending = mutableListOf()
+        out.pendingBytes = 0
+        out.pendingAudio = 0
         if (out.voiceOnly || out.phase == TalkPhase.OFFLINE || out.cancelled) return
         if (out.granted) {
             if (!sendFrame(ClipSegmentFrame(segment))) toVoice(out)
@@ -313,7 +343,7 @@ internal class Talk(
                     TextMessage(
                         out.id, out.chat, outgoing = true, body = "", at = out.startedAt, status = MessageStatus.PENDING,
                         author = if (Group.idOf(out.chat) != null) me()?.user else null,
-                        clip = Clip(out.id, Base64.encode(out.key), ClipKind.VOICE, duration, kept = true),
+                        clip = Clip(out.id, Base64.encode(out.key), ClipKind.VOICE, duration, kept = true, video = out.video),
                     )
                 )
                 publish()
@@ -342,7 +372,7 @@ internal class Talk(
                 store.putMessage(message.copy(clip = clip.copy(uploaded = true)))
             }
             val key = Base64.decode(clip.key)
-            sendContent(message.user, Content(clip = ClipContent(id, key, ClipContent.VOICE, message.at, clip.durationMs)), PushKind.MESSAGE)
+            sendContent(message.user, Content(clip = ClipContent(id, key, ClipContent.VOICE, message.at, clip.durationMs, video = clip.video)), PushKind.MESSAGE)
             MessageStatus.SENT
         } catch (e: CancellationException) {
             throw e
@@ -373,7 +403,7 @@ internal class Talk(
             TextMessage(
                 out.id, out.chat, outgoing = true, body = "", at = out.startedAt, status = MessageStatus.SENT,
                 author = if (Group.idOf(out.chat) != null) me()?.user else null,
-                clip = Clip(out.id, Base64.encode(out.key), ClipKind.BURST),
+                clip = Clip(out.id, Base64.encode(out.key), ClipKind.BURST, video = out.video),
             )
         )
         publish()
@@ -386,7 +416,7 @@ internal class Talk(
         }
         scope.launch {
             try {
-                sendContent(out.chat, Content(clip = ClipContent(out.id, out.key, ClipContent.BURST, out.startedAt)), PushKind.TALK)
+                sendContent(out.chat, Content(clip = ClipContent(out.id, out.key, ClipContent.BURST, out.startedAt, video = out.video)), PushKind.TALK)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -401,6 +431,7 @@ internal class Talk(
         out.unsent.clear()
         if (outgoing === out) {
             outgoing = null
+            if (out.video) videoCapture?.stop()
             out.mic?.stop()
             out.packets.close()
             scope.launch { live?.talking(out.chat, false) }
@@ -485,6 +516,9 @@ internal class Talk(
         var device = 0
         /** Heard live through the room: the clip is only kept. */
         var heardLive = false
+        /** Push-to-video: its packets are tagged, the pictures go to videoOut. */
+        var video = false
+        val splitter = TalkVideo.Splitter()
         val createdAt = now()
     }
 
@@ -528,7 +562,7 @@ internal class Talk(
                     clip.id, chat, outgoing = outgoingCopy, body = "", at = if (outgoingCopy) clip.sentAt else serverTimestamp,
                     status = MessageStatus.SENT, read = outgoingCopy,
                     author = if (Group.idOf(chat) != null) from else null,
-                    clip = Clip(clip.id, Base64.encode(clip.key), kind, clip.durationMs),
+                    clip = Clip(clip.id, Base64.encode(clip.key), kind, clip.durationMs, video = clip.video),
                 )
             )
         }
@@ -536,6 +570,7 @@ internal class Talk(
         val burst = incoming(clip.id, chat, from)
         burst.key = clip.key
         burst.sentAt = clip.sentAt
+        burst.video = clip.video
         scope.launch { consider(burst) }
         drain(burst)
     }
@@ -603,9 +638,11 @@ internal class Talk(
     private fun start(burst: Incoming) {
         val player = player ?: return
         burst.playing = true
-        _state.update { it.copy(playing = NowPlaying(burst.chat, burst.id, burst.from, live = true), queued = it.queued - burst.id) }
+        _state.update { it.copy(playing = NowPlaying(burst.chat, burst.id, burst.from, live = true, video = burst.video), queued = it.queued - burst.id) }
+        if (burst.video) videoOut?.begin(burst.id)
         burst.playback = player.open(
-            live = true, catchUp = prefs.catchUp,
+            // With video, at its own pace: catching up would leave the pictures behind.
+            live = true, catchUp = if (burst.video) CatchUpMode.OFF else prefs.catchUp,
             onProgress = { played, behind -> scope.launch { progress(burst.id, played, behind) } },
             onDone = { scope.launch { done(burst.id) } },
         )
@@ -626,8 +663,13 @@ internal class Talk(
                 if (segment.last) burst.lastIndex = null
                 break
             }
-            burst.frames += packets.size
-            if (burst.playing) burst.playback?.write(packets)
+            val audio = if (burst.video) {
+                burst.splitter.split(packets) { frame -> if (burst.playing) videoOut?.frame(burst.id, frame) }
+            } else {
+                packets
+            }
+            burst.frames += audio.size
+            if (burst.playing) burst.playback?.write(audio)
             burst.next++
             if (segment.last) break
         }
@@ -661,7 +703,9 @@ internal class Talk(
         stopPlaying()
         val player = player ?: return
         val from = if (message.outgoing) me()?.user.orEmpty() else message.author ?: message.user
-        _state.update { it.copy(playing = NowPlaying(message.user, id, from, live = false)) }
+        _state.update { it.copy(playing = NowPlaying(message.user, id, from, live = false, video = clip.video)) }
+        if (clip.video) videoOut?.begin(id)
+        val splitter = TalkVideo.Splitter()
         val playback = player.open(
             live = false, catchUp = CatchUpMode.OFF,
             onProgress = { played, behind -> scope.launch { progress(id, played, behind) } },
@@ -683,8 +727,9 @@ internal class Talk(
             var frames = 0
             for (segment in segments.sortedBy { it.index }) {
                 val packets = ClipCrypto.open(key, id, segment.index, segment.last, segment.ciphertext) ?: break
-                frames += packets.size
-                playback.write(packets)
+                val audio = if (clip.video) splitter.split(packets) { frame -> videoOut?.frame(id, frame) } else packets
+                frames += audio.size
+                playback.write(audio)
             }
             playback.finish()
             store.message(id)?.let { m ->
@@ -697,6 +742,7 @@ internal class Talk(
 
     /** Stops what is playing (and what waits to play). */
     fun stopPlaying() {
+        _state.value.playing?.takeIf { it.video }?.let { videoOut?.end(it.clip) }
         historyPlayback?.stop()
         historyPlayback = null
         _state.value.playing?.let { bursts[it.clip]?.playback?.stop() }
@@ -704,10 +750,12 @@ internal class Talk(
     }
 
     private fun progress(id: String, played: Long, behind: Long) {
+        if (_state.value.playing?.let { it.clip == id && it.video } == true) videoOut?.position(id, played)
         _state.update { s -> if (s.playing?.clip == id) s.copy(playing = s.playing.copy(playedMs = played, behindMs = behind)) else s }
     }
 
     private fun done(id: String) {
+        if (_state.value.playing?.let { it.clip == id && it.video } == true) videoOut?.end(id)
         bursts[id]?.let {
             it.playing = false
             it.playback = null
@@ -738,6 +786,9 @@ internal class Talk(
     private fun newClipId(): String = random.nextBytes(16).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 
     companion object {
+        /** A segment's packets are cut before this many bytes when the camera's pieces fill it (the server takes 16 KB). */
+        const val SEGMENT_BYTES = 12_000
+
         /** How long a press waits for the floor before it records a voice message instead. */
         const val GRANT_WAIT = 3_000L
 

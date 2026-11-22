@@ -106,9 +106,11 @@ internal data class ClipContent(
     @ProtoNumber(4) val sentAt: Long = 0,
     /** A voice message's length; 0 for a burst, which is still being said. */
     @ProtoNumber(5) val durationMs: Long = 0,
+    /** Push-to-video: the clip's packets are tagged, audio and pieces of the camera's frames (TalkVideo). */
+    @ProtoNumber(6) val video: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean = other is ClipContent && id == other.id && key.contentEquals(other.key) &&
-        kind == other.kind && sentAt == other.sentAt && durationMs == other.durationMs
+        kind == other.kind && sentAt == other.sentAt && durationMs == other.durationMs && video == other.video
 
     override fun hashCode(): Int = id.hashCode()
 

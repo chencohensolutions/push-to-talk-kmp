@@ -131,6 +131,8 @@ data class Clip(
     val uploaded: Boolean = false,
     /** An incoming clip was played here. */
     val heard: Boolean = false,
+    /** Push-to-video: the camera too (TalkVideo). */
+    val video: Boolean = false,
 )
 
 /** A member of a group as the owner's devices named them: the user and the identity key the owner trusts (base64). */
