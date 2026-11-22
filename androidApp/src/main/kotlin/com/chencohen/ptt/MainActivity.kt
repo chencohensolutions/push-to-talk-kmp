@@ -130,6 +130,8 @@ class MainActivity : ComponentActivity() {
     // background is a setting in phase 5 (FCM wakes the phone in phase 3).
     override fun onStart() {
         super.onStart()
+        // On screen: the reply bubble isn't needed.
+        TalkBubble.dismiss()
         // A newer release of the app, as the server read it from GitHub (docs/design.md, "App updates").
         AppUpdates.checkIfDue(application as TalkApp)
         if (viewModel.connection.currentState.enrolled) {

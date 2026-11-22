@@ -83,6 +83,11 @@ data class TalkSettings(
     val quickTalkPage: String? = null,
     /** Settings › Talk › Open Talk when someone talks to me: the screen turns on with that Talk screen (off by default). */
     val openOnTalk: Boolean = false,
+    /**
+     * Settings › Talk › Reply bubble over other apps (off by default): while the phone is in use, a burst shows a bar at
+     * the bottom of the screen with the sender and a Talk button, for the burst and the reply window after it.
+     */
+    val replyBubble: Boolean = false,
 )
 
 /**
@@ -331,6 +336,7 @@ internal class Messaging(
         quickTalk = settings.quickTalkChats,
         quickTalkPage = settings.quickTalkPage,
         openOnTalk = settings.openOnTalk,
+        replyBubble = settings.replyBubble,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -343,6 +349,7 @@ internal class Messaging(
         settings.quickTalkChats = talk.quickTalk
         settings.quickTalkPage = talk.quickTalkPage
         settings.openOnTalk = talk.openOnTalk
+        settings.replyBubble = talk.replyBubble
         _state.update { it.copy(talkSettings = talk) }
     }
 

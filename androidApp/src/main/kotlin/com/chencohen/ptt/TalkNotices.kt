@@ -49,12 +49,14 @@ object TalkPlaying {
             shown = playing.chat to playing.from
             lastClip = playing.clip
             post(app, playing.chat, playing.from, playing.playedMs, live = true)
+            if (TalkBubble.allowed(app)) TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true)
         } else {
             val (chat, from) = shown ?: return
             shown = null
             TalkWidgets.show(app, chat, com.chencohen.ptt.talk.TalkWidgetView.Idle)
             TalkReply.open(chat)
             post(app, chat, from, 0, live = false)
+            TalkBubble.show(app, chat, TalkBubble.titleOf(app, chat, from), live = false)
         }
     }
 
@@ -122,14 +124,12 @@ object TalkPlaying {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    /** Talk back: tap to talk to [chat] (TalkReadyService records), needs the phone unlocked. */
-    fun talkBackAction(context: Context, chat: String): NotificationCompat.Action {
-        val intent = Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_TALK_BACK).putExtra(TalkReadyService.EXTRA_CHAT, chat)
-        val pending = PendingIntent.getForegroundService(context, chat.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        return NotificationCompat.Action.Builder(0, context.getString(R.string.playing_talk_back), pending)
-            .apply { if (Build.VERSION.SDK_INT >= 31) setAuthenticationRequired(true) }
-            .build()
-    }
+    /**
+     * Talk back: opens [chat]'s Talk screen, the big button with the microphone ready (2026-11-22, hen: not a voice
+     * message); over the lock screen it asks to unlock first.
+     */
+    fun talkBackAction(context: Context, chat: String): NotificationCompat.Action =
+        NotificationCompat.Action.Builder(0, context.getString(R.string.playing_talk_back), openTalk(context, chat)).build()
 
     private fun openTalk(context: Context, chat: String) = PendingIntent.getActivity(
         context, chat.hashCode() + 1,

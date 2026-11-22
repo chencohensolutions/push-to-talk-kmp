@@ -1,6 +1,12 @@
 package com.chencohen.ptt.ui.settings
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.chencohen.ptt.R
 import com.chencohen.ptt.messaging.TalkSettings
@@ -40,18 +46,40 @@ internal fun TalkSettingsScreen(
         }
         SectionTitle(stringResource(R.string.talk_background_title))
         val context = androidx.compose.ui.platform.LocalContext.current
+        // What Android allows, read again each time the page comes back (from its settings).
+        var resumed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+            resumed++
+            onPauseOrDispose {}
+        }
+        val fullScreenAllowed = androidx.compose.runtime.remember(resumed) {
+            android.os.Build.VERSION.SDK_INT < 34 || context.getSystemService(android.app.NotificationManager::class.java).canUseFullScreenIntent()
+        }
+        val overlayAllowed = androidx.compose.runtime.remember(resumed) { android.provider.Settings.canDrawOverlays(context) }
+        fun openOverlaySetting() = runCatching {
+            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:${context.packageName}")))
+        }
+        fun openFullScreenSetting() = runCatching {
+            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, android.net.Uri.parse("package:${context.packageName}")))
+        }
         SettingsCard {
             SwitchRow(stringResource(R.string.talk_open_on_talk), stringResource(R.string.talk_open_on_talk_body), settings.openOnTalk) { on ->
                 change(settings.copy(openOnTalk = on))
                 // Turning it on asks Android for full-screen notifications when it needs to (Android 14+).
-                val nm = context.getSystemService(android.app.NotificationManager::class.java)
-                if (on && android.os.Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) {
-                    runCatching {
-                        context.startActivity(
-                            android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, android.net.Uri.parse("package:${context.packageName}")),
-                        )
-                    }
-                }
+                if (on && !fullScreenAllowed) openFullScreenSetting()
+            }
+            if (settings.openOnTalk && !fullScreenAllowed) {
+                RowDivider()
+                AllowRow(stringResource(R.string.talk_allow_full_screen)) { openFullScreenSetting() }
+            }
+            RowDivider()
+            SwitchRow(stringResource(R.string.talk_reply_bubble), stringResource(R.string.talk_reply_bubble_body), settings.replyBubble) { on ->
+                change(settings.copy(replyBubble = on))
+                if (on && !overlayAllowed) openOverlaySetting()
+            }
+            if (settings.replyBubble && !overlayAllowed) {
+                RowDivider()
+                AllowRow(stringResource(R.string.talk_allow_overlay)) { openOverlaySetting() }
             }
             RowDivider()
             SwitchRow(stringResource(R.string.talk_stay_connected), stringResource(R.string.talk_stay_connected_body), settings.stayConnected) {
@@ -73,5 +101,18 @@ internal fun TalkSettingsScreen(
                 ChoiceRow(name, null, settings.defaultChat == chat) { change(settings.copy(defaultChat = chat)) }
             }
         }
+    }
+}
+
+/** A setting Android hasn't allowed yet: in the warning color, a tap opens Android's page for it. */
+@Composable
+private fun AllowRow(title: String, open: () -> Unit) {
+    androidx.compose.foundation.layout.Column(
+        androidx.compose.ui.Modifier.fillMaxWidth()
+            .clickable(role = androidx.compose.ui.semantics.Role.Button) { open() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        androidx.compose.material3.Text(title, color = com.chencohen.ptt.ui.style.LibraryColors.Warning, style = com.chencohen.ptt.ui.style.LibraryType.RowTitle)
+        androidx.compose.material3.Text(stringResource(R.string.talk_allow_body), color = com.chencohen.ptt.ui.style.LibraryColors.Muted, style = com.chencohen.ptt.ui.style.LibraryType.Caption)
     }
 }
