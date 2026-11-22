@@ -489,6 +489,7 @@ fun HomeApp(
                         title = group?.let { groupName(it) } ?: nameOf(chat),
                         me = state.device?.user.orEmpty(),
                         talk = messagingState.talk,
+                        liveRoom = messagingState.live,
                         bursts = messagingState.conversations[chat].orEmpty().filter { it.clip != null },
                         nameOf = nameOf,
                         press = { messaging.pressTalk(chat) },

@@ -25,10 +25,11 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
   ciphertext; `PairCode`, the Add contact QR code; `InviteLink`, the Invite a friend link; `LinkCode`, the Link a phone code and the sealed PROVISIONING messages; `InviteMessage`, the text it and its code go out in (phone to phone: the server sends no mail); `Groups`, phase 4's groups (the owner's signed changes, sender keys, the group Send); `MessagingStore`; `MessagingController` and `PairingController`
   for the screens; `ApolloMessagingApi`). `talk/` (phase 5a): `Talk` (floor, bursts out and in, voice messages,
   playback queue), `ClipCrypto` and `ClipRecords` (segments and clip files), `Blobs.kt` (`/blob`, `ClipFiles`),
-  `TalkAudio.kt` (`TalkCapture`, `TalkPlayer`, `CatchUp`). GraphQL schema and operations in `commonMain/graphql/` (the schema and the
+  `TalkAudio.kt` (`TalkCapture`, `TalkPlayer`, `CatchUp`); phase 5b's `LiveTalk` (the live room, talk keys,
+  `TalkTransport`). GraphQL schema and operations in `commonMain/graphql/` (the schema and the
   .proto are the server's: `./gradlew :sharedLogic:syncServerSchema`).
   `androidMain`: Keystore keys (`AndroidDeviceKeyStore`), the OkHttp mTLS client with the pinned key and the
-  server's CA (`AndroidMtlsHttpClientFactory`, with Ktor's WebSockets), Opus capture and playback (`talk/OpusCodec.kt`, `AndroidTalkCapture`, `AndroidTalkPlayer`),
+  server's CA (`AndroidMtlsHttpClientFactory`, with Ktor's WebSockets), Opus capture and playback (`talk/OpusCodec.kt`, `AndroidTalkCapture`, `AndroidTalkPlayer`), LiveKit (`talk/LiveKitTalkTransport.kt`),
   libsignal (`crypto/LibsignalCryptoEngine.kt`,
   `SignalStore.kt`), SQLCipher (`store/SqlCipherStore.kt`, its key wrapped in the Keystore), and the factories
   (`AndroidPtt.kt`). `androidHostTest`: libsignal itself on the JVM. `iosMain`: only the actuals common code

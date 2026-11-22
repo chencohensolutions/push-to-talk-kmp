@@ -1,0 +1,169 @@
+package com.chencohen.ptt.talk
+
+import com.chencohen.ptt.messaging.ApiException
+import com.chencohen.ptt.messaging.Content
+import com.chencohen.ptt.messaging.LiveToken
+import com.chencohen.ptt.messaging.TalkKeyContent
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlin.random.Random
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class LiveTalkTest {
+    private class FakeTransport : TalkTransport {
+        val joins = mutableListOf<Pair<String, Int>>()
+        val keys = mutableMapOf<String, Pair<ByteArray, Int>>()
+        var leaves = 0
+        var talking = false
+        val heard = mutableSetOf<String>()
+        val silenced = mutableListOf<String>()
+        var joinWorks = true
+        override var listener: TalkTransportListener? = null
+        override val capture: TalkCapture = object : TalkCapture {
+            override fun start(onPacket: (ByteArray) -> Unit) = true
+            override fun stop() {}
+        }
+
+        override suspend fun join(url: String, token: String, identity: String, ownKey: ByteArray, ownIndex: Int): Boolean {
+            joins += url to ownIndex
+            return joinWorks
+        }
+
+        override fun leave() { leaves++ }
+        override fun setKey(identity: String, key: ByteArray, index: Int) { keys[identity] = key to index }
+        override suspend fun setTalking(on: Boolean) { talking = on }
+        override fun hears(identity: String) = identity in heard
+        override fun silence(identity: String) { silenced += identity }
+    }
+
+    private class Setup(val scope: TestScope, liveOn: Boolean = true) {
+        val transport = FakeTransport()
+        val sent = mutableListOf<Pair<String, Content>>()
+        val tokenAsks = mutableListOf<Pair<String?, String?>>()
+        val live = LiveTalk(
+            scope = scope.backgroundScope,
+            tokens = { peer, group ->
+                tokenAsks += peer to group
+                if (!liveOn) throw ApiException("LIVE_OFF", "no")
+                LiveToken("t", "u-x", "hen.1", "/rtc", "")
+            },
+            available = { liveOn },
+            serverUrl = { "https://192.168.50.2:56400/query" },
+            sendContent = { chat, content, _ -> sent += chat to content },
+            now = { scope.testScheduler.currentTime },
+            random = Random(1),
+        ).also { it.transport = transport }
+    }
+
+    @Test
+    fun theChatOnScreenJoinsItsRoomAndSendsTheKey() = runTest {
+        val s = Setup(this)
+        s.live.show("sharon")
+        runCurrent()
+        assertEquals(listOf("wss://192.168.50.2:56400" to 1), s.transport.joins)
+        assertEquals(listOf<Pair<String?, String?>>("sharon" to null), s.tokenAsks)
+        assertEquals("sharon", s.live.state.value.room)
+        val key = s.sent.single().second.talkKey!!
+        assertEquals(LiveTalk.KEY_BYTES, key.key.size)
+        assertEquals(1, key.index)
+        // Someone joins later: they get the key too.
+        s.transport.listener!!.joined("sharon.1")
+        runCurrent()
+        assertEquals(2, s.sent.size)
+    }
+
+    @Test
+    fun aGroupAsksForItsGroupRoom() = runTest {
+        val s = Setup(this)
+        s.live.show("#abc")
+        runCurrent()
+        assertEquals(listOf<Pair<String?, String?>>(null to "abc"), s.tokenAsks)
+    }
+
+    @Test
+    fun othersKeysAreSetAndKeptForTheNextRoom() = runTest {
+        val s = Setup(this)
+        s.live.takeKey("sharon.1", TalkKeyContent(ByteArray(32) { 7 }, 3))
+        s.live.takeKey("bad.1", TalkKeyContent(ByteArray(5), 1))
+        s.live.takeKey("bad.2", TalkKeyContent(ByteArray(32), LiveTalk.KEY_RING))
+        assertEquals(setOf("sharon.1"), s.transport.keys.keys)
+        s.transport.keys.clear()
+        s.live.show("sharon")
+        runCurrent()
+        assertEquals(3, s.transport.keys["sharon.1"]!!.second)
+    }
+
+    @Test
+    fun theRoomIsLeftAMinuteAfterTheLastBurstOnceOffScreen() = runTest {
+        val s = Setup(this)
+        s.live.show("sharon")
+        runCurrent()
+        s.live.show(null)
+        s.live.burst("sharon", "sharon")
+        advanceTimeBy(LiveTalk.STAY_AFTER_BURST - 1_000)
+        runCurrent()
+        assertEquals("sharon", s.live.state.value.room)
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertNull(s.live.state.value.room)
+        assertEquals(1, s.transport.leaves)
+    }
+
+    @Test
+    fun theKeyIndexGoesRoundInTheKeyRing() = runTest {
+        val s = Setup(this)
+        repeat(LiveTalk.KEY_RING + 1) { i ->
+            s.live.show(if (i % 2 == 0) "a" else "b")
+            runCurrent()
+        }
+        assertTrue(s.transport.joins.all { it.second in 0 until LiveTalk.KEY_RING })
+        assertEquals(1, s.transport.joins.last().second)
+    }
+
+    @Test
+    fun withoutLiveKitNothingIsJoined() = runTest {
+        val s = Setup(this, liveOn = false)
+        s.live.show("sharon")
+        runCurrent()
+        assertTrue(s.transport.joins.isEmpty())
+        assertNull(s.live.captureFor("sharon"))
+    }
+
+    @Test
+    fun hearingLiveAndTheMicrophoneOnlyInTheRoom() = runTest {
+        val s = Setup(this)
+        s.live.show("sharon")
+        runCurrent()
+        s.transport.heard += "sharon.1"
+        assertTrue(s.live.hearsLive("sharon", "sharon.1"))
+        assertFalse(s.live.hearsLive("other", "sharon.1"))
+        s.live.talking("sharon", true)
+        assertTrue(s.transport.talking)
+        s.live.talking("other", false)
+        assertTrue(s.transport.talking)
+        s.live.silence("sharon", "sharon.1")
+        assertEquals(listOf("sharon.1"), s.transport.silenced)
+        assertTrue(s.live.captureFor("sharon") != null)
+        assertNull(s.live.captureFor("other"))
+    }
+
+    @Test
+    fun theLatencyIsFromTheBurstToItsLiveAudio() = runTest {
+        val s = Setup(this)
+        s.live.show("sharon")
+        runCurrent()
+        s.live.burst("sharon", "sharon")
+        advanceTimeBy(240)
+        s.transport.listener!!.liveAudio("sharon.1")
+        runCurrent()
+        assertEquals(240L, s.live.state.value.lastLatencyMs)
+    }
+}

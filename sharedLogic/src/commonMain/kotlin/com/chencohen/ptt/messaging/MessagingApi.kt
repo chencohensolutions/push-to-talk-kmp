@@ -68,6 +68,9 @@ internal class ServerContact(
 
 internal class ServerContacts(val contacts: List<ServerContact>, val blocked: List<String>)
 
+/** A LiveKit access token from talkToken or callToken: its room, the identity "user.device", the path on the server. */
+class LiveToken(val token: String, val room: String, val identity: String, val path: String, val expiresAt: String)
+
 /** A GraphQL error the server answered with; [code] is its `extensions.code` (docs/messaging.md). */
 class ApiException(val code: String?, message: String) : Exception(message)
 
@@ -152,6 +155,15 @@ internal interface MessagingApi {
     suspend fun removeFromGroup(group: String, user: String): ServerGroup
 
     suspend fun deleteGroup(group: String): Boolean
+
+    /** The server has LiveKit beside it (`serverInfo.liveTalk`). */
+    suspend fun liveTalk(): Boolean = false
+
+    /** A LiveKit token for the conversation's talk room (phase 5b); LIVE_OFF without LiveKit. */
+    suspend fun talkToken(peer: String?, group: String?): LiveToken = throw ApiException("LIVE_OFF", "No live talk")
+
+    /** A LiveKit token for [call]'s own room (phase 6). */
+    suspend fun callToken(call: String, peer: String?, group: String?): LiveToken = throw ApiException("LIVE_OFF", "No live talk")
 }
 
 /** A contact online now, or when last connected ([lastSeen], milliseconds; null when unknown or hidden). */
@@ -238,6 +250,16 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
             val seen = p.lastSeen?.let { t -> runCatching { kotlin.time.Instant.parse(t.toString()).toEpochMilliseconds() }.getOrNull() }
             UserPresence(p.user, p.online, seen)
         }
+
+    override suspend fun liveTalk(): Boolean = run { it.query(com.chencohen.ptt.graphql.LiveTalkQuery()).execute() }.serverInfo.liveTalk
+
+    override suspend fun talkToken(peer: String?, group: String?): LiveToken =
+        run { it.mutation(com.chencohen.ptt.graphql.TalkTokenMutation(Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group))).execute() }
+            .talkToken.let { LiveToken(it.token, it.room, it.identity, it.path, it.expiresAt.toString()) }
+
+    override suspend fun callToken(call: String, peer: String?, group: String?): LiveToken =
+        run { it.mutation(com.chencohen.ptt.graphql.CallTokenMutation(call, Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group))).execute() }
+            .callToken.let { LiveToken(it.token, it.room, it.identity, it.path, it.expiresAt.toString()) }
 
     override suspend fun createLinkCode(): Pair<String, String> {
         val code = run { it.mutation(CreateLinkCodeMutation()).execute() }.createLinkCode

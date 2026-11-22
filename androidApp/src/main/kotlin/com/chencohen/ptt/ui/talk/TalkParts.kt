@@ -151,6 +151,8 @@ internal fun TalkModeScreen(
     title: String,
     me: String,
     talk: TalkUiState,
+    /** The live path (phase 5b): in this chat's room, and the last press-to-hear, for the debug readout. */
+    liveRoom: com.chencohen.ptt.talk.LiveState,
     bursts: List<TextMessage>,
     nameOf: (String) -> String,
     press: () -> Unit,
@@ -194,6 +196,13 @@ internal fun TalkModeScreen(
         val playing = talk.playing?.takeIf { it.chat == chat && it.live }
         if (playing != null && isDebugBuild()) {
             Text(stringResource(R.string.talk_debug_behind, playing.behindMs), color = LibraryColors.Muted, style = LibraryType.Tiny)
+        }
+        if (isDebugBuild() && liveRoom.room == chat) {
+            val latency = liveRoom.lastLatencyMs
+            Text(
+                if (latency != null) stringResource(R.string.talk_debug_live, latency) else stringResource(R.string.talk_debug_live_room),
+                color = LibraryColors.Muted, style = LibraryType.Tiny,
+            )
         }
         Spacer(Modifier.weight(1f))
         val label = stringResource(R.string.talk_button)

@@ -150,6 +150,9 @@ internal class Talk(
     var player: TalkPlayer? = null
     var host: TalkHost? = null
 
+    /** The live path (phase 5b); null without it. */
+    var live: LiveTalk? = null
+
     private val _state = MutableStateFlow(TalkUiState())
     val state: StateFlow<TalkUiState> = _state.asStateFlow()
 
@@ -176,6 +179,7 @@ internal class Talk(
         var finished = false
         var cancelled = false
         var consumer: Job? = null
+        var mic: TalkCapture? = null
     }
 
     private var outgoing: Outgoing? = null
@@ -188,11 +192,18 @@ internal class Talk(
 
     private fun begin(chat: String, voiceOnly: Boolean) {
         if (outgoing != null) return
-        val mic = capture ?: return refuse(chat, OwnTalk.MIC)
+        // In the conversation's room, the room's microphone feeds the clip too.
+        val mic = (if (voiceOnly) null else live?.captureFor(chat)) ?: capture ?: return refuse(chat, OwnTalk.MIC)
         val out = Outgoing(chat, voiceOnly)
+        out.mic = mic
         stopPlaying()
         if (!mic.start { out.packets.trySend(Captured.Packet(it)) }) return refuse(chat, OwnTalk.MIC)
         outgoing = out
+        if (!voiceOnly) {
+            live?.burst(chat, null)
+            // The live path doesn't wait for the grant; a Busy stops it again.
+            scope.launch { live?.talking(chat, true) }
+        }
         out.consumer = scope.launch { consume(out) }
         if (!voiceOnly) {
             if (connected()) {
@@ -220,8 +231,9 @@ internal class Talk(
     fun release(send: Boolean = true) {
         val out = outgoing ?: return
         if (!send) out.cancelled = true
-        capture?.stop()
+        out.mic?.stop()
         out.packets.trySend(Captured.End)
+        if (!out.voiceOnly) scope.launch { live?.talking(out.chat, false) }
     }
 
     private suspend fun consume(out: Outgoing) {
@@ -380,8 +392,9 @@ internal class Talk(
         out.unsent.clear()
         if (outgoing === out) {
             outgoing = null
-            capture?.stop()
+            out.mic?.stop()
             out.packets.close()
+            scope.launch { live?.talking(out.chat, false) }
         }
         _state.update { it.copy(own = OwnTalk(out.chat, out.id, phase, out.startedAt, busyWith, refusal)) }
         clearOwnLater()
@@ -422,8 +435,10 @@ internal class Talk(
                 val self = me() ?: return
                 // Another phone of this user talking: shown, not played.
                 if (s.talkerUser == self.user) return
+                live?.burst(chat, s.talkerUser)
                 val burst = incoming(s.burstId, chat, s.talkerUser)
                 burst.announced = true
+                burst.device = s.talkerDevice
                 scope.launch { consider(burst) }
             }
             TalkEvent.ENDED -> {
@@ -458,6 +473,9 @@ internal class Talk(
         var sentAt = 0L
         var frames = 0
         var kept = false
+        var device = 0
+        /** Heard live through the room: the clip is only kept. */
+        var heardLive = false
         val createdAt = now()
     }
 
@@ -519,6 +537,21 @@ internal class Talk(
         burst.decidedPlay = true
         val age = now() - (burst.sentAt.takeIf { it > 0 } ?: burst.createdAt)
         val fresh = burst.announced || age < PLAY_IF_NEWER
+        // In the conversation's room the talker may be heard live already (their phone doesn't wait for the grant).
+        if (fresh && burst.announced && live?.state?.value?.room == burst.chat) {
+            val identity = "${burst.from}.${burst.device}"
+            var waited = 0L
+            while (live?.hearsLive(burst.chat, identity) != true && waited < LIVE_WAIT) {
+                delay(50)
+                waited += 50
+            }
+            if (live?.hearsLive(burst.chat, identity) == true) {
+                burst.heardLive = true
+                sendFrame(TalkAckFrame(TalkAck(burst.id)))
+                return drain(burst)
+            }
+            live?.silence(burst.chat, identity)
+        }
         when {
             !fresh -> return drain(burst)
             awake() -> burst.play = true
@@ -713,6 +746,9 @@ internal class Talk(
 
         /** How long after ENDED the last segment may still come forwarded, before the server's copy is read. */
         const val END_GRACE = 1_500L
+
+        /** How long a phone in the room waits at a STARTED for the talker's live audio before it plays the clip. */
+        const val LIVE_WAIT = 400L
 
         /** How many segments past the next one to play mean some were missed. */
         const val GAP = 2

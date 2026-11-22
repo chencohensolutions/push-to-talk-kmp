@@ -387,6 +387,8 @@
     <string name="talk_channel_description">מישהו דיבר כשלא היה אפשר להשמיע</string>
     <string name="talk_chosen">נבחר</string>
     <string name="talk_close">חזרה לשיחה</string>
+    <string name="talk_debug_live">חי: נשמע %1$d מ״ש אחרי הלחיצה</string>
+    <string name="talk_debug_live_room">חי: בחדר</string>
     <string name="talk_debug_behind">השלמת פער: %1$d מ״ש מאחור</string>
     <string name="talk_default_title">הכפתורים מדברים אל</string>
     <string name="talk_default_none">אף שיחה</string>

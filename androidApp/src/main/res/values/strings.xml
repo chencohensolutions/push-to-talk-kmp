@@ -383,6 +383,8 @@
     <string name="talk_channel_description">Someone talked while Talk couldn’t play it</string>
     <string name="talk_chosen">Chosen</string>
     <string name="talk_close">Back to the chat</string>
+    <string name="talk_debug_live">Live: heard %1$d ms after the press</string>
+    <string name="talk_debug_live_room">Live: in the room</string>
     <string name="talk_debug_behind">Catch-up: %1$d ms behind</string>
     <string name="talk_default_title">Buttons talk in</string>
     <string name="talk_default_none">No conversation</string>

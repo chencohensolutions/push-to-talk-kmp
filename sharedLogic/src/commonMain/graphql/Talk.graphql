@@ -1,0 +1,14 @@
+# Live talk and calls (phases 5b and 6; the server's docs/messaging.md, "Live talk" and "Calls"). Called by
+# ApolloMessagingApi.
+
+mutation TalkToken($peer: String, $group: ID) {
+  talkToken(peer: $peer, group: $group) { token room identity path expiresAt }
+}
+
+mutation CallToken($call: ID!, $peer: String, $group: ID) {
+  callToken(call: $call, peer: $peer, group: $group) { token room identity path expiresAt }
+}
+
+query LiveTalk {
+  serverInfo { liveTalk }
+}

@@ -28,6 +28,10 @@ dependencyResolutionManagement {
         maven("https://build-artifacts.signal.org/libraries/maven/") {
             content { includeGroup("org.signal") }
         }
+        // LiveKit's Android client (phase 5b) takes its audio routing library from JitPack; only that group.
+        maven("https://jitpack.io") {
+            content { includeGroup("com.github.davidliu") }
+        }
     }
 }
 

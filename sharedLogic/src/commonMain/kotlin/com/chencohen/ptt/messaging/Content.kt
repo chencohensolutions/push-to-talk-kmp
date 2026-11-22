@@ -31,6 +31,10 @@ internal data class Content(
     @ProtoNumber(8) val group: String = "",
     /** The "clip start" message of a talk burst, or a voice message: the clip's id and key (phase 5a). */
     @ProtoNumber(9) val clip: ClipContent? = null,
+    /** The sender device's key for its live audio in the conversation's talk room (phase 5b). */
+    @ProtoNumber(10) val talkKey: TalkKeyContent? = null,
+    /** A video call's signalling: invite, answer, hang-up, recording (phase 6). */
+    @ProtoNumber(11) val call: CallContent? = null,
     /** On a copy for the sender's own other devices: the user the message went to. */
     @ProtoNumber(15) val destination: String = "",
 )
@@ -111,6 +115,53 @@ internal data class ClipContent(
     companion object {
         const val BURST = 1
         const val VOICE = 2
+    }
+}
+
+/**
+ * The key a device encrypts its live audio with in a conversation's talk room (LiveKit's frame encryption, a key per
+ * sender: docs/design.md, "Phase 5b"). [index] goes up with each new key of that device.
+ */
+@Serializable
+internal data class TalkKeyContent(
+    @ProtoNumber(1) val key: ByteArray = ByteArray(0),
+    @ProtoNumber(2) val index: Int = 0,
+) {
+    override fun equals(other: Any?): Boolean = other is TalkKeyContent && key.contentEquals(other.key) && index == other.index
+
+    override fun hashCode(): Int = index
+}
+
+/**
+ * A call's signalling (docs/design.md, "Phase 6"): [kind] is one of the constants. An invite carries the call's id
+ * (32 hex digits, its LiveKit room `c-<id>`) and its fresh media key; the others name the call.
+ */
+@Serializable
+internal data class CallContent(
+    @ProtoNumber(1) val kind: Int = 0,
+    @ProtoNumber(2) val id: String = "",
+    @ProtoNumber(3) val key: ByteArray = ByteArray(0),
+    @ProtoNumber(4) val video: Boolean = false,
+    /** When it was sent (an invite older than 30 s doesn't ring). */
+    @ProtoNumber(5) val sentAt: Long = 0,
+    /** With RECORDING: saving started (true) or stopped. */
+    @ProtoNumber(6) val recording: Boolean = false,
+) {
+    override fun equals(other: Any?): Boolean = other is CallContent && kind == other.kind && id == other.id &&
+        key.contentEquals(other.key) && video == other.video && sentAt == other.sentAt && recording == other.recording
+
+    override fun hashCode(): Int = id.hashCode() * 31 + kind
+
+    companion object {
+        const val INVITE = 1
+        const val ACCEPT = 2
+        const val DECLINE = 3
+        const val HANG_UP = 4
+        /** Busy on another call: declined without ringing. */
+        const val BUSY = 5
+        const val RECORDING = 6
+        /** Answered or declined on another phone of the callee: this one stops ringing. */
+        const val ANSWERED_ELSEWHERE = 7
     }
 }
 

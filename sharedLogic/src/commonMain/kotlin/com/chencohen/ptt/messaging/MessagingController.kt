@@ -107,6 +107,8 @@ class MessagingController internal constructor(
         scope.launch {
             withContext(work) {
                 messaging.openChat = user
+                // Its talk room is joined while it is on screen (phase 5b).
+                messaging.live.show(user)
                 if (user != null) messaging.markRead(user)
             }
         }

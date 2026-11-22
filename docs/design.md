@@ -369,9 +369,40 @@ Not done yet from the plan's 5a: measuring press-to-hear on two phones (the plan
 and Samsung, the 8-hour idle run, and Stay connected's measured cost shown in the setting; the optional chirp when
 the microphone opens.
 
+## Phase 5b: talk, the live path
+
+The server's side is its docs/messaging.md, "Live talk": `talkToken(peer | group)` signs a LiveKit token for the
+conversation's room (`u-…` for a pair, `g-<id>` for a group) as identity `user.device`, LiveKit's signalling goes
+through ptt-server's `/rtc` (mTLS, like `/ws`), and `serverInfo.liveTalk` says whether LiveKit is there.
+
+- **`talk/LiveTalk.kt`** (common): one room at a time. It joins the room of the conversation on screen (or its Talk
+  mode, through `MessagingController.openChat`), or of a burst that just started; it leaves 60 s after the last burst
+  once that conversation is off screen. `LIVE_OFF`, a refused token or an unreachable LiveKit leave talk on the clip
+  path, which always runs.
+- **Talk keys.** Each join makes a fresh random 32-byte key for this device's audio (index 0–15, round LiveKit's key
+  ring) and sends it end to end to the conversation (`Content.talkKey`, field 10, no push), and again whenever
+  someone joins. Keys that come are kept by `user.device` and set on every join. LiveKit relays only ciphertext.
+- **`TalkTransport`** is the carrier, so phase 7's QUIC would only replace it. On Android,
+  **`talk/LiveKitTalkTransport.kt`**: LiveKit 2.30 with the same mTLS OkHttp client (pinned key and the server's CA),
+  frame encryption per sender (`BaseKeyProvider`, no shared key, frames dropped while a cryptor isn't ready), no
+  audio handler (the room takes no audio focus and doesn't change the audio mode while it only listens).
+- **The microphone** is published only for a burst and unpublished (stopped) after it, so the microphone indicator
+  shows only while talking (R3). While in the room the clip records from that same microphone (the track's sink,
+  encoded to Opus by `SampleCapture`), so it isn't opened twice. The talker's phone publishes at the press, without
+  waiting for the grant; Busy stops it like the clip.
+- **Hearing.** A listener in the room waits up to 400 ms at STARTED for the talker's live audio to decrypt
+  (`hearsLive`); if it does, the burst's clip is kept but not played (and acked). Otherwise the clip plays and that
+  talker's live track for this burst is silenced, so the two never play over each other.
+- **Debug readout.** In Talk mode a debug build shows "Live: in the room", then "Live: heard 230 ms after the press"
+  (STARTED to the first decrypted live audio on this phone).
+
+Not done yet from the plan's 5b: R3 on the real setup (LiveKit on hen-server, UDP 7882 from 4G, the microphone
+indicator), the 4G press-to-hear against 0.3 s, and the packet capture; a new talk key when membership changes and
+every 7 days (now: one per join).
+
 ## Next
 
-The live talk path (5b), calls (6) and iOS, as the plan says.
+Calls (6) and iOS, as the plan says.
 
 The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3

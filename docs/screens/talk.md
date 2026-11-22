@@ -14,7 +14,8 @@ header, or by a talk notification's **Reply**. A full-screen walkie-talkie:
   else holds it; "Dana is talking. Try when they let go." when a press found the floor busy; "Not connected: it goes
   as a voice message"; "Talking on your other phone"; "The microphone isn’t free"; "Talk isn’t possible here".
   Busy and refusals show for 2.5 seconds.
-- A debug build adds the catch-up readout under it while a burst plays live: "Catch-up: 230 ms behind".
+- A debug build adds the catch-up readout under it while a burst plays live: "Catch-up: 230 ms behind"; and, while
+  the phone is in the conversation's live room (phase 5b), "Live: in the room" or "Live: heard 230 ms after the press".
 - The **hold-to-talk circle**: ink, 220 dp, with a microphone and "Hold to talk"; a teal ring while live, a faded
   teal ring and a muted circle while someone else talks. Recording starts on the press (before the floor is
   granted: the plan's catch-up) and stops on release.

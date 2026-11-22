@@ -56,6 +56,8 @@ kotlin {
             // The encrypted store (store/SqlCipherStore.kt).
             implementation(libs.sqlcipher.android)
             implementation(libs.androidx.sqlite)
+            // The live talk path (talk/LiveKitTransport.kt) and calls: LiveKit's client over the server's /rtc.
+            api(libs.livekit.android)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
