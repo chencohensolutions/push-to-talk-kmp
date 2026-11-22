@@ -30,6 +30,10 @@ object AndroidContacts {
     const val MESSAGE = "vnd.android.cursor.item/vnd.com.chencohen.ptt.message"
     const val VOICE = "vnd.android.cursor.item/vnd.com.chencohen.ptt.voice"
     const val VIDEO = "vnd.android.cursor.item/vnd.com.chencohen.ptt.video"
+    const val TALK = "vnd.android.cursor.item/vnd.com.chencohen.ptt.talk"
+
+    /** Bumped when the rows change, so entries written before are written again (v2: Talk to). */
+    private const val ROWS = "v2"
     private const val PREFS = "android_contacts"
 
     fun enabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("on", false)
@@ -40,15 +44,24 @@ object AndroidContacts {
 
     private fun account(context: Context) = Account(context.getString(R.string.app_name), ACCOUNT_TYPE)
 
-    fun set(context: Context, on: Boolean, contacts: List<Contact>) {
+    fun set(context: Context, on: Boolean, contacts: List<Contact> = emptyList()) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("on", on).apply()
         if (on) sync(context, contacts) else remove(context)
     }
 
-    /** The entries as Talk's contacts are now: added, renamed, removed. */
-    fun sync(context: Context, contacts: List<Contact>) {
+    /**
+     * The entries as Talk's contacts are now: added, renamed, removed. Read from what this phone keeps, not from the
+     * screens' state, which is empty while the app starts (a sync then removed every entry; 2026-11-22).
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun sync(context: Context, contacts: List<Contact> = emptyList()) {
         if (!enabled(context) || !allowed(context)) return
-        runCatching { syncNow(context, contacts.filter { it.paired && !it.blocked }) }.onFailure { Log.w(TAG, "sync", it) }
+        runCatching {
+            val kept = storedContacts(context).filter { it.paired && !it.blocked }
+            // Nothing kept (not registered, or not opened yet): leave the entries as they are.
+            if (kept.isEmpty()) return
+            syncNow(context, kept)
+        }.onFailure { Log.w(TAG, "sync", it) }
     }
 
     private fun syncNow(context: Context, contacts: List<Contact>) {
@@ -74,14 +87,14 @@ object AndroidContacts {
         val data = ContactsContract.Data.CONTENT_URI.buildUpon().appendQueryParameter(ContactsContract.CALLER_IS_SYNCADAPTER, "true").build()
         for (contact in contacts) {
             val row = existing[contact.user]
-            if (row != null && row.second == contact.name) continue
+            if (row != null && row.second == "${contact.name}|$ROWS") continue
             if (row != null) ops += ContentProviderOperation.newDelete(android.content.ContentUris.withAppendedId(raw, row.first)).build()
             val back = ops.size
             ops += ContentProviderOperation.newInsert(raw)
                 .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, account.name)
                 .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, account.type)
                 .withValue(ContactsContract.RawContacts.SOURCE_ID, contact.user)
-                .withValue(ContactsContract.RawContacts.SYNC1, contact.name)
+                .withValue(ContactsContract.RawContacts.SYNC1, "${contact.name}|$ROWS")
                 .build()
             ops += ContentProviderOperation.newInsert(data)
                 .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, back)
@@ -89,6 +102,7 @@ object AndroidContacts {
                 .withValue(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, contact.name)
                 .build()
             for ((mime, words) in listOf(
+                TALK to R.string.contacts_action_talk,
                 MESSAGE to R.string.contacts_action_message,
                 VOICE to R.string.contacts_action_voice,
                 VIDEO to R.string.contacts_action_video,
@@ -121,7 +135,7 @@ object AndroidContacts {
             context.contentResolver.query(uri, arrayOf(ContactsContract.Data.MIMETYPE, ContactsContract.Data.DATA1), null, null, null)?.use { c ->
                 if (!c.moveToFirst()) null else (c.getString(1) ?: return@use null) to (c.getString(0) ?: return@use null)
             }
-        }.getOrNull()?.takeIf { it.second in listOf(MESSAGE, VOICE, VIDEO) }
+        }.getOrNull()?.takeIf { it.second in listOf(TALK, MESSAGE, VOICE, VIDEO) }
     }
 }
 
@@ -130,7 +144,19 @@ class TalkAuthenticatorService : Service() {
     private val authenticator by lazy {
         object : AbstractAccountAuthenticator(this) {
             override fun editProperties(r: AccountAuthenticatorResponse?, t: String?): Bundle? = null
-            override fun addAccount(r: AccountAuthenticatorResponse?, t: String?, a: String?, f: Array<out String>?, o: Bundle?): Bundle? = null
+            // Added from Android's Settings › Accounts: the same as Talk's Show in Android Contacts.
+            override fun addAccount(r: AccountAuthenticatorResponse?, t: String?, a: String?, f: Array<out String>?, o: Bundle?): Bundle? {
+                if (!AndroidContacts.allowed(this@TalkAuthenticatorService)) {
+                    return Bundle().apply {
+                        putParcelable(AccountManager.KEY_INTENT, Intent(this@TalkAuthenticatorService, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                }
+                AndroidContacts.set(this@TalkAuthenticatorService, true)
+                return Bundle().apply {
+                    putString(AccountManager.KEY_ACCOUNT_NAME, getString(R.string.app_name))
+                    putString(AccountManager.KEY_ACCOUNT_TYPE, AndroidContacts.ACCOUNT_TYPE)
+                }
+            }
             override fun confirmCredentials(r: AccountAuthenticatorResponse?, a: Account?, o: Bundle?): Bundle? = null
             override fun getAuthToken(r: AccountAuthenticatorResponse?, a: Account?, t: String?, o: Bundle?): Bundle? = null
             override fun getAuthTokenLabel(t: String?): String? = null

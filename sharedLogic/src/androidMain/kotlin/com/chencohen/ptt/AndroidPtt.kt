@@ -356,4 +356,7 @@ suspend fun talkWidgetChoices(context: Context): List<Pair<String, String>> {
 }
 
 /** This phone's user name (empty before enrolling). */
+/** Talk's contacts as kept on this phone (not the screens' state, which is empty until it loads). */
+fun storedContacts(context: Context): List<com.chencohen.ptt.messaging.Contact> = hub(context).store.contacts()
+
 fun myUser(context: Context): String = settings(context).device?.user.orEmpty()

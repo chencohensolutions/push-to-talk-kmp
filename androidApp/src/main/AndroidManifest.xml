@@ -61,6 +61,7 @@
 
                 <category android:name="android.intent.category.DEFAULT" />
 
+                <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.talk" />
                 <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.message" />
                 <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.voice" />
                 <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.video" />

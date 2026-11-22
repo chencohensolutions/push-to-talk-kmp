@@ -2,6 +2,11 @@
 <!-- What a Talk contact offers in Android Contacts: message, voice call, video call (AndroidContacts). -->
 <ContactsAccountType xmlns:android="http://schemas.android.com/apk/res/android">
     <ContactsDataKind
+        android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.talk"
+        android:icon="@mipmap/ic_launcher"
+        android:summaryColumn="data2"
+        android:detailColumn="data3" />
+    <ContactsDataKind
         android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.message"
         android:icon="@mipmap/ic_launcher"
         android:summaryColumn="data2"
