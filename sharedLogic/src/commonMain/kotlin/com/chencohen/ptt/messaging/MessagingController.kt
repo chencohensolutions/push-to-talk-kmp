@@ -221,6 +221,9 @@ class MessagingController internal constructor(
 
     fun setCallCamera(on: Boolean) = onWork { messaging.calls.setCamera(on) }
 
+    /** The call screen shows [user]'s video cropped ([fill]) or whole, in a tile [aspect] wide for 1 high. */
+    fun setCallView(user: String, fill: Boolean, aspect: Float) = onWork { messaging.calls.setView(user, fill, aspect) }
+
     /** A kept call's tracks (callRecording); only the server is asked, so it runs off Messaging's own thread. */
     suspend fun keptCall(message: TextMessage): KeptCall = messaging.keptCall(message)
 

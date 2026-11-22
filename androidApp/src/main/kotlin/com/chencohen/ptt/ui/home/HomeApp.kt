@@ -725,6 +725,7 @@ fun HomeApp(
                         switchCamera = messaging::switchCallCamera,
                         setSaving = messaging::setCallSaving,
                         dismissAsk = messaging::dismissSaveAsk,
+                        setView = messaging::setCallView,
                     ),
                     canSave = current.serverKeeps || messagingState.talkSettings.saveCalls != com.chencohen.ptt.calls.SaveCalls.OFF,
                 )

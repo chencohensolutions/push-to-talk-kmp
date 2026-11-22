@@ -118,6 +118,8 @@
     <string name="kept_failed">The call couldn\'t be opened. Try again later.</string>
     <string name="kept_play">Play</string>
     <string name="kept_pause">Pause</string>
+    <string name="kept_as_seen">As seen</string>
+    <string name="kept_whole">Whole</string>
     <string name="call_video_fit">Fit</string>
     <string name="call_video_fill">Fill</string>
     <string name="call_orientation_auto">Auto rotate</string>

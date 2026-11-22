@@ -61,6 +61,7 @@ class CallsTest {
         val entries = mutableMapOf<String, TextMessage>()
         val tokenAsks = mutableListOf<Triple<String, String?, String?>>()
         val keeps = mutableListOf<Pair<String?, Boolean>>()
+        val logged = mutableListOf<String>()
         var leftTalk = 0
         val calls = Calls(
             scope = scope.backgroundScope,
@@ -77,6 +78,7 @@ class CallsTest {
             saveCalls = { save },
             keepOnServer = { _, peer, group, on -> keeps += (peer ?: "g:$group") to on },
             serverKeepsCalls = { serverKeeps },
+            logEvent = { _, _, _, event -> logged += event },
             now = { scope.testScheduler.currentTime + 1_000_000 },
             random = Random(2),
         ).also {
@@ -335,5 +337,35 @@ class CallsTest {
         runCurrent()
         assertEquals(0, s.transport.saves)
         assertEquals("sharon" to false, s.keeps.last())
+    }
+
+    @Test
+    fun viewsGoToTheSenderAndIntoTheKeptCallsLog() = runTest {
+        val s = Setup(this, serverKeeps = true)
+        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
+        s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1"))
+        s.transport.listener!!.cameraFormat(90, 960, 720)
+        runCurrent()
+        assertEquals(0.75f, s.calls.state.value!!.ownAspect, "held upright: 720 wide for 960 high")
+        s.calls.setView("sharon", fill = true, aspect = 0.5f)
+        runCurrent()
+        val view = s.sent.last().second
+        assertEquals(CallContent.VIEW, view.kind)
+        assertEquals("sharon", view.of)
+        assertEquals(true, view.fill)
+        assertEquals(emptyList(), s.logged, "nothing is logged before the server keeps the call")
+        // Keeping begins: the log gets the camera and the view as they are now.
+        s.transport.listener!!.serverRecording("hen.1")
+        runCurrent()
+        assertEquals(2, s.logged.size)
+        val key = s.transport.joins.single().first
+        val events = s.logged.map { CallEvent.open(key, kotlin.io.encoding.Base64.decode(it))!! }
+        assertEquals(setOf(CallEvent.CAMERA, CallEvent.VIEW), events.map { it.t }.toSet())
+        // Sharon's view of hen's video outlines hen's preview.
+        s.calls.receive("sharon", "sharon", CallContent(CallContent.VIEW, s.calls.state.value!!.id, fill = true, aspect = 2f, of = "hen"), s.at(), ownCopy = false)
+        runCurrent()
+        assertEquals(CallView(true, 2f), s.calls.state.value!!.viewers["sharon"])
     }
 }

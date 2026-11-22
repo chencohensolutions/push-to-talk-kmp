@@ -17,7 +17,23 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
     /** One person in the file: their name, and their Matroska track numbers. */
     data class Person(val identity: String, val name: String, val video: Int?, val audio: Int?)
 
-    data class Made(val people: List<Person>, val durationMs: Long, val frames: Int, val unreadable: Int)
+    /**
+     * The file made: its people, length and frames; and from the call's event logs, each device's camera rotation
+     * ([rotations]: ms → clockwise degrees to turn it upright) and how each viewer showed each video ([views]).
+     */
+    data class Made(
+        val people: List<Person>,
+        val durationMs: Long,
+        val frames: Int,
+        val unreadable: Int,
+        val rotations: Map<String, List<Pair<Long, Int>>> = emptyMap(),
+        val views: List<ViewAt> = emptyList(),
+    )
+
+    /** At [ms], [viewer] (user.device) showed [of]'s video (a user) cropped to fill ([fill]) or whole, in a tile [aspect]. */
+    data class ViewAt(val ms: Long, val viewer: String, val of: String, val fill: Boolean, val aspect: Float)
+
+    private class EventAt(val us: Long, val identity: String, val event: CallEvent)
 
     private class Group(val identity: String, val video: Boolean, val codec: String, val file: File) {
         var frames = 0
@@ -36,7 +52,28 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
      */
     suspend fun make(callKey: String, tracks: List<KeptTrack>, nameOf: (String) -> String, out: java.io.OutputStream, progress: (Float) -> Unit = {}): Made {
         val key = LiveKitFrames.key(callKey.encodeToByteArray())
+        val rawKey = runCatching { kotlin.io.encoding.Base64.decode(callKey) }.getOrNull()
         scratch.mkdirs()
+        // The devices' event logs: camera rotation, and how each showed the others (CallEvent).
+        val events = mutableListOf<EventAt>()
+        for (t in tracks.filter { it.kind == "events" }) {
+            if (rawKey == null) break
+            val startUs = epochMicros(t.recordingStartedAt)
+            val bytes = java.io.ByteArrayOutputStream()
+            runCatching { read(t.blob) { bytes.write(it) } }
+            val input = DataInputStream(bytes.toByteArray().inputStream())
+            while (input.available() >= 13) {
+                val length = input.readInt()
+                if (length < 9 || length > MAX_RECORD || input.available() < length) break
+                val us = input.readLong()
+                input.readUnsignedByte()
+                val body = ByteArray(length - 9).also { input.readFully(it) }
+                val event = CallEvent.open(rawKey, body)
+                    ?: runCatching { CallEvent.open(rawKey, kotlin.io.encoding.Base64.decode(body.decodeToString().trim())) }.getOrNull()
+                if (event != null) events += EventAt(startUs + us, t.identity, event)
+            }
+        }
+        events.sortBy { it.us }
         val usable = tracks.filter { t -> listOf(LiveKitFrames.OPUS, LiveKitFrames.RED, LiveKitFrames.VP8, LiveKitFrames.H264).any { t.codec.equals(it, true) } }
         // RED is Opus once unwrapped: one audio track per person either way.
         fun codecOf(t: KeptTrack) = if (t.codec.equals(LiveKitFrames.RED, true)) LiveKitFrames.OPUS.lowercase() else t.codec.lowercase()
@@ -123,6 +160,16 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
                     kept.firstOrNull { it.identity == id && !it.video }?.let { numbers.getValue(it) },
                 )
             }
+            fun msOf(us: Long) = maxOf((us - base) / 1000, 0)
+            val rotations = events.filter { it.event.t == CallEvent.CAMERA && it.event.rot != null }
+                .groupBy { it.identity }
+                .mapValues { (_, list) -> list.map { msOf(it.us) to it.event.rot!! } }
+            val views = events.filter { it.event.t == CallEvent.VIEW && it.event.of != null && it.event.aspect != null }
+                .map { ViewAt(msOf(it.us), it.identity, it.event.of!!, it.event.fill == true, it.event.aspect!!) }
+            val textNumber = kept.size + 1
+            val texts = events.map { e ->
+                msOf(e.us) to ("{\"by\":\"${e.identity}\"," + CallEvent.toJson(e.event).removePrefix("{")).encodeToByteArray()
+            }
             val firstVideo = kept.firstOrNull { it.video }
             val firstAudio = kept.firstOrNull { !it.video }
             val mkv = Matroska(
@@ -134,11 +181,16 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
                             numbers.getValue(g), true, if (vp8) Matroska.CODEC_VP8 else Matroska.CODEC_AVC, name,
                             width = g.width.takeIf { it > 0 } ?: 640, height = g.height.takeIf { it > 0 } ?: 480,
                             codecPrivate = if (vp8) null else g.avcC, default = g === firstVideo,
+                            // The sender's camera rotation as it began (players turn the picture by it).
+                            rotation = rotations[g.identity]?.firstOrNull()?.second ?: 0,
                         )
                     } else {
                         Matroska.Track(numbers.getValue(g), false, Matroska.CODEC_OPUS, name, codecPrivate = Matroska.opusHead(), default = g === firstAudio)
                     }
-                },
+                } + listOfNotNull(
+                    // The event logs, one JSON line each, as a text track ("Call events").
+                    Matroska.Track(textNumber, false, Matroska.CODEC_TEXT, "Call events", text = true).takeIf { texts.isNotEmpty() },
+                ),
             )
             mkv.begin(File.createTempFile("kept-", ".clusters", scratch))
             class Head(val g: Group, val input: DataInputStream, var at: Long = 0, var isKey: Boolean = false, var data: ByteArray = ByteArray(0))
@@ -156,16 +208,25 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
             try {
                 opened.filter { it.next() }.forEach { heads += it }
                 var lastMs = -1L
+                var nextText = 0
                 while (heads.isNotEmpty()) {
                     val h = heads.poll()!!
                     val ms = maxOf((h.at - base) / 1000, 0)
+                    while (nextText < texts.size && texts[nextText].first <= ms) {
+                        mkv.frame(textNumber, texts[nextText].first, true, texts[nextText].second)
+                        nextText++
+                    }
                     lastMs = maxOf(lastMs, ms)
                     mkv.frame(numbers.getValue(h.g), maxOf(ms, 0), h.isKey, h.data)
                     frames++
                     if (h.next()) heads += h
                 }
+                while (nextText < texts.size) {
+                    mkv.frame(textNumber, maxOf(texts[nextText].first, lastMs), true, texts[nextText].second)
+                    nextText++
+                }
                 mkv.finish(out, lastMs + 20)
-                return Made(people, lastMs + 20, frames, unreadable)
+                return Made(people, lastMs + 20, frames, unreadable, rotations, views)
             } finally {
                 opened.forEach { runCatching { it.input.close() } }
             }

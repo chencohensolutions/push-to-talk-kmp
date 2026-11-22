@@ -142,4 +142,36 @@ class KeptCallFileTest {
         assertEquals(KeptCallFile.Person("hen.1", "hen", null, 1), made.people.single())
         File("build/kept-red.mkv").writeBytes(out.toByteArray())
     }
+
+    @Test
+    fun theEventLogsGiveRotationsAndViewsAndATextTrack() = runTest {
+        val manifest = Json.parseToJsonElement(resource("manifest.json").decodeToString()).jsonObject
+        val callKey = manifest["key"]!!.jsonPrimitive.content
+        val raw = kotlin.io.encoding.Base64.decode(callKey)
+        fun log(vararg events: Pair<Long, CallEvent>): ByteArray {
+            val out = java.io.ByteArrayOutputStream()
+            events.forEach { (ms, e) ->
+                val sealed = CallEvent.seal(raw, e, kotlin.random.Random(ms))
+                java.io.DataOutputStream(out).apply { writeInt(9 + sealed.size); writeLong(ms * 1000); writeByte(0); write(sealed) }
+            }
+            return out.toByteArray()
+        }
+        val henLog = log(0L to CallEvent(CallEvent.CAMERA, rot = 90, w = 160, h = 120), 1500L to CallEvent(CallEvent.CAMERA, rot = 0, w = 160, h = 120))
+        val sharonLog = log(1000L to CallEvent(CallEvent.VIEW, of = "hen", fill = true, aspect = 0.5f))
+        val blobs = mapOf("hen-events" to henLog, "sharon-events" to sharonLog)
+        val tracks = manifest["tracks"]!!.jsonArray.map { it.jsonObject }.map {
+            KeptTrack(
+                it["Blob"]!!.jsonPrimitive.content, it["Identity"]!!.jsonPrimitive.content, it["Kind"]!!.jsonPrimitive.content,
+                it["Codec"]!!.jsonPrimitive.content, it["RecordingStartedAt"]!!.jsonPrimitive.content, it["Size"]!!.jsonPrimitive.int, true,
+            )
+        } + listOf(
+            KeptTrack("hen-events", "hen.1", "events", "application/x-talk-events", "2026-11-22T16:00:00Z", henLog.size, true),
+            KeptTrack("sharon-events", "sharon.2", "events", "application/x-talk-events", "2026-11-22T16:00:00.500Z", sharonLog.size, true),
+        )
+        val read: suspend (String, suspend (ByteArray) -> Unit) -> Unit = { id, onBytes -> onBytes(blobs[id] ?: resource("$id.blob")) }
+        val out = File("build/kept-events.mkv").absoluteFile
+        val made = KeptCallFile(read, Files.createTempDirectory("kept").toFile()).make(callKey, tracks, { it }, out.outputStream())
+        assertEquals(listOf(0L to 90, 1500L to 0), made.rotations["hen.1"])
+        assertEquals(listOf(KeptCallFile.ViewAt(1500, "sharon.2", "hen", true, 0.5f)), made.views, "sharon's log began half a second later")
+    }
 }

@@ -1,7 +1,6 @@
 package com.chencohen.ptt.ui.calls
 
 import android.net.Uri
-import android.view.SurfaceView
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,6 +35,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -72,7 +74,14 @@ sealed interface KeptLoad {
     /** Downloading and decrypting; [progress] 0 to 1. */
     data class Getting(val progress: Float) : KeptLoad
 
-    data class Ready(val file: File, val people: List<KeptCallFile.Person>, val durationMs: Long) : KeptLoad
+    data class Ready(
+        val file: File,
+        val people: List<KeptCallFile.Person>,
+        val durationMs: Long,
+        /** From the call's event logs: each device's camera rotation over time, and how each viewer showed each video. */
+        val rotations: Map<String, List<Pair<Long, Int>>> = emptyMap(),
+        val views: List<KeptCallFile.ViewAt> = emptyList(),
+    ) : KeptLoad
 
     data class Failed(val nothingKept: Boolean) : KeptLoad
 }
@@ -98,7 +107,7 @@ suspend fun loadKeptCall(
         if (kept.tracks.isEmpty()) return@withContext KeptLoad.Failed(nothingKept = true)
         scratch.mkdirs()
         val made = KeptCallFile(read, scratch).make(key, kept.tracks, nameOf, out.outputStream(), progress)
-        KeptLoad.Ready(out, made.people, made.durationMs)
+        KeptLoad.Ready(out, made.people, made.durationMs, made.rotations, made.views)
     } catch (e: kotlinx.coroutines.CancellationException) {
         out.delete()
         throw e
@@ -297,7 +306,18 @@ private fun KeptCallPlayer(ready: KeptLoad.Ready) {
             delay(250)
         }
     }
+    // Whole pictures, or each as the others saw it (their Fill crop and tile shape, from the call's log).
+    var asSeen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
+        if (ready.views.isNotEmpty()) {
+            Text(
+                stringResource(if (asSeen) R.string.kept_whole else R.string.kept_as_seen), color = Color.White, style = LibraryType.Small,
+                modifier = Modifier.align(Alignment.End).padding(horizontal = 12.dp, vertical = 4.dp)
+                    .background(Color.White.copy(alpha = 0.18f), CircleShape)
+                    .clickable(role = Role.Button) { asSeen = !asSeen }
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            )
+        }
         val columns = if (people.size <= 2) 1 else 2
         val rows = people.chunked(columns)
         Column(Modifier.weight(1f).fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -307,10 +327,19 @@ private fun KeptCallPlayer(ready: KeptLoad.Ready) {
                         val i = r * columns + c
                         Box(Modifier.weight(1f).fillMaxSize().background(Color(0xFF111111)), contentAlignment = Alignment.Center) {
                             if (person.video != null) {
-                                AndroidView(
-                                    factory = { SurfaceView(it).also { view -> players[i].setVideoSurfaceView(view) } },
-                                    modifier = Modifier.aspectRatio(sizes[i] ?: (4f / 3f)).fillMaxSize(),
-                                )
+                                // The sender's camera rotation at this moment, from their log (the frames come as captured).
+                                // The file starts the track turned by its first rotation, which the player applies itself (and
+                                // reports the turned size); only the turns after it are left to do here.
+                                val turns = ready.rotations[person.identity].orEmpty()
+                                val first = turns.firstOrNull()?.second ?: 0
+                                val rotation = ((turns.lastOrNull { it.first <= position }?.second ?: first) - first + 360) % 360
+                                val view = if (asSeen) {
+                                    ready.views.lastOrNull { it.of == person.identity.substringBeforeLast('.') && it.ms <= position }
+                                        ?: ready.views.firstOrNull { it.of == person.identity.substringBeforeLast('.') }
+                                } else {
+                                    null
+                                }
+                                VideoTile(players[i], sizes[i] ?: (4f / 3f), rotation, view?.takeIf { it.fill }?.aspect)
                             } else {
                                 Avatar(person.name, size = 96.dp)
                             }
@@ -389,3 +418,32 @@ private fun clock(ms: Long): String {
 /** A progress bar's value for [KeptLoad.Getting], kept between recompositions. */
 @Composable
 fun rememberKeptProgress() = remember { mutableFloatStateOf(0f) }
+
+/**
+ * One person's video in the player: turned upright by [rotation] (clockwise degrees), whole in its tile; with [crop]
+ * (a tile's shape, width for 1 high) cut to that shape as a viewer saw it with Fill.
+ */
+@Composable
+private fun VideoTile(player: ExoPlayer, frameAspect: Float, rotation: Int, crop: Float?) {
+    val turned = rotation % 180 != 0
+    val shown = if (turned) 1f / frameAspect else frameAspect
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val w = constraints.maxWidth.toFloat()
+        val h = constraints.maxHeight.toFloat()
+        val box = crop ?: shown
+        // The box (the picture's own shape, or the viewer's tile) fitted in the tile...
+        val (bw, bh) = if (w / h > box) (h * box) to h else w to (w / box)
+        // ...and the picture covering it.
+        val (cw, ch) = if (shown > box) (bh * shown) to bh else bw to (bw / shown)
+        val (vw, vh) = if (turned) ch to cw else cw to ch
+        with(density) {
+            Box(Modifier.size(bw.toDp(), bh.toDp()).clipToBounds(), contentAlignment = Alignment.Center) {
+                AndroidView(
+                    factory = { android.view.TextureView(it).also { view -> player.setVideoTextureView(view) } },
+                    modifier = Modifier.requiredSize(vw.toDp(), vh.toDp()).graphicsLayer { rotationZ = rotation.toFloat() },
+                )
+            }
+        }
+    }
+}

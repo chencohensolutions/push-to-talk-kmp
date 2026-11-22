@@ -82,7 +82,10 @@ class LiveKitCallTransport(
             room.connect(url, token)
             _room.value = room
             room.localParticipant.setMicrophoneEnabled(true)
-            if (video) room.localParticipant.setCameraEnabled(true)
+            if (video) {
+                room.localParticipant.setCameraEnabled(true)
+                watchCamera(room)
+            }
             front = true
             others(room)
             metadata(room)
@@ -101,6 +104,7 @@ class LiveKitCallTransport(
 
     override fun leave() {
         stopRecording()
+        watched = null
         events?.cancel()
         events = null
         _room.value?.let { r ->
@@ -116,7 +120,31 @@ class LiveKitCallTransport(
 
     override suspend fun setCamera(on: Boolean) {
         _room.value?.localParticipant?.setCameraEnabled(on)
+        if (on) _room.value?.let { watchCamera(it) }
         _changes.update { it + 1 }
+    }
+
+    /**
+     * The camera's frames go out as captured with their rotation alongside (the picture isn't turned; hen, 19:42): each
+     * change of rotation or size is told (cameraFormat), for this phone's preview and the kept call's log.
+     */
+    private var watched: LocalVideoTrack? = null
+    private val cameraSink = object : livekit.org.webrtc.VideoSink {
+        private var last = Triple(-1, -1, -1)
+        override fun onFrame(frame: livekit.org.webrtc.VideoFrame) {
+            val now = Triple(frame.rotation, frame.buffer.width, frame.buffer.height)
+            if (now == last) return
+            last = now
+            listener?.cameraFormat(now.first, now.second, now.third)
+        }
+    }
+
+    private fun watchCamera(room: Room) {
+        val track = room.localParticipant.getTrackPublication(Track.Source.CAMERA)?.track as? LocalVideoTrack ?: return
+        if (watched === track) return
+        watched?.let { runCatching { it.removeRenderer(cameraSink) } }
+        watched = track
+        track.addRenderer(cameraSink)
     }
 
     override fun switchCamera() {

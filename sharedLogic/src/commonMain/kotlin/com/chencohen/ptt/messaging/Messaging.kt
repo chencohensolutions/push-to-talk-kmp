@@ -258,6 +258,7 @@ internal class Messaging(
         saveCalls = { talkSettings().saveCalls },
         keepOnServer = { call, peer, group, on -> api.recordCall(call, peer, group, on) },
         serverKeepsCalls = { settings.serverKeepsCalls },
+        logEvent = { call, peer, group, event -> api.logCallEvent(call, peer, group, event) },
         onCall = {
             talk.release(send = true)
             live.leaveNow()

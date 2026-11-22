@@ -20,6 +20,10 @@ class Matroska(private val tracks: List<Track>) {
         val height: Int = 0,
         val codecPrivate: ByteArray? = null,
         val default: Boolean = false,
+        /** Video: clockwise degrees to turn the picture upright (Matroska's Projection, which players honour). */
+        val rotation: Int = 0,
+        /** A text track (S_TEXT/UTF8). */
+        val text: Boolean = false,
     )
 
     private class Cue(val timeMs: Long, val clusterAt: Long)
@@ -124,15 +128,22 @@ class Matroska(private val tracks: List<Track>) {
     private fun trackEntry(t: Track): ByteArray {
         var b = element(ID_TRACK_NUMBER, uint(t.number.toLong())) +
             element(ID_TRACK_UID, uint(t.number.toLong())) +
-            element(ID_TRACK_TYPE, uint(if (t.video) 1 else 2)) +
+            element(ID_TRACK_TYPE, uint(if (t.video) 1 else if (t.text) 0x11 else 2)) +
             element(ID_FLAG_LACING, uint(0)) +
             element(ID_FLAG_DEFAULT, uint(if (t.default) 1 else 0)) +
             element(ID_NAME, t.name.encodeToByteArray()) +
             element(ID_LANGUAGE, "und".encodeToByteArray()) +
             element(ID_CODEC_ID, t.codecId.encodeToByteArray())
         t.codecPrivate?.let { b += element(ID_CODEC_PRIVATE, it) }
-        b += if (t.video) {
-            element(ID_VIDEO, element(ID_PIXEL_WIDTH, uint(t.width.toLong())) + element(ID_PIXEL_HEIGHT, uint(t.height.toLong())))
+        b += if (t.text) {
+            ByteArray(0)
+        } else if (t.video) {
+            val projection = if (t.rotation % 360 != 0) {
+                element(ID_PROJECTION, element(ID_PROJECTION_TYPE, uint(0)) + element(ID_PROJECTION_POSE_ROLL, float32(ROLL_SIGN * t.rotation.toFloat())))
+            } else {
+                ByteArray(0)
+            }
+            element(ID_VIDEO, element(ID_PIXEL_WIDTH, uint(t.width.toLong())) + element(ID_PIXEL_HEIGHT, uint(t.height.toLong())) + projection)
         } else {
             element(ID_CODEC_DELAY, uint(0)) + element(ID_SEEK_PRE_ROLL, uint(80_000_000)) +
                 element(ID_AUDIO, element(ID_SAMPLING_FREQUENCY, float(48_000.0)) + element(ID_CHANNELS, uint(1)))
@@ -143,7 +154,7 @@ class Matroska(private val tracks: List<Track>) {
     private fun ebmlHeader() = element(
         ID_EBML,
         element(0x4286, uint(1)) + element(0x42F7, uint(1)) + element(0x42F2, uint(4)) + element(0x42F3, uint(8)) +
-            element(0x4282, "webm".takeIf { tracks.all { it.codecId != CODEC_AVC } } ?.encodeToByteArray() ?: "matroska".encodeToByteArray()) +
+            element(0x4282, "webm".takeIf { tracks.all { it.codecId != CODEC_AVC && !it.text } } ?.encodeToByteArray() ?: "matroska".encodeToByteArray()) +
             element(0x4287, uint(4)) + element(0x4285, uint(2)),
     )
 
@@ -151,6 +162,15 @@ class Matroska(private val tracks: List<Track>) {
         const val CODEC_VP8 = "V_VP8"
         const val CODEC_AVC = "V_MPEG4/ISO/AVC"
         const val CODEC_OPUS = "A_OPUS"
+        const val CODEC_TEXT = "S_TEXT/UTF8"
+        const val ID_PROJECTION = 0x7670
+        const val ID_PROJECTION_TYPE = 0x7671
+        const val ID_PROJECTION_POSE_ROLL = 0x7675
+
+        /** Which way Matroska's roll turns: checked against ffprobe (tools/keptcall). */
+        const val ROLL_SIGN = -1f
+
+        fun float32(value: Float): ByteArray = ByteArray(4) { i -> (java.lang.Float.floatToIntBits(value) ushr (8 * (3 - i))).toByte() }
 
         const val ID_EBML = 0x1A45DFA3
         const val ID_SEGMENT = 0x18538067

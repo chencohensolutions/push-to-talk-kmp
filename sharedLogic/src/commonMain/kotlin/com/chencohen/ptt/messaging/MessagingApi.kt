@@ -168,6 +168,9 @@ internal interface MessagingApi {
     /** recordCall / stopRecordingCall: the server keeps [call] from now, or stops; whether it keeps it now. */
     suspend fun recordCall(call: String, peer: String?, group: String?, on: Boolean): Boolean = false
 
+    /** logCallEvent: an event (base64, sealed with the call's key) into the kept call's log. */
+    suspend fun logCallEvent(call: String, peer: String?, group: String?, event: String): Boolean = false
+
     /** callRecording: the kept call's tracks this user may read (none when it wasn't kept or they weren't in it). */
     suspend fun callRecording(call: String, peer: String?, group: String?): KeptCall = KeptCall(false, emptyList())
 }
@@ -283,6 +286,10 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
     override suspend fun callToken(call: String, peer: String?, group: String?): LiveToken =
         run { it.mutation(com.chencohen.ptt.graphql.CallTokenMutation(call, Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group))).execute() }
             .callToken.let { LiveToken(it.token, it.room, it.identity, it.path, it.expiresAt.toString()) }
+
+    override suspend fun logCallEvent(call: String, peer: String?, group: String?, event: String): Boolean =
+        run { it.mutation(com.chencohen.ptt.graphql.LogCallEventMutation(call, Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group), event)).execute() }
+            .logCallEvent
 
     override suspend fun callRecording(call: String, peer: String?, group: String?): KeptCall =
         run { it.query(com.chencohen.ptt.graphql.CallRecordingQuery(call, Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group))).execute() }

@@ -117,6 +117,8 @@
     <string name="kept_failed">לא הצלחנו לפתוח את השיחה. נסו שוב מאוחר יותר.</string>
     <string name="kept_play">ניגון</string>
     <string name="kept_pause">השהיה</string>
+    <string name="kept_as_seen">כפי שנראה</string>
+    <string name="kept_whole">שלם</string>
     <string name="call_video_fit">התאמה</string>
     <string name="call_video_fill">מילוי</string>
     <string name="call_orientation_auto">סיבוב אוטומטי</string>

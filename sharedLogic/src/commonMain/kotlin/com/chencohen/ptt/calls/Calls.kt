@@ -70,6 +70,10 @@ data class CallUi(
     val askToSave: Boolean = false,
     /** This phone saves the call now. */
     val saving: Boolean = false,
+    /** How each other user shows this phone's video (VIEW): their crop is outlined on this phone's own preview. */
+    val viewers: Map<String, CallView> = emptyMap(),
+    /** This phone's camera picture upright, width for 1 high (0 before the first frame). */
+    val ownAspect: Float = 0f,
 )
 
 /** The call room's carrier: LiveKit on Android, the call's media encrypted with its one key. */
@@ -104,6 +108,9 @@ interface CallTransportListener {
 
     /** The room's metadata: the device ("user.device") the server keeps the call for, or null when it doesn't. */
     fun serverRecording(by: String?) {}
+
+    /** This phone's camera frames: [rotation] clockwise degrees to turn them upright, [width] × [height] as captured. */
+    fun cameraFormat(rotation: Int, width: Int, height: Int) {}
 }
 
 /** The platform's part: ringing, the ongoing call session, missed-call notifications. */
@@ -147,6 +154,8 @@ internal class Calls(
      */
     private val keepOnServer: suspend (call: String, peer: String?, group: String?, on: Boolean) -> Unit = { _, _, _, _ -> },
     private val serverKeepsCalls: () -> Boolean = { false },
+    /** logCallEvent: an event (sealed with the call's key, base64) into the kept call. */
+    private val logEvent: suspend (call: String, peer: String?, group: String?, event: String) -> Unit = { _, _, _, _ -> },
     private val now: () -> Long,
     private val random: Random,
 ) {
@@ -173,6 +182,11 @@ internal class Calls(
     /** This phone's own recorder runs (Save calls, with a server that doesn't keep calls). */
     private var savingHere = false
 
+    /** What the kept call's event log has from this phone: the camera's format and how each video shows here. */
+    private var camera: CallEvent? = null
+    private val views = mutableMapOf<String, CallEvent>()
+    private var serverKeeping = false
+
     private val current: CallUi? get() = _state.value?.takeIf { it.phase != CallPhase.ENDED }
 
     /** Calls [chat]: false when a call is already on. */
@@ -185,6 +199,9 @@ internal class Calls(
         joined = false
         askedToSave = false
         keptKey = null
+        camera = null
+        views.clear()
+        serverKeeping = false
         savedAs = null
         val call = CallUi(id, chat, self, incoming = false, video = video, phase = CallPhase.CALLING, startedAt = now())
         show(call)
@@ -271,6 +288,27 @@ internal class Calls(
         runCatching { keepOnServer(call.id, if (group == null) call.chat else null, group, on) }
     }
 
+    /**
+     * This phone shows [user]'s video cropped to fill ([fill]) or whole, in a tile [aspect] wide for 1 high: they are
+     * told (their preview outlines it), and it goes into the call's log while the server keeps it.
+     */
+    fun setView(user: String, fill: Boolean, aspect: Float) {
+        val call = current?.takeIf { it.phase == CallPhase.ACTIVE } ?: return
+        if (aspect <= 0f || aspect.isNaN()) return
+        val event = CallEvent(CallEvent.VIEW, of = user, fill = fill, aspect = (aspect * 1000).toInt() / 1000f)
+        if (views[user] == event) return
+        views[user] = event
+        scope.launch { send(call.chat, CallContent(CallContent.VIEW, call.id, fill = fill, aspect = event.aspect!!, of = user), PushKind.NONE) }
+        if (serverKeeping) log(call, event)
+    }
+
+    private fun log(call: CallUi, event: CallEvent) {
+        val k = key ?: return
+        val sealed = kotlin.io.encoding.Base64.encode(CallEvent.seal(k, event, random))
+        val group = com.chencohen.ptt.messaging.Group.idOf(call.chat)
+        scope.launch { runCatching { logEvent(call.id, if (group == null) call.chat else null, group, sealed) } }
+    }
+
     /** "Save this call?" answered Not now. */
     fun dismissAsk() = _state.update { it?.copy(askToSave = false) }
 
@@ -295,6 +333,9 @@ internal class Calls(
                         joined = false
                         askedToSave = false
                         keptKey = null
+                        camera = null
+                        views.clear()
+                        serverKeeping = false
                         savedAs = null
                         show(ringing)
                         host?.ring(ringing)
@@ -329,6 +370,11 @@ internal class Calls(
             CallContent.RECORDING -> {
                 here ?: return
                 _state.update { it?.copy(recordingBy = if (call.recording) it.recordingBy + from else it.recordingBy - from) }
+            }
+            CallContent.VIEW -> {
+                here ?: return
+                if (ownCopy || call.of != me()) return
+                _state.update { it?.copy(viewers = it.viewers + (from to CallView(call.fill, call.aspect))) }
             }
         }
     }
@@ -430,7 +476,27 @@ internal class Calls(
         override fun serverRecording(by: String?) {
             scope.launch {
                 if (by != null && current != null) keptKey = key
+                val call = current
+                val starts = by != null && !serverKeeping
+                serverKeeping = by != null
+                // Keeping began: the log gets how things are now, then every change.
+                if (starts && call != null) {
+                    camera?.let { log(call, it) }
+                    views.values.forEach { log(call, it) }
+                }
                 _state.update { it?.copy(serverRecordingBy = by?.substringBeforeLast('.')) }
+            }
+        }
+
+        override fun cameraFormat(rotation: Int, width: Int, height: Int) {
+            scope.launch {
+                val event = CallEvent(CallEvent.CAMERA, rot = rotation, w = width, h = height)
+                if (camera == event) return@launch
+                camera = event
+                val turned = rotation == 90 || rotation == 270
+                if (height > 0 && width > 0) _state.update { it?.copy(ownAspect = if (turned) height.toFloat() / width else width.toFloat() / height) }
+                val call = current ?: return@launch
+                if (serverKeeping) log(call, event)
             }
         }
 

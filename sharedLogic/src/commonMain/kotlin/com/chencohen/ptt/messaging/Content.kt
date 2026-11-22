@@ -146,9 +146,14 @@ internal data class CallContent(
     @ProtoNumber(5) val sentAt: Long = 0,
     /** With RECORDING: saving started (true) or stopped. */
     @ProtoNumber(6) val recording: Boolean = false,
+    /** With VIEW: how the sender shows [of]'s video (a user): cropped to fill its tile, or whole; and the tile's shape. */
+    @ProtoNumber(7) val fill: Boolean = false,
+    @ProtoNumber(8) val aspect: Float = 0f,
+    @ProtoNumber(9) val of: String = "",
 ) {
     override fun equals(other: Any?): Boolean = other is CallContent && kind == other.kind && id == other.id &&
-        key.contentEquals(other.key) && video == other.video && sentAt == other.sentAt && recording == other.recording
+        key.contentEquals(other.key) && video == other.video && sentAt == other.sentAt && recording == other.recording &&
+        fill == other.fill && aspect == other.aspect && of == other.of
 
     override fun hashCode(): Int = id.hashCode() * 31 + kind
 
@@ -162,6 +167,8 @@ internal data class CallContent(
         const val RECORDING = 6
         /** Answered or declined on another phone of the callee: this one stops ringing. */
         const val ANSWERED_ELSEWHERE = 7
+        /** How this phone shows someone's video (Fill or Fit, its tile's shape): their own preview outlines it. */
+        const val VIEW = 8
     }
 }
 

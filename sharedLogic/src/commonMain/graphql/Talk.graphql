@@ -29,3 +29,8 @@ query CallRecording($call: ID!, $peer: String, $group: ID) {
     tracks { blob identity kind codec startedAt recordingStartedAt size complete }
   }
 }
+
+# A kept call's event log: how this phone shows each video, and its camera's rotation (docs/screens/calls.md).
+mutation LogCallEvent($call: ID!, $peer: String, $group: ID, $event: String!) {
+  logCallEvent(call: $call, peer: $peer, group: $group, event: $event)
+}
