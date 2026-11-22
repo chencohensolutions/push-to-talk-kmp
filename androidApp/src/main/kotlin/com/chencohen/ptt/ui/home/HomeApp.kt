@@ -104,7 +104,13 @@ import com.chencohen.ptt.ui.style.statusBarRoom
 enum class HomeTab { TALK, CHATS, CALLS }
 
 /** What the home screens render: the server's health, who this is (the profile circle's letter), and messaging's. */
-data class HomeState(val health: ServerHealth, val user: String?, val messaging: MessagingState = MessagingState())
+data class HomeState(
+    val health: ServerHealth,
+    val user: String?,
+    val messaging: MessagingState = MessagingState(),
+    /** A newer release of the app to update to, for the home card. */
+    val update: com.chencohen.ptt.update.AppRelease? = null,
+)
 
 class HomeActions(
     val openSettings: () -> Unit = {},
@@ -129,6 +135,8 @@ class HomeActions(
     /** The Talk tab's page now on screen, remembered for next time. */
     val quickTalkShown: (String) -> Unit = {},
     val micDenied: () -> Unit = {},
+    /** The home card's Update (docs/design.md, "App updates"). */
+    val update: (com.chencohen.ptt.update.AppRelease) -> Unit = {},
 )
 
 /**
@@ -158,6 +166,8 @@ fun HomeApp(
 ) {
     val state by connection.state.collectAsStateWithLifecycle()
     val messagingState by messaging.state.collectAsStateWithLifecycle()
+    val updates by com.chencohen.ptt.AppUpdates.state.collectAsStateWithLifecycle()
+    val app = LocalContext.current.applicationContext as com.chencohen.ptt.TalkApp
     var saved by rememberSaveable { mutableStateOf("") }
     val stack = pages(saved)
     fun push(page: String) {
@@ -211,7 +221,7 @@ fun HomeApp(
             val pageUser = page?.substringAfter('/', "")?.takeIf { it.isNotEmpty() }
             when {
                 page == null -> HomeScreen(
-                    state = HomeState(state.health, state.device?.user, messagingState),
+                    state = HomeState(state.health, state.device?.user, messagingState, (updates as? com.chencohen.ptt.UpdateState.Available)?.release),
                     tab = tab,
                     selectTab = { tab = it },
                     actions = HomeActions(
@@ -241,6 +251,7 @@ fun HomeApp(
                             if (talk.quickTalkPage != chat) messaging.setTalkSettings(talk.copy(quickTalkPage = chat))
                         },
                         micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
+                        update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
                     ),
                 )
                 name == "settings" -> {
@@ -254,6 +265,9 @@ fun HomeApp(
                         linkPhone = { push("link") },
                         openTalk = { push("talksettings") },
                         openCalls = { push("callsettings") },
+                        updates = updates,
+                        checkUpdates = { com.chencohen.ptt.AppUpdates.check(app) },
+                        update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
                         presenceVisible = presenceVisible,
                         setPresenceVisible = { visible ->
                             presenceVisible = null
@@ -663,6 +677,8 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 groups[chat]?.let { g -> com.chencohen.ptt.ui.talk.QuickTalkPage(chat, g.name.ifBlank { unnamed }, g.picture) }
                     ?: com.chencohen.ptt.ui.talk.QuickTalkPage(chat, contactNames.getValue(chat))
             }
+            Column(Modifier.fillMaxSize().padding(top = insets.calculateTopPadding() + 64.dp, bottom = insets.calculateBottomPadding() + 80.dp)) {
+            state.update?.let { release -> UpdateCard(release, actions.update) }
             com.chencohen.ptt.ui.talk.QuickTalkHome(
                 pages = pages,
                 startPage = com.chencohen.ptt.talk.QuickTalk.startPage(pages.map { it.chat }, chats.talkSettings.quickTalkPage),
@@ -675,8 +691,9 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 openChats = { selectTab(HomeTab.CHATS) },
                 pageShown = actions.quickTalkShown,
                 micDenied = actions.micDenied,
-                modifier = Modifier.padding(top = insets.calculateTopPadding() + 64.dp, bottom = insets.calculateBottomPadding() + 80.dp),
+                modifier = Modifier.weight(1f),
             )
+            }
         } else Column(
             Modifier
                 .fillMaxSize()
@@ -692,7 +709,9 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                     warning = true,
                 )
             }
+            state.update?.let { release -> UpdateCard(release, actions.update) }
             when (tab) {
+                HomeTab.TALK -> {}
                 HomeTab.CHATS -> {
                     (chats.keys as? KeysState.Linking)?.let { linking ->
                         HomeCard(
@@ -781,6 +800,17 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarRoom().padding(bottom = 16.dp),
         )
     }
+}
+
+/** "Talk 1.2.0 is available", with Update (docs/design.md, "App updates"). */
+@Composable
+private fun UpdateCard(release: com.chencohen.ptt.update.AppRelease, update: (com.chencohen.ptt.update.AppRelease) -> Unit) {
+    HomeCard(
+        title = stringResource(R.string.update_available, release.version),
+        body = stringResource(R.string.update_card_body),
+        action = stringResource(R.string.update_action),
+        onAction = { update(release) },
+    )
 }
 
 @Composable

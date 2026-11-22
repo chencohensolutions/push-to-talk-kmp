@@ -482,4 +482,27 @@
     <string name="quick_talk_empty">עוד אין צ׳אטים לדיבור מהיר. אפשר להפעיל דיבור מהיר בדף של איש קשר או של קבוצה.</string>
     <string name="quick_talk_open_chats">לצ׳אטים</string>
     <string name="quick_talk_page">דף %1$d מתוך %2$d</string>
+    <string name="update_title">עדכוני האפליקציה</string>
+    <string name="update_latest">Talk מעודכנת</string>
+    <string name="update_checked">נבדק ב־%1$s</string>
+    <string name="update_checking">מחפשים עדכון…</string>
+    <string name="update_available">יש גרסה חדשה של Talk: %1$s</string>
+    <string name="update_tap">הקשה לעדכון</string>
+    <string name="update_tap_again">הקשה לניסיון נוסף</string>
+    <string name="update_card_body">לעדכן עכשיו: אנדרואיד יבקש אישור. הצ׳אטים ואנשי הקשר נשארים.</string>
+    <string name="update_action">לעדכן</string>
+    <string name="update_downloading">מורידים את Talk %1$s… %2$d%%</string>
+    <string name="update_installing">מתקינים את Talk %1$s…</string>
+    <string name="update_permission">לאפשר ל־Talk להתקין עדכונים</string>
+    <string name="update_permission_body">להפעיל את „התרה מהמקור הזה” עבור Talk, לחזור לכאן ולהקיש.</string>
+    <string name="update_failed">העדכון נכשל: %1$s</string>
+    <string name="update_failed_check">אין חיבור לשרת</string>
+    <string name="update_failed_checksum">הקובץ שהורד לא תואם לבדיקת התקינות</string>
+    <string name="update_failed_signature">הקובץ אינו גרסה חדשה של Talk חתומה באותו מפתח</string>
+    <string name="update_failed_install">אנדרואיד לא התקין אותו</string>
+    <string name="update_debug">זו גרסת בדיקה</string>
+    <string name="update_debug_body">גרסאות בדיקה לא מתעדכנות לבד. גרסת ההפצה כן.</string>
+    <string name="update_check_now">לבדוק עכשיו</string>
+    <string name="update_channel">עדכוני האפליקציה</string>
+    <string name="update_notification_body">הקשה לעדכון. אנדרואיד יבקש אישור.</string>
 </resources>

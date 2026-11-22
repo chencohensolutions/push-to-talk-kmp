@@ -46,6 +46,10 @@ internal fun SettingsScreen(
     /** Show when I'm online: on, off, or null while it is being changed. */
     presenceVisible: Boolean? = true,
     setPresenceVisible: (Boolean) -> Unit = {},
+    /** Settings › App updates (docs/design.md, "App updates"). */
+    updates: com.chencohen.ptt.UpdateState = com.chencohen.ptt.UpdateState.Latest(0),
+    checkUpdates: () -> Unit = {},
+    update: (com.chencohen.ptt.update.AppRelease) -> Unit = {},
 ) {
     LaunchedEffect(Unit) { refresh() }
     SettingsScaffold(stringResource(R.string.settings_title), back) {
@@ -89,8 +93,50 @@ internal fun SettingsScreen(
         SettingsCard {
             InfoRow(stringResource(R.string.calls_save_title), stringResource(R.string.settings_calls_body), onClick = openCalls)
         }
+        UpdatesSection(updates, checkUpdates, update)
         ServerSection(state)
         AppVersionLine()
+    }
+}
+
+/** App updates: the latest release or what is happening, Update, and Check now. */
+@Composable
+private fun UpdatesSection(updates: com.chencohen.ptt.UpdateState, check: () -> Unit, update: (com.chencohen.ptt.update.AppRelease) -> Unit) {
+    SectionTitle(stringResource(R.string.update_title))
+    SettingsCard {
+        when (updates) {
+            is com.chencohen.ptt.UpdateState.Latest -> InfoRow(
+                stringResource(R.string.update_latest),
+                if (updates.checkedAt > 0) {
+                    stringResource(R.string.update_checked, java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(updates.checkedAt)))
+                } else {
+                    null
+                },
+            )
+            com.chencohen.ptt.UpdateState.Checking -> InfoRow(stringResource(R.string.update_checking), null)
+            is com.chencohen.ptt.UpdateState.Available -> InfoRow(
+                stringResource(R.string.update_available, updates.release.version),
+                stringResource(R.string.update_tap),
+                onClick = { update(updates.release) },
+            )
+            is com.chencohen.ptt.UpdateState.Downloading -> InfoRow(stringResource(R.string.update_downloading, updates.release.version, updates.percent), null)
+            is com.chencohen.ptt.UpdateState.Installing -> InfoRow(stringResource(R.string.update_installing, updates.release.version), null)
+            is com.chencohen.ptt.UpdateState.NeedsPermission -> InfoRow(
+                stringResource(R.string.update_permission),
+                stringResource(R.string.update_permission_body),
+                onClick = { update(updates.release) },
+            )
+            is com.chencohen.ptt.UpdateState.Failed -> InfoRow(
+                stringResource(R.string.update_failed, updates.message),
+                if (updates.release != null) stringResource(R.string.update_tap_again) else null,
+                onClick = updates.release?.let { r -> { update(r) } },
+            )
+            com.chencohen.ptt.UpdateState.DebugBuild -> InfoRow(stringResource(R.string.update_debug), stringResource(R.string.update_debug_body))
+        }
+        if (updates !is com.chencohen.ptt.UpdateState.DebugBuild) {
+            RowDivider()
+            InfoRow(stringResource(R.string.update_check_now), null, onClick = check)
+        }
     }
 }
 

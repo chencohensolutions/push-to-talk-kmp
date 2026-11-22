@@ -235,3 +235,15 @@ fun createMessagingController(context: Context, connection: ConnectionController
 /** The Add contact screen: this phone's code and scanning theirs (docs/screens/add-contact.md). */
 fun createPairingController(context: Context, connection: ConnectionController): PairingController =
     PairingController(messaging(context, connection), messagingWork, now = { System.currentTimeMillis() })
+
+/**
+ * The latest app release the server read from GitHub (`appRelease`; docs/design.md, "App updates"); null when the
+ * server has none, or this phone isn't enrolled. Throws when the server can't be reached.
+ */
+suspend fun appRelease(context: Context): com.chencohen.ptt.update.AppRelease? {
+    val response = serverHttp(context).graphql { it.query(com.chencohen.ptt.graphql.AppReleaseQuery()).execute() } ?: return null
+    response.exception?.let { throw it }
+    response.errors?.firstOrNull()?.let { throw IllegalStateException(it.message) }
+    val r = response.data?.appRelease ?: return null
+    return com.chencohen.ptt.update.AppRelease(r.version, r.apkUrl, r.size.toLong(), r.sha256, r.notes.orEmpty())
+}
