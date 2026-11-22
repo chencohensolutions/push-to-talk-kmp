@@ -34,6 +34,8 @@ class TalkApp : Application() {
         setTalkHost(this, AndroidTalkHost(this))
         CallNotifications.createChannels(this)
         AppUpdates.createChannel(this)
+        // LiteRT from Play services for the car's speech detector (Android Auto); Silero in Kotlin without it.
+        com.chencohen.ptt.talk.LiteRtSpeechDetector.initialize(this)
         setCallHost(this, AndroidCallHost(this))
     }
 }
