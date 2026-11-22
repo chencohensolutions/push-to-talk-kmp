@@ -29,7 +29,7 @@ in the app’s settings."
 
 `ClipContent`, inside a bubble in place of the text: a round Play (Pause while playing) button, a bar that fills as
 it plays, and under it "Talk" with a small walkie-talkie for a burst, its length ("0:04"; "Live" while still being
-said), and a teal dot on one of theirs not heard yet. A tap plays it (from this phone's copy, or the server's) or
+said; none for a burst that ended before this phone had it whole, until it plays), and a teal dot on one of theirs not heard yet. A tap plays it (from this phone's copy, or the server's) or
 stops it. Chats shows "Talk · 0:04" or "Voice message · 0:12" as the preview line, and so do notifications.
 
 ## Voice messages

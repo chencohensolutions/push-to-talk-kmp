@@ -64,6 +64,7 @@ class LiveKitCallTransport(
         leave()
         // The key provider is native WebRTC code: load the library first (LiveKit.create would, but only after it).
         LiveKit.init(appContext)
+        front = true // each call starts on the front camera, so the first Flip turns to the back one
         val provider = BaseKeyProvider(enableSharedKey = true, discardFrameWhenCryptorNotReady = true)
         provider.setSharedKey(Base64.encodeToString(key, Base64.NO_WRAP), 0)
         val room = LiveKit.create(

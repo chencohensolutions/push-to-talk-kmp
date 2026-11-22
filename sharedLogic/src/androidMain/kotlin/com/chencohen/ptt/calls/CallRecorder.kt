@@ -45,6 +45,9 @@ internal class CallRecorder(private val file: File, eglContext: EglBase.Context,
 
     /** The latest frame of each camera, by its key ("own" for this phone's). */
     private val frames = ConcurrentHashMap<String, VideoFrame>()
+
+    /** Held while a frame is drawn or replaced, so a frame isn't released while it is drawn. */
+    private val frameLock = Any()
     private val sinks = ConcurrentHashMap<String, VideoSink>()
 
     // --- Audio ------------------------------------------------------------------------------------------------------
@@ -95,9 +98,16 @@ internal class CallRecorder(private val file: File, eglContext: EglBase.Context,
     /** A camera to draw ([key] "own" is this phone's, drawn small in a corner). */
     fun addVideo(key: String, track: io.livekit.android.room.track.VideoTrack) {
         if (!video || sinks.containsKey(key)) return
+        var last = 0L
         val sink = VideoSink { frame ->
-            frame.retain()
-            frames.put(key, frame)?.release()
+            // Not the frame itself: a camera's or decoder's texture frame holds its one texture until released, and
+            // no new frame comes while it is held (the call's own video froze, black on this phone). A copy at the
+            // recording's frame rate, and the texture goes back at once.
+            val now = System.nanoTime()
+            if (now - last < 1_000_000_000L / FPS) return@VideoSink
+            last = now
+            val copy = frame.buffer.toI420() ?: return@VideoSink
+            synchronized(frameLock) { frames.put(key, VideoFrame(copy, frame.rotation, frame.timestampNs))?.release() }
         }
         sinks[key] = sink
         track.addRenderer(sink)
@@ -111,7 +121,7 @@ internal class CallRecorder(private val file: File, eglContext: EglBase.Context,
 
     fun removeVideo(key: String, track: io.livekit.android.room.track.VideoTrack?) {
         sinks.remove(key)?.let { sink -> runCatching { track?.removeRenderer(sink) } }
-        frames.remove(key)?.release()
+        synchronized(frameLock) { frames.remove(key)?.release() }
     }
 
     /** A voice to mix: the sink to add to its audio track. */
@@ -130,8 +140,10 @@ internal class CallRecorder(private val file: File, eglContext: EglBase.Context,
         videoHandler.post {
             runCatching { if (videoCodec != null) videoCodec?.signalEndOfInputStream() }
             drainVideo(end = true)
-            frames.values.forEach { it.release() }
-            frames.clear()
+            synchronized(frameLock) {
+                frames.values.forEach { it.release() }
+                frames.clear()
+            }
             runCatching { videoCodec?.stop() }
             runCatching { videoCodec?.release() }
             runCatching { drawer.release() }
@@ -170,19 +182,21 @@ internal class CallRecorder(private val file: File, eglContext: EglBase.Context,
         try {
             GLES20.glClearColor(0.06f, 0.08f, 0.075f, 1f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            val others = frames.keys.filter { it != OWN }.sorted()
-            val columns = if (others.size > 2) 2 else 1
-            val rows = if (others.isEmpty()) 1 else (others.size + columns - 1) / columns
-            others.forEachIndexed { i, key ->
-                val frame = frames[key] ?: return@forEachIndexed
-                val w = WIDTH / columns
-                val h = HEIGHT / rows
-                // GL's origin is the bottom left: the first row is drawn at the top.
-                draw(frame, (i % columns) * w, HEIGHT - (i / columns + 1) * h, w, h)
-            }
-            frames[OWN]?.let { own ->
-                if (others.isEmpty()) draw(own, 0, 0, WIDTH, HEIGHT)
-                else draw(own, WIDTH - WIDTH / 4 - 24, 24, WIDTH / 4, HEIGHT / 4)
+            synchronized(frameLock) {
+                val others = frames.keys.filter { it != OWN }.sorted()
+                val columns = if (others.size > 2) 2 else 1
+                val rows = if (others.isEmpty()) 1 else (others.size + columns - 1) / columns
+                others.forEachIndexed { i, key ->
+                    val frame = frames[key] ?: return@forEachIndexed
+                    val w = WIDTH / columns
+                    val h = HEIGHT / rows
+                    // GL's origin is the bottom left: the first row is drawn at the top.
+                    draw(frame, (i % columns) * w, HEIGHT - (i / columns + 1) * h, w, h)
+                }
+                frames[OWN]?.let { own ->
+                    if (others.isEmpty()) draw(own, 0, 0, WIDTH, HEIGHT)
+                    else draw(own, WIDTH - WIDTH / 4 - 24, 24, WIDTH / 4, HEIGHT / 4)
+                }
             }
             egl.swapBuffers((System.nanoTime() - startNs))
             drainVideo(end = false)

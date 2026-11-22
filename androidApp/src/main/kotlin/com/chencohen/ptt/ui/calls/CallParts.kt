@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -214,7 +215,9 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
         val remote = if (r != null && call.phase == CallPhase.ACTIVE) remoteVideo(r, changes) else emptyList()
         if (remote.isNotEmpty()) {
             Column(Modifier.fillMaxSize()) {
-                remote.forEach { track -> VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth()) }
+                // Keyed by track: without it a tile keeps the view of whoever was at its place before (a frozen frame
+                // of someone who left) and the camera now there draws into a view that isn't shown.
+                remote.forEach { track -> key(track.sid ?: track.name) { VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth()) } }
             }
         }
         Column(
@@ -270,7 +273,7 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             val own = r?.let { ownVideo(it, changes) }
             if (own != null && call.camera) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    VideoView(r, own, Modifier.size(width = 108.dp, height = 160.dp), mirror = true)
+                    key(own.sid ?: own.name) { VideoView(r, own, Modifier.size(width = 108.dp, height = 160.dp), mirror = true) }
                 }
                 Spacer(Modifier.height(16.dp))
             }
