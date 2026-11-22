@@ -268,9 +268,13 @@ internal fun TalkModeScreen(
     pushVideo: Boolean = false,
     setPushVideo: (Boolean) -> Unit = {},
     warmCamera: (String?) -> Unit = {},
+    /** This screen open tells the other user ("here"); and whether they are here now. */
+    setHere: (String?) -> Unit = {},
+    peerHere: Boolean = false,
 ) {
     WarmMicrophone(warmMicrophone)
     WarmCamera(chat, pushVideo, warmCamera)
+    Here(chat, setHere)
     val microphone = rememberMicrophone(micDenied)
     val own = talk.own?.takeIf { it.chat == chat }
     val live = own?.phase == TalkPhase.TALKING
@@ -324,7 +328,7 @@ internal fun TalkModeScreen(
             }
             },
             circle = { size -> TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release, diameter = size) },
-            actions = { TalkChatActions(openChat, call, pushVideo = pushVideo, setPushVideo = setPushVideo) },
+            actions = { TalkChatActions(openChat, call, pushVideo = pushVideo, setPushVideo = setPushVideo, peerHere = peerHere) },
         )
         val upright = androidx.compose.ui.platform.LocalConfiguration.current.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
         if (bursts.isNotEmpty() && upright) {
@@ -523,22 +527,34 @@ internal fun TalkChatActions(
     modifier: Modifier = Modifier,
     pushVideo: Boolean = false,
     setPushVideo: (Boolean) -> Unit = {},
+    /** The other user has their Talk screen or bubble for this chat open now ("here"). */
+    peerHere: Boolean = false,
 ) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
         PushVideoSwitch(pushVideo, setPushVideo)
-        TalkChatAction(LibraryIcons.Chat, stringResource(R.string.talk_action_chat), openChat)
+        TalkChatAction(LibraryIcons.Chat, stringResource(R.string.talk_action_chat), onClick = openChat)
         TalkChatAction(LibraryIcons.Call, stringResource(R.string.call_voice)) { call(false) }
-        TalkChatAction(LibraryIcons.Video, stringResource(R.string.call_video)) { call(true) }
+        // Glows when they are "here" (their Talk screen or bubble open): a video call they'll see at once.
+        TalkChatAction(LibraryIcons.Video, stringResource(R.string.call_video), glow = peerHere) { call(true) }
     }
 }
 
 @Composable
-private fun TalkChatAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun TalkChatAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, glow: Boolean = false, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            Modifier.size(52.dp).background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
+            Modifier.size(52.dp).background(if (glow) androidx.compose.ui.graphics.Color(0xFF2BB3A3) else LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
                 .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) { Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(24.dp)) }
+    }
+}
+
+/** While shown and the app is in front, the other user is told this chat's Talk screen is open ("here"). */
+@Composable
+internal fun Here(chat: String, setHere: (String?) -> Unit) {
+    androidx.lifecycle.compose.LifecycleStartEffect(chat) {
+        setHere(chat)
+        onStopOrDispose { setHere(null) }
     }
 }

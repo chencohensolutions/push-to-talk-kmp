@@ -71,6 +71,9 @@ internal fun QuickTalkHome(
     pushVideo: Boolean = false,
     setPushVideo: (Boolean) -> Unit = {},
     warmCamera: (String?) -> Unit = {},
+    /** The page on screen tells its user ("here"); who is here now, until when. */
+    setHere: (String?) -> Unit = {},
+    here: Map<String, Long> = emptyMap(),
 ) {
     if (pages.isEmpty()) {
         Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
@@ -100,7 +103,11 @@ internal fun QuickTalkHome(
             val someone = talk.talkers[page.chat]?.takeIf { it.user != me }
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 // The page on screen keeps the camera warm for its chat.
-                if (pager.currentPage == i) WarmCamera(page.chat, pushVideo, warmCamera)
+                if (pager.currentPage == i) {
+                    WarmCamera(page.chat, pushVideo, warmCamera)
+                    Here(page.chat, setHere)
+                }
+                val peerHere = (here[page.chat] ?: 0L) > System.currentTimeMillis()
                 // Centred above the button: someone's video burst, or this phone's camera while Video is on.
                 val video = talk.playing?.takeIf { it.chat == page.chat && it.video } != null
                 TalkStage(
@@ -148,7 +155,7 @@ internal fun QuickTalkHome(
                     actions = {
                         TalkChatActions(
                             openChat = { openChat(page.chat) }, call = { v -> call(page.chat, v) },
-                            pushVideo = pushVideo, setPushVideo = setPushVideo,
+                            pushVideo = pushVideo, setPushVideo = setPushVideo, peerHere = peerHere,
                         )
                     },
                 )

@@ -263,6 +263,9 @@ suspend fun stopTalkPlayback(context: Context) {
 }
 
 /** Messaging's state, for the background talk notifications. */
+/** The reply bubble for [chat] is open (null: closed): the other user's phone is told ("here"). */
+fun setHere(context: Context, chat: String?) = hub(context).setHere(chat)
+
 /** Changes Talk's settings from outside the screens (the reply bubble's Video). */
 fun setTalkSettings(context: Context, talk: com.chencohen.ptt.messaging.TalkSettings) = hub(context).setTalkSettings(talk)
 

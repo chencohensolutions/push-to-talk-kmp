@@ -51,6 +51,8 @@ data class MessagingState(
     val presence: Map<String, UserPresence> = emptyMap(),
     /** Contacts typing to this user now: until when, milliseconds since 1970. */
     val typing: Map<String, Long> = emptyMap(),
+    /** Contacts whose Talk screen or reply bubble for this chat is open now (HereContent): until when. */
+    val here: Map<String, Long> = emptyMap(),
     /** How many texts from each contact aren't read yet. */
     val unread: Map<String, Int> = emptyMap(),
     /** Each conversation's texts, oldest first, by user (a group's by [Group.chat]). */
@@ -1078,6 +1080,42 @@ internal class Messaging(
     }
 
     /** This user is typing to [user] (or stopped): sent with no wake-up, and only when connected. */
+    private var hereChat: String? = null
+    private var hereJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * This phone's Talk screen or reply bubble for [chat] is open (null: closed): the other user is told, end to end,
+     * again every 20 s while it stays open, so their phone can offer a quick video call (2026-11-22, hen). One-to-one
+     * chats only.
+     */
+    fun setHere(chat: String?) {
+        val target = chat?.takeIf { Group.idOf(it) == null }
+        if (target == hereChat) return
+        val old = hereChat
+        hereChat = target
+        hereJob?.cancel()
+        if (old != null) scope.launch { sendHere(old, false) }
+        if (target != null) {
+            hereJob = scope.launch {
+                while (true) {
+                    sendHere(target, true)
+                    kotlinx.coroutines.delay(HERE_EVERY)
+                }
+            }
+        }
+    }
+
+    private suspend fun sendHere(user: String, open: Boolean) {
+        if (socket.state.value !is SocketState.Live) return
+        val contact = store.contact(user)?.takeIf { it.paired && !it.blocked } ?: return
+        try {
+            sender.send(contact.user, Content(here = HereContent(open)), pushKind = PushKind.NONE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
     suspend fun sendTyping(user: String, typing: Boolean) {
         if (socket.state.value !is SocketState.Live) return
         Group.idOf(user)?.let { id ->
@@ -1194,6 +1232,9 @@ internal class Messaging(
                 it.copy(typing = if (typing.typing) it.typing + (contact.user to now() + TYPING_FOR) else it.typing - contact.user)
             }
         }
+        content.here?.let { here ->
+            _state.update { it.copy(here = if (here.open) it.here + (contact.user to now() + HERE_FOR) else it.here - contact.user) }
+        }
     }
 
     /**
@@ -1250,6 +1291,10 @@ internal class Messaging(
         const val TYPING_FOR = 8_000L
 
         /** The key in [MessagingState.typing] of [author] typing in a group's chat. */
+        /** "Here" lasts this long after the last word of it; it is said again every HERE_EVERY. */
+        const val HERE_FOR = 30_000L
+        const val HERE_EVERY = 20_000L
+
         fun typingKey(chat: String, author: String): String = "$chat/$author"
 
         /** How long past its end a Link a phone code still answers: the new phone may connect a while after enrolling. */

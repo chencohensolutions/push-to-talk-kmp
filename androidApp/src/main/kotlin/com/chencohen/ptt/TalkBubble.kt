@@ -44,6 +44,11 @@ object TalkBubble {
     /** The burst now has video (push-to-video). */
     private var burstVideo = false
     private var button: android.widget.ImageView? = null
+    private var hereDot: TextView? = null
+    private var videoCall: android.widget.ImageView? = null
+    private var actions: LinearLayout? = null
+    /** A call ringing here while the bubble shows: the bubble is its Answer (2026-11-22, hen). */
+    private var ringing: com.chencohen.ptt.calls.CallUi? = null
     private var chat: String? = null
     private var talking = false
     private var talkStarted = 0L
@@ -51,7 +56,7 @@ object TalkBubble {
         override fun run() {
             if (!talking) return
             val s = (System.currentTimeMillis() - talkStarted) / 1000
-            line?.text = view?.context?.getString(R.string.bubble_talking, "%d:%02d".format(s / 60, s % 60))
+            line?.text = "%d:%02d".format(s / 60, s % 60)
             main.postDelayed(this, 500)
         }
     }
@@ -72,7 +77,7 @@ object TalkBubble {
         }
         this.chat = chat
         this.title?.text = title
-        if (!talking) line?.text = context.getString(if (live) R.string.bubble_live else R.string.bubble_reply)
+        if (this.chat != chat) setHere(context, chat)
         burstVideo = live && video
         showVideo(context)
     }
@@ -155,8 +160,13 @@ object TalkBubble {
         top.addView(View(context), LinearLayout.LayoutParams(dp(40), dp(40)))
         val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         title = TextView(context).apply { setTextColor(Color.WHITE); textSize = 19f; maxLines = 1; gravity = Gravity.CENTER; setTypeface(typeface, android.graphics.Typeface.BOLD) }
+        // A green dot by the name: their Talk screen or bubble for this chat is open now ("here").
+        hereDot = TextView(context).apply { text = "●"; setTextColor(HERE); textSize = 12f; visibility = View.GONE; setPadding(dp(6), 0, 0, 0) }
+        val nameRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        nameRow.addView(title)
+        nameRow.addView(hereDot)
         line = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 15f; maxLines = 1; gravity = Gravity.CENTER; visibility = View.GONE }
-        words.addView(title)
+        words.addView(nameRow)
         words.addView(line)
         top.addView(words, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         // As wide as ✕, so the words are centred over the button.
@@ -170,7 +180,7 @@ object TalkBubble {
                 main.postDelayed({ showVideo(context) }, 100)
             }
         }
-        top.addView(videoSwitch, LinearLayout.LayoutParams(dp(40), dp(40)))
+        top.addView(View(context), LinearLayout.LayoutParams(dp(40), dp(40)))
         // The burst's picture, drawn in step with the voice (AndroidTalkVideoOut).
         videoBox = android.widget.FrameLayout(context).apply {
             visibility = View.GONE
@@ -209,6 +219,23 @@ object TalkBubble {
             setOnTouchListener { v, e -> touch(context, v, e) }
         }
         root.addView(button, LinearLayout.LayoutParams(dp(96), dp(96)).apply { topMargin = dp(8) })
+        // Under the button, icons only: Video (the burst's pictures), Chat, Voice call, Video call.
+        fun small(icon: Int, label: Int, onClick: () -> Unit) = android.widget.ImageView(context).apply {
+            setImageResource(icon)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
+            contentDescription = context.getString(label)
+            setOnClickListener { onClick() }
+        }
+        actions = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        val gap = LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(8); marginEnd = dp(8) }
+        videoSwitch!!.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
+        actions!!.addView(videoSwitch, LinearLayout.LayoutParams(gap))
+        actions!!.addView(small(R.drawable.ic_bubble_chat, R.string.talk_action_chat) { chat?.let { openChat(context, it) }; dismissNow() }, LinearLayout.LayoutParams(gap))
+        actions!!.addView(small(R.drawable.ic_bubble_call, R.string.call_voice) { chat?.let { call(context, it, false) }; dismissNow() }, LinearLayout.LayoutParams(gap))
+        videoCall = small(R.drawable.ic_bubble_video, R.string.call_video) { chat?.let { call(context, it, true) }; dismissNow() }
+        actions!!.addView(videoCall, LinearLayout.LayoutParams(gap))
+        root.addView(actions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
         // A touch outside it closes it (not while talking).
         root.setOnTouchListener { _, e ->
             if (e.actionMasked == MotionEvent.ACTION_OUTSIDE && !talking) dismissNow()
@@ -239,6 +266,7 @@ object TalkBubble {
                 root.animate().translationY(0f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
             }
             Log.i(TAG, "shown")
+            main.post(pulse)
             true
         } catch (e: Exception) {
             Log.w(TAG, "can't show the bubble", e)
@@ -247,6 +275,11 @@ object TalkBubble {
     }
 
     private fun touch(context: Context, v: View, e: MotionEvent): Boolean {
+        // Ringing: the button answers.
+        ringing?.let {
+            if (e.actionMasked == MotionEvent.ACTION_UP) answer(context)
+            return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (talking) {
@@ -274,7 +307,9 @@ object TalkBubble {
         val chat = chat ?: return
         talking = true
         talkStarted = System.currentTimeMillis()
-        (button?.background as? GradientDrawable)?.setColor(Color.RED)
+        (button?.background as? GradientDrawable)?.setColor(TEAL)
+        line?.visibility = View.VISIBLE
+        line?.text = "0:00"
         button?.setImageResource(R.drawable.ic_bubble_send)
         button?.contentDescription = context.getString(R.string.bubble_send)
         main.post(tick)
@@ -298,7 +333,109 @@ object TalkBubble {
         (button?.background as? GradientDrawable)?.setColor(PINK)
         button?.setImageResource(R.drawable.ic_bubble_mic)
         button?.contentDescription = context.getString(R.string.bubble_talk_hint)
-        line?.text = context.getString(if (send) R.string.bubble_sent else R.string.bubble_reply)
+        line?.visibility = View.GONE
+    }
+
+    /**
+     * Shows that someone talks: a ring around the bar that pulses with the voice (teal; green while a call rings), the
+     * button growing with this phone's voice while it talks, and the green dot and a glowing Video call while the
+     * other user is "here".
+     */
+    private val pulse = object : Runnable {
+        override fun run() {
+            val root = view ?: return
+            val context = root.context
+            val state = messagingState(context).value
+            val chat = chat
+            val theirs = state.talk.playing?.takeIf { it.chat == chat }
+            val level = when {
+                talking -> com.chencohen.ptt.talk.TalkAudio.micLevel
+                theirs != null -> com.chencohen.ptt.talk.TalkAudio.playLevel
+                else -> 0f
+            }.coerceIn(0f, 1f)
+            val density = context.resources.displayMetrics.density
+            val active = talking || theirs != null || ringing != null
+            (root.background as? GradientDrawable)?.setStroke(
+                if (active) (density * (2 + 6 * level)).toInt().coerceAtLeast((2 * density).toInt()) else 0,
+                if (ringing != null) HERE else TEAL,
+            )
+            val scale = 1f + 0.15f * (if (talking) level else 0f)
+            button?.scaleX = scale
+            button?.scaleY = scale
+            val here = chat != null && (state.here[chat] ?: 0L) > System.currentTimeMillis()
+            hereDot?.visibility = if (here) View.VISIBLE else View.GONE
+            (videoCall?.background as? GradientDrawable)?.setColor(if (here) TEAL else 0x33FFFFFF)
+            main.postDelayed(this, 60)
+        }
+    }
+
+    /**
+     * A call rings while the bubble shows: the bubble becomes it (2026-11-22, hen): the caller's name, a big green
+     * Answer, and Decline under it. Android's own ringing (its notification) goes on as well.
+     */
+    fun incoming(context: Context, call: com.chencohen.ptt.calls.CallUi, name: String) = main.post {
+        if (view == null) return@post
+        ringing = call
+        title?.text = name
+        (button?.background as? GradientDrawable)?.setColor(HERE)
+        button?.setImageResource(if (call.video) R.drawable.ic_bubble_video else R.drawable.ic_bubble_call)
+        button?.contentDescription = context.getString(R.string.call_answer)
+        actions?.let { row ->
+            for (i in 0 until row.childCount) row.getChildAt(i).visibility = View.GONE
+            row.addView(
+                android.widget.ImageView(context).apply {
+                    tag = "decline"
+                    setImageResource(R.drawable.ic_bubble_close)
+                    val pad = (10 * context.resources.displayMetrics.density).toInt()
+                    setPadding(pad, pad, pad, pad)
+                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.RED) }
+                    contentDescription = context.getString(R.string.call_decline)
+                    setOnClickListener {
+                        context.sendBroadcast(Intent(context, CallActionReceiver::class.java).setAction(CallNotifications.ACTION_DECLINE))
+                        callGone(context)
+                    }
+                },
+                LinearLayout.LayoutParams((44 * context.resources.displayMetrics.density).toInt(), (44 * context.resources.displayMetrics.density).toInt()),
+            )
+        }
+    }
+
+    /** The call stopped ringing (answered, declined, missed): the bubble is the talk bar again. */
+    fun callGone(context: Context) = main.post {
+        if (ringing == null) return@post
+        ringing = null
+        (button?.background as? GradientDrawable)?.setColor(PINK)
+        button?.setImageResource(R.drawable.ic_bubble_mic)
+        button?.contentDescription = context.getString(R.string.bubble_talk_hint)
+        actions?.let { row ->
+            row.findViewWithTag<View>("decline")?.let { row.removeView(it) }
+            for (i in 0 until row.childCount) row.getChildAt(i).visibility = View.VISIBLE
+        }
+        showVideo(context)
+    }
+
+    private fun answer(context: Context) {
+        ringing ?: return
+        runCatching {
+            context.startActivity(Intent(context, MainActivity::class.java).setAction(CallNotifications.ACTION_ANSWER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        callGone(context)
+        dismissNow()
+    }
+
+    private fun openChat(context: Context, chat: String) = runCatching {
+        context.startActivity(
+            Intent(context, MainActivity::class.java).setAction(Notifications.ACTION_OPEN).putExtra(Notifications.EXTRA_USER, chat)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
+    }
+
+    private fun call(context: Context, chat: String, video: Boolean) = runCatching {
+        context.startActivity(
+            Intent(context, MainActivity::class.java).setAction(MainActivity.ACTION_CALL).putExtra(Notifications.EXTRA_USER, chat)
+                .putExtra(MainActivity.EXTRA_VIDEO, video)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
     }
 
     private fun openTalk(context: Context, chat: String) {
@@ -313,6 +450,12 @@ object TalkBubble {
     private fun remove() {
         val v = view ?: return
         view = null
+        main.removeCallbacks(pulse)
+        setHere(v.context, null)
+        ringing = null
+        hereDot = null
+        videoCall = null
+        actions = null
         videoSurface?.let { com.chencohen.ptt.talk.AndroidTalkVideoOut.detach(it) }
         videoSurface = null
         videoBox = null
@@ -338,4 +481,6 @@ object TalkBubble {
     }
 
     private const val PINK = 0xFFE9504F.toInt()
+    private const val TEAL = 0xFF2BB3A3.toInt()
+    private const val HERE = 0xFF34C759.toInt()
 }

@@ -233,7 +233,11 @@ fun CallsList(
  * the Recording badge, and the microphone, camera, flip and Hang up buttons.
  */
 @Composable
-fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transport: LiveKitCallTransport?, actions: CallActions, canSave: Boolean = false) {
+fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transport: LiveKitCallTransport?, actions: CallActions, compact: Boolean = false, canSave: Boolean = false) {
+    if (compact) {
+        CompactCall(call, title, transport)
+        return
+    }
     val room by (transport?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
     val changes by (transport?.changes ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
     Box(Modifier.fillMaxSize().background(Color(0xFF0F1413))) {
@@ -495,6 +499,31 @@ private fun CropOutlines(shape: Float, viewers: Map<String, com.chencohen.ptt.ca
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The call in the small floating window (picture-in-picture): the other's video filling it, this phone's own in a
+ * corner; Android's window gives Hang up and closing.
+ */
+@Composable
+private fun CompactCall(call: CallUi, title: String, transport: LiveKitCallTransport?) {
+    val room by (transport?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
+    val changes by (transport?.changes ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        val r = room
+        val remote = if (r != null) remoteVideo(r, changes) else emptyList()
+        if (r != null && remote.isNotEmpty()) {
+            Column(Modifier.fillMaxSize()) {
+                remote.forEach { (_, track) -> VideoView(r, track, Modifier.weight(1f).fillMaxWidth(), fill = true) }
+            }
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Avatar(title, size = 56.dp) }
+        }
+        val own = r?.let { ownVideo(it, changes) }
+        if (r != null && own != null && call.camera) {
+            VideoView(r, own, Modifier.align(Alignment.BottomEnd).padding(6.dp).size(width = 40.dp, height = 54.dp), mirror = true, fill = true)
         }
     }
 }

@@ -36,6 +36,9 @@ class MainActivity : ComponentActivity() {
     /** A conversation to open: a notification was tapped. */
     private var openedChat by mutableStateOf<String?>(null)
 
+    /** Shown as a small floating window (picture-in-picture) during a video call. */
+    private var inPip by mutableStateOf(false)
+
     /** A call asked from Android Contacts: the user, and video. */
     private var openedCall by mutableStateOf<Pair<String, Boolean>?>(null)
 
@@ -49,6 +52,27 @@ class MainActivity : ComponentActivity() {
     /** A volume key held down for talk, not yet let go. */
     private var volumeTalk = false
     private var volumeDownAt = 0L
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        inPip = isInPictureInPictureMode
+    }
+
+    private fun pipParams(on: Boolean): android.app.PictureInPictureParams {
+        val hangUp = android.app.RemoteAction(
+            android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_bubble_close),
+            getString(R.string.call_hang_up), getString(R.string.call_hang_up),
+            android.app.PendingIntent.getBroadcast(
+                this, 7, Intent(this, CallActionReceiver::class.java).setAction(CallNotifications.ACTION_HANG_UP),
+                android.app.PendingIntent.FLAG_IMMUTABLE,
+            ),
+        )
+        return android.app.PictureInPictureParams.Builder()
+            .setAutoEnterEnabled(on)
+            .setAspectRatio(android.util.Rational(3, 4))
+            .setActions(listOf(hangUp))
+            .build()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -83,6 +107,10 @@ class MainActivity : ComponentActivity() {
                     setShowWhenLocked(callOn)
                     setTurnScreenOn(callOn)
                 }
+                // A video call goes on in a small floating window (picture-in-picture) when the app is left: it can be
+                // dragged and resized, and Hang up is on it (2026-11-22, hen).
+                val activeVideo = ringing.call?.let { it.video && it.phase == com.chencohen.ptt.calls.CallPhase.ACTIVE } == true
+                LaunchedEffect(activeVideo) { setPictureInPictureParams(pipParams(activeVideo)) }
                 // Without an identity the phone has to be registered first.
                 var showWizard by rememberSaveable { mutableStateOf(!viewModel.connection.currentState.enrolled) }
                 // An enrollment QR code scanned with the camera: register (again) with its code.
@@ -119,6 +147,7 @@ class MainActivity : ComponentActivity() {
                         onChatTaken = { openedChat = null },
                         openedCall = openedCall,
                         onCallTaken = { openedCall = null },
+                        inPip = inPip,
                         onTalkSettings = { new ->
                             viewModel.messaging.setTalkSettings(new)
                             StayConnectedService.set(this@MainActivity, new.stayConnected)
@@ -253,6 +282,11 @@ class MainActivity : ComponentActivity() {
             AppUpdates.updateFromNotification(application as TalkApp)
             return
         }
+        if (intent?.action == ACTION_CALL) {
+            val user = intent.getStringExtra(Notifications.EXTRA_USER) ?: return
+            openedCall = user to intent.getBooleanExtra(EXTRA_VIDEO, false)
+            return
+        }
         // A Talk contact's Message, Voice call or Video call in Android Contacts.
         AndroidContacts.opened(this, intent)?.let { (user, kind) ->
             when (kind) {
@@ -306,6 +340,10 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** A talk notification's full-screen intent: show over the lock screen and turn the screen on. */
         const val EXTRA_WAKE = "wake"
+
+        /** A call from the reply bubble: [EXTRA_VIDEO], to Notifications.EXTRA_USER. */
+        const val ACTION_CALL = "com.chencohen.ptt.CALL_FROM_BUBBLE"
+        const val EXTRA_VIDEO = "video"
     }
 }
 
