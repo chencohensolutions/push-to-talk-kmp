@@ -42,6 +42,7 @@ internal fun SettingsScreen(
     linkPhone: () -> Unit = {},
     /** Settings › Talk. */
     openTalk: () -> Unit = {},
+    openCalls: () -> Unit = {},
     /** Show when I'm online: on, off, or null while it is being changed. */
     presenceVisible: Boolean? = true,
     setPresenceVisible: (Boolean) -> Unit = {},
@@ -83,6 +84,10 @@ internal fun SettingsScreen(
         SectionTitle(stringResource(R.string.settings_talk_title))
         SettingsCard {
             InfoRow(stringResource(R.string.settings_talk_title), stringResource(R.string.settings_talk_body), onClick = openTalk)
+        }
+        SectionTitle(stringResource(R.string.settings_calls_title))
+        SettingsCard {
+            InfoRow(stringResource(R.string.calls_save_title), stringResource(R.string.settings_calls_body), onClick = openCalls)
         }
         ServerSection(state)
         AppVersionLine()

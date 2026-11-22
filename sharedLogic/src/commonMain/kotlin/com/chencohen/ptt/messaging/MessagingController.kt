@@ -223,6 +223,12 @@ class MessagingController internal constructor(
 
     fun switchCallCamera() = onWork { messaging.calls.switchCamera() }
 
+    /** Saving this call starts or stops (Save calls, or the call screen's Save). */
+    fun setCallSaving(on: Boolean) = onWork { messaging.calls.setRecording(on) }
+
+    /** "Save this call?" answered Not now. */
+    fun dismissSaveAsk() = onWork { messaging.calls.dismissAsk() }
+
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     fun pressTalk(chat: String) = onWork { messaging.talk.press(chat) }
 

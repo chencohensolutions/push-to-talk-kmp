@@ -426,13 +426,21 @@ The server's side is its docs/messaging.md, "Calls": `callToken(call, peer | gro
   the phone for a call keeps the process while it rings. Telecom's own answer and disconnect (a headset, the car) act
   on the call.
 
-Not done yet from the plan's 6: Save calls (Settings › Calls) and the phone's own recording (6b); R4 (HEVC; the
-calls use LiveKit's default codec now); the 720p cap set explicitly; the tests on phones (a call ringing a sleeping
-phone, three on 4G).
+- **Save calls** (6b; Settings › Calls: Off, Ask each time, Always; `TalkSettings.saveCalls`): with Always, saving
+  starts once someone else is in the call; with Ask each time the call screen asks then. `Calls.setRecording` starts
+  the transport's recorder and sends RECORDING, so everyone shows the badge; the file's name goes on the call's entry
+  (`CallEntry.savedAs`). **`calls/CallRecorder.kt`** (Android) draws the call picture (the others' cameras in a grid,
+  this phone's own in a corner, from the room's own EGL context) into one hardware H.264 encoder at 720×1280, 30 fps,
+  and mixes every voice (each track's sink, 48 kHz mono, summed every 20 ms) to AAC, in an MP4 in the app's private
+  `files/calls/`; a voice call saves the audio only. It leaves the app only through Share (a FileProvider for that
+  folder alone).
+
+Not done yet from the plan's 6: R4 (HEVC; calls and saving use H.264 and LiveKit's default codec now); the 720p cap
+set explicitly; the tests on phones (a call ringing a sleeping phone, three on 4G, a saved call played from Share).
 
 ## Next
 
-Save calls (6b), then iOS, as the plan says.
+iOS, as the plan says, once phases 5b and 6 are tried on phones.
 
 The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3

@@ -94,6 +94,23 @@
     <string name="chats_empty">No chats yet. Add a contact by scanning their QR code.</string>
     <string name="calls_empty">No calls yet. Calls you make and get show here.</string>
     <!-- Phase 6: calls. -->
+    <string name="settings_calls_title">Calls</string>
+    <string name="settings_calls_body">Save calls on this phone</string>
+    <string name="calls_save_title">Save calls</string>
+    <string name="calls_save_off">Off</string>
+    <string name="calls_save_off_body">Calls aren\'t saved</string>
+    <string name="calls_save_ask">Ask each time</string>
+    <string name="calls_save_ask_body">Once a call is on, it asks whether to save it</string>
+    <string name="calls_save_always">Always</string>
+    <string name="calls_save_always_body">Every call is saved from its start</string>
+    <string name="calls_save_note">A saved call stays on this phone, in the app\'s own storage, and leaves it only through Share. Everyone in the call sees a red Recording badge while it is saved.</string>
+    <string name="call_save">Save</string>
+    <string name="call_save_stop">Stop saving</string>
+    <string name="call_save_ask">Save this call?</string>
+    <string name="call_save_ask_body">Everyone in the call will see that you\'re recording.</string>
+    <string name="call_save_not_now">Not now</string>
+    <string name="call_share">Share call</string>
+    <string name="call_share_saved">Saved · Share</string>
     <string name="call_voice">Voice call</string>
     <string name="call_video">Video call</string>
     <string name="call_kind_voice">Voice call</string>

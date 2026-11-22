@@ -102,6 +102,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_HARDWARE_BUTTONS) == "true"
         set(value) = store.putString(KEY_HARDWARE_BUTTONS, value.toString())
 
+    /** Settings › Calls › Save calls (a `SaveCalls` name); null: Off. */
+    var saveCalls: String?
+        get() = store.getString(KEY_SAVE_CALLS)
+        set(value) = store.putString(KEY_SAVE_CALLS, value)
+
     /** The chats set to When I'm away: Notify only (the rest play aloud). */
     var notifyOnlyChats: Set<String>
         get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
@@ -119,6 +124,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_DEFAULT_TALK = "talk_default_chat"
         private const val KEY_HARDWARE_BUTTONS = "talk_hardware_buttons"
         private const val KEY_NOTIFY_ONLY = "talk_notify_only"
+        private const val KEY_SAVE_CALLS = "save_calls"
         private const val KEY_PUSH_TOKEN = "push_token"
         private const val KEY_PRESENCE_VISIBLE = "presence_visible"
         private const val KEY_PUSH_REGISTERED = "push_registered"

@@ -69,7 +69,21 @@ class CallActions(
     val setMicrophone: (Boolean) -> Unit = {},
     val setCamera: (Boolean) -> Unit = {},
     val switchCamera: () -> Unit = {},
+    /** Save calls: saving starts or stops; "Save this call?" Not now. */
+    val setSaving: (Boolean) -> Unit = {},
+    val dismissAsk: () -> Unit = {},
 )
+
+/** Shares a saved call's file (the app's calls folder, through its FileProvider). */
+fun shareCall(context: android.content.Context, name: String) {
+    val file = java.io.File(java.io.File(context.filesDir, "calls"), name)
+    if (!file.exists()) return
+    val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".calls", file)
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("video/mp4")
+        .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    context.startActivity(android.content.Intent.createChooser(send, context.getString(R.string.call_share)))
+}
 
 /**
  * Asks for the microphone (and the camera for a video call) before [then]; [onDenied] when the microphone isn't
@@ -117,7 +131,7 @@ fun callLine(message: TextMessage): String {
 
 /** A call's entry in the chat: its icon and line; missed in red. */
 @Composable
-fun CallEntryContent(message: TextMessage, onInverse: Boolean, callBack: () -> Unit) {
+fun CallEntryContent(message: TextMessage, onInverse: Boolean, share: (String) -> Unit = {}, callBack: () -> Unit) {
     val call = message.call ?: return
     val missed = call.outcome == CallOutcome.MISSED
     Row(Modifier.clickable(role = Role.Button, onClick = callBack).padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -133,11 +147,25 @@ fun CallEntryContent(message: TextMessage, onInverse: Boolean, callBack: () -> U
             style = LibraryType.Body,
         )
     }
+    call.savedAs?.let { file ->
+        Text(
+            stringResource(R.string.call_share_saved),
+            color = if (onInverse) LibraryColors.OnInverse else LibraryColors.Accent,
+            style = LibraryType.Caption,
+            modifier = Modifier.clickable(role = Role.Button) { share(file) }.padding(vertical = 4.dp),
+        )
+    }
 }
 
 /** The Calls tab: every call, newest first; a row calls back the same way. */
 @Composable
-fun CallsList(calls: List<TextMessage>, nameOf: (String) -> String, callBack: (chat: String, video: Boolean) -> Unit, open: (String) -> Unit) {
+fun CallsList(
+    calls: List<TextMessage>,
+    nameOf: (String) -> String,
+    callBack: (chat: String, video: Boolean) -> Unit,
+    open: (String) -> Unit,
+    share: (String) -> Unit = {},
+) {
     Column(Modifier.fillMaxWidth()) {
         calls.forEach { message ->
             val call = message.call ?: return@forEach
@@ -156,6 +184,12 @@ fun CallsList(calls: List<TextMessage>, nameOf: (String) -> String, callBack: (c
                         color = LibraryColors.Muted, style = LibraryType.Caption,
                     )
                 }
+                call.savedAs?.let { file ->
+                    val shareLabel = stringResource(R.string.call_share)
+                    Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = shareLabel) { share(file) }, contentAlignment = Alignment.Center) {
+                        Icon(LibraryIcons.Share, shareLabel, tint = LibraryColors.OnBackground)
+                    }
+                }
                 val label = stringResource(if (call.video) R.string.call_video else R.string.call_voice)
                 Box(
                     Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = label) { callBack(message.user, call.video) },
@@ -172,7 +206,7 @@ fun CallsList(calls: List<TextMessage>, nameOf: (String) -> String, callBack: (c
  * the Recording badge, and the microphone, camera, flip and Hang up buttons.
  */
 @Composable
-fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transport: LiveKitCallTransport?, actions: CallActions) {
+fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transport: LiveKitCallTransport?, actions: CallActions, canSave: Boolean = false) {
     val room by (transport?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
     val changes by (transport?.changes ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
     Box(Modifier.fillMaxSize().background(Color(0xFF0F1413))) {
@@ -200,7 +234,39 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
                     modifier = Modifier.background(LibraryColors.Error, CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
                 )
             }
+            if (call.askToSave && call.phase == CallPhase.ACTIVE) {
+                Spacer(Modifier.height(16.dp))
+                Column(
+                    Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.12f), com.chencohen.ptt.ui.style.LibraryShapes.Card).padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(stringResource(R.string.call_save_ask), color = LibraryColors.PhotoText, style = LibraryType.RowTitle)
+                    Text(stringResource(R.string.call_save_ask_body), color = LibraryColors.PhotoTextMuted, style = LibraryType.Caption, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Text(
+                            stringResource(R.string.call_save_not_now), color = LibraryColors.PhotoTextMuted, style = LibraryType.RowTitle,
+                            modifier = Modifier.clickable(role = Role.Button, onClick = actions.dismissAsk).padding(8.dp),
+                        )
+                        Text(
+                            stringResource(R.string.call_save), color = LibraryColors.PhotoText, style = LibraryType.RowTitle,
+                            modifier = Modifier.clickable(role = Role.Button) { actions.setSaving(true) }.padding(8.dp),
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.weight(1f))
+            if (canSave && call.phase == CallPhase.ACTIVE) {
+                Text(
+                    stringResource(if (call.saving) R.string.call_save_stop else R.string.call_save),
+                    color = Color.White, style = LibraryType.Small,
+                    modifier = Modifier
+                        .background(if (call.saving) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
+                        .clickable(role = Role.Button) { actions.setSaving(!call.saving) }
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                )
+                Spacer(Modifier.height(16.dp))
+            }
             val own = r?.let { ownVideo(it, changes) }
             if (own != null && call.camera) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {

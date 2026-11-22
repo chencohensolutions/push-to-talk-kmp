@@ -33,6 +33,14 @@ class CallsTest {
         override suspend fun setMicrophone(on: Boolean) { microphone = on }
         override suspend fun setCamera(on: Boolean) {}
         override fun switchCamera() {}
+        var recording = false
+        var saves = 0
+        override fun startRecording(): Boolean { recording = true; return true }
+        override fun stopRecording(): String? {
+            if (!recording) return null
+            recording = false
+            return "call-${++saves}.mp4"
+        }
     }
 
     private class FakeHost : CallHost {
@@ -46,7 +54,7 @@ class CallsTest {
         override fun missed(chat: String, caller: String, video: Boolean) { missed += chat }
     }
 
-    private class Setup(val scope: TestScope, val self: String = "hen") {
+    private class Setup(val scope: TestScope, val self: String = "hen", save: SaveCalls = SaveCalls.OFF) {
         val transport = FakeTransport()
         val host = FakeHost()
         val sent = mutableListOf<Triple<String, CallContent, Int>>()
@@ -65,6 +73,7 @@ class CallsTest {
             putEntry = { entries[it.id] = it },
             entry = { entries[it] },
             onCall = { leftTalk++ },
+            saveCalls = { save },
             now = { scope.testScheduler.currentTime + 1_000_000 },
             random = Random(2),
         ).also {
@@ -204,10 +213,48 @@ class CallsTest {
     }
 
     @Test
+    fun saveCallsAlwaysSavesFromTheStartAndKeepsTheFile() = runTest {
+        val s = Setup(this, save = SaveCalls.ALWAYS)
+        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
+        s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1"))
+        runCurrent()
+        assertTrue(s.calls.state.value!!.saving)
+        assertTrue(s.transport.recording)
+        assertTrue(s.sent.any { it.second.kind == CallContent.RECORDING && it.second.recording })
+        s.calls.hangUp()
+        assertFalse(s.transport.recording)
+        assertEquals("call-1.mp4", s.entries.values.single().call!!.savedAs)
+    }
+
+    @Test
+    fun saveCallsAskEachTimeAsksOnceTheCallIsOn() = runTest {
+        val s = Setup(this, save = SaveCalls.ASK)
+        s.calls.start("sharon", video = false)
+        runCurrent()
+        assertFalse(s.calls.state.value!!.askToSave)
+        s.transport.listener!!.others(listOf("sharon.1"))
+        runCurrent()
+        assertTrue(s.calls.state.value!!.askToSave)
+        assertFalse(s.transport.recording)
+        s.calls.dismissAsk()
+        assertFalse(s.calls.state.value!!.askToSave)
+        // Saved later by hand, then stopped: the file is kept for the entry.
+        s.calls.setRecording(true)
+        s.calls.setRecording(false)
+        s.transport.listener!!.others(emptyList())
+        runCurrent()
+        assertEquals("call-1.mp4", s.entries.values.single().call!!.savedAs)
+    }
+
+    @Test
     fun theRecordingBadgeFollowsTheOthers() = runTest {
         val s = Setup(this)
         s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
         s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1"))
         runCurrent()
         s.calls.receive("sharon", "sharon", CallContent(CallContent.RECORDING, "a".repeat(32), recording = true), s.at(), ownCopy = false)
         assertEquals(setOf("sharon"), s.calls.state.value!!.recordingBy)

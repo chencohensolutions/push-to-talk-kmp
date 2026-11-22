@@ -102,6 +102,8 @@ data class CallEntry(
     val video: Boolean,
     val outcome: CallOutcome,
     val durationMs: Long = 0,
+    /** Saved on this phone (Save calls): the file's name in the app's calls folder. */
+    val savedAs: String? = null,
 )
 
 /** What a clip is: a burst said with the Talk button, or a voice message recorded in the composer. */

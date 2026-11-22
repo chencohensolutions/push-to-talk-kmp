@@ -75,6 +75,8 @@ data class TalkSettings(
     val hardwareButtons: Boolean = false,
     /** Chats set to Notify only. */
     val notifyOnly: Set<String> = emptySet(),
+    /** Settings › Calls › Save calls (phase 6). */
+    val saveCalls: com.chencohen.ptt.calls.SaveCalls = com.chencohen.ptt.calls.SaveCalls.OFF,
 )
 
 /**
@@ -231,6 +233,7 @@ internal class Messaging(
             publish()
         },
         entry = { id -> store.message(id) },
+        saveCalls = { talkSettings().saveCalls },
         onCall = {
             talk.release(send = true)
             live.leaveNow()
@@ -305,6 +308,7 @@ internal class Messaging(
         defaultChat = settings.defaultTalkChat,
         hardwareButtons = settings.hardwareButtons,
         notifyOnly = settings.notifyOnlyChats,
+        saveCalls = settings.saveCalls?.let { name -> com.chencohen.ptt.calls.SaveCalls.entries.firstOrNull { it.name == name } } ?: com.chencohen.ptt.calls.SaveCalls.OFF,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -313,6 +317,7 @@ internal class Messaging(
         settings.defaultTalkChat = talk.defaultChat
         settings.hardwareButtons = talk.hardwareButtons
         settings.notifyOnlyChats = talk.notifyOnly
+        settings.saveCalls = talk.saveCalls.name
         _state.update { it.copy(talkSettings = talk) }
     }
 

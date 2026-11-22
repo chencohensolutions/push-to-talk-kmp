@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
+/** Settings › Calls › Save calls: the plan's Off, Ask each time, Always. */
+enum class SaveCalls { OFF, ASK, ALWAYS }
+
 /** Where the call on this phone stands. */
 enum class CallPhase {
     /** This phone called: ringing on the other side. */
@@ -59,6 +62,10 @@ data class CallUi(
     val camera: Boolean = video,
     /** Set once [phase] is ENDED. */
     val outcome: CallOutcome? = null,
+    /** Save calls is Ask each time: "Save this call?" shows. */
+    val askToSave: Boolean = false,
+    /** This phone saves the call now. */
+    val saving: Boolean = false,
 )
 
 /** The call room's carrier: LiveKit on Android, the call's media encrypted with its one key. */
@@ -74,6 +81,12 @@ interface CallTransport {
 
     /** Front or back camera. */
     fun switchCamera()
+
+    /** Starts saving what this phone shows and plays (Save calls); false when it can't. */
+    fun startRecording(): Boolean
+
+    /** Stops saving: the saved file's name, or null when nothing was saved. */
+    fun stopRecording(): String?
 
     var listener: CallTransportListener?
 }
@@ -119,6 +132,7 @@ internal class Calls(
     private val entry: (id: String) -> TextMessage?,
     /** A call takes the audio: the talk room is left while it runs. */
     private val onCall: () -> Unit,
+    private val saveCalls: () -> SaveCalls = { SaveCalls.OFF },
     private val now: () -> Long,
     private val random: Random,
 ) {
@@ -136,6 +150,8 @@ internal class Calls(
     private var timer: Job? = null
     private var clearing: Job? = null
     private var joined = false
+    private var savedAs: String? = null
+    private var askedToSave = false
 
     private val current: CallUi? get() = _state.value?.takeIf { it.phase != CallPhase.ENDED }
 
@@ -147,6 +163,8 @@ internal class Calls(
         val callKey = random.nextBytes(KEY_BYTES)
         key = callKey
         joined = false
+        askedToSave = false
+        savedAs = null
         val call = CallUi(id, chat, self, incoming = false, video = video, phase = CallPhase.CALLING, startedAt = now())
         show(call)
         onCall()
@@ -205,11 +223,20 @@ internal class Calls(
 
     /** Saving starts or stops on this phone (Settings › Calls › Save calls): the others see the Recording badge. */
     fun setRecording(on: Boolean) {
-        val call = current ?: return
+        val call = current?.takeIf { it.phase == CallPhase.ACTIVE } ?: return
         val self = me() ?: return
-        _state.update { it?.copy(recordingBy = if (on) it.recordingBy + self else it.recordingBy - self) }
+        if (on == call.saving) return
+        if (on) {
+            if (transport?.startRecording() != true) return
+        } else {
+            transport?.stopRecording()?.let { savedAs = it }
+        }
+        _state.update { it?.copy(saving = on, askToSave = false, recordingBy = if (on) it.recordingBy + self else it.recordingBy - self) }
         scope.launch { send(call.chat, CallContent(CallContent.RECORDING, call.id, recording = on), PushKind.NONE) }
     }
+
+    /** "Save this call?" answered Not now. */
+    fun dismissAsk() = _state.update { it?.copy(askToSave = false) }
 
     /**
      * Call signalling in [chat] from [from] (a user; [ownCopy]: another phone of this user), at the server's [at].
@@ -230,6 +257,8 @@ internal class Calls(
                     else -> {
                         key = call.key
                         joined = false
+                        askedToSave = false
+                        savedAs = null
                         show(ringing)
                         host?.ring(ringing)
                         timer = scope.launch {
@@ -309,10 +338,12 @@ internal class Calls(
         if (joined) runCatching { transport?.leave() }
         joined = false
         key = null
-        val ended = call.copy(phase = CallPhase.ENDED, outcome = outcome)
+        if (call.saving) transport?.stopRecording()?.let { savedAs = it }
+        val ended = call.copy(phase = CallPhase.ENDED, outcome = outcome, saving = false, askToSave = false)
         _state.value = ended
         host?.ended(ended)
-        record(call, outcome)
+        record(call, outcome, savedAs)
+        savedAs = null
         if (outcome == CallOutcome.MISSED) host?.missed(call.chat, call.caller, call.video)
         clearing = scope.launch {
             delay(SHOW_ENDED)
@@ -320,14 +351,14 @@ internal class Calls(
         }
     }
 
-    private fun record(call: CallUi, outcome: CallOutcome) {
+    private fun record(call: CallUi, outcome: CallOutcome, saved: String? = null) {
         val duration = if (call.connectedAt > 0) now() - call.connectedAt else 0
         val missed = outcome == CallOutcome.MISSED
         putEntry(
             TextMessage(
                 id = call.id, user = call.chat, outgoing = !call.incoming, body = "", at = call.startedAt,
                 read = !missed, author = call.caller.takeIf { Group.idOf(call.chat) != null },
-                call = CallEntry(call.video, outcome, duration),
+                call = CallEntry(call.video, outcome, duration, savedAs = saved),
             ),
         )
     }
@@ -339,10 +370,17 @@ internal class Calls(
                 val users = identities.map { it.substringBeforeLast('.') }.filter { it != me() }.distinct()
                 if (users.isNotEmpty()) {
                     timer?.cancel()
+                    val first = call.phase != CallPhase.ACTIVE && !askedToSave
+                    val mode = saveCalls()
                     _state.value = call.copy(
                         phase = CallPhase.ACTIVE, others = users,
                         connectedAt = call.connectedAt.takeIf { it > 0 } ?: now(),
+                        askToSave = call.askToSave || (first && mode == SaveCalls.ASK),
                     )
+                    if (first) {
+                        askedToSave = true
+                        if (mode == SaveCalls.ALWAYS) setRecording(true)
+                    }
                 } else if (call.phase == CallPhase.ACTIVE) {
                     // Everyone else left: over for this phone too.
                     end(CallOutcome.ANSWERED, tell = Group.idOf(call.chat) == null)

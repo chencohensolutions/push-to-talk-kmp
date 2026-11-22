@@ -23,6 +23,9 @@ says "Calls need the microphone. Allow it in the app's settings."
   corner, mirrored. Round buttons: **Mute** / Unmute, **Camera off** / Camera on, **Flip** (front and back camera,
   while the camera is on), and **Hang up** in red.
 - The red **Recording · Dana** badge under the name while someone in the call saves it.
+- **Saving** (Save calls on, in a running call): a **Save** pill above the buttons starts saving, **Stop saving**
+  (red) stops it. With Ask each time, a card "Save this call?" ("Everyone in the call will see that you're
+  recording.", **Not now** and **Save**) shows once the call is on; with Always saving starts by itself.
 - **Ended**: for two seconds, "Call ended", "Busy", "Declined", "No answer", "Couldn't connect" or "Answered on another
   phone", then the screen goes.
 
@@ -38,9 +41,9 @@ calls (high), Ongoing call (low), Missed calls.
 
 Each call is an entry in its chat, in a bubble on the caller's side: the call or video icon and "Voice call · 3:12",
 "Missed video call" (red), "Voice call · Declined", "· No answer", "· Busy", "· Cancelled", "· On another phone",
-"· Couldn't connect". A tap calls back the same way. Chats' preview line shows the same words.
+"· Couldn't connect". A tap calls back the same way. A saved call adds "Saved · Share", which shares its MP4. Chats' preview line shows the same words.
 
 The **Calls** tab (`CallsList`) lists every call, newest first: the letter circle, the name (red for a missed call),
-"Outgoing" or "Incoming", the call's line and its date and time, and a call or video button at the right that calls
-back. A tap on the row opens the chat. With no calls yet, its empty state stays: "No calls yet. Calls you make and get
+"Outgoing" or "Incoming", the call's line and its date and time, a Share button for a saved call, and a call or video
+button at the right that calls back. A tap on the row opens the chat. With no calls yet, its empty state stays: "No calls yet. Calls you make and get
 show here."

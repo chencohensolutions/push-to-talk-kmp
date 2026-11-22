@@ -29,7 +29,7 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
   `TalkTransport`). `calls/Calls.kt` (phase 6): call signalling, the call log, `CallTransport`, `CallHost`. GraphQL schema and operations in `commonMain/graphql/` (the schema and the
   .proto are the server's: `./gradlew :sharedLogic:syncServerSchema`).
   `androidMain`: Keystore keys (`AndroidDeviceKeyStore`), the OkHttp mTLS client with the pinned key and the
-  server's CA (`AndroidMtlsHttpClientFactory`, with Ktor's WebSockets), Opus capture and playback (`talk/OpusCodec.kt`, `AndroidTalkCapture`, `AndroidTalkPlayer`), LiveKit (`talk/LiveKitTalkTransport.kt`, `calls/LiveKitCallTransport.kt`),
+  server's CA (`AndroidMtlsHttpClientFactory`, with Ktor's WebSockets), Opus capture and playback (`talk/OpusCodec.kt`, `AndroidTalkCapture`, `AndroidTalkPlayer`), LiveKit (`talk/LiveKitTalkTransport.kt`, `calls/LiveKitCallTransport.kt`, `calls/CallRecorder.kt` for Save calls),
   libsignal (`crypto/LibsignalCryptoEngine.kt`,
   `SignalStore.kt`), SQLCipher (`store/SqlCipherStore.kt`, its key wrapped in the Keystore), and the factories
   (`AndroidPtt.kt`). `androidHostTest`: libsignal itself on the JVM. `iosMain`: only the actuals common code

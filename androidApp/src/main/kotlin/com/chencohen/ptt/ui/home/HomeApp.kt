@@ -121,6 +121,8 @@ class HomeActions(
     val call: (chat: String, video: Boolean) -> Unit = { _, _ -> },
     /** A chat's name: a contact's, or a group's. */
     val chatName: (String) -> String = { it },
+    /** Share a saved call's file. */
+    val shareCall: (String) -> Unit = {},
 )
 
 /**
@@ -221,6 +223,7 @@ fun HomeApp(
                         },
                         call = ::call,
                         chatName = chatName,
+                        shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                     ),
                 )
                 name == "settings" -> {
@@ -233,6 +236,7 @@ fun HomeApp(
                         registerAgain = onRegisterAgain,
                         linkPhone = { push("link") },
                         openTalk = { push("talksettings") },
+                        openCalls = { push("callsettings") },
                         presenceVisible = presenceVisible,
                         setPresenceVisible = { visible ->
                             presenceVisible = null
@@ -253,6 +257,11 @@ fun HomeApp(
                         change = { new -> onTalkSettings(new) },
                     )
                 }
+                name == "callsettings" -> com.chencohen.ptt.ui.settings.CallSettingsScreen(
+                    settings = messagingState.talkSettings,
+                    back = ::pop,
+                    change = { new -> onTalkSettings(new) },
+                )
                 name == "link" -> {
                     // A new code each time the page opens; the phone linked with it shows once its answer went out.
                     var view by remember { mutableStateOf<LinkPhoneView>(LinkPhoneView.Loading) }
@@ -490,6 +499,7 @@ fun HomeApp(
                             finishVoice = { messaging.releaseTalk(it) },
                             micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                             call = { video -> call(user, video) },
+                            shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                         ),
                         talk = messagingState.talk,
                         talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
@@ -602,7 +612,10 @@ fun HomeApp(
                         setMicrophone = messaging::setCallMicrophone,
                         setCamera = { on -> if (on) callPermissions(true) { if (it) messaging.setCallCamera(true) } else messaging.setCallCamera(false) },
                         switchCamera = messaging::switchCallCamera,
+                        setSaving = messaging::setCallSaving,
+                        dismissAsk = messaging::dismissSaveAsk,
                     ),
+                    canSave = messagingState.talkSettings.saveCalls != com.chencohen.ptt.calls.SaveCalls.OFF,
                 )
             }
         }
@@ -703,7 +716,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                         Spacer(Modifier.height(96.dp))
                         EmptyTab(LibraryIcons.Call, stringResource(R.string.calls_empty))
                     } else {
-                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact)
+                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact, actions.shareCall)
                     }
                 }
             }

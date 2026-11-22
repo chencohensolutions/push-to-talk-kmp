@@ -93,6 +93,23 @@
     <string name="chats_empty">אין עדיין צ׳אטים. אפשר להוסיף איש קשר בסריקת קוד ה־QR שלו.</string>
     <string name="calls_empty">אין עדיין שיחות. שיחות יוצאות ונכנסות יופיעו כאן.</string>
     <!-- Phase 6: calls. -->
+    <string name="settings_calls_title">שיחות</string>
+    <string name="settings_calls_body">שמירת שיחות בטלפון הזה</string>
+    <string name="calls_save_title">שמירת שיחות</string>
+    <string name="calls_save_off">כבוי</string>
+    <string name="calls_save_off_body">שיחות לא נשמרות</string>
+    <string name="calls_save_ask">לשאול בכל פעם</string>
+    <string name="calls_save_ask_body">כששיחה מתחילה, נשאל אם לשמור אותה</string>
+    <string name="calls_save_always">תמיד</string>
+    <string name="calls_save_always_body">כל שיחה נשמרת מתחילתה</string>
+    <string name="calls_save_note">שיחה שנשמרה נשארת בטלפון הזה, באחסון של האפליקציה, ויוצאת ממנו רק דרך שיתוף. כל מי שבשיחה רואה תג הקלטה אדום כל עוד היא נשמרת.</string>
+    <string name="call_save">שמירה</string>
+    <string name="call_save_stop">הפסקת השמירה</string>
+    <string name="call_save_ask">לשמור את השיחה?</string>
+    <string name="call_save_ask_body">כל מי שבשיחה יראה שאתם מקליטים.</string>
+    <string name="call_save_not_now">לא עכשיו</string>
+    <string name="call_share">שיתוף השיחה</string>
+    <string name="call_share_saved">נשמרה · שיתוף</string>
     <string name="call_voice">שיחה קולית</string>
     <string name="call_video">שיחת וידאו</string>
     <string name="call_kind_voice">שיחה קולית</string>

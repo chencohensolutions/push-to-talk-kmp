@@ -97,6 +97,16 @@
         <receiver
             android:name=".CallActionReceiver"
             android:exported="false" />
+        <!-- Share for a saved call: only the app's calls folder (res/xml/call_files.xml). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.calls"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/call_files" />
+        </provider>
         <!-- Reply and Mark as read from a notification. -->
         <receiver
             android:name=".NotificationActions"
