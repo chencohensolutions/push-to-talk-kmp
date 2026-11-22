@@ -66,6 +66,9 @@ class MessagingController internal constructor(
         scope.launch { withContext(work) { messaging.decline(user) } }
     }
 
+    /** This phone's Talk screen or reply bubble for [chat] is open (null: closed); the other user's phone is told. */
+    fun setHere(chat: String?) = onWork { messaging.setHere(chat) }
+
     /** Rename: this user's own name for [user] (blank: back to theirs). */
     fun renameContact(user: String, name: String) {
         scope.launch { withContext(work) { messaging.rename(user, name) } }

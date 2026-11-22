@@ -39,7 +39,14 @@ internal data class Content(
     @ProtoNumber(15) val destination: String = "",
     /** What the sending phone can play (ContentCodec.CAPS_*), on every message, end to end; 0: not said. */
     @ProtoNumber(16) val caps: Int = 0,
+    /** "Here": the sender has this chat's Talk screen or reply bubble open now (true) or closed it (false). */
+    @ProtoNumber(17) val here: HereContent? = null,
 )
+
+/** The sender's Talk screen or reply bubble for this chat is open ([open]); said again every 20 s while it is. */
+@Serializable
+internal data class HereContent(@ProtoNumber(1) val open: Boolean = false)
+
 
 /**
  * The first message of a pairing (docs/design.md, "Pairing"): sent by the phone that scanned an Add contact code to

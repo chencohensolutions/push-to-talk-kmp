@@ -39,17 +39,23 @@ class AndroidCallHost(private val app: TalkApp) : CallHost {
         app.scope.launch {
             val name = runCatching { chatName(app, call.chat) }.getOrDefault(call.chat)
             CallSession.ring(app, call, name)
+            // The reply bubble on screen becomes this call's Answer.
+            TalkBubble.incoming(app, call, name)
         }
     }
 
     override fun ongoing(call: CallUi) {
+        TalkBubble.callGone(app)
         app.scope.launch {
             val name = runCatching { chatName(app, call.chat) }.getOrDefault(call.chat)
             CallSession.ongoing(app, call, name)
         }
     }
 
-    override fun ended(call: CallUi) = CallSession.end(app, call.id)
+    override fun ended(call: CallUi) {
+        TalkBubble.callGone(app)
+        CallSession.end(app, call.id)
+    }
 
     override fun missed(chat: String, caller: String, video: Boolean) {
         app.scope.launch {

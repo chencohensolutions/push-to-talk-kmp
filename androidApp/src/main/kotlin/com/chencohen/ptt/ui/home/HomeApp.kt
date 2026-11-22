@@ -135,6 +135,8 @@ class HomeActions(
     /** Push-to-video switched on a Talk screen; the camera warm for a chat (null: none). */
     val setPushVideo: (Boolean) -> Unit = {},
     val warmCamera: (String?) -> Unit = {},
+    /** A Talk page open ("here" to its user). */
+    val setHere: (String?) -> Unit = {},
     /** A call the server kept: save it as one file in Downloads. */
     val saveKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** The Talk tab: hold to talk in a Quick talk chat, and let go. */
@@ -171,6 +173,8 @@ fun HomeApp(
     /** A call asked from Android Contacts (the user, video). */
     openedCall: Pair<String, Boolean>? = null,
     onCallTaken: () -> Unit = {},
+    /** The activity is the small floating call window (picture-in-picture): the call screen shows its videos only. */
+    inPip: Boolean = false,
     /** Settings › Talk changed: kept, and Stay connected's service started or stopped (MainActivity). */
     onTalkSettings: (com.chencohen.ptt.messaging.TalkSettings) -> Unit = { messaging.setTalkSettings(it) },
     /** A talk notification's Play: the clip to play once home shows its chat. */
@@ -289,6 +293,7 @@ fun HomeApp(
                         saveKept = ::saveKept,
                         setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
                         warmCamera = messaging::warmCamera,
+                        setHere = messaging::setHere,
                         pressTalk = { chat -> pressOrUnlock(chat) },
                         releaseTalk = { messaging.releaseTalk(true) },
                         quickTalkShown = { chat ->
@@ -611,6 +616,8 @@ fun HomeApp(
                         pushVideo = messagingState.talkSettings.pushVideo,
                         setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
                         warmCamera = messaging::warmCamera,
+                        setHere = messaging::setHere,
+                        peerHere = (messagingState.here[chat] ?: 0L) > System.currentTimeMillis(),
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -748,6 +755,7 @@ fun HomeApp(
                         dismissAsk = messaging::dismissSaveAsk,
                         setView = messaging::setCallView,
                     ),
+                    compact = inPip,
                     canSave = current.serverKeeps || messagingState.talkSettings.saveCalls != com.chencohen.ptt.calls.SaveCalls.OFF,
                 )
             }
@@ -797,6 +805,8 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 pushVideo = chats.talkSettings.pushVideo,
                 setPushVideo = actions.setPushVideo,
                 warmCamera = actions.warmCamera,
+                setHere = actions.setHere,
+                here = chats.here,
             )
             }
         } else Column(

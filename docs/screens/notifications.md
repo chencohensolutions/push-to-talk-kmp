@@ -42,6 +42,14 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   and under them a big round button with a microphone. Hold it to talk back and let go to send, or tap to start and
   tap again (a check mark) to send. Icons only, no ✕ and no hint line (2026-11-22, hen); TalkBack reads their names.
   It stays until a touch outside it (not while talking) or opening the app, and slides down off the screen.
+- **In the reply bubble** (2026-11-22, hen): a ring around the bar pulses teal with the voice while they talk;
+  while this phone talks, the button turns teal, grows with the voice, and a seconds counter shows under the name.
+  Under the button, small round icons: Video (the burst's pictures on or off), Chat, Voice call, Video call. A green dot
+  by the name says they are "here": their Talk screen or bubble for this chat is open now (HereContent, said end to
+  end every 20 s, gone 30 s after the last); then Video call glows teal, a video call they'll see at once. A call that
+  rings while the bubble shows turns it into the call: the caller's name, a big green Answer, and a red Decline.
+- **Picture-in-picture**: an answered video call goes on in Android's small floating window when the app is left
+  (dragged and resized by Android), the other's video filling it and this phone's in a corner, with Hang up.
 - **Video in the reply bubble** (on by default; 2026-11-22, hen: a received video plays): a video burst's picture
   plays above the sender's name, in the picture's own shape, in step with the voice; the bar's "Video on" switch turns
   it off (and on again) for later bursts.

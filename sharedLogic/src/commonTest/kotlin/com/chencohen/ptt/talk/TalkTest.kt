@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.random.Random
 import kotlin.test.Test
@@ -270,6 +271,19 @@ class TalkTest {
             assertTrue(dana.screen.frames[5 * n].key, "burst ${n + 1} starts at a key frame")
         }
         assertEquals(3, dana.screen.begun.distinct().size)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun anOpenTalkScreenTellsTheOtherUserItIsHere() = runTest {
+        val (_, hen, dana) = paired()
+        hen.work.launch { hen.messaging.setHere("dana") }
+        runCurrent()
+        assertTrue("hen" in dana.state.here, "dana's phone knows hen's Talk screen for her is open")
+        hen.work.launch { hen.messaging.setHere(null) }
+        runCurrent()
+        assertTrue("hen" !in dana.state.here, "closed: gone at once")
         hen.stop()
         dana.stop()
     }
