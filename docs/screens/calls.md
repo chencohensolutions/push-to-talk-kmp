@@ -35,8 +35,14 @@ says "Calls need the microphone. Allow it in the app's settings."
   also stops by itself when the recording phone leaves the call, when the room empties, or after 4 hours, so hanging
   up sends nothing. A server that doesn't keep calls (or an older one) is ignored: the phone's own saving goes on.
 - **Video as the camera sends it** (2026-11-22, hen): each phone sends its camera's own 4:3 picture, uncropped. The
-  phone showing it fills the screen with it (cropped, the default) or fits it whole: the **Fit** / **Fill** pill at the
-  top right, or a double tap on the video, switches, and it is kept for next time.
+  phone showing it has two layouts, one control: **Full screen** (the default: their video cropped to fill the whole
+  screen, the name, buttons and your preview over it) and **Fit** (2026-11-22, hen: their whole picture, uncropped, as
+  big as fits between the name and your preview, below the camera cutout; your preview under it, nothing over it).
+  The pill at the top right names the layout a tap switches to ("Fit" / "Full screen"); a double tap on the video
+  does the same; kept for next time.
+- **Stats** (2026-11-22, hen; Call settings › Advanced › Show video stats, off by default): a **Stats** pill at the top
+  right shows or hides, on each video and your preview, its frame rate, bit rate, size and codec from WebRTC's stats,
+  once a second (your camera: all simulcast layers' bytes, the biggest layer's size and rate). Kept for next time.
 - **Your crop, on your preview** (2026-11-22, hen): each phone tells the others how it shows their video (VIEW in the
   call's messages: Fill or Fit, and its tile's shape). Your own preview is your whole picture, in its own shape, with
   a thin outline of the part each Fill viewer sees (their name on it when there are several); nothing for Fit.

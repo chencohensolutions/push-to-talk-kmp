@@ -160,6 +160,11 @@
     <string name="calls_video_no_h265">This phone has no H.265 encoder, so calls use the standard video.</string>
     <string name="kept_as_seen">As seen</string>
     <string name="kept_whole">Whole</string>
+    <string name="calls_video_stats">Show video stats</string>
+    <string name="calls_video_stats_body">In video calls, a Stats button shows each video\'s frame rate, bit rate, size and codec.</string>
+    <string name="call_stats">Stats</string>
+    <string name="call_layout_fit">Fit</string>
+    <string name="call_layout_full">Full screen</string>
     <string name="call_video_fit">Fit</string>
     <string name="call_video_fill">Fill</string>
     <string name="call_orientation_auto">Auto rotate</string>

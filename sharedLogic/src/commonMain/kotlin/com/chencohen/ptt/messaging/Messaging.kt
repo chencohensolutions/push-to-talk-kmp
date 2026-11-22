@@ -107,6 +107,8 @@ data class TalkSettings(
     val softMessage: Boolean = true,
     /** Settings › Calls › Advanced › 60 fps video (off by default; 2026-11-22, hen): calls and push-to-video. */
     val video60: Boolean = false,
+    /** Call settings › Advanced › Show video stats (off by default; 2026-11-22, hen): a Stats button in video calls. */
+    val videoStats: Boolean = false,
 )
 
 /**
@@ -392,6 +394,7 @@ internal class Messaging(
         softRing = settings.softRing,
         softMessage = settings.softMessage,
         video60 = settings.video60,
+        videoStats = settings.videoStats,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -414,6 +417,7 @@ internal class Messaging(
         settings.softRing = talk.softRing
         settings.softMessage = talk.softMessage
         settings.video60 = talk.video60
+        settings.videoStats = talk.videoStats
         _state.update { it.copy(talkSettings = talk) }
     }
 

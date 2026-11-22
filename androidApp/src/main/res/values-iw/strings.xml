@@ -159,6 +159,11 @@
     <string name="calls_video_no_h265">בטלפון הזה אין מקודד H.265, לכן שיחות משתמשות בווידאו הרגיל.</string>
     <string name="kept_as_seen">כפי שנראה</string>
     <string name="kept_whole">שלם</string>
+    <string name="calls_video_stats">הצגת נתוני וידאו</string>
+    <string name="calls_video_stats_body">בשיחות וידאו, כפתור "נתונים" מציג לכל וידאו את קצב הפריימים, קצב הנתונים, הגודל והקידוד.</string>
+    <string name="call_stats">נתונים</string>
+    <string name="call_layout_fit">התאמה</string>
+    <string name="call_layout_full">מסך מלא</string>
     <string name="call_video_fit">התאמה</string>
     <string name="call_video_fill">מילוי</string>
     <string name="call_orientation_auto">סיבוב אוטומטי</string>

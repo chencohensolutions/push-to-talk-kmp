@@ -52,6 +52,12 @@ internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change
                 stringResource(if (can60) R.string.calls_video_60_body else R.string.calls_video_60_unsupported),
                 settings.video60 && can60,
             ) { on -> if (can60) change(settings.copy(video60 = on)) }
+            RowDivider()
+            com.chencohen.ptt.ui.talk.SwitchRow(
+                stringResource(R.string.calls_video_stats),
+                stringResource(R.string.calls_video_stats_body),
+                settings.videoStats,
+            ) { on -> change(settings.copy(videoStats = on)) }
         }
         // Saving calls has its own screen (2026-11-22, hen), under a header of its own like the others.
         SectionTitle(stringResource(R.string.calls_saving_section))

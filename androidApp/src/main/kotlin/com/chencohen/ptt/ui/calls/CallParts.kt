@@ -26,6 +26,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
@@ -235,7 +237,17 @@ fun CallsList(
  * the Recording badge, and the microphone, camera, flip and Hang up buttons.
  */
 @Composable
-fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transport: LiveKitCallTransport?, actions: CallActions, compact: Boolean = false, canSave: Boolean = false) {
+fun CallScreen(
+    call: CallUi,
+    title: String,
+    nameOf: (String) -> String,
+    transport: LiveKitCallTransport?,
+    actions: CallActions,
+    compact: Boolean = false,
+    canSave: Boolean = false,
+    /** Call settings › Advanced › Show video stats: a Stats button here shows each video's fps, bit rate and size. */
+    statsAllowed: Boolean = false,
+) {
     if (compact) {
         CompactCall(call, title, transport)
         return
@@ -266,7 +278,12 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             onDispose { activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
         }
         val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        if (remote.isNotEmpty()) {
+        var statsShown by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("stats", false)) }
+        val stats = statsAllowed && statsShown
+        // Full screen: their video cropped to fill the screen, everything over it. Fit (2026-11-22, hen): their whole
+        // picture as big as fits below the camera cutout, with this phone's video under it, nothing over it.
+        @Composable
+        fun remoteTiles(modifier: Modifier) {
             val tile = Modifier.pointerInput(Unit) { detectTapGestures(onDoubleTap = { toggleFill() }) }
             // Each tile's shape and the Fill/Fit choice go to its sender (their preview outlines the crop).
             fun Modifier.told(user: String) = onSizeChanged { size ->
@@ -274,15 +291,16 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             }
             // Side by side in landscape, one above the other in portrait.
             if (landscape) {
-                Row(Modifier.fillMaxSize()) {
-                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxSize().told(user), fill = fill) } }
+                Row(modifier) {
+                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxSize().told(user), fill = fill, stats = stats) } }
                 }
             } else {
-                Column(Modifier.fillMaxSize()) {
-                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxWidth().told(user), fill = fill) } }
+                Column(modifier) {
+                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxWidth().told(user), fill = fill, stats = stats) } }
                 }
             }
         }
+        if (remote.isNotEmpty() && fill) remoteTiles(Modifier.fillMaxSize())
         if (call.phase == CallPhase.ACTIVE && call.video) {
             Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -301,9 +319,22 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
                         }
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                 )
-                if (remote.isNotEmpty()) {
+                if (statsAllowed) {
                     Text(
-                        stringResource(if (fill) R.string.call_video_fit else R.string.call_video_fill),
+                        stringResource(R.string.call_stats),
+                        color = if (statsShown) LibraryColors.OnInverse else Color.White, style = LibraryType.Small,
+                        modifier = Modifier.background(if (statsShown) LibraryColors.Inverse else LibraryColors.PillScrim, CircleShape)
+                            .clickable(role = Role.Switch) {
+                                statsShown = !statsShown
+                                prefs.edit().putBoolean("stats", statsShown).apply()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+                if (remote.isNotEmpty()) {
+                    // The one layout control: shows the layout a tap switches to.
+                    Text(
+                        stringResource(if (fill) R.string.call_layout_fit else R.string.call_layout_full),
                         color = Color.White, style = LibraryType.Small,
                         modifier = Modifier.background(LibraryColors.PillScrim, CircleShape)
                             .clickable(role = Role.Button) { toggleFill() }
@@ -313,7 +344,7 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             }
         }
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp),
+            Modifier.fillMaxSize().statusBarsPadding().displayCutoutPadding().navigationBarsPadding().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (remote.isEmpty()) Spacer(Modifier.height(48.dp))
@@ -351,7 +382,14 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
                     }
                 }
             }
-            Spacer(Modifier.weight(1f))
+            if (remote.isNotEmpty() && !fill) {
+                // Fit: their picture in the space between the name and this phone's video, below the cutout.
+                Spacer(Modifier.height(12.dp))
+                remoteTiles(Modifier.weight(1f).fillMaxWidth())
+                Spacer(Modifier.height(12.dp))
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
             // Stop shows for anyone while the server keeps the call; Record only where it can be saved.
             val stoppable = call.saving || call.serverRecordingBy != null
             if ((canSave || stoppable) && call.phase == CallPhase.ACTIVE) {
@@ -372,7 +410,7 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
                     val shape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
                     val preview = if (shape >= 1f) Modifier.size(width = 160.dp, height = (160 / shape).dp) else Modifier.size(width = (160 * shape).dp, height = 160.dp)
                     Box(preview) {
-                        key(own.sid ?: own.name) { VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = false) }
+                        key(own.sid ?: own.name) { VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = false, stats = stats) }
                         CropOutlines(shape, call.viewers.filterValues { it.fill }, nameOf, showNames = call.viewers.size > 1)
                     }
                 }
@@ -466,7 +504,7 @@ private fun ownVideo(room: Room, changes: Int): VideoTrack? =
  * (2026-11-22, hen: "fit and crop is not working": both cropped).
  */
 @Composable
-private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false, fill: Boolean = true) {
+private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false, fill: Boolean = true, stats: Boolean = false) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
     // The picture's shape as shown (its rotation applied), from the frames themselves.
@@ -499,8 +537,62 @@ private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror:
     Box(modifier, contentAlignment = Alignment.Center) {
         val shaped = if (!fill && aspect > 0f) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize()
         AndroidView(factory = { renderer }, modifier = shaped)
+        val line = videoStats(track, stats)
+        if (line != null) {
+            Text(
+                line, color = Color.White, style = LibraryType.Tiny,
+                modifier = Modifier.align(Alignment.TopStart).then(if (fill) Modifier.statusBarsPadding() else Modifier).padding(6.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+            )
+        }
     }
 }
+
+/**
+ * Show video stats (Call settings › Advanced; 2026-11-22, hen): [track]'s frame rate, bit rate, size and codec from
+ * WebRTC's stats, read once a second while [on]. This phone's camera sums its simulcast layers' bytes and shows the
+ * biggest layer's size and rate.
+ */
+@Composable
+private fun videoStats(track: VideoTrack, on: Boolean): String? {
+    var line by remember(track) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    LaunchedEffect(track, on) {
+        if (!on) {
+            line = null
+            return@LaunchedEffect
+        }
+        var lastBytes = -1L
+        var lastAt = 0L
+        while (true) {
+            val report = runCatching { track.getRTCStats() }.getOrNull()
+            if (report != null) {
+                val all = report.statsMap.values
+                val rtp = all.filter { (it.type == "inbound-rtp" || it.type == "outbound-rtp") && it.members["kind"] == "video" }
+                fun num(s: livekit.org.webrtc.RTCStats, k: String) = (s.members[k] as? Number)?.toDouble()
+                val bytes = rtp.sumOf { (num(it, "bytesReceived") ?: num(it, "bytesSent") ?: 0.0).toLong() }
+                val top = rtp.maxByOrNull { num(it, "frameWidth") ?: 0.0 }
+                val now = android.os.SystemClock.elapsedRealtime()
+                val kbps = if (lastBytes >= 0 && now > lastAt) (bytes - lastBytes) * 8 / (now - lastAt) else null
+                lastBytes = bytes
+                lastAt = now
+                if (top != null) {
+                    val codec = (all.firstOrNull { it.id == top.members["codecId"] }?.members?.get("mimeType") as? String)?.substringAfter('/')
+                    val w = num(top, "frameWidth")?.toInt()
+                    val h = num(top, "frameHeight")?.toInt()
+                    line = listOfNotNull(
+                        num(top, "framesPerSecond")?.let { "%.0f fps".format(it) },
+                        kbps?.let { "$it kbit/s" },
+                        if (w != null && h != null) "${w}×$h" else null,
+                        codec,
+                    ).joinToString(" · ")
+                }
+            }
+            delay(1_000)
+        }
+    }
+    return line
+}
+
 
 /**
  * On this phone's own preview (its whole picture, [shape] wide for 1 high): the part each viewer sees when they crop
