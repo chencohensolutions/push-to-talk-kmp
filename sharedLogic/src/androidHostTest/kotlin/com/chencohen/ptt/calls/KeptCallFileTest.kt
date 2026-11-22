@@ -213,4 +213,90 @@ class KeptCallFileTest {
         assertEquals(0, made.unreadable)
         assertEquals(units.size, made.frames)
     }
+
+    private val switchKey = "AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09o="
+
+    /** Frames as one track's blob: encrypted as the phones do, timed 1/15 s apart. */
+    private fun trackBlob(frames: List<Pair<ByteArray, Boolean>>, codec: String): ByteArray {
+        val key = LiveKitFrames.key(switchKey.encodeToByteArray())
+        val records = java.io.ByteArrayOutputStream()
+        frames.forEachIndexed { i, (frame, isKey) ->
+            val sealed = LiveKitFrames.encrypt(key, frame, codec, ByteArray(12) { (it * 5 + i).toByte() })
+            java.io.DataOutputStream(records).apply { writeInt(9 + sealed.size); writeLong(i * 66_667L); writeByte(if (isKey) 1 else 0); write(sealed) }
+        }
+        return records.toByteArray()
+    }
+
+    private fun ivf(name: String): List<Pair<ByteArray, Boolean>> {
+        val d = resource(name)
+        val out = mutableListOf<Pair<ByteArray, Boolean>>()
+        var at = 32
+        while (at + 12 <= d.size) {
+            val n = (d[at].toInt() and 0xff) or ((d[at + 1].toInt() and 0xff) shl 8) or ((d[at + 2].toInt() and 0xff) shl 16) or ((d[at + 3].toInt() and 0xff) shl 24)
+            val f = d.copyOfRange(at + 12, at + 12 + n)
+            out += f to LiveKitFrames.isVp8KeyFrame(f)
+            at += 12 + n
+        }
+        return out
+    }
+
+    @Test
+    fun aVp8TrackThatChangesSizeMidwayKeepsTheLargestSize() = runTest {
+        val frames = ivf("switch-a.ivf") + ivf("switch-b.ivf") + ivf("switch-a.ivf")
+        val blob = trackBlob(frames, LiveKitFrames.VP8)
+        val tracks = listOf(KeptTrack("v", "hen.1", "video", "video/VP8", "2026-11-22T16:00:00Z", blob.size, true))
+        val out = File("build/kept-switch-vp8.mkv").absoluteFile
+        val made = KeptCallFile({ _, onBytes -> onBytes(blob) }, Files.createTempDirectory("kept").toFile()).make(switchKey, tracks, { it }, out.outputStream())
+        assertEquals(frames.size, made.frames)
+        assertEquals(320 to 240, readVideoSize(out))
+    }
+
+    @Test
+    fun anH265TrackThatChangesSizeMidwayKeepsTheLargestSize() = runTest {
+        val stream = resource("switch.hevc")
+        // Access units: a new one at each first slice segment, the VPS/SPS/PPS before a key frame going with it.
+        val units = mutableListOf<ByteArray>()
+        var unitStart = 0
+        var sawSlice = false
+        for (st in LiveKitFrames.naluStarts(stream)) {
+            val type = (stream[st].toInt() and 0x7E) shr 1
+            val vcl = type in 0..31
+            val first = vcl && (stream[st + 2].toInt() and 0x80) != 0
+            val begin = if (st >= 4 && stream[st - 4].toInt() == 0) st - 4 else st - 3
+            if ((first || type in 32..34) && sawSlice) {
+                units += stream.copyOfRange(unitStart, begin)
+                unitStart = begin
+                sawSlice = false
+            }
+            if (vcl) sawSlice = true
+        }
+        units += stream.copyOfRange(unitStart, stream.size)
+        assertEquals(320 to 240, Matroska.hevcSize(units.first()))
+        val frames = units.map { u -> u to Matroska.nalUnits(u).any { ((it[0].toInt() and 0x7E) shr 1) in 16..21 } }
+        assertEquals(listOf(320 to 240, 160 to 120, 320 to 240), frames.filter { it.second }.mapNotNull { Matroska.hevcSize(it.first) }.distinct().let { listOf(it[0], it[1], it[0]) })
+        val blob = trackBlob(frames, LiveKitFrames.H265)
+        val tracks = listOf(KeptTrack("v", "hen.1", "video", "video/H265", "2026-11-22T16:00:00Z", blob.size, true))
+        val out = File("build/kept-switch-hevc.mkv").absoluteFile
+        val made = KeptCallFile({ _, onBytes -> onBytes(blob) }, Files.createTempDirectory("kept").toFile()).make(switchKey, tracks, { it }, out.outputStream())
+        assertEquals(frames.size, made.frames)
+        assertEquals(320 to 240, readVideoSize(out))
+    }
+
+    /** The first video track's PixelWidth and PixelHeight in a file this writer made. */
+    private fun readVideoSize(file: File): Pair<Int, Int> {
+        val bytes = file.readBytes()
+        fun find(id: ByteArray, from: Int = 0): Int {
+            for (i in from until bytes.size - id.size) if (id.indices.all { bytes[i + it] == id[it] }) return i
+            return -1
+        }
+        val video = find(byteArrayOf(0xE0.toByte()), find(byteArrayOf(0xAE.toByte())))
+        fun value(id: Int): Int {
+            val at = find(byteArrayOf(id.toByte()), video)
+            val size = bytes[at + 1].toInt() and 0x7f
+            var v = 0
+            for (i in 0 until size) v = (v shl 8) or (bytes[at + 2 + i].toInt() and 0xff)
+            return v
+        }
+        return value(0xB0) to value(0xBA)
+    }
 }

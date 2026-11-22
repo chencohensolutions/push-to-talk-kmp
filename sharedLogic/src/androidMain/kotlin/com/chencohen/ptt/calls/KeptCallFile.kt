@@ -120,10 +120,15 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
                             var data = plain
                             if (g.video && g.codec.equals(LiveKitFrames.VP8, true)) {
                                 keyFrame = LiveKitFrames.isVp8KeyFrame(plain)
-                                if (keyFrame && g.width == 0) Matroska.vp8Size(plain)?.let { (wd, h) -> g.width = wd; g.height = h }
+                                // The largest size the track reaches (a simulcast layer switch changes it at a key frame), so a
+                                // player sets its decoder up for it and doesn't stall at the switch.
+                                if (keyFrame) Matroska.vp8Size(plain)?.let { (wd, h) -> g.width = maxOf(g.width, wd); g.height = maxOf(g.height, h) }
                             } else if (g.video) {
                                 if (keyFrame && g.avcC == null) {
                                     g.avcC = if (g.codec.equals(LiveKitFrames.H265, true)) Matroska.hvcC(plain) else Matroska.avcC(plain)
+                                }
+                                if (keyFrame && g.codec.equals(LiveKitFrames.H265, true)) {
+                                    Matroska.hevcSize(plain)?.let { (wd, h) -> g.width = maxOf(g.width, wd); g.height = maxOf(g.height, h) }
                                 }
                                 data = Matroska.annexBToLengths(plain)
                             }

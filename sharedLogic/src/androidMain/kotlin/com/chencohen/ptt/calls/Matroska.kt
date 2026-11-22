@@ -351,6 +351,52 @@ class Matroska(private val tracks: List<Track>) {
             return out.toByteArray()
         }
 
+        /** The picture size in an H.265 key frame's SPS (pic_width/height_in_luma_samples); null without one. */
+        fun hevcSize(frame: ByteArray): Pair<Int, Int>? = runCatching {
+            val sps = nalUnits(frame).firstOrNull { it.size > 2 && ((it[0].toInt() and 0x7E) shr 1) == 33 } ?: return null
+            val r = Bits(LiveKitFrames.unescape(sps.copyOfRange(2, sps.size)))
+            r.bits(4)
+            val maxSubLayersMinus1 = r.bits(3)
+            r.bits(1)
+            r.skip(96) // general profile, tier, flags and level
+            val profilePresent = BooleanArray(maxSubLayersMinus1)
+            val levelPresent = BooleanArray(maxSubLayersMinus1)
+            for (i in 0 until maxSubLayersMinus1) {
+                profilePresent[i] = r.bits(1) == 1
+                levelPresent[i] = r.bits(1) == 1
+            }
+            if (maxSubLayersMinus1 > 0) for (i in maxSubLayersMinus1 until 8) r.skip(2)
+            for (i in 0 until maxSubLayersMinus1) {
+                if (profilePresent[i]) r.skip(88)
+                if (levelPresent[i]) r.skip(8)
+            }
+            r.ue() // sps_seq_parameter_set_id
+            if (r.ue() == 3) r.bits(1) // chroma_format_idc, separate_colour_plane_flag
+            r.ue() to r.ue()
+        }.getOrNull()
+
+        /** Bits of an RBSP, most significant first. */
+        private class Bits(val data: ByteArray) {
+            var at = 0
+            fun bits(n: Int): Int {
+                var v = 0
+                repeat(n) {
+                    val byte = data[at ushr 3].toInt()
+                    v = (v shl 1) or ((byte ushr (7 - (at and 7))) and 1)
+                    at++
+                }
+                return v
+            }
+            fun skip(n: Int) {
+                at += n
+            }
+            fun ue(): Int {
+                var zeros = 0
+                while (bits(1) == 0) zeros++
+                return (1 shl zeros) - 1 + bits(zeros)
+            }
+        }
+
         /** Reads a file's EBML element at [at]: its id, data start and data size (for tests). */
         fun readElement(f: RandomAccessFile, at: Long): Triple<Int, Long, Long> {
             f.seek(at)
