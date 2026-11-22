@@ -239,7 +239,14 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
             val executor = Executor { r -> handler?.post(r) }
             device.createCaptureSession(
                 SessionConfiguration(
-                    SessionConfiguration.SESSION_REGULAR, targets.map { OutputConfiguration(it) }, executor,
+                    SessionConfiguration.SESSION_REGULAR,
+                    targets.map { target ->
+                        // The preview mirrored like a mirror; what is sent as the camera sees it.
+                        OutputConfiguration(target).apply {
+                            if (android.os.Build.VERSION.SDK_INT >= 33) mirrorMode = if (target === enc) OutputConfiguration.MIRROR_MODE_NONE else OutputConfiguration.MIRROR_MODE_AUTO
+                        }
+                    },
+                    executor,
                     object : CameraCaptureSession.StateCallback() {
                         override fun onConfigured(s: CameraCaptureSession) {
                             session = s

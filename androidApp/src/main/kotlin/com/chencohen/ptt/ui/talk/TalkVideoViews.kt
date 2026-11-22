@@ -79,44 +79,62 @@ internal fun WarmCamera(chat: String, on: Boolean, warm: (String?) -> Unit) {
     }
 }
 
-/** This phone's camera as it sends it, turned upright and fitted in the space given, mirrored like a mirror. */
+/**
+ * This phone's camera, upright and mirrored like a mirror, in a box of its own shape centred in the space given (no
+ * bars). The camera already turns a preview by its sensor's angle for the phone held upright; only the screen's own
+ * turn is undone here. What is sent keeps its frames as captured, with their rotation alongside.
+ */
 @Composable
 internal fun PushVideoPreview(modifier: Modifier = Modifier) {
     val capture = com.chencohen.ptt.talkVideoCapture ?: return
-    val rotation = capture.previewRotation()
-    BoxWithConstraints(modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
+    val display = androidx.compose.ui.platform.LocalView.current.display?.rotation ?: 0
+    val screenTurn = display * 90
+    // Upright: 3:4 with the phone held upright, 4:3 on its side.
+    val shape = if (screenTurn % 180 == 0) {
+        com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+    } else {
+        com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT
+    }
+    FittedBox(shape, modifier) { w, h ->
+        AndroidView(
+            factory = { context ->
+                TextureView(context).apply {
+                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                        private var surface: Surface? = null
+                        override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                            texture.setDefaultBufferSize(com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH, com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT)
+                            surface = Surface(texture).also { capture.setPreview(it) }
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
+                        override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+                            capture.setPreview(null)
+                            surface?.release()
+                            return true
+                        }
+
+                        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
+                    }
+                }
+            },
+            // The camera mirrors a front camera's preview itself (like a mirror).
+            modifier = Modifier.requiredSize(w, h).graphicsLayer { rotationZ = -screenTurn.toFloat() },
+        )
+    }
+}
+
+/** A rounded box of [shape] (width for 1 high), as big as fits, centred in the space given; [content] gets its size. */
+@Composable
+internal fun FittedBox(shape: Float, modifier: Modifier = Modifier, content: @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit) {
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         val density = LocalDensity.current
-        val turned = rotation % 180 != 0
-        val frameAspect = com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT
-        val shownAspect = if (turned) 1f / frameAspect else frameAspect
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
-        val (bw, bh) = if (w / h > shownAspect) (h * shownAspect) to h else w to (w / shownAspect)
-        val (vw, vh) = if (turned) bh to bw else bw to bh
+        val (bw, bh) = if (w / h > shape) (h * shape) to h else w to (w / shape)
         with(density) {
-            AndroidView(
-                factory = { context ->
-                    TextureView(context).apply {
-                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            private var surface: Surface? = null
-                            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
-                                texture.setDefaultBufferSize(com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH, com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT)
-                                surface = Surface(texture).also { capture.setPreview(it) }
-                            }
-
-                            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
-                            override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
-                                capture.setPreview(null)
-                                surface?.release()
-                                return true
-                            }
-
-                            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
-                        }
-                    }
-                },
-                modifier = Modifier.requiredSize(vw.toDp(), vh.toDp()).graphicsLayer { rotationZ = rotation.toFloat(); scaleX = -1f },
-            )
+            Box(Modifier.size(bw.toDp(), bh.toDp()).clip(RoundedCornerShape(16.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
+                content(bw.toDp(), bh.toDp())
+            }
         }
     }
 }
@@ -142,38 +160,32 @@ internal fun TalkVideoBox(playingVideo: Boolean, pushVideo: Boolean, modifier: M
 internal fun TalkVideoView(modifier: Modifier = Modifier) {
     val shown by AndroidTalkVideoOut.shown.collectAsStateWithLifecycle()
     val s = shown
-    BoxWithConstraints(modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
-        val density = LocalDensity.current
-        val rotation = s?.rotation ?: 0
-        val frameAspect = if (s != null && s.width > 0 && s.height > 0) s.width.toFloat() / s.height else 4f / 3f
-        val turned = rotation % 180 != 0
-        val shownAspect = if (turned) 1f / frameAspect else frameAspect
-        val w = constraints.maxWidth.toFloat()
-        val h = constraints.maxHeight.toFloat()
-        val (bw, bh) = if (w / h > shownAspect) (h * shownAspect) to h else w to (w / shownAspect)
-        val (vw, vh) = if (turned) bh to bw else bw to bh
-        with(density) {
-            AndroidView(
-                factory = { context ->
-                    TextureView(context).apply {
-                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            private var surface: Surface? = null
-                            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
-                                surface = Surface(texture).also { AndroidTalkVideoOut.attach(it) }
-                            }
-
-                            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
-                            override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
-                                surface?.let { AndroidTalkVideoOut.detach(it); it.release() }
-                                return true
-                            }
-
-                            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
+    val rotation = s?.rotation ?: 0
+    val frameAspect = if (s != null && s.width > 0 && s.height > 0) s.width.toFloat() / s.height else 4f / 3f
+    val turned = rotation % 180 != 0
+    // The box is the picture's upright shape: no bars.
+    FittedBox(if (turned) 1f / frameAspect else frameAspect, modifier) { w, h ->
+        AndroidView(
+            factory = { context ->
+                TextureView(context).apply {
+                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                        private var surface: Surface? = null
+                        override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                            surface = Surface(texture).also { AndroidTalkVideoOut.attach(it) }
                         }
+
+                        override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
+                        override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+                            surface?.let { AndroidTalkVideoOut.detach(it); it.release() }
+                            return true
+                        }
+
+                        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
                     }
-                },
-                modifier = Modifier.requiredSize(vw.toDp(), vh.toDp()).graphicsLayer { rotationZ = rotation.toFloat() },
-            )
-        }
+                }
+            },
+            // The frames as captured, turned upright by the sender's rotation.
+            modifier = Modifier.requiredSize(if (turned) h else w, if (turned) w else h).graphicsLayer { rotationZ = rotation.toFloat() },
+        )
     }
 }

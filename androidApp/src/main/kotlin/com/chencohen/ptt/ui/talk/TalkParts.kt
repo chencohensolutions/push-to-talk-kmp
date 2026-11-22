@@ -114,10 +114,8 @@ internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Uni
             .holdToTalk(onPress = { press() }, onRelease = { release() }),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(56.dp))
-            Text(label, color = LibraryColors.OnInverse, style = LibraryType.RowTitle)
-        }
+        // The icon only (2026-11-22, hen); the label is for TalkBack.
+        Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp))
     }
 }
 
