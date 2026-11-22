@@ -22,6 +22,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -251,6 +252,9 @@ class MessagingTest {
         // Hen's phone got the pair request with the code's secret, and asks her.
         val request = hen.state.requests.single()
         assertEquals("dana", request.user)
+        // The server takes a code once: her screen shows a new one.
+        val next = assertNotNull(hen.pairing.currentState.code)
+        assertNotEquals(code, next, "a used code isn't shown again")
         hen.pairing.review("dana")
         hen.pairing.accept()
         advanceUntilIdle()
