@@ -210,7 +210,6 @@
     <string name="settings_title">הגדרות</string>
     <string name="settings_account_title">חשבון</string>
     <string name="settings_device_name">הטלפון הזה</string>
-    <string name="settings_device_detail">%1$s · מכשיר %2$d</string>
     <string name="settings_device_unknown">לא רשום</string>
     <string name="settings_linked_title">המכשירים שלך</string>
     <string name="settings_linked_body">הטלפונים בחשבון שלך: מתי כל אחד היה מחובר לאחרונה, הסרה של אחד, או קישור טלפון חדש.</string>
@@ -221,7 +220,6 @@
     <string name="devices_active_now">מחובר עכשיו</string>
     <string name="devices_seen">נראה לאחרונה %1$s</string>
     <string name="devices_seen_unknown">נראה לאחרונה: עדיין לא ידוע</string>
-    <string name="devices_number">מכשיר %1$d</string>
     <string name="devices_registered">נרשם %1$s</string>
     <string name="devices_key_strongbox">מפתח בשבב האבטחה</string>
     <string name="devices_key_tee">מפתח בחומרה מאובטחת</string>
@@ -248,7 +246,7 @@
     <string name="link_note">יש להשאיר את המסך הזה פתוח עד שהטלפון החדש יודיע שהוא מקושר: הטלפון הזה שולח לו את המפתחות ואת אנשי הקשר שלך, חתומים כך שרק הוא יוכל לפתוח אותם. להראות את הקוד הזה רק לטלפון שלך.</string>
     <string name="link_again">קוד חדש</string>
     <string name="link_failed">לא ניתן ליצור קוד: %1$s</string>
-    <string name="link_done_title">טלפון %1$d מקושר</string>
+    <string name="link_done_title">הטלפון החדש שלך מקושר</string>
     <string name="link_done_body">יש בו את המפתחות ואת אנשי הקשר שלך. הודעות אליך מגיעות עכשיו לשני הטלפונים.</string>
     <string name="link_done">סיום</string>
     <string name="settings_server_title">השרת שלך</string>

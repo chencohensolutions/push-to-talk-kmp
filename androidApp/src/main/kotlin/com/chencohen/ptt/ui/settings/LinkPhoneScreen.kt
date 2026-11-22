@@ -50,7 +50,7 @@ internal fun LinkPhoneScreen(view: LinkPhoneView, back: () -> Unit, again: () ->
             }
             is LinkPhoneView.Linked -> {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(stringResource(R.string.link_done_title, view.device), color = LibraryColors.OnBackground, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
+                    Text(stringResource(R.string.link_done_title), color = LibraryColors.OnBackground, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
                     Text(stringResource(R.string.link_done_body), color = LibraryColors.Muted, style = LibraryType.Body, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
                 }
                 PrimaryButton(stringResource(R.string.link_done), back, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp))

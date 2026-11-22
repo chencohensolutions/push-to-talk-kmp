@@ -9,7 +9,7 @@ contacts from this phone, sealed end to end. How it works is in [design.md](../d
   code (240 dp, black on white); "This code works until <time>, once."; "Keep this screen open until the new phone
   says it's linked: this phone sends it your keys and contacts, sealed so only it can open them. Show this code only
   to your own phone."; **New code** (outlined). There is no Share or Copy: the code is for one's own phone, in hand.
-- **Linked:** once this phone answered the new one: "Phone N is linked" and "It has your keys and your contacts.
+- **Linked:** once this phone answered the new one: "Your new phone is linked" and "It has your keys and your contacts.
   Messages to you now reach both phones."; **Done** goes back to Settings.
 - **Failed:** "Couldn't make a code: <why>" (offline, or 3 codes waiting already) and **New code**.
 

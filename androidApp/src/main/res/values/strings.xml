@@ -211,7 +211,6 @@
     <string name="settings_title">Settings</string>
     <string name="settings_account_title">Account</string>
     <string name="settings_device_name">This phone</string>
-    <string name="settings_device_detail">%1$s · device %2$d</string>
     <string name="settings_device_unknown">Not registered</string>
     <string name="settings_linked_title">Your devices</string>
     <string name="settings_linked_body">Your phones on this account: when each was last on, remove one, or link a new one.</string>
@@ -223,7 +222,6 @@
     <string name="devices_active_now">Active now</string>
     <string name="devices_seen">Last seen %1$s</string>
     <string name="devices_seen_unknown">Last seen: not known yet</string>
-    <string name="devices_number">Device %1$d</string>
     <string name="devices_registered">registered %1$s</string>
     <string name="devices_key_strongbox">key in the security chip</string>
     <string name="devices_key_tee">key in secure hardware</string>
@@ -250,7 +248,7 @@
     <string name="link_note">Keep this screen open until the new phone says it\'s linked: this phone sends it your keys and contacts, sealed so only it can open them. Show this code only to your own phone.</string>
     <string name="link_again">New code</string>
     <string name="link_failed">Couldn\'t make a code: %1$s</string>
-    <string name="link_done_title">Phone %1$d is linked</string>
+    <string name="link_done_title">Your new phone is linked</string>
     <string name="link_done_body">It has your keys and your contacts. Messages to you now reach both phones.</string>
     <string name="link_done">Done</string>
     <string name="settings_server_title">Your server</string>

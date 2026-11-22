@@ -68,7 +68,7 @@ internal fun SettingsScreen(
             val device = state.device
             InfoRow(
                 title = device?.deviceName ?: stringResource(R.string.settings_device_name),
-                body = device?.let { stringResource(R.string.settings_device_detail, it.user, it.deviceNumber) }
+                body = device?.let { listOfNotNull(it.user, myEmail).joinToString(" · ") }
                     ?: stringResource(R.string.settings_device_unknown),
             )
             RowDivider()

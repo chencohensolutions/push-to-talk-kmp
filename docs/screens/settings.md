@@ -6,7 +6,7 @@ and each time the connection's state changes.
 
 ## Account
 
-- **This phone:** the device name, with "account · device N" under it ("Not registered" before enrolling). The device
+- **This phone:** the device name, with "account · email" under it (no device number: it is an internal id) ("Not registered" before enrolling). The device
   number comes from the server (`me`, `serverInfo.deviceNumber`).
 - **Your devices:** "Your phones on this account: when each was last on, remove one, or link a new one." Opens
   [Your devices](devices.md).

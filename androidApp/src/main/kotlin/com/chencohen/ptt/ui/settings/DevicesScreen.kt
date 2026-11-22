@@ -108,10 +108,9 @@ private fun DeviceRow(device: OwnDevice, now: Long, removing: Boolean, remove: (
             val registered = device.registeredAt?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) }
             Text(
                 listOfNotNull(
-                    stringResource(R.string.devices_number, device.deviceNumber),
                     registered?.let { stringResource(R.string.devices_registered, it) },
                     keyWords(device.keyProtection),
-                ).joinToString(" · "),
+                ).joinToString(" · ").replaceFirstChar { it.uppercase() },
                 color = LibraryColors.Muted,
                 style = LibraryType.Caption,
             )
