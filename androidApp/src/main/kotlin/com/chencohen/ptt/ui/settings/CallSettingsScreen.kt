@@ -31,6 +31,13 @@ internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change
             }
         }
         PageNote(stringResource(R.string.calls_save_note))
+        // How an incoming call rings: Talk's soft chime (the default) or the phone's ringtone (2026-11-22, hen).
+        SectionTitle(stringResource(R.string.calls_ring_title))
+        SettingsCard {
+            ChoiceRow(stringResource(R.string.calls_ring_soft), stringResource(R.string.calls_ring_soft_body), settings.softRing) { change(settings.copy(softRing = true)) }
+            RowDivider()
+            ChoiceRow(stringResource(R.string.calls_ring_phone), stringResource(R.string.calls_ring_phone_body), !settings.softRing) { change(settings.copy(softRing = false)) }
+        }
         // The codec this phone sends its camera in; H.265 only with a hardware encoder (2026-11-22, hen).
         val hevc = androidx.compose.runtime.remember { com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder() }
         SectionTitle(stringResource(R.string.calls_video_title))

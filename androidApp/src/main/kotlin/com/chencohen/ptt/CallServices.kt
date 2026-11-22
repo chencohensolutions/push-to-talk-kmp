@@ -170,7 +170,9 @@ object CallSession {
 
 /** The calls' notifications: ringing (full screen), missed. */
 object CallNotifications {
-    const val RING_CHANNEL = "calls_ringing"
+    /** Silent: CallRinger rings (v2, 2026-11-22: a channel's sound can't change, and the first one had one). */
+    const val RING_CHANNEL = "calls_ringing_v2"
+    private const val OLD_RING_CHANNEL = "calls_ringing"
     const val ONGOING_CHANNEL = "calls_ongoing"
     const val MISSED_CHANNEL = "calls_missed"
     private const val RING_ID = 51
@@ -180,8 +182,12 @@ object CallNotifications {
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
+        manager.deleteNotificationChannel(OLD_RING_CHANNEL)
         manager.createNotificationChannel(
-            NotificationChannel(RING_CHANNEL, context.getString(R.string.call_channel_ringing), NotificationManager.IMPORTANCE_HIGH),
+            NotificationChannel(RING_CHANNEL, context.getString(R.string.call_channel_ringing), NotificationManager.IMPORTANCE_HIGH).apply {
+                setSound(null, null)
+                enableVibration(false)
+            },
         )
         manager.createNotificationChannel(
             NotificationChannel(ONGOING_CHANNEL, context.getString(R.string.call_channel_ongoing), NotificationManager.IMPORTANCE_LOW),
@@ -206,6 +212,7 @@ object CallNotifications {
     )
 
     fun incoming(context: Context, call: CallUi, name: String) {
+        CallRinger.start(context, messagingState(context).value.talkSettings.softRing)
         if (!allowed(context)) return
         val person = Person.Builder().setName(name).setImportant(true).build()
         val notification = NotificationCompat.Builder(context, RING_CHANNEL)
@@ -225,7 +232,10 @@ object CallNotifications {
         }
     }
 
-    fun cancelIncoming(context: Context) = NotificationManagerCompat.from(context).cancel(RING_ID)
+    fun cancelIncoming(context: Context) {
+        CallRinger.stop()
+        NotificationManagerCompat.from(context).cancel(RING_ID)
+    }
 
     fun ongoing(context: Context, name: String): Notification {
         val person = Person.Builder().setName(name).build()

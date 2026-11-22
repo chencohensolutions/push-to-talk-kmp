@@ -26,6 +26,14 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
 
 - **Catch up to live**: Shorten pauses and speed up (the default), Shorten pauses only, or Off, with a line under
   each; the chosen one has a teal check.
+- **Notifications › Message sound** (2026-11-22, hen): **Talk soft chime** (the default: two calm notes,
+  `res/raw/message_soft.ogg`, made by `tools/ringtone/make_message.py`, on the `messages_soft` channel) or **Phone's
+  sound** (the first `messages` channel, "Messages (phone's sound)"). Each is its own channel because a channel's sound
+  can't change once made; Android's own settings for each still apply.
+- **Calls › Ringtone** (2026-11-22, hen): **Talk soft chime** (the default: a rising pentatonic chime in a 4-second
+  loop, `res/raw/ring_soft.ogg`, made by `tools/ringtone/make_ring.py`) or **Phone's ringtone**. `CallRinger` loops it
+  on the ringer's stream until the call is answered, declined or 45 seconds pass; silent in Do Not Disturb and silent
+  mode, vibration only in vibrate mode. The ringing notification's channel (`calls_ringing_v2`) has no sound of its own.
 - **Calls › Video** (2026-11-22, hen): **Standard (VP8)**, the default, or **H.265 (smaller, sharper)**, offered only
   on a phone with a hardware H.265 encoder. With H.265 the phone also sends VP8 (LiveKit's backup codec), so a phone
   that can't decode H.265 still sees it. Calls stay encrypted end to end; it applies from the next call.

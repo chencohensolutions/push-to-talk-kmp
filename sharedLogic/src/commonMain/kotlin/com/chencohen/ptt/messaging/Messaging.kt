@@ -101,6 +101,10 @@ data class TalkSettings(
     val bubbleVideo: Boolean = true,
     /** Settings › Talk › Unmute for incoming talk (on by default; TalkUnmute). */
     val unmuteForTalk: Boolean = true,
+    /** Settings › Calls › Ringtone: Talk's soft chime (the default; 2026-11-22, hen), or the phone's own ringtone. */
+    val softRing: Boolean = true,
+    /** Settings › Notifications › Message sound: Talk's soft chime (the default; 2026-11-22, hen), or the phone's sound. */
+    val softMessage: Boolean = true,
 )
 
 /**
@@ -379,6 +383,8 @@ internal class Messaging(
         pushVideo = settings.pushVideo,
         bubbleVideo = settings.bubbleVideo,
         unmuteForTalk = settings.unmuteForTalk,
+        softRing = settings.softRing,
+        softMessage = settings.softMessage,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -396,6 +402,8 @@ internal class Messaging(
         settings.pushVideo = talk.pushVideo
         settings.bubbleVideo = talk.bubbleVideo
         settings.unmuteForTalk = talk.unmuteForTalk
+        settings.softRing = talk.softRing
+        settings.softMessage = talk.softMessage
         _state.update { it.copy(talkSettings = talk) }
     }
 

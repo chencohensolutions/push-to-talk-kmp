@@ -326,6 +326,8 @@ fun HomeApp(
                         contacts = messagingState.contacts,
                         myEmail = messaging.myEmail,
                         setMyEmail = { email -> messaging.setMyEmail(email) },
+                        softMessage = messagingState.talkSettings.softMessage,
+                        setSoftMessage = { soft -> onTalkSettings(messagingState.talkSettings.copy(softMessage = soft)) },
                         presenceVisible = presenceVisible,
                         setPresenceVisible = { visible ->
                             presenceVisible = null

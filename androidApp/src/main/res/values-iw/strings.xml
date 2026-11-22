@@ -138,6 +138,11 @@
     <string name="talk_video_off">וידאו כבוי</string>
     <string name="bubble_video">וידאו</string>
     <string name="talk_action_chat">צ׳אט</string>
+    <string name="calls_ring_title">צלצול</string>
+    <string name="calls_ring_soft">צליל רך של Talk</string>
+    <string name="calls_ring_soft_body">צליל פעמונים עדין ועולה.</string>
+    <string name="calls_ring_phone">הצלצול של הטלפון</string>
+    <string name="calls_ring_phone_body">הצלצול שנבחר בהגדרות הצליל של Android.</string>
     <string name="calls_video_title">וידאו</string>
     <string name="calls_video_vp8">רגיל (VP8)</string>
     <string name="calls_video_vp8_body">עובד בכל טלפון.</string>
@@ -353,6 +358,13 @@
     <string name="contact_done_unpaired">%1$s הוסר</string>
     <string name="contact_failed">זה לא עבד: %1$s</string>
     <string name="notify_channel">הודעות</string>
+    <string name="notify_channel_phone">הודעות (הצליל של הטלפון)</string>
+    <string name="settings_notifications_title">התראות</string>
+    <string name="settings_message_sound">צליל הודעה</string>
+    <string name="settings_message_sound_soft">צליל רך של Talk</string>
+    <string name="settings_message_sound_soft_body">שני צלילים רגועים.</string>
+    <string name="settings_message_sound_phone">הצליל של הטלפון</string>
+    <string name="settings_message_sound_phone_body">צליל ההתראה שנבחר בהגדרות הצליל של Android.</string>
     <string name="notify_channel_description">הודעות מאנשי הקשר שלך</string>
     <string name="notify_you">אני</string>
     <string name="notify_reply">תשובה</string>

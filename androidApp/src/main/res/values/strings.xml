@@ -139,6 +139,11 @@
     <string name="talk_video_off">Video off</string>
     <string name="bubble_video">Video</string>
     <string name="talk_action_chat">Chat</string>
+    <string name="calls_ring_title">Ringtone</string>
+    <string name="calls_ring_soft">Talk soft chime</string>
+    <string name="calls_ring_soft_body">A gentle rising chime.</string>
+    <string name="calls_ring_phone">Phone\'s ringtone</string>
+    <string name="calls_ring_phone_body">The ringtone set in Android\'s sound settings.</string>
     <string name="calls_video_title">Video</string>
     <string name="calls_video_vp8">Standard (VP8)</string>
     <string name="calls_video_vp8_body">Works with every phone.</string>
@@ -352,6 +357,13 @@
     <string name="contact_done_unpaired">%1$s was removed</string>
     <string name="contact_failed">That didn’t work: %1$s</string>
     <string name="notify_channel">Messages</string>
+    <string name="notify_channel_phone">Messages (phone\'s sound)</string>
+    <string name="settings_notifications_title">Notifications</string>
+    <string name="settings_message_sound">Message sound</string>
+    <string name="settings_message_sound_soft">Talk soft chime</string>
+    <string name="settings_message_sound_soft_body">Two calm notes.</string>
+    <string name="settings_message_sound_phone">Phone\'s sound</string>
+    <string name="settings_message_sound_phone_body">The notification sound set in Android\'s sound settings.</string>
     <string name="notify_channel_description">Texts from your contacts</string>
     <string name="notify_you">You</string>
     <string name="notify_reply">Reply</string>

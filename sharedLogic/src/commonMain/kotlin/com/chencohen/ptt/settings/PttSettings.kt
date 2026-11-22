@@ -156,6 +156,16 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_UNMUTE_FOR_TALK) != "false"
         set(value) = store.putString(KEY_UNMUTE_FOR_TALK, value.toString())
 
+    /** Settings › Calls › Ringtone: Talk's soft chime unless the phone's ringtone was chosen. */
+    var softRing: Boolean
+        get() = store.getString(KEY_SOFT_RING) != "false"
+        set(value) = store.putString(KEY_SOFT_RING, value.toString())
+
+    /** Settings › Notifications › Message sound: Talk's soft chime unless the phone's sound was chosen. */
+    var softMessage: Boolean
+        get() = store.getString(KEY_SOFT_MESSAGE) != "false"
+        set(value) = store.putString(KEY_SOFT_MESSAGE, value.toString())
+
     /** This user's email, shared with their paired contacts (Settings › Contacts › Your email); null: none. */
     var myEmail: String?
         get() = store.getString(KEY_MY_EMAIL)
@@ -177,6 +187,8 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_PUSH_VIDEO = "talk_push_video"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
+        private const val KEY_SOFT_RING = "call_soft_ring"
+        private const val KEY_SOFT_MESSAGE = "message_soft_sound"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"
         private const val KEY_STAY_CONNECTED = "talk_stay_connected"
