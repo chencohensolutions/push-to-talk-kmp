@@ -351,7 +351,9 @@ what was shown (the server sends HIGH only to phones that registered notificatio
 - **Woken by `talk`** (`TalkMessagingService`): the wake-up runs on in the app's scope; when a burst should play
   aloud, `AndroidTalkHost` registers a **talk session** with Telecom (Core-Telecom `CallsManager.addCall`, an
   incoming audio call the app answers itself, "Talk · Family"), and `TalkSessionService` runs it as a phone-call
-  foreground service with a call-style notification and Leave; the session ends 20 s after the last burst (a reply
+  foreground service with a call-style notification and Leave. Telecom starts a call on the earpiece, so the session
+  moves itself to the loudspeaker (`requestEndpointChange`) unless a headset or Bluetooth device is the route
+  (2026-11-22, hen: bursts in the background played at phone-call volume); the session ends 20 s after the last burst (a reply
   can follow), and `Messaging.wake` keeps `/ws` until then (at most 2 minutes). If Telecom refuses it (the plan's R1
   fallback) the talk notification shows instead. R1 itself (a Pixel and a Samsung asleep for 30 minutes) is still to
   be run on the phones.
