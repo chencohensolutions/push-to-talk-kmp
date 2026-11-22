@@ -122,6 +122,7 @@
     <string name="settings_contacts_title">Contacts</string>
     <string name="settings_android_contacts">Show in Android Contacts</string>
     <string name="settings_android_contacts_body">Your Talk contacts appear in the phone\'s Contacts with Talk message, voice call and video call. Only their names are shared with Contacts.</string>
+    <string name="contacts_action_talk">Talk to %1$s</string>
     <string name="contacts_action_message">Message %1$s</string>
     <string name="contacts_action_voice">Voice call %1$s</string>
     <string name="contacts_action_video">Video call %1$s</string>

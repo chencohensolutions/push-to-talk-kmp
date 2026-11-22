@@ -291,6 +291,8 @@ class MainActivity : ComponentActivity() {
         AndroidContacts.opened(this, intent)?.let { (user, kind) ->
             when (kind) {
                 AndroidContacts.MESSAGE -> openedChat = user
+                // Their push-to-talk screen, over their chat.
+                AndroidContacts.TALK -> openedChat = "$user\ntalk/$user"
                 else -> openedCall = user to (kind == AndroidContacts.VIDEO)
             }
             return

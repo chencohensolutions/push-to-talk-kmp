@@ -121,6 +121,7 @@
     <string name="settings_contacts_title">אנשי קשר</string>
     <string name="settings_android_contacts">להציג באנשי הקשר של אנדרואיד</string>
     <string name="settings_android_contacts_body">אנשי הקשר שלך ב-Talk יופיעו באנשי הקשר של הטלפון, עם הודעה, שיחה קולית ושיחת וידאו ב-Talk. רק השמות שלהם עוברים לאנשי הקשר.</string>
+    <string name="contacts_action_talk">לדבר עם %1$s</string>
     <string name="contacts_action_message">הודעה ל%1$s</string>
     <string name="contacts_action_voice">שיחה קולית עם %1$s</string>
     <string name="contacts_action_video">שיחת וידאו עם %1$s</string>
