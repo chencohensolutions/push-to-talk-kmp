@@ -88,6 +88,11 @@ data class TalkSettings(
      * the bottom of the screen with the sender and a Talk button, for the burst and the reply window after it.
      */
     val replyBubble: Boolean = false,
+    /**
+     * Settings › Calls › Video: VP8 (standard) or H.265 (smaller and sharper; 2026-11-22, hen), offered only on a phone
+     * with a hardware H.265 encoder. Phones that can't take H.265 get VP8 from the same sender (a backup codec).
+     */
+    val callVideo: com.chencohen.ptt.calls.CallVideo = com.chencohen.ptt.calls.CallVideo.VP8,
 )
 
 /**
@@ -338,6 +343,7 @@ internal class Messaging(
         quickTalkPage = settings.quickTalkPage,
         openOnTalk = settings.openOnTalk,
         replyBubble = settings.replyBubble,
+        callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.VP8,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -351,6 +357,7 @@ internal class Messaging(
         settings.quickTalkPage = talk.quickTalkPage
         settings.openOnTalk = talk.openOnTalk
         settings.replyBubble = talk.replyBubble
+        settings.callVideo = talk.callVideo.name
         _state.update { it.copy(talkSettings = talk) }
     }
 

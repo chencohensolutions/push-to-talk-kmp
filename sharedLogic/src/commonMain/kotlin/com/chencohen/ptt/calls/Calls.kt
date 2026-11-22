@@ -41,6 +41,9 @@ enum class CallPhase {
     ENDED,
 }
 
+/** The codec a phone sends its camera in (Settings › Calls › Video). */
+enum class CallVideo { VP8, H265 }
+
 /** The call on this phone, for the call screen and the platform's call session. */
 data class CallUi(
     val id: String,

@@ -118,6 +118,12 @@
     <string name="kept_failed">The call couldn\'t be opened. Try again later.</string>
     <string name="kept_play">Play</string>
     <string name="kept_pause">Pause</string>
+    <string name="calls_video_title">Video</string>
+    <string name="calls_video_vp8">Standard (VP8)</string>
+    <string name="calls_video_vp8_body">Works with every phone.</string>
+    <string name="calls_video_h265">H.265 (smaller, sharper)</string>
+    <string name="calls_video_h265_body">Sharper picture for the same data. Phones that can\'t show H.265 get the standard video from you too. Starts with your next call.</string>
+    <string name="calls_video_no_h265">This phone has no H.265 encoder, so calls use the standard video.</string>
     <string name="kept_as_seen">As seen</string>
     <string name="kept_whole">Whole</string>
     <string name="call_video_fit">Fit</string>

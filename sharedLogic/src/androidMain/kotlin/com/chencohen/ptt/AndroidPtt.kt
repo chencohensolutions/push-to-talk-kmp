@@ -122,7 +122,10 @@ private fun hub(context: Context): Messaging {
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
-        it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
+        it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(
+            context,
+            videoCodec = { if (settings.callVideo == com.chencohen.ptt.calls.CallVideo.H265.name && com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder()) "h265" else "vp8" },
+        ) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
         hub = it
     }
 }

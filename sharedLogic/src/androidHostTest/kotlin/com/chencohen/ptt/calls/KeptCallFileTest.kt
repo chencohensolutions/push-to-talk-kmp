@@ -174,4 +174,43 @@ class KeptCallFileTest {
         assertEquals(listOf(0L to 90, 1500L to 0), made.rotations["hen.1"])
         assertEquals(listOf(KeptCallFile.ViewAt(1500, "sharon.2", "hen", true, 0.5f)), made.views, "sharon's log began half a second later")
     }
+
+    @Test
+    fun aKeptCallInH265BecomesAnHevcTrack() = runTest {
+        val callKey = "AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09o="
+        val key = LiveKitFrames.key(callKey.encodeToByteArray())
+        // ffmpeg's H.265 (Annex B) cut into access units: a new one at each first slice segment (its flag set),
+        // with the VPS/SPS/PPS before a key frame going with it.
+        val stream = resource("sample.hevc")
+        val starts = LiveKitFrames.naluStarts(stream)
+        val units = mutableListOf<ByteArray>()
+        var unitStart = 0
+        var sawSlice = false
+        for (s in starts) {
+            val type = (stream[s].toInt() and 0x7E) shr 1
+            val vcl = type in 0..31
+            val firstSlice = vcl && (stream[s + 2].toInt() and 0x80) != 0
+            val begin = if (s >= 4 && stream[s - 4].toInt() == 0) s - 4 else s - 3
+            if ((firstSlice || (!vcl && type in 32..34)) && sawSlice) {
+                units += stream.copyOfRange(unitStart, begin)
+                unitStart = begin
+                sawSlice = false
+            }
+            if (vcl) sawSlice = true
+        }
+        units += stream.copyOfRange(unitStart, stream.size)
+        val records = java.io.ByteArrayOutputStream()
+        units.forEachIndexed { i, unit ->
+            val key0 = Matroska.nalUnits(unit).any { ((it[0].toInt() and 0x7E) shr 1) in 16..21 }
+            val sealed = LiveKitFrames.encrypt(key, unit, LiveKitFrames.H265, ByteArray(12) { (it * 7 + i).toByte() })
+            assertContentEquals(unit, LiveKitFrames.decrypt(key, sealed, LiveKitFrames.H265))
+            java.io.DataOutputStream(records).apply { writeInt(9 + sealed.size); writeLong(i * 66_667L); writeByte(if (key0) 1 else 0); write(sealed) }
+        }
+        val blob = records.toByteArray()
+        val tracks = listOf(KeptTrack("hevc", "hen.1", "video", "video/H265", "2026-11-22T16:00:00Z", blob.size, true))
+        val out = File("build/kept-hevc.mkv").absoluteFile
+        val made = KeptCallFile({ _, onBytes -> onBytes(blob) }, Files.createTempDirectory("kept").toFile()).make(callKey, tracks, { it }, out.outputStream())
+        assertEquals(0, made.unreadable)
+        assertEquals(units.size, made.frames)
+    }
 }

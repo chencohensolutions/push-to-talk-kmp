@@ -74,7 +74,7 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
             }
         }
         events.sortBy { it.us }
-        val usable = tracks.filter { t -> listOf(LiveKitFrames.OPUS, LiveKitFrames.RED, LiveKitFrames.VP8, LiveKitFrames.H264).any { t.codec.equals(it, true) } }
+        val usable = tracks.filter { t -> listOf(LiveKitFrames.OPUS, LiveKitFrames.RED, LiveKitFrames.VP8, LiveKitFrames.H264, LiveKitFrames.H265).any { t.codec.equals(it, true) } }
         // RED is Opus once unwrapped: one audio track per person either way.
         fun codecOf(t: KeptTrack) = if (t.codec.equals(LiveKitFrames.RED, true)) LiveKitFrames.OPUS.lowercase() else t.codec.lowercase()
         val groups = linkedMapOf<Triple<String, String, String>, Group>()
@@ -122,7 +122,9 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
                                 keyFrame = LiveKitFrames.isVp8KeyFrame(plain)
                                 if (keyFrame && g.width == 0) Matroska.vp8Size(plain)?.let { (wd, h) -> g.width = wd; g.height = h }
                             } else if (g.video) {
-                                if (keyFrame && g.avcC == null) g.avcC = Matroska.avcC(plain)
+                                if (keyFrame && g.avcC == null) {
+                                    g.avcC = if (g.codec.equals(LiveKitFrames.H265, true)) Matroska.hvcC(plain) else Matroska.avcC(plain)
+                                }
                                 data = Matroska.annexBToLengths(plain)
                             }
                             // A picture can't start without a key frame.
@@ -181,6 +183,7 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
                             numbers.getValue(g), true, if (vp8) Matroska.CODEC_VP8 else Matroska.CODEC_AVC, name,
                             width = g.width.takeIf { it > 0 } ?: 640, height = g.height.takeIf { it > 0 } ?: 480,
                             codecPrivate = if (vp8) null else g.avcC, default = g === firstVideo,
+                            codecIdOverride = if (g.codec.equals(LiveKitFrames.H265, true)) Matroska.CODEC_HEVC else null,
                             // The sender's camera rotation as it began (players turn the picture by it).
                             rotation = rotations[g.identity]?.firstOrNull()?.second ?: 0,
                         )

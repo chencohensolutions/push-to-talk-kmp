@@ -26,6 +26,9 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
 
 - **Catch up to live**: Shorten pauses and speed up (the default), Shorten pauses only, or Off, with a line under
   each; the chosen one has a teal check.
+- **Calls › Video** (2026-11-22, hen): **Standard (VP8)**, the default, or **H.265 (smaller, sharper)**, offered only
+  on a phone with a hardware H.265 encoder. With H.265 the phone also sends VP8 (LiveKit's backup codec), so a phone
+  that can't decode H.265 still sees it. Calls stay encrypted end to end; it applies from the next call.
 - **Calls › Save calls to** (2026-11-22, hen): **Choose a folder** opens Android's folder picker (the phone, an SD
   card or a USB drive), kept with a lasting permission; under it, the folder's name, or Downloads › Talk.
   **Use Downloads instead** goes back. Save as file on a kept call writes there.

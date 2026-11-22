@@ -466,6 +466,11 @@ The server's side is its docs/messaging.md, "Calls": `callToken(call, peer | gro
   file. `tools/keptcall` makes the test fixture with Go's own crypto, so the decryption is checked against another
   implementation.
 
+- **H.265 video** (2026-11-22, hen; Settings › Calls › Video): `LiveKitCallTransport` publishes the camera in H.265
+  with VP8 as LiveKit's backup codec when chosen and the phone has a hardware HEVC encoder (`hasHevcEncoder`). The
+  frame cryptor keeps the first slice segment's 2-byte NAL header clear and escapes the rest as for H.264
+  (`LiveKitFrames`); a kept call's H.265 track goes into the file as V_MPEGH/ISO/HEVC with its hvcC.
+
 Not done yet from the plan's 6: R4 (HEVC; calls and saving use H.264 and LiveKit's default codec now); the 720p cap
 set explicitly; the tests on phones (a call ringing a sleeping phone, three on 4G, a saved call played from Share).
 

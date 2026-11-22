@@ -24,7 +24,11 @@ class Matroska(private val tracks: List<Track>) {
         val rotation: Int = 0,
         /** A text track (S_TEXT/UTF8). */
         val text: Boolean = false,
-    )
+        /** Another codec id than [codecId] (H.265's), so callers can keep passing the H.264 one. */
+        val codecIdOverride: String? = null,
+    ) {
+        val id: String get() = codecIdOverride ?: codecId
+    }
 
     private class Cue(val timeMs: Long, val clusterAt: Long)
 
@@ -133,7 +137,7 @@ class Matroska(private val tracks: List<Track>) {
             element(ID_FLAG_DEFAULT, uint(if (t.default) 1 else 0)) +
             element(ID_NAME, t.name.encodeToByteArray()) +
             element(ID_LANGUAGE, "und".encodeToByteArray()) +
-            element(ID_CODEC_ID, t.codecId.encodeToByteArray())
+            element(ID_CODEC_ID, t.id.encodeToByteArray())
         t.codecPrivate?.let { b += element(ID_CODEC_PRIVATE, it) }
         b += if (t.text) {
             ByteArray(0)
@@ -154,7 +158,7 @@ class Matroska(private val tracks: List<Track>) {
     private fun ebmlHeader() = element(
         ID_EBML,
         element(0x4286, uint(1)) + element(0x42F7, uint(1)) + element(0x42F2, uint(4)) + element(0x42F3, uint(8)) +
-            element(0x4282, "webm".takeIf { tracks.all { it.codecId != CODEC_AVC && !it.text } } ?.encodeToByteArray() ?: "matroska".encodeToByteArray()) +
+            element(0x4282, "webm".takeIf { tracks.all { it.id == CODEC_VP8 || it.id == CODEC_OPUS } } ?.encodeToByteArray() ?: "matroska".encodeToByteArray()) +
             element(0x4287, uint(4)) + element(0x4285, uint(2)),
     )
 
@@ -163,6 +167,7 @@ class Matroska(private val tracks: List<Track>) {
         const val CODEC_AVC = "V_MPEG4/ISO/AVC"
         const val CODEC_OPUS = "A_OPUS"
         const val CODEC_TEXT = "S_TEXT/UTF8"
+        const val CODEC_HEVC = "V_MPEGH/ISO/HEVC"
         const val ID_PROJECTION = 0x7670
         const val ID_PROJECTION_TYPE = 0x7671
         const val ID_PROJECTION_POSE_ROLL = 0x7675
@@ -310,6 +315,39 @@ class Matroska(private val tracks: List<Track>) {
             out.write(pps.size ushr 8)
             out.write(pps.size and 0xff)
             out.write(pps)
+            return out.toByteArray()
+        }
+
+        /**
+         * hvcC from the VPS, SPS and PPS of an H.265 key frame (ISO/IEC 14496-15): the general profile, tier and level
+         * read from the SPS, 4:2:0 8-bit, 4-byte lengths. Null when they aren't there.
+         */
+        fun hvcC(frame: ByteArray): ByteArray? {
+            val units = nalUnits(frame)
+            fun ofType(t: Int) = units.firstOrNull { it.size > 2 && ((it[0].toInt() and 0x7E) shr 1) == t }
+            val vps = ofType(32) ?: return null
+            val sps = ofType(33) ?: return null
+            val pps = ofType(34) ?: return null
+            // After the 2-byte header: 1 byte of ids, then profile_tier_level's 12 bytes.
+            val ptl = LiveKitFrames.unescape(sps.copyOfRange(2, minOf(sps.size, 2 + 1 + 12 + 4)))
+            if (ptl.size < 13) return null
+            val out = ByteArrayOutputStream()
+            out.write(1)
+            out.write(ptl, 1, 12)
+            out.write(0xF0); out.write(0x00) // min_spatial_segmentation_idc
+            out.write(0xFC) // parallelismType
+            out.write(0xFD) // chroma_format_idc 4:2:0
+            out.write(0xF8) // bit depth luma 8
+            out.write(0xF8) // bit depth chroma 8
+            out.write(0); out.write(0) // avgFrameRate
+            out.write(0x0F) // constantFrameRate 0, numTemporalLayers 1, temporalIdNested 1, lengthSizeMinusOne 3
+            out.write(3)
+            for ((type, nal) in listOf(32 to vps, 33 to sps, 34 to pps)) {
+                out.write(0x80 or type)
+                out.write(0); out.write(1)
+                out.write(nal.size ushr 8); out.write(nal.size and 0xff)
+                out.write(nal)
+            }
             return out.toByteArray()
         }
 

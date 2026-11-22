@@ -31,6 +31,21 @@ internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change
             }
         }
         PageNote(stringResource(R.string.calls_save_note))
+        // The codec this phone sends its camera in; H.265 only with a hardware encoder (2026-11-22, hen).
+        val hevc = androidx.compose.runtime.remember { com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder() }
+        SectionTitle(stringResource(R.string.calls_video_title))
+        SettingsCard {
+            ChoiceRow(stringResource(R.string.calls_video_vp8), stringResource(R.string.calls_video_vp8_body), settings.callVideo == com.chencohen.ptt.calls.CallVideo.VP8) {
+                change(settings.copy(callVideo = com.chencohen.ptt.calls.CallVideo.VP8))
+            }
+            if (hevc) {
+                RowDivider()
+                ChoiceRow(stringResource(R.string.calls_video_h265), stringResource(R.string.calls_video_h265_body), settings.callVideo == com.chencohen.ptt.calls.CallVideo.H265) {
+                    change(settings.copy(callVideo = com.chencohen.ptt.calls.CallVideo.H265))
+                }
+            }
+        }
+        if (!hevc) PageNote(stringResource(R.string.calls_video_no_h265))
         // Where Save as file puts a kept call: a folder picked with Android's picker (SD card and USB drives too).
         SectionTitle(stringResource(R.string.calls_folder_title))
         val context = androidx.compose.ui.platform.LocalContext.current

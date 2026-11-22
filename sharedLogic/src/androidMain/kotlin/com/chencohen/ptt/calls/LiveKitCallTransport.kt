@@ -35,6 +35,8 @@ import okhttp3.OkHttpClient
  */
 class LiveKitCallTransport(
     context: Context,
+    /** "vp8" or "h265" (Settings › Calls › Video); with H.265, VP8 goes too for phones that can't decode it. */
+    private val videoCodec: () -> String = { "vp8" },
     private val okHttp: () -> OkHttpClient,
 ) : CallTransport {
     private val appContext = context.applicationContext
@@ -74,6 +76,16 @@ class LiveKitCallTransport(
                 videoTrackCaptureDefaults = io.livekit.android.room.track.LocalVideoTrackOptions(
                     captureParams = io.livekit.android.room.track.VideoPreset43.H720.capture,
                 ),
+                videoTrackPublishDefaults = videoCodec().let { codec ->
+                    if (codec == "h265") {
+                        io.livekit.android.room.participant.VideoTrackPublishDefaults(
+                            videoCodec = "h265",
+                            backupCodec = io.livekit.android.room.participant.BackupVideoCodec(codec = "vp8"),
+                        )
+                    } else {
+                        io.livekit.android.room.participant.VideoTrackPublishDefaults()
+                    }
+                },
             ),
             LiveKitOverrides(okHttpClient = okHttp(), eglBase = egl),
         )
@@ -250,7 +262,14 @@ class LiveKitCallTransport(
         listener?.serverRecording(RoomMetadata.recorderOf(room.metadata))
     }
 
-    private companion object {
+    companion object {
+        /** A hardware H.265 encoder: only then is H.265 offered (software would heat the phone and drop frames). */
+        fun hasHevcEncoder(): Boolean = runCatching {
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+                info.isEncoder && info.isHardwareAccelerated && info.supportedTypes.any { it.equals("video/hevc", ignoreCase = true) }
+            }
+        }.getOrDefault(false)
+
         const val TAG = "LiveKitCall"
     }
 }

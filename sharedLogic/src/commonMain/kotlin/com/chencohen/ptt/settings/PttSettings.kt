@@ -137,6 +137,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_REPLY_BUBBLE) == "true"
         set(value) = store.putString(KEY_REPLY_BUBBLE, value.toString())
 
+    /** Settings › Calls › Video: CallVideo's name (VP8 unless chosen). */
+    var callVideo: String?
+        get() = store.getString(KEY_CALL_VIDEO)
+        set(value) = store.putString(KEY_CALL_VIDEO, value)
+
     var pendingLink: String?
         get() = store.getString(KEY_PENDING_LINK)
         set(value) = store.putString(KEY_PENDING_LINK, value)
@@ -148,6 +153,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_KEEPS_CALLS = "server_keeps_calls"
         private const val KEY_OPEN_ON_TALK = "talk_open_on_talk"
         private const val KEY_REPLY_BUBBLE = "talk_reply_bubble"
+        private const val KEY_CALL_VIDEO = "call_video"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"
         private const val KEY_STAY_CONNECTED = "talk_stay_connected"

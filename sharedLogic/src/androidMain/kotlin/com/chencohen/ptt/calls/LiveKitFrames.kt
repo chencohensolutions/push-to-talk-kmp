@@ -31,7 +31,7 @@ object LiveKitFrames {
         val clear = clearBytes(frame, codec)
         if (clear < 0 || frame.size < clear + TAG + IV + 2) return null
         var rest = frame.copyOfRange(clear, frame.size)
-        if (codec.equals(H264, ignoreCase = true)) rest = unescape(rest)
+        if (isNal(codec)) rest = unescape(rest)
         if (rest.size < TAG + IV + 2) return null
         val ivSize = rest[rest.size - 2].toInt() and 0xff
         if (ivSize != IV) return null
@@ -56,6 +56,19 @@ object LiveKitFrames {
     fun clearBytes(frame: ByteArray, codec: String): Int = when {
         codec.startsWith("audio/", ignoreCase = true) -> 1
         codec.equals(VP8, ignoreCase = true) -> if (frame.isNotEmpty() && isVp8KeyFrame(frame)) 10 else 3
+        codec.equals(H265, ignoreCase = true) -> {
+            // The first slice segment's NAL unit, its 2-byte header clear (types 0-9 and 16-21).
+            var found = 0
+            for (start in naluStarts(frame)) {
+                if (start >= frame.size) break
+                val type = (frame[start].toInt() and 0x7E) shr 1
+                if (type in 0..9 || type in 16..21) {
+                    found = start + 2
+                    break
+                }
+            }
+            found
+        }
         codec.equals(H264, ignoreCase = true) -> {
             var found = 0
             for (start in naluStarts(frame)) {
@@ -131,7 +144,7 @@ object LiveKitFrames {
             doFinal(frame.copyOfRange(clear, frame.size))
         }
         val rest = sealed + iv + byteArrayOf(IV.toByte(), 0)
-        return header + if (codec.equals(H264, ignoreCase = true)) escape(rest) else rest
+        return header + if (isNal(codec)) escape(rest) else rest
     }
 
     /** PBKDF2 over raw bytes (PBEKeySpec takes characters, which would change bytes that aren't ASCII). */
@@ -182,6 +195,10 @@ object LiveKitFrames {
 
     const val VP8 = "video/VP8"
     const val H264 = "video/H264"
+    const val H265 = "video/H265"
+
+    /** H.264 and H.265 frames are NAL units: what follows the clear header is escaped like their payloads. */
+    fun isNal(codec: String) = codec.equals(H264, ignoreCase = true) || codec.equals(H265, ignoreCase = true)
     const val OPUS = "audio/opus"
     const val RED = "audio/red"
 }
