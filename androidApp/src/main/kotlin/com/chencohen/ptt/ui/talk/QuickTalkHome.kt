@@ -107,7 +107,7 @@ internal fun QuickTalkHome(
                     WarmCamera(page.chat, pushVideo, warmCamera)
                     Here(page.chat, setHere)
                 }
-                val peerHere = (here[page.chat] ?: 0L) > System.currentTimeMillis()
+                val peerHere = rememberHere(here, page.chat)
                 // Centred above the button: someone's video burst, or this phone's camera while Video is on.
                 val video = talk.playing?.takeIf { it.chat == page.chat && it.video } != null
                 TalkStage(
@@ -130,6 +130,7 @@ internal fun QuickTalkHome(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.semantics { heading() },
                         )
+                        HereDot(peerHere)
                     }
                     // Only while someone talks (no hint text otherwise).
                     val line = talkLine(page.chat, talk, nameOf, me)

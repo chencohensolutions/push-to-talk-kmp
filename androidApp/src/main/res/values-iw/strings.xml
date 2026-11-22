@@ -117,6 +117,7 @@
     <string name="kept_failed">לא הצלחנו לפתוח את השיחה. נסו שוב מאוחר יותר.</string>
     <string name="kept_play">ניגון</string>
     <string name="kept_pause">השהיה</string>
+    <string name="talk_here">כאן עכשיו</string>
     <string name="settings_contacts_title">אנשי קשר</string>
     <string name="settings_android_contacts">להציג באנשי הקשר של אנדרואיד</string>
     <string name="settings_android_contacts_body">אנשי הקשר שלך ב-Talk יופיעו באנשי הקשר של הטלפון, עם הודעה, שיחה קולית ושיחת וידאו ב-Talk. רק השמות שלהם עוברים לאנשי הקשר.</string>

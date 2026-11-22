@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +34,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chencohen.ptt.R
@@ -261,4 +264,31 @@ internal fun androidx.compose.foundation.layout.ColumnScope.TalkStage(
             }
         }
     }
+}
+
+/**
+ * Whether [user] is "here" now (their Talk screen or bubble for this chat open), from [here] (until when), looked at
+ * again every few seconds so it goes when it runs out.
+ */
+@Composable
+internal fun rememberHere(here: Map<String, Long>, user: String): Boolean {
+    var now by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    androidx.compose.runtime.LaunchedEffect(here, user) {
+        while (true) {
+            now = System.currentTimeMillis()
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
+    return (here[user] ?: 0L) > now
+}
+
+/** The green "here" dot by a name (2026-11-22, hen): the same on the Talk screens and in the bubble. */
+@Composable
+internal fun HereDot(shown: Boolean, modifier: Modifier = Modifier) {
+    if (!shown) return
+    val label = stringResource(R.string.talk_here)
+    Box(
+        modifier.padding(start = 8.dp).size(12.dp).background(Color(0xFF34C759), CircleShape)
+            .semantics { contentDescription = label },
+    )
 }
