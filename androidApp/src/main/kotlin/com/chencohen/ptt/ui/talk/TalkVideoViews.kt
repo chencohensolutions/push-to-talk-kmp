@@ -63,12 +63,10 @@ internal fun PushVideoSwitch(on: Boolean, set: (Boolean) -> Unit, modifier: Modi
             contentAlignment = Alignment.Center,
         ) {
             androidx.compose.material3.Icon(
-                if (on) com.chencohen.ptt.ui.style.LibraryIcons.Video else com.chencohen.ptt.ui.style.LibraryIcons.VideoOff, null,
+                if (on) com.chencohen.ptt.ui.style.LibraryIcons.Video else com.chencohen.ptt.ui.style.LibraryIcons.VideoOff, label,
                 tint = if (on) Color.White else LibraryColors.OnBackground, modifier = Modifier.size(24.dp),
             )
         }
-        androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
-        Text(label, color = LibraryColors.Muted, style = LibraryType.Tiny)
     }
 }
 

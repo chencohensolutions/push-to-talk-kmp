@@ -237,7 +237,8 @@ internal fun talkLine(chat: String, talk: TalkUiState, nameOf: (String) -> Strin
         }
         talker != null && talker.user == me -> stringResource(R.string.talk_other_phone)
         talker != null -> stringResource(R.string.talk_someone, nameOf(talker.user))
-        else -> stringResource(R.string.talk_hold)
+        // Nothing to say while nobody talks (2026-11-22, hen: no "Hold the button" text).
+        else -> ""
     }
 }
 
@@ -534,8 +535,6 @@ private fun TalkChatAction(icon: androidx.compose.ui.graphics.vector.ImageVector
             Modifier.size(52.dp).background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
                 .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, null, tint = LibraryColors.OnBackground, modifier = Modifier.size(24.dp)) }
-        Spacer(Modifier.height(4.dp))
-        Text(label, color = LibraryColors.Muted, style = LibraryType.Tiny)
+        ) { Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(24.dp)) }
     }
 }
