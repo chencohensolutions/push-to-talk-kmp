@@ -7,31 +7,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AppUpdateTest {
-    private fun release(tag: String, vararg assets: String, prerelease: Boolean = false) = """
-        {"tag_name":"$tag","html_url":"https://github.com/x/releases/tag/$tag","body":"Pink.","draft":false,"prerelease":$prerelease,
-         "assets":[${assets.joinToString(",") { """{"name":"$it","browser_download_url":"https://github.com/x/$it","size":65194670,"extra":1}""" }}],
-         "author":{"login":"someone"}}
-    """.trimIndent()
-
-    @Test
-    fun theLatestReleaseWithItsApkAndChecksums() {
-        val r = AppUpdate.parseLatest(release("v1.2.0", "talk-1.2.0.apk", "SHA256SUMS"))!!
-        assertEquals("1.2.0", r.version)
-        assertEquals("talk-1.2.0.apk", r.apkName)
-        assertEquals("https://github.com/x/talk-1.2.0.apk", r.apkUrl)
-        assertEquals(65194670, r.apkSize)
-        assertEquals("https://github.com/x/SHA256SUMS", r.sumsUrl)
-        assertEquals("Pink.", r.notes)
-    }
-
-    @Test
-    fun notAReleaseToUpdateTo() {
-        assertNull(AppUpdate.parseLatest(release("v1.2.0", "talk-1.2.0.apk")), "no SHA256SUMS")
-        assertNull(AppUpdate.parseLatest(release("v1.2.0", "SHA256SUMS", "talk-1.1.0.apk")), "another version's APK")
-        assertNull(AppUpdate.parseLatest(release("v1.2.0", "talk-1.2.0.apk", "SHA256SUMS", prerelease = true)))
-        assertNull(AppUpdate.parseLatest(release("dev-20261122", "talk-dev-20261122.apk", "SHA256SUMS")))
-        assertNull(AppUpdate.parseLatest("not json"))
-    }
+    private val sha = "3F9093EF8D2E6821DA25587E2AE93C6F29DB49C2B04566602F30116C8AA01567"
+    private fun release(version: String, url: String = "https://github.com/x/releases/download/v$version/talk-$version.apk", sha256: String = sha) =
+        AppRelease(version, url, 65194670, sha256, "Pink.")
 
     @Test
     fun versionsCompareByNumber() {
@@ -47,23 +25,28 @@ class AppUpdateTest {
     }
 
     @Test
-    fun theApksChecksumFromSha256Sums() {
-        val sums = """
-            3f9093ef8d2e6821da25587e2ae93c6f29db49c2b04566602f30116c8aa01567  talk-1.0.2.apk
-            B893545CDDA3125EC3DEC043E838E3BB683B08C02C325650652399F104664F88 *talk-1.0.1.apk
-        """.trimIndent()
-        assertEquals("3f9093ef8d2e6821da25587e2ae93c6f29db49c2b04566602f30116c8aa01567", AppUpdate.sha256For(sums, "talk-1.0.2.apk"))
-        assertEquals("b893545cdda3125ec3dec043e838e3bb683b08c02c325650652399f104664f88", AppUpdate.sha256For(sums, "talk-1.0.1.apk"))
-        assertNull(AppUpdate.sha256For(sums, "talk-1.0.0.apk"))
-        assertNull(AppUpdate.sha256For("abc  talk-1.0.2.apk", "talk-1.0.2.apk"))
+    fun aNewerReleaseIsOfferedWithItsChecksumInLowercase() {
+        val offer = AppUpdate.offer(release("1.3.0"), "1.2.0")!!
+        assertEquals("1.3.0", offer.version)
+        assertEquals(sha.lowercase(), offer.sha256)
+        assertEquals("talk-1.3.0.apk", offer.apkName)
     }
 
     @Test
-    fun looksAgainAfterSixHours() {
-        val h = 60 * 60 * 1000L
-        assertTrue(AppUpdate.due(0, 10 * h))
-        assertFalse(AppUpdate.due(10 * h, 15 * h))
-        assertTrue(AppUpdate.due(10 * h, 16 * h))
-        assertTrue(AppUpdate.due(10 * h, 9 * h), "the clock went back")
+    fun nothingToOffer() {
+        assertNull(AppUpdate.offer(null, "1.2.0"), "the server read no release")
+        assertNull(AppUpdate.offer(release("1.2.0"), "1.2.0"), "the same version")
+        assertNull(AppUpdate.offer(release("1.1.0"), "1.2.0"), "an older one")
+        assertNull(AppUpdate.offer(release("1.3.0", url = "http://github.com/talk.apk"), "1.2.0"), "not https")
+        assertNull(AppUpdate.offer(release("1.3.0", sha256 = "abc"), "1.2.0"), "no real checksum")
+    }
+
+    @Test
+    fun aPushNotifiesOncePerVersion() {
+        val offer = AppUpdate.offer(release("1.3.0"), "1.2.0")
+        assertTrue(AppUpdate.notify(offer, null))
+        assertTrue(AppUpdate.notify(offer, "1.2.5"))
+        assertFalse(AppUpdate.notify(offer, "1.3.0"))
+        assertFalse(AppUpdate.notify(null, null))
     }
 }

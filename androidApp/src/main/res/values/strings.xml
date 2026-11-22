@@ -492,12 +492,13 @@
     <string name="update_permission">Allow Talk to install updates</string>
     <string name="update_permission_body">Turn on “Allow from this source” for Talk, come back, and tap here.</string>
     <string name="update_failed">Update failed: %1$s</string>
-    <string name="update_failed_check">couldn’t reach GitHub</string>
-    <string name="update_failed_sums">the release has no checksum for its APK</string>
+    <string name="update_failed_check">couldn’t reach the server</string>
     <string name="update_failed_checksum">the download doesn’t match its checksum</string>
     <string name="update_failed_signature">the APK isn’t a newer Talk signed with the same key</string>
     <string name="update_failed_install">Android didn’t install it</string>
     <string name="update_debug">This is a test build</string>
     <string name="update_debug_body">Test builds don’t update themselves. The release app does.</string>
     <string name="update_check_now">Check now</string>
+    <string name="update_channel">App updates</string>
+    <string name="update_notification_body">Tap to update. Android asks you to confirm.</string>
 </resources>

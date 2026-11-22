@@ -459,21 +459,24 @@ is `Talk.press` in that chat, as in Talk mode.
 
 ## App updates (1.2.0)
 
-The release app updates itself from this repo's GitHub releases (2026-11-22, hen). `AppUpdate` (sharedLogic) reads
-`releases/latest` from GitHub's API (public, no login): a release that isn't a draft or pre-release and has
-`talk-<version>.apk` and `SHA256SUMS`, newer than the app (`isNewer`, by number). `AppUpdates` (androidApp):
+The release app updates itself from this repo's GitHub releases (2026-11-22, hen), and the **server** tells it when:
+ptt-server reads GitHub's latest release every hour (pre-releases skipped) and, on a tag it hadn't seen, sends every
+device an `app_update` data push (normal priority, kept 7 days). The phone never asks GitHub for releases and never
+looks on a timer. `AppUpdate` (sharedLogic) decides what is offered (`offer`: a newer version, an https APK, a real
+SHA-256) and whether a push notifies (`notify`: once per version). `AppUpdates` (androidApp):
 
-- **When it looks:** each time the app comes to the screen (`MainActivity.onStart`), at most every 6 hours
-  (`AppUpdate.due`, the last look kept in the app's preferences), and on Settings › App updates › **Check now**.
-  Nothing runs in the background.
-- **Offer:** a home card on Talk and Chats, "Talk 1.2.0 is available", with **Update**; Settings › App updates says
-  where it stands (up to date and when it looked, downloading with a percentage, installing, failed with why).
-- **Update:** with Install unknown apps off for Talk, Android's page for it opens first (then Update again). The APK
-  is downloaded to the cache, its SHA-256 checked against `SHA256SUMS`, and it must be this package, a higher
-  version code, and signed with the same key. Then PackageInstaller installs it, asking Android not to need the
-  user's confirmation (Android 12+, `USER_ACTION_NOT_REQUIRED`); when Android still asks, its confirm screen shows.
-  The app restarts on the new version with its data and enrollment.
-- **Debug builds** don't update (another key): Settings says "This is a test build".
+- **When it looks:** on an `app_update` push (`TalkMessagingService`), each time the app comes to the screen
+  (`MainActivity.onStart`), and on Settings › App updates › **Check now**: the server's `appRelease` query (version,
+  APK address, size, SHA-256, notes), compared with the app's own version.
+- **Offer:** after a push, a notification "Talk 1.3.0 is available", "Tap to update. Android asks you to confirm."
+  (once per version, its own channel, App updates); a home card on Talk and Chats with **Update**; Settings says where
+  it stands (up to date and when it looked, downloading with a percentage, installing, failed with why).
+- **Update** (the card, the notification's tap, or Settings): with Install unknown apps off for Talk, Android's page
+  for it opens first (then Update again). The APK is downloaded to the cache, its SHA-256 checked against the
+  server's, and it must be this package, a higher version code, and signed with the same key. Then PackageInstaller
+  installs it, asking Android not to need the user's confirmation (Android 12+, `USER_ACTION_NOT_REQUIRED`); when
+  Android still asks, its confirm screen shows. The app restarts on the new version with its data and enrollment.
+- **Debug builds** don't update (another key): Settings says "This is a test build", and a push shows nothing.
 
 ## Next
 

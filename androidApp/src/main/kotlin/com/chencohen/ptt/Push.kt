@@ -33,6 +33,7 @@ class TalkApp : Application() {
         setMessageNotifier(this, Notifications(this))
         setTalkHost(this, AndroidTalkHost(this))
         CallNotifications.createChannels(this)
+        AppUpdates.createChannel(this)
         setCallHost(this, AndroidCallHost(this))
     }
 }
@@ -76,6 +77,11 @@ class TalkMessagingService : FirebaseMessagingService() {
         val kind = message.data["kind"] ?: return
         Log.i("Push", "woken: $kind (priority ${message.priority})")
         val app = applicationContext as TalkApp
+        // A new app release on the server's GitHub watch: no queue to take (docs/design.md, "App updates").
+        if (kind == "app_update") {
+            AppUpdates.onPush(app)
+            return
+        }
         // onMessageReceived runs on its own thread, with about 20 seconds before Android may stop the process. A burst
         // that plays starts a media-playback service (or, as a fallback, a Telecom talk session), which keeps the process
         // for it: the wake-up goes on past those seconds then, until its reply time is over.

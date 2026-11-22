@@ -496,12 +496,13 @@
     <string name="update_permission">לאפשר ל־Talk להתקין עדכונים</string>
     <string name="update_permission_body">להפעיל את „התרה מהמקור הזה” עבור Talk, לחזור לכאן ולהקיש.</string>
     <string name="update_failed">העדכון נכשל: %1$s</string>
-    <string name="update_failed_check">אין חיבור ל־GitHub</string>
-    <string name="update_failed_sums">אין בגרסה בדיקת תקינות לקובץ ההתקנה</string>
+    <string name="update_failed_check">אין חיבור לשרת</string>
     <string name="update_failed_checksum">הקובץ שהורד לא תואם לבדיקת התקינות</string>
     <string name="update_failed_signature">הקובץ אינו גרסה חדשה של Talk חתומה באותו מפתח</string>
     <string name="update_failed_install">אנדרואיד לא התקין אותו</string>
     <string name="update_debug">זו גרסת בדיקה</string>
     <string name="update_debug_body">גרסאות בדיקה לא מתעדכנות לבד. גרסת ההפצה כן.</string>
     <string name="update_check_now">לבדוק עכשיו</string>
+    <string name="update_channel">עדכוני האפליקציה</string>
+    <string name="update_notification_body">הקשה לעדכון. אנדרואיד יבקש אישור.</string>
 </resources>

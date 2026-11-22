@@ -1,0 +1,4 @@
+# The latest app release, read by the server from GitHub (docs/design.md, "App updates").
+query AppRelease {
+  appRelease { tag version apkUrl size sha256 notes publishedAt }
+}

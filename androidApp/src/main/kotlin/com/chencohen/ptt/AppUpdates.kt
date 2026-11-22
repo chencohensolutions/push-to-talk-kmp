@@ -1,5 +1,7 @@
 package com.chencohen.ptt
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -12,6 +14,8 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.chencohen.ptt.update.AppRelease
 import com.chencohen.ptt.update.AppUpdate
 import kotlinx.coroutines.Dispatchers
@@ -41,17 +45,22 @@ sealed interface UpdateState {
 }
 
 /**
- * App updates from GitHub releases (docs/design.md, "App updates"). The app looks when it comes to the screen, at most
- * every 6 hours (AppUpdate.due), and on Check now; nothing runs in the background. Update downloads the release's
- * APK, checks it against SHA256SUMS, that it is this app, newer, and signed with the same key, then installs it
- * with PackageInstaller: Android asks the user (once for Install unknown apps, and to confirm the update unless it
- * lets the app update itself without asking, Android 12+).
+ * App updates (docs/design.md, "App updates"). The server watches the GitHub releases and pushes `app_update` when a
+ * new one is out; the phone reads the server's `appRelease` then (a notification, "Talk 1.3.0 is available. Tap to
+ * update."), each time the app comes to the screen (the card), and on Check now. It never asks GitHub for releases
+ * itself and never looks on a timer. Update downloads the APK, checks its SHA-256, that it is this app, newer, and
+ * signed with the same key, then installs it with PackageInstaller: Android asks the user (once for Install unknown
+ * apps, and to confirm the update unless it lets the app update itself without asking, Android 12+).
  */
 object AppUpdates {
     private const val TAG = "AppUpdates"
     private const val PREFS = "app_updates"
     private const val KEY_LAST_CHECK = "last_check"
+    private const val KEY_NOTIFIED = "notified_version"
     private const val ACTION_INSTALLED = "com.chencohen.ptt.UPDATE_INSTALLED"
+    const val ACTION_UPDATE = "com.chencohen.ptt.UPDATE"
+    private const val CHANNEL = "app_updates"
+    private const val NOTIFICATION_ID = 51
 
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Latest(0))
     val state: StateFlow<UpdateState> = _state.asStateFlow()
@@ -60,7 +69,7 @@ object AppUpdates {
 
     private fun debuggable(context: Context) = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
-    /** When the app comes to the screen: looks if it is time. */
+    /** When the app comes to the screen: what the server has (no request to GitHub, no timer). */
     fun checkIfDue(app: TalkApp) {
         if (debuggable(app)) {
             _state.value = UpdateState.DebugBuild
@@ -68,35 +77,80 @@ object AppUpdates {
         }
         val last = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_LAST_CHECK, 0)
         if (_state.value is UpdateState.Latest) _state.value = UpdateState.Latest(last)
-        if (busy() || !AppUpdate.due(last, System.currentTimeMillis())) return
         check(app)
     }
 
-    /** Check now (Settings), or when due. */
-    fun check(app: TalkApp) {
+    /** Check now (Settings), and when the app comes to the screen: the server's appRelease. */
+    fun check(app: TalkApp, then: (AppRelease?) -> Unit = {}) {
         if (debuggable(app)) {
             _state.value = UpdateState.DebugBuild
             return
         }
         if (busy()) return
+        val before = _state.value
         _state.value = UpdateState.Checking
         app.scope.launch {
-            _state.value = try {
-                val body = withContext(Dispatchers.IO) { get(AppUpdate.LATEST_URL).decodeToString() }
+            val offer = try {
+                val release = appRelease(app)
                 val now = System.currentTimeMillis()
                 app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putLong(KEY_LAST_CHECK, now).apply()
-                val release = AppUpdate.parseLatest(body)
-                if (release != null && AppUpdate.isNewer(release.version, currentVersion(app))) {
-                    Log.i(TAG, "update available: ${release.version}")
-                    UpdateState.Available(release)
-                } else {
-                    UpdateState.Latest(now)
+                AppUpdate.offer(release, currentVersion(app)).also {
+                    _state.value = if (it != null) UpdateState.Available(it) else UpdateState.Latest(now)
+                    if (it != null) Log.i(TAG, "update available: ${it.version}")
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "checking for an update", e)
-                UpdateState.Failed(app.getString(R.string.update_failed_check), null)
+                Log.w(TAG, "asking the server for the app release", e)
+                _state.value = if (before is UpdateState.Available) before else UpdateState.Failed(app.getString(R.string.update_failed_check), null)
+                null
+            }
+            then(offer)
+        }
+    }
+
+    /** An `app_update` push: read the server's release and, once per version, show the notification. */
+    fun onPush(app: TalkApp) {
+        if (debuggable(app)) {
+            Log.i(TAG, "app_update push: a debug build doesn't update itself")
+            return
+        }
+        check(app) { offer ->
+            val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (AppUpdate.notify(offer, prefs.getString(KEY_NOTIFIED, null)) && offer != null) {
+                notify(app, offer)
+                prefs.edit().putString(KEY_NOTIFIED, offer.version).apply()
             }
         }
+    }
+
+    /** The notification's tap (MainActivity): update to what is offered, or look again first. */
+    fun updateFromNotification(app: TalkApp) {
+        NotificationManagerCompat.from(app).cancel(NOTIFICATION_ID)
+        val offered = (_state.value as? UpdateState.Available)?.release
+        if (offered != null) update(app, offered) else check(app) { offer -> if (offer != null) update(app, offer) }
+    }
+
+    fun createChannel(context: Context) {
+        val channel = NotificationChannel(CHANNEL, context.getString(R.string.update_channel), NotificationManager.IMPORTANCE_DEFAULT)
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    }
+
+    private fun notify(app: TalkApp, release: AppRelease) {
+        val open = PendingIntent.getActivity(
+            app, NOTIFICATION_ID, Intent(app, MainActivity::class.java).setAction(ACTION_UPDATE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(app, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(app.getString(R.string.update_available, release.version))
+            .setContentText(app.getString(R.string.update_notification_body))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        if (app.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            Log.i(TAG, "notifications are off: the update shows as a card")
+            return
+        }
+        NotificationManagerCompat.from(app).notify(NOTIFICATION_ID, notification)
     }
 
     /** Update: download, verify and install [release]. */
@@ -125,15 +179,14 @@ object AppUpdates {
     private fun busy() = _state.value.let { it is UpdateState.Checking || it is UpdateState.Downloading || it is UpdateState.Installing }
 
     private fun download(app: TalkApp, release: AppRelease): File {
-        val sums = get(release.sumsUrl).decodeToString()
-        val expected = AppUpdate.sha256For(sums, release.apkName) ?: error(app.getString(R.string.update_failed_sums))
+        val expected = release.sha256
         val dir = File(app.cacheDir, "updates").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
         val file = File(dir, release.apkName)
         val digest = MessageDigest.getInstance("SHA-256")
         val connection = open(release.apkUrl)
         try {
-            val total = connection.contentLengthLong.takeIf { it > 0 } ?: release.apkSize
+            val total = connection.contentLengthLong.takeIf { it > 0 } ?: release.size
             connection.inputStream.use { input ->
                 file.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
@@ -223,20 +276,11 @@ object AppUpdates {
         connectTimeout = 15_000
         readTimeout = 30_000
         instanceFollowRedirects = true
-        setRequestProperty("Accept", "application/vnd.github+json, application/octet-stream")
+        setRequestProperty("Accept", "application/octet-stream")
         setRequestProperty("User-Agent", "Talk-Android")
         if (responseCode !in 200..299) {
             disconnect()
             error("HTTP $responseCode")
-        }
-    }
-
-    private fun get(url: String): ByteArray {
-        val connection = open(url)
-        return try {
-            connection.inputStream.use { it.readBytes() }
-        } finally {
-            connection.disconnect()
         }
     }
 }
