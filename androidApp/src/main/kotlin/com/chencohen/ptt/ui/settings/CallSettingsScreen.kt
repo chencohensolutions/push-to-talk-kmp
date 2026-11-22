@@ -18,19 +18,6 @@ import com.chencohen.ptt.ui.talk.ChoiceRow
 @Composable
 internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change: (TalkSettings) -> Unit) {
     SettingsScaffold(stringResource(R.string.settings_calls_title), back) {
-        SectionTitle(stringResource(R.string.calls_save_title))
-        SettingsCard {
-            val modes = listOf(
-                SaveCalls.OFF to (R.string.calls_save_off to R.string.calls_save_off_body),
-                SaveCalls.ASK to (R.string.calls_save_ask to R.string.calls_save_ask_body),
-                SaveCalls.ALWAYS to (R.string.calls_save_always to R.string.calls_save_always_body),
-            )
-            modes.forEachIndexed { i, (mode, words) ->
-                if (i > 0) RowDivider()
-                ChoiceRow(stringResource(words.first), stringResource(words.second), settings.saveCalls == mode) { change(settings.copy(saveCalls = mode)) }
-            }
-        }
-        PageNote(stringResource(R.string.calls_save_note))
         // How an incoming call rings: Talk's soft chime (the default) or the phone's ringtone (2026-11-22, hen).
         SectionTitle(stringResource(R.string.calls_ring_title))
         SettingsCard {
@@ -66,6 +53,20 @@ internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change
                 settings.video60 && can60,
             ) { on -> if (can60) change(settings.copy(video60 = on)) }
         }
+        // Saving calls: whether, and where the files go.
+        SectionTitle(stringResource(R.string.calls_save_title))
+        SettingsCard {
+            val modes = listOf(
+                SaveCalls.OFF to (R.string.calls_save_off to R.string.calls_save_off_body),
+                SaveCalls.ASK to (R.string.calls_save_ask to R.string.calls_save_ask_body),
+                SaveCalls.ALWAYS to (R.string.calls_save_always to R.string.calls_save_always_body),
+            )
+            modes.forEachIndexed { i, (mode, words) ->
+                if (i > 0) RowDivider()
+                ChoiceRow(stringResource(words.first), stringResource(words.second), settings.saveCalls == mode) { change(settings.copy(saveCalls = mode)) }
+            }
+        }
+        PageNote(stringResource(R.string.calls_save_note))
         // Where Save as file puts a kept call: a folder picked with Android's picker (SD card and USB drives too).
         SectionTitle(stringResource(R.string.calls_folder_title))
         val context = androidx.compose.ui.platform.LocalContext.current

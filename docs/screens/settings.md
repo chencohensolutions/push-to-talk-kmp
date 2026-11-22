@@ -30,6 +30,8 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
   `res/raw/message_soft.ogg`, made by `tools/ringtone/make_message.py`, on the `messages_soft` channel) or **Phone's
   sound** (the first `messages` channel, "Messages (phone's sound)"). Each is its own channel because a channel's sound
   can't change once made; Android's own settings for each still apply.
+- **Call settings** ("Ringtone, video quality, saving calls"; 2026-11-22, hen: not only recording): one screen, in
+  this order: Ringtone, Video, Advanced, Saving calls (Off, Ask, Always, with the note on who keeps it), Save calls to.
 - **Calls › Ringtone** (2026-11-22, hen): **Talk soft chime** (the default: a rising pentatonic chime in a 4-second
   loop, `res/raw/ring_soft.ogg`, made by `tools/ringtone/make_ring.py`) or **Phone's ringtone**. `CallRinger` loops it
   on the ringer's stream until the call is answered, declined or 45 seconds pass; silent in Do Not Disturb and silent

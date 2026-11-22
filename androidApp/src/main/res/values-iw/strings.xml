@@ -94,7 +94,8 @@
     <string name="calls_empty">אין עדיין שיחות. שיחות יוצאות ונכנסות יופיעו כאן.</string>
     <!-- Phase 6: calls. -->
     <string name="settings_calls_title">שיחות</string>
-    <string name="settings_calls_body">שמירת שיחות בטלפון הזה</string>
+    <string name="settings_calls_row">הגדרות שיחות</string>
+    <string name="settings_calls_body">צלצול, איכות וידאו, שמירת שיחות</string>
     <string name="calls_save_title">שמירת שיחות</string>
     <string name="calls_save_off">כבוי</string>
     <string name="calls_save_off_body">שיחות לא נשמרות</string>

@@ -165,7 +165,7 @@ internal fun SettingsScreen(
         }
         SectionTitle(stringResource(R.string.settings_calls_title))
         SettingsCard {
-            InfoRow(stringResource(R.string.calls_save_title), stringResource(R.string.settings_calls_body), onClick = openCalls)
+            InfoRow(stringResource(R.string.settings_calls_row), stringResource(R.string.settings_calls_body), onClick = openCalls)
         }
         UpdatesSection(updates, checkUpdates, update, automaticUpdates, setAutomaticUpdates)
         ServerSection(state)

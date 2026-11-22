@@ -95,8 +95,9 @@
     <string name="calls_empty">No calls yet. Calls you make and get show here.</string>
     <!-- Phase 6: calls. -->
     <string name="settings_calls_title">Calls</string>
-    <string name="settings_calls_body">Save calls on this phone</string>
-    <string name="calls_save_title">Save calls</string>
+    <string name="settings_calls_row">Call settings</string>
+    <string name="settings_calls_body">Ringtone, video quality, saving calls</string>
+    <string name="calls_save_title">Saving calls</string>
     <string name="calls_save_off">Off</string>
     <string name="calls_save_off_body">Calls aren\'t saved</string>
     <string name="calls_save_ask">Ask each time</string>
