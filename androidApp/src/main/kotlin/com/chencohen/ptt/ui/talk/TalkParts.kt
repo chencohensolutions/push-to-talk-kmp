@@ -295,17 +295,6 @@ internal fun TalkModeScreen(
             }
             Text(title, color = LibraryColors.OnBackground, style = LibraryType.PageTitle, modifier = Modifier.weight(1f))
         }
-        val line = talkLine(chat, talk, nameOf, me)
-        if (line.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                line,
-                color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
-                style = LibraryType.RowTitle,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 24.dp),
-            )
-        }
         val playing = talk.playing?.takeIf { it.chat == chat && it.live }
         if (playing != null && isDebugBuild()) {
             Text(stringResource(R.string.talk_debug_behind, playing.behindMs), color = LibraryColors.Muted, style = LibraryType.Tiny)
@@ -321,6 +310,19 @@ internal fun TalkModeScreen(
         val video = talk.playing?.takeIf { it.chat == chat && it.video } != null
         TalkStage(
             video, pushVideo,
+            header = {
+            val line = talkLine(chat, talk, nameOf, me)
+            if (line.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    line,
+                    color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
+                    style = LibraryType.RowTitle,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                )
+            }
+            },
             circle = { size -> TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release, diameter = size) },
             actions = { TalkChatActions(openChat, call, pushVideo = pushVideo, setPushVideo = setPushVideo) },
         )

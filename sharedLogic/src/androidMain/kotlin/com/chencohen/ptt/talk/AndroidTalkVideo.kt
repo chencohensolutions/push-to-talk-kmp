@@ -63,7 +63,11 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
     override fun warm() {
         synchronized(lock) {
             warmWanted = true
-            if (thread != null) return
+            if (thread != null) {
+                // Still running, but the camera was lost (taken while away): open it again.
+                handler?.post { if (camera == null && warmWanted) open() }
+                return
+            }
             if (app.checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
             thread = HandlerThread("talk-video").also { it.start() }
             handler = Handler(thread!!.looper)
@@ -94,12 +98,13 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
 
     @SuppressLint("MissingPermission")
     private fun open() {
+        if (camera != null) return
         val manager = app.getSystemService(CameraManager::class.java)
         val id = manager.cameraIdList.firstOrNull { manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT }
             ?: manager.cameraIdList.firstOrNull() ?: return
         sensor = manager.getCameraCharacteristics(id).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 270
         try {
-            startEncoder()
+            if (encoder == null) startEncoder()
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
                     if (!warmWanted) {

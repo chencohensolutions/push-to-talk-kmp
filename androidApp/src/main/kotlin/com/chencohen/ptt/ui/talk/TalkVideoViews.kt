@@ -74,9 +74,10 @@ internal fun PushVideoSwitch(on: Boolean, set: (Boolean) -> Unit, modifier: Modi
 /** While shown with push-to-video on, the camera stays open for [chat] (a press sends at once); closed after. */
 @Composable
 internal fun WarmCamera(chat: String, on: Boolean, warm: (String?) -> Unit) {
-    DisposableEffect(chat, on) {
+    // Only while the app is in front: going to the background lets the camera go, coming back opens it again.
+    androidx.lifecycle.compose.LifecycleStartEffect(chat, on) {
         warm(if (on) chat else null)
-        onDispose { warm(null) }
+        onStopOrDispose { warm(null) }
     }
 }
 
@@ -86,7 +87,7 @@ internal fun WarmCamera(chat: String, on: Boolean, warm: (String?) -> Unit) {
  * turn is undone here. What is sent keeps its frames as captured, with their rotation alongside.
  */
 @Composable
-internal fun PushVideoPreview(modifier: Modifier = Modifier) {
+internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
     val capture = com.chencohen.ptt.talkVideoCapture ?: return
     val display = androidx.compose.ui.platform.LocalView.current.display?.rotation ?: 0
     val screenTurn = display * 90
@@ -96,7 +97,10 @@ internal fun PushVideoPreview(modifier: Modifier = Modifier) {
     } else {
         com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT
     }
-    FittedBox(shape, modifier) { w, h ->
+    FittedBox(shape, modifier, alignment) { w, h ->
+        // The camera draws its preview upright for the phone held upright; on its side the view is laid out upright
+        // (its sides swapped) and turned back by the screen's turn, so it fills the box with no bars or stretch.
+        val sideways = screenTurn % 180 != 0
         AndroidView(
             factory = { context ->
                 TextureView(context).apply {
@@ -119,15 +123,15 @@ internal fun PushVideoPreview(modifier: Modifier = Modifier) {
                 }
             },
             // The camera mirrors a front camera's preview itself (like a mirror).
-            modifier = Modifier.requiredSize(w, h).graphicsLayer { rotationZ = -screenTurn.toFloat() },
+            modifier = Modifier.requiredSize(if (sideways) h else w, if (sideways) w else h).graphicsLayer { rotationZ = -screenTurn.toFloat() },
         )
     }
 }
 
 /** A rounded box of [shape] (width for 1 high), as big as fits, centred in the space given; [content] gets its size. */
 @Composable
-internal fun FittedBox(shape: Float, modifier: Modifier = Modifier, content: @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit) {
-    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+internal fun FittedBox(shape: Float, modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, content: @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit) {
+    BoxWithConstraints(modifier, contentAlignment = alignment) {
         val density = LocalDensity.current
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
@@ -145,10 +149,10 @@ internal fun FittedBox(shape: Float, modifier: Modifier = Modifier, content: @Co
  * is on, else nothing.
  */
 @Composable
-internal fun TalkVideoBox(playingVideo: Boolean, pushVideo: Boolean, modifier: Modifier = Modifier) {
+internal fun TalkVideoBox(playingVideo: Boolean, pushVideo: Boolean, modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
     when {
-        playingVideo -> TalkVideoView(modifier)
-        pushVideo -> PushVideoPreview(modifier)
+        playingVideo -> TalkVideoView(modifier, alignment)
+        pushVideo -> PushVideoPreview(modifier, alignment)
         else -> Box(modifier)
     }
 }
@@ -158,14 +162,14 @@ internal fun TalkVideoBox(playingVideo: Boolean, pushVideo: Boolean, modifier: M
  * AndroidTalkVideoOut in step with the voice.
  */
 @Composable
-internal fun TalkVideoView(modifier: Modifier = Modifier) {
+internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
     val shown by AndroidTalkVideoOut.shown.collectAsStateWithLifecycle()
     val s = shown
     val rotation = s?.rotation ?: 0
     val frameAspect = if (s != null && s.width > 0 && s.height > 0) s.width.toFloat() / s.height else 4f / 3f
     val turned = rotation % 180 != 0
     // The box is the picture's upright shape: no bars.
-    FittedBox(if (turned) 1f / frameAspect else frameAspect, modifier) { w, h ->
+    FittedBox(if (turned) 1f / frameAspect else frameAspect, modifier, alignment) { w, h ->
         AndroidView(
             factory = { context ->
                 TextureView(context).apply {
@@ -202,9 +206,12 @@ internal fun androidx.compose.foundation.layout.ColumnScope.TalkStage(
     pushVideo: Boolean,
     circle: @Composable (androidx.compose.ui.unit.Dp) -> Unit,
     actions: @Composable () -> Unit,
+    /** The chat's name (and what the floor is doing): on top upright, with the button on its side. */
+    header: @Composable () -> Unit = {},
 ) {
     val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     if (!landscape) {
+        header()
         TalkVideoBox(playingVideo, pushVideo, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp))
         circle(220.dp)
         androidx.compose.foundation.layout.Spacer(Modifier.size(16.dp))
@@ -219,15 +226,21 @@ internal fun androidx.compose.foundation.layout.ColumnScope.TalkStage(
         androidx.compose.foundation.layout.Row(Modifier.weight(1f).fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             @Composable
             fun androidx.compose.foundation.layout.RowScope.video() =
-                TalkVideoBox(playingVideo, pushVideo, Modifier.weight(1f).fillMaxSize().padding(8.dp))
+                // Against the middle of the screen, beside the controls: no gap between them.
+                TalkVideoBox(
+                    playingVideo, pushVideo, Modifier.weight(1f).fillMaxSize().padding(vertical = 8.dp, horizontal = 4.dp),
+                    alignment = if (cameraLeft) Alignment.CenterEnd else Alignment.CenterStart,
+                )
 
             @Composable
             fun androidx.compose.foundation.layout.RowScope.controls() =
                 BoxWithConstraints(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
-                    // The round button as big as fits above its round buttons (52 dp and a gap), at most 220 dp.
-                    val size = minOf(220.dp, maxHeight - 76.dp, maxWidth * 0.8f).coerceAtLeast(96.dp)
+                    // The round button as big as fits under the name and above its round buttons, at most 220 dp.
+                    val size = minOf(220.dp, maxHeight - 76.dp - 72.dp, maxWidth * 0.8f).coerceAtLeast(88.dp)
                     androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides direction) {
+                            header()
+                            androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
                             circle(size)
                             androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
                             actions()
