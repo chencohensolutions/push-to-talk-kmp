@@ -421,10 +421,12 @@ internal class Calls(
         val call = current ?: return
         timer?.cancel()
         if (tell) scope.launch { send(call.chat, CallContent(CallContent.HANG_UP, call.id), PushKind.NONE) }
+        // The saved file first: leaving stops the recorder too, and its name would be lost. Only this phone's own
+        // recorder: when the server keeps the call there is none here.
+        if (call.saving && savingHere) transport?.stopRecording()?.let { savedAs = it }
         if (joined) runCatching { transport?.leave() }
         joined = false
         key = null
-        if (call.saving && savingHere) transport?.stopRecording()?.let { savedAs = it }
         savingHere = false
         val ended = call.copy(phase = CallPhase.ENDED, outcome = outcome, saving = false, askToSave = false)
         _state.value = ended
@@ -462,6 +464,8 @@ internal class Calls(
                     val mode = saveCalls()
                     _state.value = call.copy(
                         phase = CallPhase.ACTIVE, others = users, serverKeeps = serverKeepsCalls(),
+                        // Whoever left isn't saving it any more (they can't say so once gone).
+                        recordingBy = call.recordingBy.filter { it in users || it == me() }.toSet(),
                         connectedAt = call.connectedAt.takeIf { it > 0 } ?: now(),
                         askToSave = call.askToSave || (first && mode == SaveCalls.ASK),
                     )

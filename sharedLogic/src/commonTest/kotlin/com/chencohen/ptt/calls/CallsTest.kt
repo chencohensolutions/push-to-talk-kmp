@@ -29,7 +29,8 @@ class CallsTest {
             joins += key to video
             return true
         }
-        override fun leave() { leaves++ }
+        // As LiveKitCallTransport: leaving stops saving, and what was saved is dropped unless asked for first.
+        override fun leave() { leaves++; recording = false }
         override suspend fun setMicrophone(on: Boolean) { microphone = on }
         override suspend fun setCamera(on: Boolean) {}
         override fun switchCamera() {}
@@ -367,5 +368,20 @@ class CallsTest {
         s.calls.receive("sharon", "sharon", CallContent(CallContent.VIEW, s.calls.state.value!!.id, fill = true, aspect = 2f, of = "hen"), s.at(), ownCopy = false)
         runCurrent()
         assertEquals(CallView(true, 2f), s.calls.state.value!!.viewers["sharon"])
+    }
+
+    @Test
+    fun whoLeftAGroupCallIsNoLongerShownSaving() = runTest {
+        val s = Setup(this)
+        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
+        s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1", "dana.1"))
+        runCurrent()
+        s.calls.receive("sharon", "dana", CallContent(CallContent.RECORDING, "a".repeat(32), recording = true), s.at(), ownCopy = false)
+        assertEquals(setOf("dana"), s.calls.state.value!!.recordingBy)
+        s.transport.listener!!.others(listOf("sharon.1"))
+        runCurrent()
+        assertEquals(emptySet(), s.calls.state.value!!.recordingBy)
     }
 }

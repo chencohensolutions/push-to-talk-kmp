@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
@@ -155,7 +156,7 @@ internal fun ConversationScreen(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions, talk.playing, showAuthor = group != null) }
+                items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null) }
             }
             if (unseen) {
                 Text(
@@ -265,7 +266,7 @@ private fun lastSeen(at: Long): String {
 }
 
 @Composable
-private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, showAuthor: Boolean = false) {
+private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false) {
     val retry = actions.retry
     val mine = message.outgoing
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
@@ -282,7 +283,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             if (message.call != null) {
                 com.chencohen.ptt.ui.calls.CallEntryContent(message, onInverse = mine, share = actions.shareCall, playKept = actions.playKept) { actions.call(message.call!!.video) }
             } else if (message.clip != null) {
-                ClipContent(message, playing, actions.playClip, actions.stopClip, onInverse = mine)
+                ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine)
             } else {
                 Text(message.body, color = if (mine) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)
             }

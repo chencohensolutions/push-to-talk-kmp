@@ -499,7 +499,20 @@ internal class Talk(
                 scope.launch { consider(burst) }
             }
             TalkEvent.ENDED -> {
+                val talker = _state.value.talkers[chat]?.takeIf { it.clip == s.burstId }
                 _state.update { state -> state.copy(talkers = state.talkers.filterValues { it.clip != s.burstId }) }
+                // Heard live (LiveKit): heard, and, with no clip stream counted, as long as the floor was held.
+                if (talker != null) {
+                    store.message(s.burstId)?.let { m ->
+                        val c = m.clip
+                        val heardLive = bursts[s.burstId]?.heardLive == true
+                        if (c != null && (c.durationMs <= 0 || heardLive && !c.heard)) {
+                            val length = c.durationMs.takeIf { it > 0 } ?: (now() - talker.since).coerceAtLeast(TalkAudioFormat.FRAME_MS.toLong())
+                            store.putMessage(m.copy(read = m.read || heardLive, clip = c.copy(durationMs = length, heard = c.heard || heardLive)))
+                            publish()
+                        }
+                    }
+                }
                 if (out != null && s.endReason != TalkEndReason.RELEASED) {
                     // The server ended it (60 s, or the connection dropped): what is recorded until now is the clip.
                     if (s.endReason == TalkEndReason.DROPPED) toVoice(out) else release()
@@ -711,7 +724,7 @@ internal class Talk(
         burst.fetch?.cancel()
         clips.write(burst.id, concat(segments.map { ClipRecords.record(it.index, it.last, it.ciphertext) }))
         store.message(burst.id)?.let { m ->
-            store.putMessage(m.copy(clip = m.clip?.copy(durationMs = burst.frames.toLong() * TalkAudioFormat.FRAME_MS, kept = true), read = m.read || burst.play))
+            store.putMessage(m.copy(clip = m.clip?.let { c -> c.copy(durationMs = burst.frames.toLong() * TalkAudioFormat.FRAME_MS, kept = true, heard = c.heard || burst.heardLive) }, read = m.read || burst.play || burst.heardLive))
         }
         publish()
     }

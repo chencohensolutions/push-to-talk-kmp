@@ -379,7 +379,7 @@ private fun ClipRow(message: TextMessage, who: String, playing: NowPlaying?, pla
 
 /** A clip inside a chat bubble: Play or Pause, a bar while it plays, its length, and "Talk" for a burst. */
 @Composable
-internal fun ClipContent(message: TextMessage, playing: NowPlaying?, play: (String) -> Unit, stop: () -> Unit, onInverse: Boolean) {
+internal fun ClipContent(message: TextMessage, playing: NowPlaying?, live: Boolean, play: (String) -> Unit, stop: () -> Unit, onInverse: Boolean) {
     val clip = message.clip ?: return
     val now = playing?.clip == message.id
     val ink = if (onInverse) LibraryColors.OnInverse else LibraryColors.OnBackground
@@ -402,14 +402,15 @@ internal fun ClipContent(message: TextMessage, playing: NowPlaying?, play: (Stri
                     Icon(LibraryIcons.Talk, null, tint = muted, modifier = Modifier.size(12.dp))
                     Text(stringResource(R.string.clip_burst), color = muted, style = LibraryType.Tiny, modifier = Modifier.padding(start = 3.dp, end = 6.dp))
                 }
-                Text(
-                    when {
-                        now -> clipLength(playing!!.playedMs)
-                        total != null -> clipLength(total)
-                        else -> stringResource(R.string.clip_live)
-                    },
-                    color = muted, style = LibraryType.Tiny,
-                )
+                // "Live" only while it is being said; a burst whose length this phone doesn't know yet (not played,
+                // not whole here) shows none.
+                val length = when {
+                    now -> clipLength(playing!!.playedMs)
+                    total != null -> clipLength(total)
+                    live -> stringResource(R.string.clip_live)
+                    else -> null
+                }
+                if (length != null) Text(length, color = muted, style = LibraryType.Tiny)
                 if (!message.outgoing && !clip.heard && !now) {
                     Box(Modifier.padding(start = 6.dp).size(6.dp).background(LibraryColors.Accent, CircleShape))
                 }
