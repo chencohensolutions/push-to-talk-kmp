@@ -18,7 +18,10 @@ header, or by a talk notification's **Reply**. A full-screen walkie-talkie:
   the phone is in the conversation's live room (phase 5b), "Live: in the room" or "Live: heard 230 ms after the press".
 - The **hold-to-talk circle**: ink, 220 dp, with a microphone and "Hold to talk"; a teal ring while live, a faded
   teal ring and a muted circle while someone else talks. Recording starts on the press (before the floor is
-  granted: the plan's catch-up) and stops on release. While it is held the microphone works like a speakerphone's
+  granted: the plan's catch-up) and stops on release. While a Talk screen (Talk mode, or a page of the Talk tab) is on
+  screen, the microphone is already open (`TalkCapture.warm`; Android shows its microphone indicator): nothing is
+  sent, only the last 300 ms are kept, and a press sends those first, so it transmits at once without cutting the
+  first syllable. It closes when the screen leaves, turns off or the app goes to the background. While it is held the microphone works like a speakerphone's
   (it hears a voice at arm's length), unless a headset is connected.
 - **Last talk**: the last ten bursts and voice messages of the conversation, newest first: Play (or Pause while it
   plays), who ("You" for ours), length and time.

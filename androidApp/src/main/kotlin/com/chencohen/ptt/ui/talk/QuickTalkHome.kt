@@ -63,6 +63,8 @@ internal fun QuickTalkHome(
     pageShown: (String) -> Unit,
     micDenied: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The microphone kept open while the Talk tab shows a page (MessagingController.warmMicrophone). */
+    warmMicrophone: (Boolean) -> Unit = {},
 ) {
     if (pages.isEmpty()) {
         Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
@@ -70,6 +72,7 @@ internal fun QuickTalkHome(
         }
         return
     }
+    WarmMicrophone(warmMicrophone)
     val microphone = rememberMicrophone(micDenied)
     val pager = rememberPagerState(initialPage = startPage.coerceIn(0, pages.size - 1)) { pages.size }
     // Talking keeps the page: a swipe while the button is held would leave the floor in another chat.

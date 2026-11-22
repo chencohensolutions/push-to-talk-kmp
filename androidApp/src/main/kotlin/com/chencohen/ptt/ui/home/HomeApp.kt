@@ -135,6 +135,7 @@ class HomeActions(
     /** The Talk tab's page now on screen, remembered for next time. */
     val quickTalkShown: (String) -> Unit = {},
     val micDenied: () -> Unit = {},
+    val warmMicrophone: (Boolean) -> Unit = {},
     /** The home card's Update (docs/design.md, "App updates"). */
     val update: (com.chencohen.ptt.update.AppRelease) -> Unit = {},
 )
@@ -252,6 +253,7 @@ fun HomeApp(
                             if (talk.quickTalkPage != chat) messaging.setTalkSettings(talk.copy(quickTalkPage = chat))
                         },
                         micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
+                        warmMicrophone = messaging::warmMicrophone,
                         update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
                     ),
                 )
@@ -557,6 +559,7 @@ fun HomeApp(
                         play = { id -> if (messagingState.talk.playing?.clip == id) messaging.stopPlaying() else messaging.playClip(id) },
                         close = ::pop,
                         micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
+                        warmMicrophone = messaging::warmMicrophone,
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -695,6 +698,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 pageShown = actions.quickTalkShown,
                 micDenied = actions.micDenied,
                 modifier = Modifier.weight(1f),
+                warmMicrophone = actions.warmMicrophone,
             )
             }
         } else Column(

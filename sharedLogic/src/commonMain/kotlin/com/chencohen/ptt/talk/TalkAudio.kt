@@ -28,6 +28,12 @@ interface TalkCapture {
 
     /** Closes the microphone; the packets of what was recorded until now are all given to onPacket before it returns. */
     fun stop()
+
+    /** Opens the microphone ahead of a press (a Talk screen is shown), sending nothing; [start] then sends at once. */
+    fun warm() {}
+
+    /** The Talk screen left: the microphone closes (after a burst in progress, if any). */
+    fun cool() {}
 }
 
 /** Plays clips: decodes Opus packets and plays them on the speaker (or the headset), catching up when [Playback.live]. */

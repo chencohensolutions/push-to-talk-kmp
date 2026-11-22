@@ -87,7 +87,11 @@
         <service
             android:name=".TalkReadyService"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+            android:foregroundServiceType="mediaPlayback|microphone" />
+        <!-- Stop, Mute 1 h and Play again on the "Talk playing" notification. -->
+        <receiver
+            android:name=".TalkActionReceiver"
+            android:exported="false" />
         <service
             android:name=".TalkSessionService"
             android:exported="false"

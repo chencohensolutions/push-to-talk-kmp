@@ -367,6 +367,8 @@ what was shown (the server sends HIGH only to phones that registered notificatio
     call the app answers itself, "Talk · Family", run by `TalkSessionService` as a phone-call service), in which the
     burst plays as the call's voice (`TalkAudio.inCallSession`: Android mutes media during a call) on the loudspeaker
     (`requestEndpointChange`), quieter than media. It ends 20 s after the last burst.
+  - The "Talk playing" notification while it plays, Talk back from it, and the 30 s reply window for hardware talk
+    buttons ([notifications.md](screens/notifications.md), "Talk (background)"; `TalkPlaying`, `TalkReply`).
   - logcat `TalkHost` says which path ran; `TalkPlayer` logs the track's usage, route, Android's playback record and
     the volumes. `Messaging.wake` keeps `/ws` until the path's reply time is over (at most 2 minutes). If neither
     plays, the talk notification shows instead.

@@ -232,6 +232,9 @@ class MessagingController internal constructor(
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     fun pressTalk(chat: String) = onWork { messaging.talk.press(chat) }
 
+    /** A Talk screen shown ([on]) or left: the microphone open ahead of a press, or closed. */
+    fun warmMicrophone(on: Boolean) = onWork { messaging.talk.warmMicrophone(on) }
+
     /** The Talk button, or the composer's microphone, came up; [send] false cancels a voice message. */
     fun releaseTalk(send: Boolean) = onWork { messaging.talk.release(send) }
 

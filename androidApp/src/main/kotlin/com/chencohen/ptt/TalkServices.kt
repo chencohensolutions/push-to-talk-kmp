@@ -49,11 +49,17 @@ class AndroidTalkHost(private val app: TalkApp) : TalkHost {
             Log.i(TAG, "burst plays as media: the app is on screen")
             return true
         }
+        if (TalkPlaying.muted(app, chat)) {
+            Log.i(TAG, "muted for now: a notification instead")
+            return false
+        }
         if (TalkReady.play(app)) {
             Log.i(TAG, "woken burst plays as media through Talk ready")
+            TalkPlaying.watch(app)
             return true
         }
         val ok = TalkSession.begin(app, chat, from)
+        if (ok) TalkPlaying.watch(app)
         Log.i(TAG, if (ok) "woken burst plays in a Telecom talk session, on the loudspeaker" else "no talk session: a notification instead")
         return ok
     }
@@ -150,14 +156,24 @@ object TalkReady {
  * silent and the least important, with Stop (until the next app open). Never started at boot: Android would mute it.
  */
 class TalkReadyService : Service() {
+    private var session: MediaSession? = null
+    private var recording: Job? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            TalkReady.done(this)
-            running = false
-            stopSelf()
-            return START_NOT_STICKY
+        val app = application as TalkApp
+        when (intent?.action) {
+            ACTION_STOP -> {
+                TalkReady.done(this)
+                running = false
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_SEND, ACTION_CANCEL -> {
+                endTalkBack(app, intent.action == ACTION_SEND)
+                return START_NOT_STICKY
+            }
         }
         val stop = PendingIntent.getService(this, 0, Intent(this, TalkReadyService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
@@ -171,6 +187,7 @@ class TalkReadyService : Service() {
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
+        ready = notification
         try {
             startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
             running = true
@@ -180,19 +197,110 @@ class TalkReadyService : Service() {
             Log.w(TalkReady.TAG, "can't run in the foreground", e)
             running = false
             stopSelf()
+            return START_NOT_STICKY
         }
+        // A headset's or a Bluetooth talk button, the screen off too: the reply window's sender, or Buttons talk in.
+        if (session == null) session = mediaSession(app)
+        if (intent?.action == ACTION_TALK_BACK) intent.getStringExtra(EXTRA_CHAT)?.let { startTalkBack(app, it) }
         return START_NOT_STICKY
+    }
+
+    private var ready: android.app.Notification? = null
+
+    /**
+     * Talk back from the "Talk playing" notification: a tap, so the microphone may open in the background (while-in-use
+     * from the notification). Talks to [chat] until Send, Cancel, or 60 s (sent).
+     */
+    private fun startTalkBack(app: TalkApp, chat: String) {
+        if (recording?.isActive == true) return
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            startActivity(Intent(this, MainActivity::class.java).setAction(TalkNotifications.ACTION_TALK).putExtra(Notifications.EXTRA_USER, chat).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        }
+        try {
+            startForeground(ID, ready!!, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        } catch (e: Exception) {
+            Log.w(TalkReady.TAG, "no microphone in the background: the Talk screen opens", e)
+            startActivity(Intent(this, MainActivity::class.java).setAction(TalkNotifications.ACTION_TALK).putExtra(Notifications.EXTRA_USER, chat).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        }
+        TalkPlaying.cancel(this)
+        recording = app.scope.launch {
+            val name = runCatching { chatName(app, chat) }.getOrDefault(chat)
+            talkBack(app, chat, down = true)
+            Log.i(TalkReady.TAG, "talking back to $chat")
+            val started = System.currentTimeMillis()
+            while (true) {
+                val s = (System.currentTimeMillis() - started) / 1000
+                recordingNotice(name, s)
+                if (s >= TALK_BACK_MAX_S) break
+                delay(1_000)
+            }
+            endTalkBack(app, send = true)
+        }
+    }
+
+    private fun endTalkBack(app: TalkApp, send: Boolean) {
+        val job = recording ?: return
+        recording = null
+        if (!job.isCompleted) job.cancel()
+        app.scope.launch {
+            talkBack(app, null, down = false, send = send)
+            Log.i(TalkReady.TAG, if (send) "talk back sent" else "talk back cancelled")
+        }
+        NotificationManagerCompat.from(this).cancel(RECORDING_ID)
+        runCatching { startForeground(ID, ready!!, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) }
+    }
+
+    /** "Talking to Dana 0:03" with Send and Cancel. */
+    private fun recordingNotice(name: String, seconds: Long) {
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        fun act(action: String) = PendingIntent.getService(this, action.hashCode(), Intent(this, TalkReadyService::class.java).setAction(action), PendingIntent.FLAG_IMMUTABLE)
+        val n = NotificationCompat.Builder(this, TalkPlaying.CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(getString(R.string.talking_to, name, "%d:%02d".format(seconds / 60, seconds % 60)))
+            .setContentText(getString(R.string.talking_auto_send))
+            .addAction(0, getString(R.string.talking_send), act(ACTION_SEND))
+            .addAction(0, getString(R.string.talking_cancel), act(ACTION_CANCEL))
+            .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        NotificationManagerCompat.from(this).notify(RECORDING_ID, n)
+    }
+
+    private fun mediaSession(app: TalkApp): MediaSession = MediaSession(this, "talk-ready").apply {
+        setCallback(object : MediaSession.Callback() {
+            override fun onMediaButtonEvent(intent: Intent): Boolean {
+                val event = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java) ?: return false
+                if (!HardwareButtons.isTalkKey(event.keyCode) || event.repeatCount > 0) return false
+                app.scope.launch { talkButton(app, event.action == KeyEvent.ACTION_DOWN) }
+                return true
+            }
+        })
+        setPlaybackState(PlaybackState.Builder().setState(PlaybackState.STATE_PAUSED, 0, 1f).setActions(PlaybackState.ACTION_PLAY_PAUSE).build())
+        isActive = true
     }
 
     override fun onDestroy() {
         running = false
+        recording?.cancel()
+        session?.release()
+        session = null
         TalkReady.done(this)
         super.onDestroy()
     }
 
     companion object {
         private const val ID = 44
+        private const val RECORDING_ID = 46
+        private const val TALK_BACK_MAX_S = 60L
         private const val ACTION_STOP = "com.chencohen.ptt.TALK_READY_STOP"
+        const val ACTION_TALK_BACK = "com.chencohen.ptt.TALK_READY_TALK_BACK"
+        private const val ACTION_SEND = "com.chencohen.ptt.TALK_READY_SEND"
+        private const val ACTION_CANCEL = "com.chencohen.ptt.TALK_READY_CANCEL"
+        const val EXTRA_CHAT = "chat"
 
         @Volatile
         var running = false
@@ -480,6 +588,10 @@ object TalkNotifications {
         manager.createNotificationChannel(NotificationChannel(SESSION_CHANNEL, context.getString(R.string.talk_session_channel), NotificationManager.IMPORTANCE_DEFAULT))
         manager.createNotificationChannel(NotificationChannel(STAY_CHANNEL, context.getString(R.string.stay_channel), NotificationManager.IMPORTANCE_LOW))
         manager.createNotificationChannel(NotificationChannel(READY_CHANNEL, context.getString(R.string.ready_channel), NotificationManager.IMPORTANCE_MIN))
+        // The burst is the sound: this channel makes none of its own.
+        manager.createNotificationChannel(
+            NotificationChannel(TalkPlaying.CHANNEL, context.getString(R.string.playing_channel), NotificationManager.IMPORTANCE_HIGH).apply { setSound(null, null) },
+        )
     }
 
     /** "Dana is talking" (in a group, "Dana is talking in Family"), with Play and Reply, which open the app. */

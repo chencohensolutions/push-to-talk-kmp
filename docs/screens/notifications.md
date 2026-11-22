@@ -20,3 +20,22 @@ automatically (the default) the update installs by itself when nothing is going 
 when Android wants the user to confirm (a tap opens Android's screen) or Install unknown apps is off. Otherwise, once
 per version, "Talk 1.3.0 is available", "Tap to update. Android asks you to confirm.", on the App updates channel; a
 tap opens the app and starts the update ([design.md](../design.md), "App updates").
+
+## Talk (background)
+
+Three channels, so each can be tuned or hidden on its own in Android's settings:
+
+- **Talk is ready** (least important, silent, no badge): "Talk is ready", "Talk from others plays out loud. Not
+  connected: no battery used.", **Stop** (until the next app open). It only keeps the service that lets woken bursts
+  play loud; hiding the channel keeps the service working.
+- **Talk playing** (high importance, no sound of its own: the burst is the sound): while a woken burst plays, the
+  sender (and the group), "Talking… 0:04", "Hold your headset button to reply", with **Talk back**, **Stop** (what plays
+  and what waits) and **Mute <name> 1 h** (their bursts show the talk notification instead of playing, for an hour).
+  A tap opens that conversation's Talk screen. When it ends, for a minute: "Talked just now" with **Talk back** and
+  **Play again**.
+- **Talk back** (a tap, needs the phone unlocked): starts talking to that conversation at once (the microphone opens
+  from the notification tap; the floor as usual). The notification becomes "Talking to Dana 0:03", "Sent by itself after
+  a minute", with **Send** and **Cancel**; Send ends the burst; at 60 s it is sent. Without the microphone allowed, the
+  Talk screen opens instead.
+- **Reply window:** for 30 s after a woken burst, a headset's or Bluetooth talk button (held) talks back to its sender
+  instead of Buttons talk in; while Talk is ready runs, those buttons work with the screen off.

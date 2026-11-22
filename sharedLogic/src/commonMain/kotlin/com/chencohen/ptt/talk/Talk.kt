@@ -187,6 +187,12 @@ internal class Talk(
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     fun press(chat: String) = begin(chat, voiceOnly = false)
 
+    /** A Talk screen is on screen ([on]) or left: the microphone is kept open for an instant press, or closed. */
+    fun warmMicrophone(on: Boolean) {
+        val c = capture ?: return
+        if (on) c.warm() else c.cool()
+    }
+
     /** The composer's microphone went down: a voice message, without the floor. */
     fun startVoice(chat: String) = begin(chat, voiceOnly = true)
 
