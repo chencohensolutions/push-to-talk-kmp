@@ -116,6 +116,7 @@ private fun hub(context: Context): Messaging {
         blobApi = com.chencohen.ptt.talk.KtorBlobApi(http),
     ).also {
         it.talk.capture = com.chencohen.ptt.talk.AndroidTalkCapture(com.chencohen.ptt.talk.SpeakerphoneMic(context))
+        com.chencohen.ptt.talk.TalkAudio.appContext = context.applicationContext
         it.talk.player = com.chencohen.ptt.talk.AndroidTalkPlayer()
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)

@@ -112,6 +112,7 @@ class MainActivity : ComponentActivity() {
                         onTalkSettings = { new ->
                             viewModel.messaging.setTalkSettings(new)
                             StayConnectedService.set(this@MainActivity, new.stayConnected)
+                            TalkReadyService.set(this@MainActivity, new.fullVolumeBackground)
                         },
                         openedClip = openedClip,
                     )
@@ -134,6 +135,8 @@ class MainActivity : ComponentActivity() {
             (application as TalkApp).scope.launch { Push.register(this@MainActivity) }
             // Stay connected after a restart: nothing may start at boot, so it resumes when the app is opened.
             if (viewModel.messaging.talkSettings.stayConnected && !StayConnectedService.running) StayConnectedService.set(this, true)
+            // "Talk is ready": started from the screen, so woken bursts may play as media (Android 17).
+            TalkReadyService.set(this, viewModel.messaging.talkSettings.fullVolumeBackground)
         }
     }
 

@@ -9,4 +9,8 @@ package com.chencohen.ptt.talk
 object TalkAudio {
     @Volatile
     var inCallSession: Boolean = false
+
+    /** For the player's diagnostics (debug test of background playback). */
+    @Volatile
+    var appContext: android.content.Context? = null
 }
