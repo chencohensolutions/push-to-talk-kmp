@@ -55,8 +55,8 @@ android {
         applicationId = "com.chencohen.ptt"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionName = findProperty("versionName") as String? ?: "1.4.9"
-        versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 24
+        versionName = findProperty("versionName") as String? ?: "1.4.10"
+        versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 25
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Firebase's settings from google-services.json, as the resources its own plugin would make (google_app_id
         // and the rest), so Firebase starts by itself without the plugin. They are public identifiers, not secrets.
