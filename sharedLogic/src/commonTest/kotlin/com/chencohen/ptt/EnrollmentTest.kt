@@ -420,6 +420,26 @@ class EnrollmentControllerTest {
     }
 
     @Test
+    fun scannedContactCodeSaysToAskForAnInvite() = runTest {
+        val controller = controller()
+        controller.start()
+        controller.openScanned("ptt://pair?v=1&u=hen&k=abc&t=tok&s=sec&f=0123456789abcdef")
+
+        assertEquals(EnrollmentStep.EnterCode(error = EnrollmentError.ContactCode), controller.currentState.step)
+        assertEquals("", controller.currentState.code)
+        assertTrue(requests.isEmpty())
+    }
+
+    @Test
+    fun pastedContactCodeSaysToAskForAnInvite() = runTest {
+        val controller = controller()
+        controller.start()
+
+        assertEquals(PasteResult.LINK, controller.openPasted("Add me: ptt://pair?v=1&u=hen&k=abc&t=tok&s=sec&f=0123456789abcdef"))
+        assertEquals(EnrollmentStep.EnterCode(error = EnrollmentError.ContactCode), controller.currentState.step)
+    }
+
+    @Test
     fun pastedLinkWithWordsAroundItOpensLikeAScan() = runTest {
         val controller = controller()
         controller.start()

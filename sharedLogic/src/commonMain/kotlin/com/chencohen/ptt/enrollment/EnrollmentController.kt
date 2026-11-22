@@ -86,6 +86,12 @@ sealed interface EnrollmentError {
     data object MissingServerAddress : EnrollmentError
     data object MissingCode : EnrollmentError
 
+    /**
+     * Someone's Add contact code (`ptt://pair?…`) was scanned or pasted: it pairs two enrolled phones and carries no
+     * server, so a phone that isn't enrolled can't use it. The screen points to an invite instead.
+     */
+    data object ContactCode : EnrollmentError
+
     /** Wrong, expired or already used code. */
     data object InvalidCode : EnrollmentError
     data object RateLimited : EnrollmentError
@@ -218,12 +224,14 @@ class EnrollmentController internal constructor(
     fun updateServerAddress(address: String) {
         com.chencohen.ptt.messaging.InviteLink.find(address)?.let { return openInvite(it, InviteMessage.passcodeIn(address)) }
         findEnrollmentLink(address)?.let { return openLink(it) }
+        if (isContactCode(address)) return showContactCode()
         _state.update { it.copy(serverAddress = address, step = clearedCodeError(it.step)) }
     }
 
     fun updateCode(code: String) {
         com.chencohen.ptt.messaging.InviteLink.find(code)?.let { return openInvite(it, InviteMessage.passcodeIn(code)) }
         findEnrollmentLink(code)?.let { return openLink(it) }
+        if (isContactCode(code)) return showContactCode()
         _state.update { it.copy(code = cleanCode(code), step = clearedCodeError(it.step)) }
     }
 
@@ -513,7 +521,16 @@ class EnrollmentController internal constructor(
     /** What a QR code scan read: an invite or enrollment link (see [openInvite], [openLink]), or else just the code. */
     fun openScanned(text: String) {
         com.chencohen.ptt.messaging.InviteLink.parse(text)?.let { return openInvite(it) }
-        parseEnrollmentLink(text)?.let(::openLink) ?: updateCode(text)
+        parseEnrollmentLink(text)?.let { return openLink(it) }
+        if (isContactCode(text)) return showContactCode()
+        updateCode(text)
+    }
+
+    /** On the code screen, says that an Add contact code was read ([EnrollmentError.ContactCode]); the fields stay. */
+    private fun showContactCode() {
+        if (_state.value.step is EnrollmentStep.Registering) return
+        job?.cancel()
+        _state.update { it.copy(step = EnrollmentStep.EnterCode(error = EnrollmentError.ContactCode)) }
     }
 
     /**
@@ -529,6 +546,10 @@ class EnrollmentController internal constructor(
         }
         findEnrollmentLink(text)?.let {
             openLink(it)
+            return PasteResult.LINK
+        }
+        if (isContactCode(text)) {
+            showContactCode()
             return PasteResult.LINK
         }
         if (_state.value.step !is EnrollmentStep.EnterCode) return PasteResult.NOTHING
@@ -705,6 +726,9 @@ enum class PasteResult { LINK, CODE, NOTHING }
 
 /** The scheme of enrollment links, `ptt://enroll?…` (the app opens them, AndroidManifest.xml). */
 const val LINK_SCHEME = "ptt"
+
+/** Whether [text] holds an Add contact code (`ptt://pair?…`), which only an enrolled phone can use. */
+internal fun isContactCode(text: String): Boolean = text.contains("${LINK_SCHEME}://${com.chencohen.ptt.messaging.PairCode.HOST}?")
 
 private val LINK_IN_TEXT = Regex("""ptt://enroll\?[^\s<>"']+""")
 

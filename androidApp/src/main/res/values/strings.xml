@@ -76,6 +76,7 @@
     <string name="enroll_failed_new_code">Create a new code on the server</string>
     <string name="enroll_failed_key_deleted">The key created for this attempt was deleted from the phone.</string>
     <string name="enroll_new_code">Enter a new code</string>
+    <string name="enroll_error_contact_code">That\'s an Add contact code, for a phone that\'s already set up. To join, ask them for an invite: Add contact, then Invite a friend.</string>
     <string name="enroll_error_missing_address">Enter the server address.</string>
     <string name="enroll_error_missing_code">Enter the enrollment code.</string>
     <string name="enroll_error_invalid_code">This code is wrong, expired or already used.</string>
