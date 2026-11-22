@@ -1,14 +1,15 @@
 # Settings
 
 Opened from the profile circle on [Chats](chats.md) (`ui/settings/SettingsScreen.kt`, `SettingsController`). It is
-one `SettingsScaffold` page with back, grouped as Signal's Settings as far as phase 1 goes. It reads again on opening
+one `SettingsScaffold` page with back, grouped as Signal's Settings as far as phase 2 goes. It reads again on opening
 and each time the connection's state changes.
 
 ## Account
 
 - **This phone:** the device name, with "account · device N" under it ("Not registered" before enrolling). The device
   number comes from the server (`me`, `serverInfo.deviceNumber`).
-- **Linked devices:** a placeholder: "Linking another phone to this account comes in a later version."
+- **Linked devices:** "Link a phone: your new phone joins this account with your contacts." Opens
+  [Link a phone](link-phone.md).
 - **Register again** (red): "Enroll this phone again with a new code, at this server or another." Opens the
   [enrollment wizard](enrollment.md). A new enrollment replaces the identity and forgets what was kept of the old
   server.

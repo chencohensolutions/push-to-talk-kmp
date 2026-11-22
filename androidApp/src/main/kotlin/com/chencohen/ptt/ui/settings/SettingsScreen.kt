@@ -30,11 +30,11 @@ import com.chencohen.ptt.ui.style.SettingsCard
 import com.chencohen.ptt.ui.style.SettingsScaffold
 
 /**
- * Settings (docs/screens/settings.md), Signal's grouping as far as phase 1 goes: Account (this phone, Linked devices,
- * Register again) and Your server.
+ * Settings (docs/screens/settings.md), Signal's grouping as far as phase 2 goes: Account (this phone, Linked devices
+ * with Link a phone, Register again) and Your server.
  */
 @Composable
-internal fun SettingsScreen(state: SettingsState, back: () -> Unit, refresh: () -> Unit, registerAgain: () -> Unit) {
+internal fun SettingsScreen(state: SettingsState, back: () -> Unit, refresh: () -> Unit, registerAgain: () -> Unit, linkPhone: () -> Unit = {}) {
     LaunchedEffect(Unit) { refresh() }
     SettingsScaffold(stringResource(R.string.settings_title), back) {
         SectionTitle(stringResource(R.string.settings_account_title))
@@ -46,7 +46,7 @@ internal fun SettingsScreen(state: SettingsState, back: () -> Unit, refresh: () 
                     ?: stringResource(R.string.settings_device_unknown),
             )
             RowDivider()
-            InfoRow(stringResource(R.string.settings_linked_title), stringResource(R.string.settings_linked_body))
+            InfoRow(stringResource(R.string.settings_linked_title), stringResource(R.string.settings_linked_body), onClick = linkPhone)
             RowDivider()
             InfoRow(
                 title = stringResource(R.string.settings_register_again),

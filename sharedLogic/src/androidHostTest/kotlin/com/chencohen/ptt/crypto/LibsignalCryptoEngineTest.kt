@@ -74,6 +74,36 @@ class LibsignalCryptoEngineTest {
         assertFalse(dana.matchesScanned("dana", "hen", henKey, byteArrayOf(1, 2, 3)))
     }
 
+    /**
+     * Linking a phone: the new phone takes the identity key pair the old one exported, with a registration id of its
+     * own; a session from its keys opens under the same identity key; both sides of an X25519 exchange agree.
+     */
+    @Test
+    fun aLinkedPhoneTakesTheIdentityAndTheExchangeAgrees() {
+        val hen = engine(hen1)
+        val henKey = hen.createIdentity()
+        val linked = engine(DeviceAddress("hen", 2))
+        linked.createIdentity()
+        val public = linked.importIdentity(hen.exportIdentity()!!)
+        assertContentEquals(henKey, public)
+        assertContentEquals(henKey, linked.identityKey())
+        assertTrue(linked.registrationId() in 1..16380)
+
+        val dana = engine(dana1)
+        dana.createIdentity()
+        dana.trustIdentity("hen", henKey)
+        dana.startSession(DeviceAddress("hen", 2), henKey, bundle(linked, 2, oneTime = true))
+        val sealed = dana.encrypt(DeviceAddress("hen", 2), "to the new phone".encodeToByteArray())
+        linked.trustIdentity("dana", dana.identityKey()!!)
+        assertEquals("to the new phone", linked.decrypt(dana1, sealed.type, sealed.bytes).plaintext.decodeToString())
+
+        val (aPrivate, aPublic) = hen.newAgreementKey()
+        val (bPrivate, bPublic) = linked.newAgreementKey()
+        assertEquals(33, aPublic.size)
+        assertContentEquals(hen.agree(aPrivate, bPublic), linked.agree(bPrivate, aPublic))
+        assertFailsWith<InvalidKeysException> { linked.importIdentity(ByteArray(10)) }
+    }
+
     @Test
     fun keysSignedByAnotherIdentityAreRefused() {
         val hen = engine(hen1)

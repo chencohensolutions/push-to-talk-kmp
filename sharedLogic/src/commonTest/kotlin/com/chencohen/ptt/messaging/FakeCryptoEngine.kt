@@ -14,6 +14,8 @@ import com.chencohen.ptt.crypto.UntrustedIdentityException
 import com.chencohen.ptt.crypto.nextKeyId
 import com.chencohen.ptt.relay.EnvelopeType
 import kotlin.random.Random
+import okio.ByteString
+import okio.ByteString.Companion.toByteString
 
 /**
  * A stand-in for libsignal in the shared tests: no real cryptography. A "signature" is the identity key itself, so
@@ -37,6 +39,33 @@ class FakeCryptoEngine(private val random: Random = Random(1)) : CryptoEngine {
         identity = byteArrayOf(0x05) + random.nextBytes(32)
         registration = random.nextInt(1, 16381)
         return identity!!.copyOf()
+    }
+
+    override fun exportIdentity(): ByteArray? = identity?.let { byteArrayOf(0x7f) + it }
+
+    override fun importIdentity(pair: ByteArray): ByteArray {
+        if (pair.size != 34 || pair[0] != 0x7f.toByte()) throw InvalidKeysException("not a pair")
+        identity = pair.copyOfRange(1, 34)
+        registration = random.nextInt(1, 16381)
+        sessions.clear()
+        sentFirst.clear()
+        signedPrekeys.clear()
+        kyberPrekeys.clear()
+        prekeys.clear()
+        return identity!!.copyOf()
+    }
+
+    // Not X25519: the public key shows the private one, and the "shared secret" is a hash of both public keys. Enough
+    // for both sides to agree, and for a wrong key to give another secret.
+    override fun newAgreementKey(): Pair<ByteArray, ByteArray> {
+        val private = random.nextBytes(32)
+        return private to byteArrayOf(0x05) + private
+    }
+
+    override fun agree(private: ByteArray, public: ByteArray): ByteArray {
+        if (public.size != 33 || public[0] != 0x05.toByte()) throw InvalidKeysException("not a key")
+        val keys = listOf(byteArrayOf(0x05) + private, public).map { it.toByteString() }.sorted()
+        return (keys[0] + keys[1]).sha256().toByteArray()
     }
 
     override fun registrationId(): Int = registration
@@ -139,3 +168,5 @@ class FakeCryptoEngine(private val random: Random = Random(1)) : CryptoEngine {
         prekeys.clear()
     }
 }
+
+private operator fun ByteString.plus(other: ByteString): ByteString = (toByteArray() + other.toByteArray()).toByteString()

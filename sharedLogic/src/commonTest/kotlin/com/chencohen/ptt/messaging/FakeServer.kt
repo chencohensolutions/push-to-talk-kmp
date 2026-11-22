@@ -48,6 +48,8 @@ internal class FakeServer {
     /** Invite codes and who made them (createInvite), until redeemed. */
     val invites = mutableMapOf<String, String>()
     val displayNames = mutableMapOf<String, String>()
+    /** Link codes (createLinkCode) and whose they are. */
+    val linkCodes = mutableMapOf<String, String>()
     val blocks = mutableSetOf<Pair<String, String>>()
     val queues = mutableMapOf<DeviceAddress, MutableList<Envelope>>()
     private val connections = mutableMapOf<DeviceAddress, Connection>()
@@ -109,6 +111,12 @@ internal class FakeServer {
             val token = "token${nextId++}".padEnd(22, 'x')
             tokens[token] = device.user
             return token to "2026-11-21T10:10:00Z"
+        }
+
+        override suspend fun createLinkCode(): Pair<String, String> {
+            val code = "LINK-${nextId++}"
+            linkCodes[code] = device.user
+            return code to "2026-11-21T10:10:00Z"
         }
 
         override suspend fun confirmPair(user: String): Boolean {
@@ -175,6 +183,14 @@ internal class FakeServer {
     fun send(from: DeviceAddress, send: Send): SendResult {
         sends++
         fun result(status: Int, detail: String = "") = SendResult(send.clientId, status, detail = detail)
+        // PROVISIONING goes alone, to another enrolled device of the sender's own user, which may have no keys yet.
+        if (send.envelopes.any { it.type == EnvelopeType.PROVISIONING }) {
+            val e = send.envelopes.singleOrNull()
+            if (e == null || e.recipientUser != from.user || e.recipientDevice == from.device) return result(SendStatus.INVALID)
+            val id = "e${nextId++}"
+            enqueue(e.copy(id = id, senderUser = from.user, senderDevice = from.device, serverTimestamp = 1_000_000L + nextId))
+            return SendResult(send.clientId, SendStatus.ACCEPTED, envelopeIds = listOf(id))
+        }
         val others = send.envelopes.map { it.recipientUser }.filter { it != from.user }.toSet()
         if (send.envelopes.isEmpty() || others.size > 1) return result(SendStatus.INVALID)
         val other = others.firstOrNull()

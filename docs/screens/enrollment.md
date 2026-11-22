@@ -36,6 +36,12 @@ the QR link) is ptt-server's `enroll-code` and `enrollDevice`; this page is what
    **Open Chats**. Or it ends on **Failed** with what went wrong ("That code didn’t work" keeps the screen for a new
    code); the key made for the attempt is deleted.
 
+## Linking a phone
+
+Scanning another phone's [Link a phone](link-phone.md) code (or opening its `ptt://link` link from the camera) is the
+same as scanning an enrollment QR code: the server and code fill in and the wizard goes to Confirm, with the account
+that phone is on. Once registered, this phone asks that one for the keys (Chats shows "Finishing linking").
+
 ## Enrolling by id
 
 `ptt://enroll?server=https://host:56400&code=ABCD2345&fingerprint=<64 hex>&key=<64 hex>&address=…` (`address=` once

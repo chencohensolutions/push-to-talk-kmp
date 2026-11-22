@@ -10,6 +10,7 @@ import com.chencohen.ptt.crypto.SignedPublicPrekey
 import com.chencohen.ptt.graphql.AcceptInviteMutation
 import com.chencohen.ptt.graphql.BlockMutation
 import com.chencohen.ptt.graphql.CreateInviteMutation
+import com.chencohen.ptt.graphql.CreateLinkCodeMutation
 import com.chencohen.ptt.graphql.ConfirmPairMutation
 import com.chencohen.ptt.graphql.ContactsQuery
 import com.chencohen.ptt.graphql.MyIdentityKeyQuery
@@ -87,6 +88,9 @@ internal interface MessagingApi {
 
     /** A pairing token and when it expires (RFC 3339). */
     suspend fun pairingToken(): Pair<String, String>
+
+    /** An enrollment code for another phone of this user (createLinkCode) and when it expires (RFC 3339). */
+    suspend fun createLinkCode(): Pair<String, String>
 
     /** True when the pair is made (`PAIRED`), false while the other user hasn't confirmed (`WAITING`). */
     suspend fun confirmPair(user: String): Boolean
@@ -173,6 +177,11 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
     override suspend fun pairingToken(): Pair<String, String> {
         val token = run { it.mutation(PairingTokenMutation()).execute() }.pairingToken
         return token.token to token.expiresAt
+    }
+
+    override suspend fun createLinkCode(): Pair<String, String> {
+        val code = run { it.mutation(CreateLinkCodeMutation()).execute() }.createLinkCode
+        return code.code to code.expiresAt
     }
 
     override suspend fun confirmPair(user: String): Boolean =

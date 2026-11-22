@@ -63,8 +63,17 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_PENDING_INVITE_PAIR)
         set(value) = store.putString(KEY_PENDING_INVITE_PAIR, value)
 
+    /**
+     * The Link a phone code (LinkCode.format) this phone enrolled with: Messaging asks that phone for the identity key
+     * once this one is connected, then forgets it. Null otherwise.
+     */
+    var pendingLink: String?
+        get() = store.getString(KEY_PENDING_LINK)
+        set(value) = store.putString(KEY_PENDING_LINK, value)
+
     companion object {
         private const val KEY_PENDING_INVITE_PAIR = "pending_invite_pair"
+        private const val KEY_PENDING_LINK = "pending_link"
         private val json = Json { ignoreUnknownKeys = true }
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_SERVER_DISCOVERY = "server_discovery"

@@ -57,6 +57,8 @@ import android.content.ClipboardManager
 import android.content.Intent
 import com.chencohen.ptt.ui.contacts.InviteActions
 import com.chencohen.ptt.ui.contacts.InviteScreen
+import com.chencohen.ptt.ui.settings.LinkPhoneScreen
+import com.chencohen.ptt.ui.settings.LinkPhoneView
 import com.chencohen.ptt.ui.contacts.AddContactActions
 import com.chencohen.ptt.ui.contacts.AddContactScreen
 import com.chencohen.ptt.ui.contacts.ContactActions
@@ -100,6 +102,8 @@ class HomeActions(
     val reviewRequest: (String) -> Unit = {},
     val openContact: (String) -> Unit = {},
     val replaceIdentityKey: () -> Unit = {},
+    /** Scan the other phone's Link a phone code (KeysState.OtherIdentity). */
+    val linkHere: () -> Unit = {},
 )
 
 /**
@@ -163,6 +167,11 @@ fun HomeApp(
                                 if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
                             }
                         },
+                        linkHere = {
+                            scanQrCode(context, { text ->
+                                messaging.linkWithScanned(text) { ok -> if (!ok) messages.post(resources.getString(R.string.chats_link_wrong_code)) }
+                            }) { messages.post(resources.getString(R.string.add_scan_failed)) }
+                        },
                     ),
                 )
                 name == "settings" -> {
@@ -172,7 +181,25 @@ fun HomeApp(
                         back = ::pop,
                         refresh = settings::refresh,
                         registerAgain = onRegisterAgain,
+                        linkPhone = { push("link") },
                     )
+                }
+                name == "link" -> {
+                    // A new code each time the page opens; the phone linked with it shows once its answer went out.
+                    var view by remember { mutableStateOf<LinkPhoneView>(LinkPhoneView.Loading) }
+                    val linkedBefore = remember { messagingState.linkedDevice }
+                    fun make() {
+                        view = LinkPhoneView.Loading
+                        messaging.makeLinkCode { code, error ->
+                            view = code?.let { LinkPhoneView.Showing(it) } ?: LinkPhoneView.Failed(error.orEmpty())
+                        }
+                    }
+                    LaunchedEffect(Unit) { make() }
+                    LaunchedEffect(messagingState.linkedDevice) {
+                        val device = messagingState.linkedDevice
+                        if (device != null && device != linkedBefore) view = LinkPhoneView.Linked(device)
+                    }
+                    LinkPhoneScreen(view, back = ::pop, again = ::make)
                 }
                 name == "new" -> NewChatScreen(
                     contacts = messagingState.contacts,
@@ -366,7 +393,21 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
             }
             when (tab) {
                 HomeTab.CHATS -> {
+                    (chats.keys as? KeysState.Linking)?.let { linking ->
+                        HomeCard(
+                            title = stringResource(R.string.chats_linking_title),
+                            body = stringResource(R.string.chats_linking_body, linking.device),
+                            action = "",
+                            onAction = {},
+                        )
+                    }
                     if (chats.keys is KeysState.OtherIdentity) {
+                        HomeCard(
+                            title = stringResource(R.string.chats_link_here_title),
+                            body = stringResource(R.string.chats_link_here_body),
+                            action = stringResource(R.string.chats_link_here_action),
+                            onAction = actions.linkHere,
+                        )
                         HomeCard(
                             title = stringResource(R.string.chats_other_identity_title),
                             body = stringResource(R.string.chats_other_identity_body),

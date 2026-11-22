@@ -35,6 +35,8 @@ data class MessagingState(
     val requests: List<PairRequest> = emptyList(),
     /** The last text of each contact, by user (phase 2's test of the transport). */
     val lastMessages: Map<String, TextMessage> = emptyMap(),
+    /** The device number of the last phone this one linked (it sent it the identity key); null when none yet. */
+    val linkedDevice: Int? = null,
 )
 
 /**
@@ -63,9 +65,16 @@ internal class Messaging(
         connector = connector,
         url = { wsUrl(settings.serverUrl) },
         onEnvelope = ::receive,
-        beforeConnect = { deviceKey()?.let { keys.check(it) }?.let { count -> _state.update { it.copy(keys = KeysState.Ready(count)) } } },
+        // A phone waiting to be linked has no keys to check: uploading would make an identity of its own.
+        beforeConnect = {
+            if (store.linkJoin == null && engine.identityKey() != null) {
+                deviceKey()?.let { keys.check(it) }?.let { count -> _state.update { it.copy(keys = KeysState.Ready(count)) } }
+            }
+        },
         onRevoked = onRevoked,
         onLive = {
+            // Not awaited either: the request's SendResult comes through the same read loop.
+            if (store.linkJoin != null) scope.launch { sendLinkRequest() }
             refreshContacts()
             // Not awaited here: the pair request's SendResult comes through the very read loop onLive runs in.
             scope.launch { pairPendingInvite() }
@@ -92,7 +101,17 @@ internal class Messaging(
     suspend fun start() {
         val self = device() ?: return
         claim(self)
+        takePendingLink(self)
         publish()
+        store.linkJoin?.let { join ->
+            // Enrolled by a Link a phone code: no keys of its own until that phone sends the identity key.
+            if (engine.identityKey() == null) {
+                _state.update { it.copy(keys = KeysState.Linking(join.user, join.device)) }
+                socket.start()
+                return
+            }
+            store.linkJoin = null
+        }
         _state.update { it.copy(keys = if (it.keys is KeysState.Ready) it.keys else KeysState.Uploading) }
         val result = try {
             keys.ensure(deviceKey()!!)
@@ -143,6 +162,214 @@ internal class Messaging(
         val result = keys.ensure("${self.user}/${self.deviceNumber}")
         _state.update { it.copy(keys = result) }
         socket.start()
+    }
+
+    // --- Linking a phone ------------------------------------------------------------------------------------------
+
+    /**
+     * A new Link a phone code (docs/design.md, "Linking a phone"): an enrollment code for this user from the server,
+     * where the server is, and a secret and an X25519 key kept to answer the new phone's request once.
+     */
+    suspend fun newLinkCode(): Pair<LinkCode, Long> {
+        val self = device() ?: throw IllegalStateException("This phone isn't registered")
+        if (engine.exportIdentity() == null) throw IllegalStateException("No identity key yet")
+        val discovery = settings.serverDiscovery ?: throw IllegalStateException("The server hasn't said who it is yet")
+        val (code, expiresAt) = api.createLinkCode()
+        val secret = random.nextBytes(LinkCode.SECRET_BYTES)
+        val (private, public) = engine.newAgreementKey()
+        val expires = parseTime(expiresAt) ?: (now() + 10 * 60_000)
+        store.linkOffers().filter { now() > it.expiresAt + LINK_GRACE }.forEach(store::removeLinkOffer)
+        store.putLinkOffer(LinkOffer(PairCode.base64Url.encode(secret), Base64.encode(private), Base64.encode(public), expires))
+        val link = LinkCode(
+            code = code,
+            server = KeptDiscovery.originOf(settings.serverUrl),
+            fingerprint = discovery.fingerprint,
+            key = discovery.key,
+            addresses = discovery.candidates(),
+            user = self.user,
+            device = self.deviceNumber,
+            secret = secret,
+        )
+        return link to expires
+    }
+
+    /**
+     * A phone enrolled already, whose account's key is on another phone (KeysState.OtherIdentity), scanned that phone's
+     * Link a phone code: it asks for the key as if it had enrolled with the code. False for a code it can't use (another
+     * account, or itself).
+     */
+    suspend fun linkWithScanned(text: String): Boolean {
+        val self = device() ?: return false
+        val code = LinkCode.find(text) ?: return false
+        if (code.user != self.user || code.device == self.deviceNumber || code.fingerprint != settings.serverFingerprint) return false
+        store.linkJoin = null
+        // Its own key (unused: the server holds another) goes; the one from the other phone takes its place.
+        if (engine.identityKey() != null) engine.wipe()
+        settings.pendingLink = code.format()
+        socket.stop()
+        start()
+        return true
+    }
+
+    /** The Link a phone code this phone enrolled with (settings.pendingLink) becomes a [LinkJoin] with its own key. */
+    private fun takePendingLink(self: EnrolledDevice) {
+        val text = settings.pendingLink ?: return
+        settings.pendingLink = null
+        val code = LinkCode.parse(text) ?: return
+        if (code.user != self.user || code.device == self.deviceNumber || engine.identityKey() != null) return
+        if (code.fingerprint != settings.serverFingerprint) return
+        val (private, public) = engine.newAgreementKey()
+        store.linkJoin = LinkJoin(code.user, code.device, PairCode.base64Url.encode(code.secret), Base64.encode(private), Base64.encode(public), now())
+    }
+
+    /** The new phone's side: asks the phone that showed the code for the identity key, proving it saw the code. */
+    private suspend fun sendLinkRequest() {
+        val self = device() ?: return
+        val join = store.linkJoin ?: return
+        val public = Base64.decode(join.publicKey)
+        val mac = LinkCrypto.requestMac(PairCode.base64Url.decode(join.secret), public, self.user, self.deviceNumber)
+        try {
+            sendProvisioning(join.device, Provisioning(request = LinkRequest(public, mac)))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Asked again on the next connection.
+        }
+    }
+
+    private suspend fun sendProvisioning(device: Int, content: Provisioning) {
+        val self = device() ?: return
+        val result = socket.send(
+            com.chencohen.ptt.relay.Send(
+                envelopes = listOf(Envelope(recipientUser = self.user, recipientDevice = device, type = EnvelopeType.PROVISIONING, ciphertext = LinkCrypto.encode(content))),
+            )
+        )
+        if (result.status != com.chencohen.ptt.relay.SendStatus.ACCEPTED) throw SendRefusedException(result.status, result.detail)
+    }
+
+    /** A PROVISIONING envelope, from another phone of this user only: a request to answer, or the answer awaited. */
+    private fun receiveProvisioning(envelope: Envelope) {
+        val self = device() ?: return
+        if (envelope.senderUser != self.user || envelope.senderDevice == self.deviceNumber) return
+        val content = LinkCrypto.decode(envelope.ciphertext) ?: return
+        content.request?.let { answerLinkRequest(self, envelope.senderDevice, it) }
+        content.answer?.let { takeLinkAnswer(envelope.senderDevice, it) }
+    }
+
+    /**
+     * The phone that showed the code: when the request's MAC is one of its codes' (whoever sent it saw the screen), it
+     * seals the identity key pair and the contacts to the new phone's key and sends them. Each code answers once.
+     */
+    private fun answerLinkRequest(self: EnrolledDevice, from: Int, request: LinkRequest) {
+        val pair = engine.exportIdentity() ?: return
+        val offer = store.linkOffers().firstOrNull { offer ->
+            now() <= offer.expiresAt + LINK_GRACE &&
+                LinkCrypto.macMatches(LinkCrypto.requestMac(PairCode.base64Url.decode(offer.secret), request.publicKey, self.user, from), request.mac)
+        } ?: return
+        store.removeLinkOffer(offer)
+        val key = try {
+            LinkCrypto.sealKey(engine.agree(Base64.decode(offer.privateKey), request.publicKey), PairCode.base64Url.decode(offer.secret))
+        } catch (_: CryptoException) {
+            return
+        }
+        val contacts = store.contacts().filter { it.paired }.map {
+            LinkedContact(it.user, Base64.decode(it.identityKey), it.verified, it.displayName.orEmpty())
+        }
+        val nonce = random.nextBytes(com.chencohen.ptt.discovery.Seal.NONCE_SIZE)
+        val answer = LinkAnswer(Base64.decode(offer.publicKey), nonce, LinkCrypto.seal(key, nonce, LinkData(pair, contacts)))
+        scope.launch {
+            try {
+                sendProvisioning(from, Provisioning(answer = answer))
+                _state.update { it.copy(linkedDevice = from) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // The code is used up: the new phone shows a new one's QR code again.
+            }
+        }
+    }
+
+    /** The new phone: the answer opens with this linking's key, so it is the identity key; then the keys go up. */
+    private fun takeLinkAnswer(from: Int, answer: LinkAnswer) {
+        val join = store.linkJoin ?: return
+        if (from != join.device) return
+        val data = try {
+            val key = LinkCrypto.sealKey(engine.agree(Base64.decode(join.privateKey), answer.publicKey), PairCode.base64Url.decode(join.secret))
+            LinkCrypto.open(key, answer.nonce, answer.sealed)
+        } catch (_: CryptoException) {
+            null
+        } ?: return
+        try {
+            engine.importIdentity(data.identityKeyPair)
+        } catch (_: CryptoException) {
+            return
+        }
+        for (linked in data.contacts) {
+            val identity = linked.identityKey
+            engine.trustIdentity(linked.user, identity)
+            val old = store.contact(linked.user)
+            store.putContact(
+                Contact(
+                    user = linked.user, identityKey = Base64.encode(identity), paired = true, since = old?.since,
+                    verified = linked.verified, displayName = linked.displayName.ifEmpty { null } ?: old?.displayName,
+                    addedAt = old?.addedAt ?: now(),
+                )
+            )
+        }
+        store.linkJoin = null
+        store.meta = store.meta.copy(uploadedFor = null)
+        publish()
+        scope.launch {
+            val result = try {
+                keys.ensure(deviceKey()!!)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                KeysState.Failed(e.describe())
+            }
+            _state.update { it.copy(keys = result) }
+            refreshContacts()
+        }
+    }
+
+    // --- Your own phones ----------------------------------------------------------------------------------------
+
+    /**
+     * Tells this user's other phones what this one now knows of [user] (paired, its key, verified), so a contact
+     * paired or verified on one phone is the same on all of them. Nothing to do without other phones.
+     */
+    private fun syncContact(user: String) {
+        val contact = store.contact(user)?.takeIf { it.paired } ?: return
+        val self = device() ?: return
+        scope.launch {
+            try {
+                sender.send(self.user, Content(contact = ContactSyncContent(contact.user, Base64.decode(contact.identityKey), contact.verified, contact.displayName.orEmpty())))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // No other phone with keys, or not reachable now: the next change or the server's contact list catches up.
+            }
+        }
+    }
+
+    /** What another phone of this user said of a contact: its key and verified flag win over the server's list. */
+    private fun takeContactSync(sync: ContactSyncContent) {
+        if (sync.user.isEmpty() || sync.identityKey.size != 33) return
+        val key = Base64.encode(sync.identityKey)
+        val old = store.contact(sync.user)
+        if (old == null || old.identityKey != key) {
+            engine.forget(sync.user)
+            engine.trustIdentity(sync.user, sync.identityKey)
+        }
+        store.putContact(
+            (old ?: Contact(user = sync.user, identityKey = key, paired = true, addedAt = now())).copy(
+                identityKey = key,
+                paired = true,
+                verified = sync.verified,
+                changedKey = old?.changedKey?.takeIf { it != key },
+                displayName = sync.displayName.ifEmpty { null } ?: old?.displayName,
+            )
+        )
     }
 
     // --- Pairing -------------------------------------------------------------------------------------------------
@@ -288,7 +515,10 @@ internal class Messaging(
         )
         store.removeRequest(user)
         publish()
-        if (paired) refreshContacts()
+        if (paired) {
+            refreshContacts()
+            syncContact(user)
+        }
         return paired
     }
 
@@ -301,6 +531,7 @@ internal class Messaging(
     private fun markPaired(user: String) {
         store.contact(user)?.let { store.putContact(it.copy(paired = true)) }
         publish()
+        syncContact(user)
     }
 
     // --- Contacts ------------------------------------------------------------------------------------------------
@@ -373,6 +604,7 @@ internal class Messaging(
         engine.trustIdentity(user, Base64.decode(key))
         store.putContact(contact.copy(identityKey = key, changedKey = null, verified = false))
         publish()
+        syncContact(user)
     }
 
     fun safetyNumber(user: String): SafetyNumber? {
@@ -397,6 +629,7 @@ internal class Messaging(
     fun setVerified(user: String, verified: Boolean) {
         store.contact(user)?.let { store.putContact(it.copy(verified = verified)) }
         publish()
+        syncContact(user)
     }
 
     private fun forgetContact(user: String) {
@@ -431,7 +664,8 @@ internal class Messaging(
                 markPaired(envelope.senderUser)
                 refreshContacts()
             }
-            // PROVISIONING (linking) and group messages come in later phases.
+            EnvelopeType.PROVISIONING -> receiveProvisioning(envelope)
+            // Group messages come in a later phase.
             else -> Unit
         }
         publish()
@@ -449,6 +683,7 @@ internal class Messaging(
         }
         val content = ContentCodec.decode(decrypted.plaintext) ?: return
         if (envelope.senderUser == self.user) {
+            content.contact?.let { return takeContactSync(it) }
             // A copy of what another phone of this user sent.
             val to = content.destination.takeIf { it.isNotEmpty() } ?: return
             content.text?.let { store.putMessage(TextMessage(envelope.id, to, outgoing = true, body = it.body, at = it.sentAt)) }
@@ -502,6 +737,9 @@ internal class Messaging(
     }
 
     companion object {
+        /** How long past its end a Link a phone code still answers: the new phone may connect a while after enrolling. */
+        private const val LINK_GRACE = 60 * 60_000L
+
         /** `wss://host:port/ws` for the GraphQL endpoint `https://host:port/query`; null before enrolling. */
         fun wsUrl(serverUrl: String): String? {
             if (!serverUrl.startsWith("https://")) return null

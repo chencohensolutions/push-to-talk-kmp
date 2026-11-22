@@ -9,6 +9,7 @@ import org.signal.libsignal.protocol.SessionBuilder
 import org.signal.libsignal.protocol.SessionCipher
 import org.signal.libsignal.protocol.SignalProtocolAddress
 import org.signal.libsignal.protocol.ecc.ECKeyPair
+import org.signal.libsignal.protocol.ecc.ECPrivateKey
 import org.signal.libsignal.protocol.ecc.ECPublicKey
 import org.signal.libsignal.protocol.fingerprint.Fingerprint
 import org.signal.libsignal.protocol.fingerprint.NumericFingerprintGenerator
@@ -50,6 +51,30 @@ internal class LibsignalCryptoEngine(
         val pair = IdentityKeyPair.generate()
         signal.saveLocalIdentity(pair, KeyHelper.generateRegistrationId(false))
         return pair.publicKey.serialize()
+    }
+
+    override fun exportIdentity(): ByteArray? = signal.identityKeyPairOrNull()?.serialize()
+
+    override fun importIdentity(pair: ByteArray): ByteArray {
+        val identity = try {
+            IdentityKeyPair(pair)
+        } catch (e: Exception) {
+            throw InvalidKeysException("not an identity key pair", e)
+        }
+        signal.clearOwnKeys()
+        signal.saveLocalIdentity(identity, KeyHelper.generateRegistrationId(false))
+        return identity.publicKey.serialize()
+    }
+
+    override fun newAgreementKey(): Pair<ByteArray, ByteArray> {
+        val pair = ECKeyPair.generate()
+        return pair.privateKey.serialize() to pair.publicKey.serialize()
+    }
+
+    override fun agree(private: ByteArray, public: ByteArray): ByteArray = try {
+        ECPrivateKey(private).calculateAgreement(ECPublicKey(public))
+    } catch (e: Exception) {
+        throw InvalidKeysException("not an X25519 key", e)
     }
 
     override fun registrationId(): Int = signal.getLocalRegistrationId()

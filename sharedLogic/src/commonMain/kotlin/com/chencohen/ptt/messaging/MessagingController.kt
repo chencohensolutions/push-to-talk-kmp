@@ -16,6 +16,9 @@ import kotlin.coroutines.cancellation.CancellationException
 /** What a contact's page shows of the safety number: its digits in 12 groups of 5 and the code to scan. */
 data class SafetyNumberView(val groups: List<String>, val code: String)
 
+/** A Link a phone code to show: the QR code's text, and when it expires (milliseconds since 1970). */
+data class ShownLinkCode(val code: String, val expiresAt: Long)
+
 /** What became of an action on a contact; the screens post it as a message. */
 sealed interface ContactResult {
     data object Done : ContactResult
@@ -93,6 +96,29 @@ class MessagingController internal constructor(
 
     /** Sends [body] to [user] end to end (phase 2's test of the transport). */
     fun sendTest(user: String, body: String, done: (ContactResult) -> Unit) = act(done) { messaging.sendText(user, body) }
+
+    /**
+     * A new Link a phone code (docs/screens/link-phone.md); null with the error's message when it couldn't be made.
+     * [MessagingState.linkedDevice] says when a phone was linked with it.
+     */
+    fun makeLinkCode(done: (ShownLinkCode?, String?) -> Unit) {
+        scope.launch {
+            val result = try {
+                val (code, expires) = withContext(work) { messaging.newLinkCode() }
+                ShownLinkCode(code.format(), expires) to null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null to e.describe()
+            }
+            done(result.first, result.second)
+        }
+    }
+
+    /** A Link a phone code scanned on this phone, enrolled already (KeysState.OtherIdentity): false when it can't use it. */
+    fun linkWithScanned(text: String, done: (Boolean) -> Unit) {
+        scope.launch { done(withContext(work) { messaging.linkWithScanned(text) }) }
+    }
 
     /** Starts over with a new identity key, when every other phone of the user is revoked (KeysState.OtherIdentity). */
     fun replaceIdentityKey(done: (ContactResult) -> Unit) = act(done) { messaging.replaceIdentityKey() }

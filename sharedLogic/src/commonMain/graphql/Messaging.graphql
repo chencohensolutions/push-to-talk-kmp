@@ -30,6 +30,10 @@ mutation ReplaceIdentityKey($identityKey: String!) {
   replaceIdentityKey(identityKey: $identityKey)
 }
 
+mutation CreateLinkCode {
+  createLinkCode { code expiresAt }
+}
+
 mutation PairingToken {
   pairingToken { token expiresAt }
 }

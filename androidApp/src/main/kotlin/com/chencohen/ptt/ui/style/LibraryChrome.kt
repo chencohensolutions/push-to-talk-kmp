@@ -106,8 +106,9 @@ internal fun HomeCard(title: String, body: String?, action: String, onAction: ()
             if (body == null) TextAction(action, onAction)
         }
         if (body != null) {
-            Text(body, color = LibraryColors.Muted, style = LibraryType.Body, modifier = Modifier.padding(top = 2.dp, end = 8.dp))
-            PrimaryButton(action, onAction, Modifier.padding(top = 10.dp, bottom = 10.dp))
+            Text(body, color = LibraryColors.Muted, style = LibraryType.Body, modifier = Modifier.padding(top = 2.dp, end = 8.dp, bottom = if (action.isEmpty()) 12.dp else 0.dp))
+            // No action (""): a card that only says what is going on.
+            if (action.isNotEmpty()) PrimaryButton(action, onAction, Modifier.padding(top = 10.dp, bottom = 10.dp))
         }
     }
 }

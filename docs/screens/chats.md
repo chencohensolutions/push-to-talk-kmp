@@ -12,9 +12,15 @@ last test line of each contact). The conversations themselves are phase 3; a con
     (`ServerHealth.REJECTED`): **Register again** opens the [enrollment wizard](enrollment.md).
   - **"<user> wants to pair"**, one per pair request (someone scanned this phone's code): **Review** opens
     [Add contact](add-contact.md) on that request.
-  - **"Another phone of yours holds your keys"** (warning mark), when the server has another identity key for this
-    account (`KeysState.OtherIdentity`): **Start over** makes a new identity key (`replaceIdentityKey`); contacts then
-    see a changed safety number. Until then this phone uploads no keys.
+  - **"Finishing linking"**, no button, while this phone waits for the identity key from the phone whose Link a
+    phone code it enrolled with (`KeysState.Linking`): "Open Talk on your other phone (phone N) and keep it
+    connected: it sends this phone your keys and contacts."
+  - When the server has another identity key for this account (`KeysState.OtherIdentity`), two cards:
+    **"Link this phone to your other one"**: "On your other phone open Settings, Linked devices, and scan the code
+    it shows. …"; **Scan the code** opens the scanner (`linkWithScanned`; a code of another account says "That
+    isn't a Link a phone code of this account."). Then **"Another phone of yours holds your keys"** (warning mark):
+    **Start over** makes a new identity key (`replaceIdentityKey`); contacts then see a changed safety number.
+    Until then this phone uploads no keys.
   - When the keys couldn't be uploaded (`KeysState.Failed`), a muted line says why; it is tried again at the next
     connection.
 - **Chats** tab: the contacts (`ContactRow`): the letter in a Raised circle, the name, and one line: Blocked;

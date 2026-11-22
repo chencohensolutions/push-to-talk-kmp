@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -277,6 +278,128 @@ class MessagingTest {
 
         hen.stop()
         dana.stop()
+    }
+
+    /** Hen and Dana paired by QR code (verified on hen's side), both phones started. */
+    private suspend fun TestScope.pairedByQr(server: FakeServer, hen: Phone, dana: Phone) {
+        hen.controller.start()
+        dana.controller.start()
+        advanceUntilIdle()
+        hen.pairing.open()
+        advanceUntilIdle()
+        dana.pairing.scanned(assertNotNull(hen.pairing.currentState.code))
+        dana.pairing.pair()
+        advanceUntilIdle()
+        hen.pairing.review("dana")
+        hen.pairing.accept()
+        advanceUntilIdle()
+        assertTrue(setOf("dana", "hen") in server.pairs)
+    }
+
+    @Test
+    fun aSecondPhoneLinksAndGetsTheKeyAndTheContacts() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+
+        // Hen's phone shows Link a phone; her new phone enrolled with its code (device 2) and starts.
+        val (code, _) = hen.messaging.newLinkCode()
+        assertEquals("hen", code.user)
+        assertEquals(1, code.device)
+        assertEquals("LINK-${code.code.removePrefix("LINK-")}", code.code)
+        assertEquals(code, LinkCode.parse(code.format()))
+        val second = Phone(server, "hen", 2, this, 3)
+        second.settings.pendingLink = code.format()
+        second.controller.start()
+        advanceUntilIdle()
+
+        // The request reached hen's phone, which answered once: the new phone has the same identity key and Dana.
+        assertNull(second.settings.pendingLink)
+        assertIs<KeysState.Ready>(second.state.keys)
+        assertContentEquals(hen.engine.identityKey(), second.engine.identityKey())
+        assertTrue(second.engine.registrationId() != 0)
+        val danaThere = second.state.contacts.single()
+        assertEquals("dana", danaThere.user)
+        assertTrue(danaThere.verified, "verified on hen's phone, so on the linked one too")
+        assertEquals(2, hen.state.linkedDevice)
+        assertTrue(hen.store.linkOffers().isEmpty(), "the code is used up")
+
+        // Both of hen's phones get Dana's texts, and see what the other sent.
+        dana.messaging.sendText("hen", "to both")
+        advanceUntilIdle()
+        assertEquals("to both", hen.state.lastMessages["dana"]?.body)
+        assertEquals("to both", second.state.lastMessages["dana"]?.body)
+        second.messaging.sendText("dana", "from the new one")
+        advanceUntilIdle()
+        assertEquals("from the new one", dana.state.lastMessages["hen"]?.body)
+        assertTrue(hen.store.messages().any { it.outgoing && it.user == "dana" && it.body == "from the new one" }, "the copy for hen's other phone")
+
+        // A change on one of hen's phones reaches the other: Dana no longer verified, then a new contact.
+        hen.messaging.setVerified("dana", false)
+        advanceUntilIdle()
+        assertFalse(second.store.contact("dana")!!.verified)
+        val ori = Phone(server, "ori", 1, this, 4)
+        ori.controller.start()
+        advanceUntilIdle()
+        second.pairing.open()
+        advanceUntilIdle()
+        ori.pairing.scanned(assertNotNull(second.pairing.currentState.code))
+        ori.pairing.pair()
+        advanceUntilIdle()
+        second.pairing.review("ori")
+        second.pairing.accept()
+        advanceUntilIdle()
+        val oriOnHen = assertNotNull(hen.store.contact("ori"))
+        assertTrue(oriOnHen.verified, "paired in person on the other phone: verified here too")
+        assertContentEquals(ori.engine.identityKey(), hen.engine.trustedIdentity("ori"))
+
+        listOf(hen, dana, second, ori).forEach { it.stop() }
+    }
+
+    @Test
+    fun aLinkRequestWithoutTheCodesSecretGetsNothing() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        hen.controller.start()
+        advanceUntilIdle()
+        val (code, _) = hen.messaging.newLinkCode()
+
+        // Someone with a code for hen's account but not the QR code's secret (a code from the admin, say).
+        val other = Phone(server, "hen", 2, this, 3)
+        other.settings.pendingLink = code.copy(secret = ByteArray(LinkCode.SECRET_BYTES) { 9 }).format()
+        other.controller.start()
+        advanceUntilIdle()
+        assertEquals(KeysState.Linking("hen", 1), other.state.keys)
+        assertNull(other.engine.identityKey())
+        assertNull(hen.state.linkedDevice)
+        assertEquals(1, hen.store.linkOffers().size, "the real code still works")
+
+        // Another user's phone can't send hen's phone a PROVISIONING envelope at all.
+        val dana = Phone(server, "dana", 1, this, 2)
+        dana.settings.pendingLink = code.format()
+        dana.controller.start()
+        advanceUntilIdle()
+        assertNull(dana.store.linkJoin, "a code for another account is ignored")
+        assertNull(hen.state.linkedDevice)
+
+        listOf(hen, other, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun linkCodesRoundTrip() {
+        val code = LinkCode(
+            code = "K7QM-4XPD", server = "https://203.0.113.7:56400", fingerprint = FINGERPRINT, key = null,
+            addresses = listOf("https://192.168.50.2:56400"), user = "hen", device = 3, secret = ByteArray(32) { it.toByte() },
+        )
+        val text = code.format()
+        assertTrue(text.startsWith("ptt://link?v=1&code=K7QM-4XPD"))
+        assertEquals(code, LinkCode.parse(text))
+        assertEquals(code, LinkCode.find("look: $text."))
+        assertNull(LinkCode.parse(text.replace("v=1", "v=2")), "a newer version")
+        assertNull(LinkCode.parse(text.replace("&d=3", "&d=0")))
+        assertNull(LinkCode.parse(text.replace("ptt://link", "ptt://pair")))
+        assertEquals(code.enrollmentLink().code, "K7QM-4XPD")
     }
 
     @Test

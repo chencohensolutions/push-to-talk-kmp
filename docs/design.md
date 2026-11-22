@@ -186,10 +186,51 @@ the friend may type theirs, or leave it empty. Nothing checks it: no code is sen
 from the email (`dana.cohen`), or without one from the name (`Dana Cohen` → `dana.cohen`); the friend's own name is a
 display name (`Contact.displayName`, shown as "Dana Cohen · dana.cohen").
 
+### Linking a phone
+
+A user's second phone joins the same account with the same identity key (the plan's "Linked, lost and revoked
+phones"), from a QR code the first phone shows, so it needs no admin step and no key ever reaches the server:
+
+1. **Show it.** Settings → Linked devices → **Link a phone**: `createLinkCode` gives an ordinary enrollment code
+   for this user (10 minutes, once). `Messaging.newLinkCode` builds
+   `ptt://link?v=1&code=…&server=…&fingerprint=…&key=…&address=…&u=<user>&d=<device>&s=<secret>` (`LinkCode`): an
+   enrollment link's server part, who shows it, and 32 random bytes that never leave the two phones. It keeps a
+   `LinkOffer` (the secret and a new X25519 key) in the encrypted store, used once, answered until an hour past the
+   code's end. The code is only shown; it has no Share or Copy.
+2. **Scan it.** On the new phone, Scan QR code in the wizard (or the camera: the `ptt://link` intent filter) opens
+   it as an enrollment link (`EnrollmentController.openLinkCode`), and once enrolled the code goes to
+   `PttSettings.pendingLink`. `Messaging.start` turns it into a `LinkJoin` with its own X25519 key, makes **no
+   identity of its own** (`KeysState.Linking`), opens `/ws`, and sends the showing phone a `PROVISIONING`
+   envelope: a `LinkRequest` with its public key and an HMAC over it, its user and device number, keyed by
+   HKDF(secret, "ptt link request v1"). It sends it again on each connection until answered.
+3. **Answer it.** The showing phone keeps a request only from its own user, whose MAC matches one of its offers;
+   it drops the offer, and sends back a `LinkAnswer`: its public key, a nonce, and `LinkData` (the identity key
+   pair, and each paired contact's name, identity key, verified flag and display name) sealed with
+   XChaCha20-Poly1305 under HKDF(X25519 shared secret, salt = the secret, "ptt link seal v1"). Link a phone then
+   says "Phone N is linked" (`MessagingState.linkedDevice`).
+4. **Take it.** The new phone opens the answer with its own key (another one doesn't open), takes the identity
+   key pair with a registration id of its own (`CryptoEngine.importIdentity`), trusts each contact's key as the
+   other phone did, verified or not, then uploads its prekeys under that identity like any phone.
+
+The server only relays the two envelopes (it lets `PROVISIONING` through between two devices of one user only).
+Without the secret it can't open the answer; with the server's help an attacker who saw the QR code could, which is
+why the screen says to show it only to one's own phone. A phone enrolled already whose account's key is elsewhere
+(`KeysState.OtherIdentity`) can scan a Link a phone code from Chats (**Scan the code**,
+`MessagingController.linkWithScanned`): it drops its unused key and asks the same way.
+
+This differs from the plan's wording (the new phone showing a second QR code with its key for the old phone to
+scan): one scan instead of two, with the same end-to-end sealing, since the secret in the one QR code authenticates
+both directions. Message history isn't moved.
+
+**Contacts between your own phones.** `Content.contact` (`ContactSyncContent`), sent with `Sender` to the user's own
+other phones only, says what one phone now knows of a contact: when a pair is made, accepted, verified or not, or a
+key change is accepted. The other phones trust that key and take the verified flag (`takeContactSync`); without it
+they would only learn of the contact from the server's `contacts`, not verified. A text sent from one phone already
+reaches the others as a copy (`Content.destination`).
+
 ## Next
 
-Linking a second phone (`PROVISIONING`) and contact sync between one's own phones; then messages and FCM (phase
-3), groups, push-to-talk, calls and iOS, as the plan says.
+Messages and FCM (phase 3), groups, push-to-talk, calls and iOS, as the plan says.
 
 The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3

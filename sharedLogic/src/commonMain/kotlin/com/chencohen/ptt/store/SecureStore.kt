@@ -47,6 +47,8 @@ object Spaces {
     /** Pair requests waiting for the user. */
     const val REQUESTS = "requests"
     const val MESSAGES = "messages"
+    /** Linking a phone: the Link a phone codes this phone showed, or the one it scanned to join (MessagingStore). */
+    const val LINKS = "links"
 }
 
 /** A [SecureStore] in memory: the tests', and a fallback that keeps nothing. */

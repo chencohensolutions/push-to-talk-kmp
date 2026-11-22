@@ -500,6 +500,25 @@ class EnrollmentControllerTest {
         assertTrue(requests.isEmpty())
     }
 
+    /** A Link a phone code enrolls like an enrollment link, and is kept for Messaging to ask the old phone for keys. */
+    @Test
+    fun aScannedLinkCodeEnrollsAndIsKeptForTheKeys() = runTest {
+        val link = com.chencohen.ptt.messaging.LinkCode(
+            code = "k7qm-4xpd", server = "https://192.168.50.2:8080", fingerprint = "ab".repeat(32), key = null,
+            addresses = emptyList(), user = "hen", device = 1, secret = ByteArray(32) { 4 },
+        )
+        val controller = controller()
+        controller.start()
+        controller.openScanned(link.format())
+        controller.awaitStep { it is EnrollmentStep.Confirm }
+        assertEquals("K7QM-4XPD", controller.currentState.code)
+        assertEquals("https://192.168.50.2:8080", controller.currentState.serverAddress)
+        assertNull(PttSettings(store).pendingLink, "nothing kept before enrolling")
+        controller.register()
+        assertIs<EnrollmentStep.Enrolled>(controller.awaitStep { it is EnrollmentStep.Enrolled || it is EnrollmentStep.Failed })
+        assertEquals(link.format(), PttSettings(store).pendingLink)
+    }
+
     @Test
     fun registrationCreatesKeyStoresCertificateAndSwitchesIdentity() = runTest {
         store.values["identity_alias"] = "ptt-device-1"

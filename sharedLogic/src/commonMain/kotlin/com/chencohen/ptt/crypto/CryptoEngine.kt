@@ -64,6 +64,25 @@ interface CryptoEngine {
     /** Makes a new identity key pair and registration id, forgetting the old ones. Answers the public key. */
     fun createIdentity(): ByteArray
 
+    /**
+     * This phone's identity key pair, private half included, in libsignal's serialized form: what linking a phone
+     * sends the new one, sealed (docs/design.md, "Linking a phone"). Null before [createIdentity].
+     */
+    fun exportIdentity(): ByteArray?
+
+    /**
+     * Takes [pair] (another phone's [exportIdentity]) as this phone's identity, with a new registration id of its own,
+     * forgetting the old identity and its prekeys. Answers the public key. Throws [InvalidKeysException] for bytes that
+     * aren't a key pair.
+     */
+    fun importIdentity(pair: ByteArray): ByteArray
+
+    /** A new X25519 key pair for one linking: (private 32 bytes, public 33 bytes). Kept by the caller, not the engine. */
+    fun newAgreementKey(): Pair<ByteArray, ByteArray>
+
+    /** The X25519 shared secret of [private] (from [newAgreementKey]) and the other side's [public]. */
+    fun agree(private: ByteArray, public: ByteArray): ByteArray
+
     /** libsignal's registration id of this phone, 1 to 16380 (made with the identity). */
     fun registrationId(): Int
 

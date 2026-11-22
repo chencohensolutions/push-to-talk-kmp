@@ -17,6 +17,8 @@ import kotlinx.serialization.protobuf.ProtoNumber
 internal data class Content(
     @ProtoNumber(1) val pairRequest: PairRequestContent? = null,
     @ProtoNumber(2) val text: TextContent? = null,
+    /** To the sender's own other phones only: what that phone now knows of a contact. */
+    @ProtoNumber(3) val contact: ContactSyncContent? = null,
     /** On a copy for the sender's own other devices: the user the message went to. */
     @ProtoNumber(15) val destination: String = "",
 )
@@ -33,6 +35,23 @@ internal data class PairRequestContent(
 ) {
     override fun equals(other: Any?): Boolean = other is PairRequestContent && secret.contentEquals(other.secret) &&
         user == other.user && identityKey.contentEquals(other.identityKey)
+
+    override fun hashCode(): Int = user.hashCode()
+}
+
+/**
+ * A contact as one phone of a user knows it, for the user's other phones (docs/design.md, "Linking a phone"): paired,
+ * with [identityKey] trusted, and whether the safety number was compared.
+ */
+@Serializable
+internal data class ContactSyncContent(
+    @ProtoNumber(1) val user: String = "",
+    @ProtoNumber(2) val identityKey: ByteArray = ByteArray(0),
+    @ProtoNumber(3) val verified: Boolean = false,
+    @ProtoNumber(4) val displayName: String = "",
+) {
+    override fun equals(other: Any?): Boolean = other is ContactSyncContent && user == other.user &&
+        identityKey.contentEquals(other.identityKey) && verified == other.verified && displayName == other.displayName
 
     override fun hashCode(): Int = user.hashCode()
 }

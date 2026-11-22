@@ -61,6 +61,32 @@ internal data class Invite(
     fun keptUntil(): Long = maxOf(expiresAt, madeAt) + 7 * 24 * 3600_000L
 }
 
+/**
+ * A Link a phone code this phone showed: its [secret] (base64url, the key it is kept by) and this phone's X25519 key
+ * for that linking (base64). Used once; dropped an hour after it expires.
+ */
+@Serializable
+internal data class LinkOffer(
+    val secret: String,
+    val privateKey: String,
+    val publicKey: String,
+    val expiresAt: Long,
+)
+
+/**
+ * This phone scanned a Link a phone code and enrolled with it: it asks [user]'s device [device] for the identity key,
+ * with its own X25519 key for that linking (base64), until the answer comes.
+ */
+@Serializable
+internal data class LinkJoin(
+    val user: String,
+    val device: Int,
+    val secret: String,
+    val privateKey: String,
+    val publicKey: String,
+    val startedAt: Long,
+)
+
 /** This phone's counters and flags. */
 @Serializable
 internal data class Meta(
@@ -111,6 +137,16 @@ internal class MessagingStore(val store: SecureStore) {
 
     fun removeInvite(invite: Invite) = store.remove(Spaces.INVITES, invite.token)
 
+    fun linkOffers(): List<LinkOffer> = store.keys(Spaces.LINKS).filter { it != JOIN }.mapNotNull { read(Spaces.LINKS, it, LinkOffer.serializer()) }
+
+    fun putLinkOffer(offer: LinkOffer) = write(Spaces.LINKS, offer.secret, LinkOffer.serializer(), offer)
+
+    fun removeLinkOffer(offer: LinkOffer) = store.remove(Spaces.LINKS, offer.secret)
+
+    var linkJoin: LinkJoin?
+        get() = read(Spaces.LINKS, JOIN, LinkJoin.serializer())
+        set(value) = if (value == null) store.remove(Spaces.LINKS, JOIN) else write(Spaces.LINKS, JOIN, LinkJoin.serializer(), value)
+
     /** Messages are keyed by time, so the space's sorted keys are the order they came in. */
     fun putMessage(message: TextMessage) =
         write(Spaces.MESSAGES, message.at.toString().padStart(15, '0') + "-" + message.id, TextMessage.serializer(), message)
@@ -121,5 +157,9 @@ internal class MessagingStore(val store: SecureStore) {
         store.keys(Spaces.MESSAGES).forEach { key ->
             if (read(Spaces.MESSAGES, key, TextMessage.serializer())?.user == user) store.remove(Spaces.MESSAGES, key)
         }
+    }
+
+    private companion object {
+        const val JOIN = "join"
     }
 }

@@ -33,6 +33,14 @@ internal class SignalStore(private val store: SecureStore) : SignalProtocolStore
 
     override fun getLocalRegistrationId(): Int = store.get(Spaces.IDENTITY, REGISTRATION)?.decodeToString()?.toIntOrNull() ?: 0
 
+    /** Forgets this phone's own keys (identity, prekeys, sessions) before it takes another phone's identity. */
+    fun clearOwnKeys() {
+        for (space in listOf(
+            Spaces.IDENTITY, Spaces.PREKEYS, Spaces.SIGNED_PREKEYS, Spaces.KYBER_PREKEYS, Spaces.KYBER_LAST_RESORT,
+            Spaces.KYBER_BASE_KEYS, Spaces.SESSIONS,
+        )) store.clear(space)
+    }
+
     fun saveLocalIdentity(pair: IdentityKeyPair, registrationId: Int) {
         store.put(Spaces.IDENTITY, PAIR, pair.serialize())
         store.put(Spaces.IDENTITY, REGISTRATION, registrationId.toString().encodeToByteArray())

@@ -203,6 +203,9 @@ class EnrollmentController internal constructor(
     /** The invite link opened, until enrolled or left. */
     private var inviteLink: com.chencohen.ptt.messaging.InviteLink? = null
 
+    /** The Link a phone code scanned (another phone of the same user showed it), until enrolled or left. */
+    private var linkCode: com.chencohen.ptt.messaging.LinkCode? = null
+
     private val _state = MutableStateFlow(
         EnrollmentState(
             serverAddress = serverAddress(settings.serverUrl),
@@ -223,6 +226,7 @@ class EnrollmentController internal constructor(
     /** A whole enrollment link pasted into the address (or code) field opens it, as [openPasted] does. */
     fun updateServerAddress(address: String) {
         com.chencohen.ptt.messaging.InviteLink.find(address)?.let { return openInvite(it, InviteMessage.passcodeIn(address)) }
+        com.chencohen.ptt.messaging.LinkCode.find(address)?.let { return openLinkCode(it) }
         findEnrollmentLink(address)?.let { return openLink(it) }
         if (isContactCode(address)) return showContactCode()
         _state.update { it.copy(serverAddress = address, step = clearedCodeError(it.step)) }
@@ -230,6 +234,7 @@ class EnrollmentController internal constructor(
 
     fun updateCode(code: String) {
         com.chencohen.ptt.messaging.InviteLink.find(code)?.let { return openInvite(it, InviteMessage.passcodeIn(code)) }
+        com.chencohen.ptt.messaging.LinkCode.find(code)?.let { return openLinkCode(it) }
         findEnrollmentLink(code)?.let { return openLink(it) }
         if (isContactCode(code)) return showContactCode()
         _state.update { it.copy(code = cleanCode(code), step = clearedCodeError(it.step)) }
@@ -368,7 +373,11 @@ class EnrollmentController internal constructor(
         runRegistration(
             current,
             enroll = { apollo, deviceName, csr, protection -> enrollDevice(apollo, current.code, deviceName, csr, protection) },
-            onSaved = {},
+            onSaved = {
+                // Enrolled with a Link a phone code: the identity key comes from that phone (Messaging).
+                settings.pendingLink = linkCode?.takeIf { cleanCode(it.code) == current.code }?.format()
+                linkCode = null
+            },
         )
     }
 
@@ -518,9 +527,20 @@ class EnrollmentController internal constructor(
         checkCode()
     }
 
+    /**
+     * A Link a phone code (another phone of the user shows it): enrolls as that user with its code, as an enrollment
+     * link does, and keeps it so that, once enrolled, this phone asks that one for the identity key.
+     */
+    fun openLinkCode(code: com.chencohen.ptt.messaging.LinkCode) {
+        if (_state.value.step is EnrollmentStep.Registering) return
+        openLink(code.enrollmentLink())
+        linkCode = code
+    }
+
     /** What a QR code scan read: an invite or enrollment link (see [openInvite], [openLink]), or else just the code. */
     fun openScanned(text: String) {
         com.chencohen.ptt.messaging.InviteLink.parse(text)?.let { return openInvite(it) }
+        com.chencohen.ptt.messaging.LinkCode.parse(text)?.let { return openLinkCode(it) }
         parseEnrollmentLink(text)?.let { return openLink(it) }
         if (isContactCode(text)) return showContactCode()
         updateCode(text)
@@ -542,6 +562,10 @@ class EnrollmentController internal constructor(
         com.chencohen.ptt.messaging.InviteLink.find(text)?.let {
             // The whole invite message pasted: its passcode fills in too.
             openInvite(it, InviteMessage.passcodeIn(text))
+            return PasteResult.LINK
+        }
+        com.chencohen.ptt.messaging.LinkCode.find(text)?.let {
+            openLinkCode(it)
             return PasteResult.LINK
         }
         findEnrollmentLink(text)?.let {
@@ -640,6 +664,7 @@ class EnrollmentController internal constructor(
     private fun forgetPin() {
         pinned = null
         inviteLink = null
+        linkCode = null
         _state.update { it.copy(serverId = null, invite = null) }
     }
 

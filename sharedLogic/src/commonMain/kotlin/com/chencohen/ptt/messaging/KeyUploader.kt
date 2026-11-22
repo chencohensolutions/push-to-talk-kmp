@@ -16,11 +16,17 @@ sealed interface KeysState {
     data class Ready(val count: PrekeyCount) : KeysState
 
     /**
-     * The account has an identity key this phone doesn't hold: another phone of the user made it. Linking this phone
-     * from that one comes later; until then the user can start over with a new key ([MessagingController.replaceIdentityKey])
-     * once the other phones are revoked.
+     * The account has an identity key this phone doesn't hold: another phone of the user made it. That phone links
+     * this one (Link a phone, its QR code scanned when enrolling); else the user can start over with a new key
+     * ([MessagingController.replaceIdentityKey]) once the other phones are revoked.
      */
     data object OtherIdentity : KeysState
+
+    /**
+     * This phone enrolled with a Link a phone code and waits for [user]'s phone [device] to send it the identity key
+     * (docs/design.md, "Linking a phone"): that phone has to be open, connected to the server.
+     */
+    data class Linking(val user: String, val device: Int) : KeysState
 
     data class Failed(val message: String) : KeysState
 }

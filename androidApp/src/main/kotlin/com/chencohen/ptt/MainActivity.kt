@@ -116,6 +116,14 @@ class MainActivity : ComponentActivity() {
             }
             return
         }
+        com.chencohen.ptt.messaging.LinkCode.parse(data)?.let { code ->
+            // A Link a phone code opened from the camera: on a phone that isn't enrolled, it enrolls and links.
+            if (!viewModel.connection.currentState.enrolled) {
+                viewModel.enrollment.openLinkCode(code)
+                linkOpened = true
+            }
+            return
+        }
         val link = parseEnrollmentLink(data) ?: return
         viewModel.enrollment.openLink(link)
         linkOpened = true
