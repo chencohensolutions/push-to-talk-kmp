@@ -247,5 +247,5 @@ object TalkBubble {
         }
     }
 
-    private const val PINK = 0xFFE6007E.toInt()
+    private const val PINK = 0xFFE9504F.toInt()
 }
