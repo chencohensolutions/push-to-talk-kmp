@@ -68,6 +68,18 @@ object AndroidContacts {
         val account = account(context)
         val manager = AccountManager.get(context)
         if (manager.getAccountsByType(ACCOUNT_TYPE).none { it == account }) manager.addAccountExplicitly(account, null, null)
+        // Shown in Contacts: an account's contacts without a group are hidden unless it says so (2026-11-22: Sharon's
+        // entry was there but in_visible_group 0, so Samsung Contacts showed nothing).
+        val settings = ContactsContract.Settings.CONTENT_URI.buildUpon().appendQueryParameter(ContactsContract.CALLER_IS_SYNCADAPTER, "true").build()
+        context.contentResolver.insert(
+            settings,
+            android.content.ContentValues().apply {
+                put(ContactsContract.Settings.ACCOUNT_NAME, account.name)
+                put(ContactsContract.Settings.ACCOUNT_TYPE, account.type)
+                put(ContactsContract.Settings.UNGROUPED_VISIBLE, 1)
+                put(ContactsContract.Settings.SHOULD_SYNC, 1)
+            },
+        )
         val resolver = context.contentResolver
         val raw = ContactsContract.RawContacts.CONTENT_URI.buildUpon()
             .appendQueryParameter(ContactsContract.CALLER_IS_SYNCADAPTER, "true")
