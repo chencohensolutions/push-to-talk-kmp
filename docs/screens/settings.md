@@ -76,3 +76,9 @@ install updates" when Android's Install unknown apps is off; "Update failed: <wh
 notification, and you tap to update."), and **Check now** (asks the server, which watches the releases). A debug build says "This is a test build" and has no Check now. How updates work: [design.md](../design.md),
 "App updates".
 
+
+- **Contacts › Show in Android Contacts** (2026-11-22, hen; off by default; asks for Contacts): a "Talk" account in
+  the phone's Contacts holds one entry per paired contact, by the name shown in Talk, with **Message**, **Voice call**
+  and **Video call**, which open Talk (the chat, or a call). Android joins it with a phone contact of the same name, or
+  it can be linked by hand in Contacts. Only the names go to Contacts; renames, new and removed contacts follow.
+  Turning it off removes the account and its entries (`AndroidContacts`).

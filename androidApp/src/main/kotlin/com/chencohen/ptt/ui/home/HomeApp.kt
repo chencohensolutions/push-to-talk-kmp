@@ -168,6 +168,9 @@ fun HomeApp(
     /** A conversation a notification opened (MainActivity), until home showed it. */
     openedChat: String? = null,
     onChatTaken: () -> Unit = {},
+    /** A call asked from Android Contacts (the user, video). */
+    openedCall: Pair<String, Boolean>? = null,
+    onCallTaken: () -> Unit = {},
     /** Settings › Talk changed: kept, and Stay connected's service started or stopped (MainActivity). */
     onTalkSettings: (com.chencohen.ptt.messaging.TalkSettings) -> Unit = { messaging.setTalkSettings(it) },
     /** A talk notification's Play: the clip to play once home shows its chat. */
@@ -247,6 +250,11 @@ fun HomeApp(
     // Calls (phase 6): the microphone, and the camera for video, are asked for first.
     val callPermissions = com.chencohen.ptt.ui.calls.rememberCallPermissions { messages.post(resources.getString(R.string.call_mic_denied)) }
     fun call(chat: String, video: Boolean) = callPermissions(video) { v -> messaging.startCall(chat, v) }
+    LaunchedEffect(openedCall) {
+        val (user, video) = openedCall ?: return@LaunchedEffect
+        onCallTaken()
+        call(user, video)
+    }
     CompositionLocalProvider(LocalMessages provides messages) {
         Box(Modifier.fillMaxSize()) {
             val page = stack.lastOrNull()
@@ -308,6 +316,7 @@ fun HomeApp(
                         update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
                         automaticUpdates = automaticUpdates,
                         setAutomaticUpdates = { on -> com.chencohen.ptt.AppUpdates.setAutomatic(app, on) },
+                        contacts = messagingState.contacts,
                         presenceVisible = presenceVisible,
                         setPresenceVisible = { visible ->
                             presenceVisible = null

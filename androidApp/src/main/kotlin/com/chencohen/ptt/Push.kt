@@ -9,6 +9,8 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -37,6 +39,12 @@ class TalkApp : Application() {
         // LiteRT from Play services for the car's speech detector (Android Auto); Silero in Kotlin without it.
         com.chencohen.ptt.talk.LiteRtSpeechDetector.initialize(this)
         setCallHost(this, AndroidCallHost(this))
+        // Show in Android Contacts: the entries follow Talk's contacts (names, added, removed).
+        scope.launch {
+            messagingState(this@TalkApp).map { s -> s.contacts.filter { it.paired && !it.blocked }.map { it.user to it.name } }
+                .distinctUntilChanged()
+                .collect { AndroidContacts.sync(this@TalkApp, messagingState(this@TalkApp).value.contacts) }
+        }
     }
 }
 

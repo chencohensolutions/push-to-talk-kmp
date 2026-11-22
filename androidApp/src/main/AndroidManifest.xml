@@ -25,6 +25,9 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- The reply bubble over other apps (Settings › Talk, off by default). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Show in Android Contacts (Settings, off by default): Talk's contacts with Message and calls (AndroidContacts). -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- No backup and no phone-to-phone transfer: a copied app would think it is enrolled without its key, which
@@ -49,6 +52,16 @@
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- A Talk contact's Message, Voice call or Video call in Android Contacts (AndroidContacts). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.message" />
+                <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.voice" />
+                <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.video" />
             </intent-filter>
             <!-- ptt://enroll?code=…&server=…: the QR code `ptt-server enroll-code` prints. -->
             <intent-filter>
@@ -78,6 +91,30 @@
             </intent-filter>
         </activity>
             <!-- The server's pushes (FCM): a wake-up, then the phone takes its queue. -->
+        <!-- The "Talk" account in Android Contacts: its authenticator (nothing to sign in to) and sync adapter. -->
+        <service
+            android:name=".TalkAuthenticatorService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.accounts.AccountAuthenticator" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accounts.AccountAuthenticator"
+                android:resource="@xml/talk_authenticator" />
+        </service>
+        <service
+            android:name=".TalkContactsSyncService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.content.SyncAdapter" />
+            </intent-filter>
+            <meta-data
+                android:name="android.content.SyncAdapter"
+                android:resource="@xml/talk_syncadapter" />
+            <meta-data
+                android:name="android.provider.CONTACTS_STRUCTURE"
+                android:resource="@xml/talk_contacts" />
+        </service>
         <service
             android:name=".TalkMessagingService"
             android:exported="false">
