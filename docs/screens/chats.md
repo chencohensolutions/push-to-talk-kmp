@@ -5,7 +5,7 @@ The app's home once this phone is enrolled (`ui/home/HomeApp.kt`), Signal's layo
 conversations and how many texts of each aren't read). A contact opens their [conversation](conversation.md).
 
 - **Top bar:** the profile circle (the account's first letter in ink, or a person icon before the server says who
-  this is), which opens [Settings](settings.md); the tab's title, "Chats" or "Calls", in ScreenTitle; and the
+  this is), which opens [Settings](settings.md); the tab's title, "Talk", "Chats" or "Calls", in ScreenTitle; and the
   **Offline** pill (orange cloud), only while the server can't be reached (`ServerHealth.OFFLINE`).
 - **Cards** at the top (`HomeCard`), only when there is something to do:
   - **Register again** (warning mark), when the server refuses this phone's certificate or the phone has no identity
@@ -31,7 +31,8 @@ conversations and how many texts of each aren't read). A contact opens their [co
 - **Calls** tab: every call, newest first, with call-back buttons ([calls.md](calls.md)); before the first, a call
   icon over "No calls yet. Calls you make and get show here."
 - **The pencil** (new chat), bottom right on Chats only, in ink: opens [New chat](contacts.md).
-- **Tabs** at the bottom: Chats and Calls in one segmented pill (`SegmentedBar`), the selected one in ink.
+- **Tabs** at the bottom: Talk, Chats and Calls in one segmented pill (`SegmentedBar`), the selected one in ink. The
+  app opens on [Talk](quick-talk.md), the Quick talk chats.
 
 The pages over home (Settings, New chat, Add contact, a contact, a safety number) are a stack kept across rotations;
 Back closes the top one. Messages (`MessageBar`) sit above the tabs on home and at the bottom of a page.

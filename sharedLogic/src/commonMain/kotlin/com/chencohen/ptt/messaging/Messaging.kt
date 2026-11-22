@@ -77,6 +77,10 @@ data class TalkSettings(
     val notifyOnly: Set<String> = emptySet(),
     /** Settings › Calls › Save calls (phase 6). */
     val saveCalls: com.chencohen.ptt.calls.SaveCalls = com.chencohen.ptt.calls.SaveCalls.OFF,
+    /** The chats marked Quick talk, in the order marked: the Talk tab's pages (QuickTalk). */
+    val quickTalk: List<String> = emptyList(),
+    /** The Talk tab's page shown last; null: the first. */
+    val quickTalkPage: String? = null,
 )
 
 /**
@@ -309,6 +313,8 @@ internal class Messaging(
         hardwareButtons = settings.hardwareButtons,
         notifyOnly = settings.notifyOnlyChats,
         saveCalls = settings.saveCalls?.let { name -> com.chencohen.ptt.calls.SaveCalls.entries.firstOrNull { it.name == name } } ?: com.chencohen.ptt.calls.SaveCalls.OFF,
+        quickTalk = settings.quickTalkChats,
+        quickTalkPage = settings.quickTalkPage,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -318,6 +324,8 @@ internal class Messaging(
         settings.hardwareButtons = talk.hardwareButtons
         settings.notifyOnlyChats = talk.notifyOnly
         settings.saveCalls = talk.saveCalls.name
+        settings.quickTalkChats = talk.quickTalk
+        settings.quickTalkPage = talk.quickTalkPage
         _state.update { it.copy(talkSettings = talk) }
     }
 

@@ -48,6 +48,8 @@ class ContactActions(
     val unpair: () -> Unit = {},
     /** When I'm away: Notify only (true) or Play aloud. */
     val setNotifyOnly: (Boolean) -> Unit = {},
+    /** Quick talk on or off: a page of the Talk tab (docs/screens/quick-talk.md). */
+    val setQuickTalk: (Boolean) -> Unit = {},
 )
 
 /**
@@ -55,7 +57,7 @@ class ContactActions(
  * safety number to accept, the safety number, block and remove. The conversation itself is ConversationScreen.
  */
 @Composable
-internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActions, notifyOnly: Boolean = false) {
+internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActions, notifyOnly: Boolean = false, quickTalk: Boolean = false) {
     SettingsScaffold(title = user, back = actions.back, imePadding = true) {
         if (contact == null) {
             EmptyState(stringResource(R.string.contact_gone))
@@ -92,7 +94,10 @@ internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActi
                 onClick = actions.openSafetyNumber,
             )
         }
-        if (contact.paired && !contact.blocked) com.chencohen.ptt.ui.talk.WhenAwayCard(notifyOnly, actions.setNotifyOnly)
+        if (contact.paired && !contact.blocked) {
+            com.chencohen.ptt.ui.talk.QuickTalkCard(quickTalk, actions.setQuickTalk)
+            com.chencohen.ptt.ui.talk.WhenAwayCard(notifyOnly, actions.setNotifyOnly)
+        }
         Spacer(Modifier.height(20.dp))
         SettingsCard {
             if (contact.blocked) {

@@ -472,4 +472,10 @@
     <string name="voice_recording">Recording a voice message</string>
     <string name="voice_release_cancel">Let go to cancel</string>
     <string name="voice_slide_cancel">%1$s · slide away to cancel</string>
+    <string name="quick_talk_title">Talk</string>
+    <string name="quick_talk_switch">Quick talk</string>
+    <string name="quick_talk_switch_body">A page on the Talk tab: swipe to it and hold to talk.</string>
+    <string name="quick_talk_empty">No quick talk chats yet. Turn on Quick talk on a contact’s or group’s page.</string>
+    <string name="quick_talk_open_chats">Open Chats</string>
+    <string name="quick_talk_page">Page %1$d of %2$d</string>
 </resources>

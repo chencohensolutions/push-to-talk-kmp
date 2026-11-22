@@ -74,6 +74,30 @@ internal fun clipLength(ms: Long): String {
     return "%d:%02d".format(s / 60, s % 60)
 }
 
+/**
+ * The hold-to-talk circle (docs/screens/talk.md): ink (the main color), 220 dp, a microphone and "Hold to talk"; a
+ * teal ring while live, a faded ring and a muted circle while someone else talks.
+ */
+@Composable
+internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Unit, release: () -> Unit, modifier: Modifier = Modifier) {
+    val label = stringResource(R.string.talk_button)
+    Box(
+        modifier
+            .size(220.dp)
+            .border(if (live || someoneTalking) 8.dp else 0.dp, if (live) LibraryColors.Accent else LibraryColors.Accent.copy(alpha = 0.5f), CircleShape)
+            .padding(if (live || someoneTalking) 12.dp else 0.dp)
+            .background(if (someoneTalking && !live) LibraryColors.Muted.copy(alpha = 0.4f) else LibraryColors.Inverse, CircleShape)
+            .semantics { contentDescription = label }
+            .holdToTalk(onPress = { press() }, onRelease = { release() }),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(56.dp))
+            Text(label, color = LibraryColors.OnInverse, style = LibraryType.RowTitle)
+        }
+    }
+}
+
 /** A debug build shows the catch-up readout (how far behind live a burst plays). */
 @Composable
 internal fun isDebugBuild(): Boolean {
@@ -205,22 +229,7 @@ internal fun TalkModeScreen(
             )
         }
         Spacer(Modifier.weight(1f))
-        val label = stringResource(R.string.talk_button)
-        Box(
-            Modifier
-                .size(220.dp)
-                .border(if (live || someone != null) 8.dp else 0.dp, if (live) LibraryColors.Accent else LibraryColors.Accent.copy(alpha = 0.5f), CircleShape)
-                .padding(if (live || someone != null) 12.dp else 0.dp)
-                .background(if (someone != null && !live) LibraryColors.Muted.copy(alpha = 0.4f) else LibraryColors.Inverse, CircleShape)
-                .semantics { contentDescription = label }
-                .holdToTalk(onPress = { microphone(press) }, onRelease = { release() }),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(56.dp))
-                Text(label, color = LibraryColors.OnInverse, style = LibraryType.RowTitle)
-            }
-        }
+        TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release)
         Spacer(Modifier.weight(1f))
         if (bursts.isNotEmpty()) {
             Text(stringResource(R.string.talk_last), color = LibraryColors.Muted, style = LibraryType.SectionLabel, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp))
@@ -366,6 +375,15 @@ internal fun WhenAwayCard(notifyOnly: Boolean, set: (Boolean) -> Unit) {
         ChoiceRow(stringResource(R.string.talk_away_play), stringResource(R.string.talk_away_play_body), !notifyOnly) { set(false) }
         com.chencohen.ptt.ui.style.RowDivider()
         ChoiceRow(stringResource(R.string.talk_away_notify), stringResource(R.string.talk_away_notify_body), notifyOnly) { set(true) }
+    }
+}
+
+/** A contact's or group's Quick talk switch: on, it is a page of the Talk tab (docs/screens/quick-talk.md). */
+@Composable
+internal fun QuickTalkCard(on: Boolean, set: (Boolean) -> Unit) {
+    com.chencohen.ptt.ui.style.SectionTitle(stringResource(R.string.quick_talk_title))
+    com.chencohen.ptt.ui.style.SettingsCard {
+        SwitchRow(stringResource(R.string.quick_talk_switch), stringResource(R.string.quick_talk_switch_body), on, set)
     }
 }
 

@@ -21,6 +21,8 @@
   kept one (`Contact.changedKey`): nothing is sent to them until **Accept the new number**, which keeps the new key and
   clears Verified.
 - **Safety number**: Verified, or "Not verified: compare it with them"; opens the safety number.
+- **Quick talk** (a switch; paired, not blocked): the contact is a page of the [Talk tab](quick-talk.md). Then
+  **When I’m away** (Play aloud or Notify only).
 - **Block <user>** (red: "They can’t reach you and you can’t reach them until you unblock.") or **Unblock <user>**.
 - **Remove <user>** (red): asks first in the message bar, "Remove <user> from your contacts?" with **Remove**; then
   unpairs, says "<user> was removed" and goes home.

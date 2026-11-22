@@ -20,5 +20,6 @@
   each with what this phone knows of them: Owner, Invited, You, Verified, "Your contact, not verified", or "Added by the
   owner, not verified by you" (never paired with this user); a tap opens their page (or Add contact for one who isn't
   a contact). The owner has **Remove** (red, asked in the message bar) on each and **Add members** (the contacts not in
-  it, ticked, then **Invite**). Last, in red: **Leave group** (a member) or **Delete group** (the owner), both asked
+  it, ticked, then **Invite**). For a member: **Quick talk** (a switch: the group is a page of the
+  [Talk tab](quick-talk.md)) and **When I’m away**. Last, in red: **Leave group** (a member) or **Delete group** (the owner), both asked
   first in the message bar.
