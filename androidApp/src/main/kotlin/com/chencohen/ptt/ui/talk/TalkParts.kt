@@ -421,7 +421,8 @@ internal fun VoiceButton(recording: OwnTalk?, start: () -> Unit, finish: (send: 
     var since by remember { mutableLongStateOf(0L) }
     var elapsed by remember { mutableLongStateOf(0L) }
     var sliding by remember { mutableStateOf(false) }
-    val active = recording?.phase == TalkPhase.VOICE
+    // Talking in the chat (push-to-talk) or recording a voice message.
+    val active = recording?.phase == TalkPhase.VOICE || recording?.phase == TalkPhase.REQUESTING || recording?.phase == TalkPhase.TALKING
     LaunchedEffect(active) {
         if (active) {
             since = System.currentTimeMillis()

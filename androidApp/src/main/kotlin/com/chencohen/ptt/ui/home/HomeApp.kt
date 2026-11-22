@@ -616,7 +616,8 @@ fun HomeApp(
                             openTalk = { push("talk/$user") },
                             playClip = messaging::playClip,
                             stopClip = messaging::stopPlaying,
-                            startVoice = { messaging.startVoice(user) },
+                            // The chat's microphone is push-to-talk (2026-11-22, hen), not a voice message.
+                            startVoice = { pressOrUnlock(user) },
                             finishVoice = { messaging.releaseTalk(it) },
                             micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                             call = { video -> call(user, video) },
