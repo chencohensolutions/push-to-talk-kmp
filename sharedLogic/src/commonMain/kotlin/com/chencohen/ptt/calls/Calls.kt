@@ -170,6 +170,9 @@ internal class Calls(
     /** The call's key while the server kept the call at some point: it goes on the call's entry, for playing it later. */
     private var keptKey: ByteArray? = null
 
+    /** This phone's own recorder runs (Save calls, with a server that doesn't keep calls). */
+    private var savingHere = false
+
     private val current: CallUi? get() = _state.value?.takeIf { it.phase != CallPhase.ENDED }
 
     /** Calls [chat]: false when a call is already on. */
@@ -250,9 +253,13 @@ internal class Calls(
         }
         if (on == call.saving) return
         if (on) {
-            if (transport?.startRecording() != true) return
+            // With a server that keeps calls, Save is only the server's: this phone doesn't record or re-encode anything
+            // (2026-11-22, hen: the on-phone recorder froze this phone's own video).
+            savingHere = !serverKeepsCalls()
+            if (savingHere && transport?.startRecording() != true) return
         } else {
-            transport?.stopRecording()?.let { savedAs = it }
+            if (savingHere) transport?.stopRecording()?.let { savedAs = it }
+            savingHere = false
         }
         _state.update { it?.copy(saving = on, askToSave = false, recordingBy = if (on) it.recordingBy + self else it.recordingBy - self) }
         scope.launch { send(call.chat, CallContent(CallContent.RECORDING, call.id, recording = on), PushKind.NONE) }
@@ -368,7 +375,8 @@ internal class Calls(
         if (joined) runCatching { transport?.leave() }
         joined = false
         key = null
-        if (call.saving) transport?.stopRecording()?.let { savedAs = it }
+        if (call.saving && savingHere) transport?.stopRecording()?.let { savedAs = it }
+        savingHere = false
         val ended = call.copy(phase = CallPhase.ENDED, outcome = outcome, saving = false, askToSave = false)
         _state.value = ended
         host?.ended(ended)

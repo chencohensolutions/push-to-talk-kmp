@@ -54,7 +54,7 @@ class CallsTest {
         override fun missed(chat: String, caller: String, video: Boolean) { missed += chat }
     }
 
-    private class Setup(val scope: TestScope, val self: String = "hen", save: SaveCalls = SaveCalls.OFF) {
+    private class Setup(val scope: TestScope, val self: String = "hen", save: SaveCalls = SaveCalls.OFF, val serverKeeps: Boolean = false) {
         val transport = FakeTransport()
         val host = FakeHost()
         val sent = mutableListOf<Triple<String, CallContent, Int>>()
@@ -76,6 +76,7 @@ class CallsTest {
             onCall = { leftTalk++ },
             saveCalls = { save },
             keepOnServer = { _, peer, group, on -> keeps += (peer ?: "g:$group") to on },
+            serverKeepsCalls = { serverKeeps },
             now = { scope.testScheduler.currentTime + 1_000_000 },
             random = Random(2),
         ).also {
@@ -315,5 +316,24 @@ class CallsTest {
         assertEquals(null, RoomMetadata.recorderOf("""{"recording":false}"""))
         assertEquals(null, RoomMetadata.recorderOf(""))
         assertEquals(null, RoomMetadata.recorderOf("not json"))
+    }
+
+    @Test
+    fun withAServerThatKeepsCallsSaveDoesntRecordOnThePhone() = runTest {
+        val s = Setup(this, serverKeeps = true)
+        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
+        s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1"))
+        runCurrent()
+        s.calls.setRecording(true)
+        runCurrent()
+        assertTrue(s.calls.state.value!!.saving, "the badge shows")
+        assertEquals(false, s.transport.recording, "nothing records or re-encodes on the phone")
+        assertEquals(listOf<Pair<String?, Boolean>>("sharon" to true), s.keeps, "the server keeps it")
+        s.calls.setRecording(false)
+        runCurrent()
+        assertEquals(0, s.transport.saves)
+        assertEquals("sharon" to false, s.keeps.last())
     }
 }
