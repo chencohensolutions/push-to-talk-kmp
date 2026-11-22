@@ -57,26 +57,8 @@ class Notifications(private val context: Context) : MessageNotifier {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val reply = NotificationCompat.Action.Builder(
-            0, context.getString(R.string.notify_reply),
-            PendingIntent.getBroadcast(
-                context, id,
-                Intent(context, NotificationActions::class.java).setAction(ACTION_REPLY).putExtra(EXTRA_USER, user),
-                // Mutable: Android puts the typed reply into it.
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-            ),
-        ).addRemoteInput(RemoteInput.Builder(KEY_REPLY).setLabel(context.getString(R.string.notify_reply_hint)).build())
-            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
-            .setShowsUserInterface(false)
-            .build()
-        val read = NotificationCompat.Action.Builder(
-            0, context.getString(R.string.notify_mark_read),
-            PendingIntent.getBroadcast(
-                context, id + 1,
-                Intent(context, NotificationActions::class.java).setAction(ACTION_READ).putExtra(EXTRA_USER, user),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            ),
-        ).setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ).setShowsUserInterface(false).build()
+        val reply = replyAction(context, user, id)
+        val read = readAction(context, user, id)
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setStyle(style)
@@ -103,6 +85,28 @@ class Notifications(private val context: Context) : MessageNotifier {
     }
 
     companion object {
+        /** Reply with a typed or dictated text (Android Auto reads and dictates), without opening the app. */
+        fun replyAction(context: Context, user: String, id: Int): NotificationCompat.Action = NotificationCompat.Action.Builder(
+            0, context.getString(R.string.notify_reply),
+            PendingIntent.getBroadcast(
+                context, id,
+                Intent(context, NotificationActions::class.java).setAction(ACTION_REPLY).putExtra(EXTRA_USER, user),
+                // Mutable: Android puts the typed reply into it.
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+            ),
+        ).addRemoteInput(RemoteInput.Builder(KEY_REPLY).setLabel(context.getString(R.string.notify_reply_hint)).build())
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+            .setShowsUserInterface(false)
+            .build()
+        fun readAction(context: Context, user: String, id: Int): NotificationCompat.Action = NotificationCompat.Action.Builder(
+            0, context.getString(R.string.notify_mark_read),
+            PendingIntent.getBroadcast(
+                context, id + 1,
+                Intent(context, NotificationActions::class.java).setAction(ACTION_READ).putExtra(EXTRA_USER, user),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ),
+        ).setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ).setShowsUserInterface(false).build()
+
         const val CHANNEL = "messages"
         const val ACTION_OPEN = "com.chencohen.ptt.OPEN_CHAT"
         const val ACTION_REPLY = "com.chencohen.ptt.REPLY"

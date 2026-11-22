@@ -535,4 +535,9 @@
     <string name="widget_busy">%1$s מדבר/ת עכשיו</string>
     <string name="widget_pick_title">לדבר אל מי?</string>
     <string name="widget_pick_empty">אין עדיין אנשי קשר. צריך לפתוח את Talk ולהוסיף אחד.</string>
+    <string name="car_no_chats">אין עדיין שיחות. אפשר להוסיף איש קשר בטלפון.</string>
+    <string name="car_talking">● %1$s מדבר/ת</string>
+    <string name="car_wait">רגע: מישהו מדבר</string>
+    <string name="car_talking_to">מדברים אל %1$s · %2$s</string>
+    <string name="car_nothing_heard">לא נשמע כלום</string>
 </resources>

@@ -18,6 +18,8 @@ zxing-core = "3.5.3"
 # Phase 5a: a burst that wakes a sleeping phone plays in a Telecom talk session (the plan's R1).
 core-telecom = "1.1.0"
 work = "2.12.0"
+tflite-play = "16.5.0"
+car-app = "1.7.0"
 # Phase 5b: the live talk path (LiveKit's client, with its WebRTC), and phase 6's calls.
 livekit = "2.30.0"
 # Phase 2: libsignal from Signal's own Maven repository (settings.gradle.kts), pinned; upgrades are deliberate.
@@ -67,6 +69,9 @@ desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref 
 livekit-android = { module = "io.livekit:livekit-android", version.ref = "livekit" }
 core-telecom = { module = "androidx.core:core-telecom", version.ref = "core-telecom" }
 androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }
+play-services-tflite-java = { module = "com.google.android.gms:play-services-tflite-java", version.ref = "tflite-play" }
+androidx-car-app = { module = "androidx.car.app:app", version.ref = "car-app" }
+androidx-car-app-projected = { module = "androidx.car.app:app-projected", version.ref = "car-app" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing-core" }
 firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
 firebase-messaging = { module = "com.google.firebase:firebase-messaging" }

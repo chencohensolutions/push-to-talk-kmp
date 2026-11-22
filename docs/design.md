@@ -497,6 +497,13 @@ SHA-256) and whether a push notifies (`notify`: once per version). `AppUpdates` 
   enrollment.
 - **Debug builds** don't update (another key): Settings says "This is a test build", and a push shows nothing.
 
+## Android Auto (1.3.0)
+
+Conversation notifications with Reply and Mark as read for any car, and a Car App (messaging) whose tiles talk from
+the car's microphone and end by themselves when the speech does (Silero VAD on LiteRT from Play services, or in plain Kotlin; `VoiceEnd`):
+[android-auto.md](screens/android-auto.md). The same `SpeechDetector` and `VoiceEnd` can later end the phone's Talk
+back and widget bursts (not turned on there).
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.

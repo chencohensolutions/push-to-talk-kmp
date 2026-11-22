@@ -531,4 +531,9 @@
     <string name="widget_busy">%1$s has the floor</string>
     <string name="widget_pick_title">Talk to who?</string>
     <string name="widget_pick_empty">No contacts yet. Open Talk and add one first.</string>
+    <string name="car_no_chats">No conversations yet. Add a contact on the phone.</string>
+    <string name="car_talking">● %1$s is talking</string>
+    <string name="car_wait">Wait: someone is talking</string>
+    <string name="car_talking_to">Talking to %1$s · %2$s</string>
+    <string name="car_nothing_heard">Nothing heard</string>
 </resources>

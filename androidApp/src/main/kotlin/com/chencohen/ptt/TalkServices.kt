@@ -635,13 +635,21 @@ object TalkNotifications {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        // A conversation's message, so Android Auto shows it with Reply and Mark as read.
+        val sender = androidx.core.app.Person.Builder().setName(who).setKey(from).build()
+        val style = NotificationCompat.MessagingStyle(androidx.core.app.Person.Builder().setName(context.getString(R.string.notify_you)).build())
+            .addMessage(context.getString(R.string.talk_notify_body), System.currentTimeMillis(), sender)
+        if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) style.setConversationTitle(title).setGroupConversation(true)
         val notification: Notification = NotificationCompat.Builder(context, TALK_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(context.getString(R.string.talk_notify_body))
+            .setStyle(style)
             .setContentIntent(open(ACTION_PLAY, id))
             .addAction(0, context.getString(R.string.talk_notify_play), open(ACTION_PLAY, id))
             .addAction(0, context.getString(R.string.talk_notify_reply), open(ACTION_TALK, id + 1))
+            .addAction(Notifications.replyAction(context, chat, id + 2))
+            .addAction(Notifications.readAction(context, chat, id + 3))
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
