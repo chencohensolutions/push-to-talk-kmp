@@ -8,6 +8,8 @@ conversations and how many texts of each aren't read). A contact opens their [co
   this is), which opens [Settings](settings.md); the tab's title, "Talk", "Chats" or "Calls", in ScreenTitle; and the
   **Offline** pill (orange cloud), only while the server can't be reached (`ServerHealth.OFFLINE`).
 - **Cards** at the top (`HomeCard`), only when there is something to do:
+  - **"Talk 1.2.0 is available"** with **Update**, when a newer release is out (also on the Talk tab; see
+    [design.md](../design.md), "App updates").
   - **Register again** (warning mark), when the server refuses this phone's certificate or the phone has no identity
     (`ServerHealth.REJECTED`): **Register again** opens the [enrollment wizard](enrollment.md).
   - **"<user> wants to pair"**, one per pair request (someone scanned this phone's code): **Review** opens

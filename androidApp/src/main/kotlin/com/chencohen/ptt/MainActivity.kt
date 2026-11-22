@@ -125,6 +125,8 @@ class MainActivity : ComponentActivity() {
     // background is a setting in phase 5 (FCM wakes the phone in phase 3).
     override fun onStart() {
         super.onStart()
+        // A newer release of the app, at most every 6 hours (docs/design.md, "App updates").
+        AppUpdates.checkIfDue(application as TalkApp)
         if (viewModel.connection.currentState.enrolled) {
             viewModel.connection.connect()
             viewModel.messaging.start()

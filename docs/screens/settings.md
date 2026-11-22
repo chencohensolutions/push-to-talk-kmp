@@ -52,3 +52,11 @@ One card, all selectable to copy:
 - "Knows N addresses to find it again" ([design.md](../design.md), "Finding the server").
 
 Under the cards, the app's version ("Talk 0.1").
+
+## App updates
+
+Above Your server: where the app's update stands ("Talk is up to date", "Checked at 15:40"; "Checking for an
+update…"; "Talk 1.2.0 is available", tap to update; "Downloading Talk 1.2.0… 40%"; "Installing…"; "Allow Talk to
+install updates" when Android's Install unknown apps is off; "Update failed: <why>", tap to try again), and **Check
+now**. A debug build says "This is a test build" and has no Check now. How updates work: [design.md](../design.md),
+"App updates".

@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- App updates from the GitHub releases: PackageInstaller (AppUpdates). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Stay connected (Settings › Talk): a foreground service started from the screen. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
@@ -100,6 +102,10 @@
             android:foregroundServiceType="phoneCall|microphone|camera" />
         <receiver
             android:name=".CallActionReceiver"
+            android:exported="false" />
+        <!-- An app update's install results (AppUpdates). -->
+        <receiver
+            android:name=".UpdateInstallReceiver"
             android:exported="false" />
         <!-- Share for a saved call: only the app's calls folder (res/xml/call_files.xml). -->
         <provider

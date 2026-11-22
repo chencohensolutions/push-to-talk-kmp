@@ -457,6 +457,24 @@ to talk): a pager of the contacts and groups marked Quick talk, each with the ho
 keeps the order (a new mark goes last), skips chats that can't talk now, and picks the start page. Pressing on a page
 is `Talk.press` in that chat, as in Talk mode.
 
+## App updates (1.2.0)
+
+The release app updates itself from this repo's GitHub releases (2026-11-22, hen). `AppUpdate` (sharedLogic) reads
+`releases/latest` from GitHub's API (public, no login): a release that isn't a draft or pre-release and has
+`talk-<version>.apk` and `SHA256SUMS`, newer than the app (`isNewer`, by number). `AppUpdates` (androidApp):
+
+- **When it looks:** each time the app comes to the screen (`MainActivity.onStart`), at most every 6 hours
+  (`AppUpdate.due`, the last look kept in the app's preferences), and on Settings › App updates › **Check now**.
+  Nothing runs in the background.
+- **Offer:** a home card on Talk and Chats, "Talk 1.2.0 is available", with **Update**; Settings › App updates says
+  where it stands (up to date and when it looked, downloading with a percentage, installing, failed with why).
+- **Update:** with Install unknown apps off for Talk, Android's page for it opens first (then Update again). The APK
+  is downloaded to the cache, its SHA-256 checked against `SHA256SUMS`, and it must be this package, a higher
+  version code, and signed with the same key. Then PackageInstaller installs it, asking Android not to need the
+  user's confirmation (Android 12+, `USER_ACTION_NOT_REQUIRED`); when Android still asks, its confirm screen shows.
+  The app restarts on the new version with its data and enrollment.
+- **Debug builds** don't update (another key): Settings says "This is a test build".
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.
