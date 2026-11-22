@@ -130,7 +130,12 @@ class MainActivity : ComponentActivity() {
     /**
      * Hardware buttons (Settings › Talk): a held volume key talks in the default conversation while the app is on
      * screen (a short press still changes the volume); a headset's or Bluetooth talk button presses and releases.
+     *
+     * RestrictedApi is suppressed because lint misreads this: androidx.core's ComponentActivity marks its own
+     * dispatchKeyEvent restricted, but this overrides (and calls super on) the public Activity.dispatchKeyEvent,
+     * which is how a key event is meant to be seen before the focused view takes it.
      */
+    @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         val talk = viewModel.messaging.talkSettings
         if (!talk.hardwareButtons || talk.defaultChat == null) return super.dispatchKeyEvent(event)
