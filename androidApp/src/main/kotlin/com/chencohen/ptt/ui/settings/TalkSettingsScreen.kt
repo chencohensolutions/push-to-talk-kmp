@@ -82,6 +82,10 @@ internal fun TalkSettingsScreen(
                 AllowRow(stringResource(R.string.talk_allow_overlay)) { openOverlaySetting() }
             }
             RowDivider()
+            SwitchRow(stringResource(R.string.talk_unmute), stringResource(R.string.talk_unmute_body), settings.unmuteForTalk) {
+                change(settings.copy(unmuteForTalk = it))
+            }
+            RowDivider()
             SwitchRow(stringResource(R.string.talk_stay_connected), stringResource(R.string.talk_stay_connected_body), settings.stayConnected) {
                 change(settings.copy(stayConnected = it))
             }

@@ -151,6 +151,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_BUBBLE_VIDEO) != "false"
         set(value) = store.putString(KEY_BUBBLE_VIDEO, value.toString())
 
+    /** Settings › Talk › Unmute for incoming talk: on unless turned off (2026-11-22, hen). */
+    var unmuteForTalk: Boolean
+        get() = store.getString(KEY_UNMUTE_FOR_TALK) != "false"
+        set(value) = store.putString(KEY_UNMUTE_FOR_TALK, value.toString())
+
     /** This user's email, shared with their paired contacts (Settings › Contacts › Your email); null: none. */
     var myEmail: String?
         get() = store.getString(KEY_MY_EMAIL)
@@ -171,6 +176,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_MY_EMAIL = "my_email"
         private const val KEY_PUSH_VIDEO = "talk_push_video"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
+        private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"
         private const val KEY_STAY_CONNECTED = "talk_stay_connected"

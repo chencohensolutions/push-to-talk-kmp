@@ -40,6 +40,10 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
   Talk button while the phone is in use ([notifications.md](notifications.md), "Reply bubble"). Turning it on opens
   Android's "Display over other apps" for Talk; while that isn't allowed, "Allow Talk to display over other apps"
   shows under it.
+- **In the background › Unmute for incoming talk** (on by default; 2026-11-22, hen): a burst that starts while the
+  media volume is 0 turns it up to 60% (`TalkUnmute`), with Android's volume bar showing, for as long as bursts play
+  (the queued ones and the catch-up too), then back to 0; a volume the user changed meanwhile stays. Nothing changes in
+  Do Not Disturb, on a fixed-volume phone or in a call, and the ringer is never touched.
 - **In the background › Stay connected** (a switch, off by default): a foreground service keeps the connection, so
   talk plays at once and buttons work with the screen off; a note says it uses a little more battery and that, off,
   the server wakes the phone when someone talks. After a restart it resumes when the app is opened (Android starts

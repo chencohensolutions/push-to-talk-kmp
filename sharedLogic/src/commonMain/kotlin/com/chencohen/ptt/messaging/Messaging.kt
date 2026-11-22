@@ -99,6 +99,8 @@ data class TalkSettings(
     val pushVideo: Boolean = false,
     /** The reply bubble shows a burst's video (on by default; its Video switch turns it off). */
     val bubbleVideo: Boolean = true,
+    /** Settings › Talk › Unmute for incoming talk (on by default; TalkUnmute). */
+    val unmuteForTalk: Boolean = true,
 )
 
 /**
@@ -235,6 +237,8 @@ internal class Messaging(
                 get() = settings.catchUp?.let { name -> CatchUpMode.entries.firstOrNull { it.name == name } } ?: CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP
 
             override fun notifyOnly(chat: String): Boolean = chat in settings.notifyOnlyChats
+
+            override val unmute: Boolean get() = settings.unmuteForTalk
         },
         publish = ::publish,
         awake = { foreground || stayConnected },
@@ -374,6 +378,7 @@ internal class Messaging(
         callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.VP8,
         pushVideo = settings.pushVideo,
         bubbleVideo = settings.bubbleVideo,
+        unmuteForTalk = settings.unmuteForTalk,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -390,6 +395,7 @@ internal class Messaging(
         settings.callVideo = talk.callVideo.name
         settings.pushVideo = talk.pushVideo
         settings.bubbleVideo = talk.bubbleVideo
+        settings.unmuteForTalk = talk.unmuteForTalk
         _state.update { it.copy(talkSettings = talk) }
     }
 

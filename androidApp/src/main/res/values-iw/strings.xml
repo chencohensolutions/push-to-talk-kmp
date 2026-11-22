@@ -600,6 +600,8 @@
     <string name="bubble_send">שליחה</string>
     <string name="bubble_talk_hint">להחזיק כדי לענות, לשחרר כדי לשלוח</string>
     <string name="bubble_close">סגירה</string>
+    <string name="talk_unmute">הפעלת השמע כשמדברים אליי</string>
+    <string name="talk_unmute_body">כשמישהו מדבר אליכם ועוצמת המדיה כבויה, היא עולה ל־60% בזמן שהוא מדבר, ואחר כך נכבית שוב. לא במצב נא לא להפריע.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>
     <string name="talk_reply_bubble_body">כשהטלפון בשימוש ומישהו מדבר אליכם, מופיע פס בתחתית המסך עם השם שלו וכפתור "לדבר", עד 30 שניות אחרי שסיים.</string>
     <string name="talk_allow_overlay">לאפשר ל-Talk להופיע מעל אפליקציות אחרות</string>
