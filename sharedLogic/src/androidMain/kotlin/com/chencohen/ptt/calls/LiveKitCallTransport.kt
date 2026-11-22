@@ -116,6 +116,8 @@ class LiveKitCallTransport(
 
     override fun leave() {
         stopRecording()
+        cameraWatch?.cancel()
+        cameraWatch = null
         watched = null
         events?.cancel()
         events = null
@@ -144,15 +146,48 @@ class LiveKitCallTransport(
     private val cameraSink = object : livekit.org.webrtc.VideoSink {
         private var last = Triple(-1, -1, -1)
         override fun onFrame(frame: livekit.org.webrtc.VideoFrame) {
+            lastCameraFrame = android.os.SystemClock.elapsedRealtime()
             val now = Triple(frame.rotation, frame.buffer.width, frame.buffer.height)
             if (now == last) return
             last = now
+            Log.i(TAG, "camera sends ${now.second}x${now.third}, rotation ${now.first}")
             listener?.cameraFormat(now.first, now.second, now.third)
+        }
+    }
+
+    @Volatile private var lastCameraFrame = 0L
+    private var cameraWatch: kotlinx.coroutines.Job? = null
+
+    /**
+     * The camera's frames stopping while it is on (2026-11-22, hen: after a rotation the video stopped until the camera
+     * was turned off and on): after [CAMERA_STALL_MS] without a frame, the camera is turned off and on here, once per
+     * stall.
+     */
+    private fun watchCameraFrames(room: Room) {
+        cameraWatch?.cancel()
+        lastCameraFrame = android.os.SystemClock.elapsedRealtime()
+        cameraWatch = scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1_000)
+                if (_room.value !== room) return@launch
+                val on = room.localParticipant.getTrackPublication(Track.Source.CAMERA)?.let { !it.muted } == true
+                val quiet = android.os.SystemClock.elapsedRealtime() - lastCameraFrame
+                if (!on || quiet < CAMERA_STALL_MS) continue
+                Log.w(TAG, "no camera frame for $quiet ms: turning the camera off and on")
+                runCatching {
+                    room.localParticipant.setCameraEnabled(false)
+                    room.localParticipant.setCameraEnabled(true)
+                    watchCamera(room)
+                }.onFailure { Log.w(TAG, "camera restart", it) }
+                lastCameraFrame = android.os.SystemClock.elapsedRealtime()
+                _changes.update { it + 1 }
+            }
         }
     }
 
     private fun watchCamera(room: Room) {
         val track = room.localParticipant.getTrackPublication(Track.Source.CAMERA)?.track as? LocalVideoTrack ?: return
+        if (cameraWatch?.isActive != true) watchCameraFrames(room)
         if (watched === track) return
         watched?.let { runCatching { it.removeRenderer(cameraSink) } }
         watched = track
@@ -271,5 +306,7 @@ class LiveKitCallTransport(
         }.getOrDefault(false)
 
         const val TAG = "LiveKitCall"
+
+        private const val CAMERA_STALL_MS = 2_500L
     }
 }

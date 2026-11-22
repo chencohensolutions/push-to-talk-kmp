@@ -30,6 +30,7 @@ import com.chencohen.ptt.ui.style.RowDivider
 import com.chencohen.ptt.ui.style.SectionTitle
 import com.chencohen.ptt.ui.style.SettingsCard
 import com.chencohen.ptt.ui.style.SettingsScaffold
+import com.chencohen.ptt.ui.talk.ChoiceRow
 
 /**
  * Settings (docs/screens/settings.md), Signal's grouping as far as phase 2 goes: Account (this phone, Linked devices
@@ -60,6 +61,9 @@ internal fun SettingsScreen(
     /** This user's email, shared with their contacts (null: none). */
     myEmail: String? = null,
     setMyEmail: (String) -> Unit = {},
+    /** Settings › Notifications › Message sound: Talk's soft chime (true, the default) or the phone's sound. */
+    softMessage: Boolean = true,
+    setSoftMessage: (Boolean) -> Unit = {},
 ) {
     LaunchedEffect(Unit) { refresh() }
     SettingsScaffold(stringResource(R.string.settings_title), back) {
@@ -147,6 +151,13 @@ internal fun SettingsScreen(
                     androidx.compose.material3.TextButton(onClick = { editingEmail = false }) { Text(stringResource(R.string.contact_rename_cancel)) }
                 },
             )
+        }
+        SectionTitle(stringResource(R.string.settings_notifications_title))
+        SettingsCard {
+            InfoRow(stringResource(R.string.settings_message_sound), null)
+            ChoiceRow(stringResource(R.string.settings_message_sound_soft), stringResource(R.string.settings_message_sound_soft_body), softMessage) { setSoftMessage(true) }
+            RowDivider()
+            ChoiceRow(stringResource(R.string.settings_message_sound_phone), stringResource(R.string.settings_message_sound_phone_body), !softMessage) { setSoftMessage(false) }
         }
         SectionTitle(stringResource(R.string.settings_talk_title))
         SettingsCard {

@@ -59,7 +59,8 @@ class Notifications(private val context: Context) : MessageNotifier {
         )
         val reply = replyAction(context, user, id)
         val read = readAction(context, user, id)
-        val notification = NotificationCompat.Builder(context, CHANNEL)
+        val soft = messagingState(context).value.talkSettings.softMessage
+        val notification = NotificationCompat.Builder(context, if (soft) SOFT_CHANNEL else CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setStyle(style)
             .setContentIntent(open)
@@ -107,7 +108,10 @@ class Notifications(private val context: Context) : MessageNotifier {
             ),
         ).setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ).setShowsUserInterface(false).build()
 
+        /** The phone's notification sound (the first channel; a channel's sound can't change afterwards). */
         const val CHANNEL = "messages"
+        /** Talk's soft chime, res/raw/message_soft.ogg (tools/ringtone/make_message.py): the default (2026-11-22, hen). */
+        const val SOFT_CHANNEL = "messages_soft"
         const val ACTION_OPEN = "com.chencohen.ptt.OPEN_CHAT"
         const val ACTION_REPLY = "com.chencohen.ptt.REPLY"
         const val ACTION_READ = "com.chencohen.ptt.MARK_READ"
@@ -120,9 +124,22 @@ class Notifications(private val context: Context) : MessageNotifier {
         private fun idOf(user: String): Int = (user.hashCode() and 0x3fffffff) * 2
 
         fun createChannel(context: Context) {
-            val channel = NotificationChannel(CHANNEL, context.getString(R.string.notify_channel), NotificationManager.IMPORTANCE_HIGH)
+            val manager = context.getSystemService(NotificationManager::class.java)
+            val channel = NotificationChannel(CHANNEL, context.getString(R.string.notify_channel_phone), NotificationManager.IMPORTANCE_HIGH)
                 .apply { description = context.getString(R.string.notify_channel_description) }
-            context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            manager.createNotificationChannel(channel)
+            val sound = android.net.Uri.parse("android.resource://${context.packageName}/${R.raw.message_soft}")
+            val soft = NotificationChannel(SOFT_CHANNEL, context.getString(R.string.notify_channel), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = context.getString(R.string.notify_channel_description)
+                setSound(
+                    sound,
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                )
+            }
+            manager.createNotificationChannel(soft)
         }
     }
 }

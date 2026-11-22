@@ -326,6 +326,8 @@ fun HomeApp(
                         contacts = messagingState.contacts,
                         myEmail = messaging.myEmail,
                         setMyEmail = { email -> messaging.setMyEmail(email) },
+                        softMessage = messagingState.talkSettings.softMessage,
+                        setSoftMessage = { soft -> onTalkSettings(messagingState.talkSettings.copy(softMessage = soft)) },
                         presenceVisible = presenceVisible,
                         setPresenceVisible = { visible ->
                             presenceVisible = null
@@ -767,6 +769,8 @@ fun HomeApp(
                 else -> LaunchedEffect(page) { home() }
             }
             MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarRoom().imePadding().padding(bottom = if (page == null) 88.dp else 16.dp))
+            // The floating window is on by default (2026-11-22, hen) but needs "Display over other apps": asked once.
+            OverlayAskOnce(messagingState.talkSettings.replyBubble)
             // A call, over everything (phase 6).
             messagingState.call?.let { current ->
                 BackHandler {}
@@ -867,7 +871,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                     (chats.keys as? KeysState.Linking)?.let { linking ->
                         HomeCard(
                             title = stringResource(R.string.chats_linking_title),
-                            body = stringResource(R.string.chats_linking_body, linking.device),
+                            body = stringResource(R.string.chats_linking_body),
                             action = "",
                             onAction = {},
                         )
@@ -1094,3 +1098,32 @@ private fun ChatsListPreview() {
 /** An invite's last day, as the phone writes a date ("Nov 29, 2026"). */
 private fun inviteDate(millis: Long): String =
     java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(millis))
+
+/** Asks once, with a word on why, for "Display over other apps" while the floating window is on without it. */
+@Composable
+private fun OverlayAskOnce(on: Boolean) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("asked", android.content.Context.MODE_PRIVATE) }
+    var asking by remember { mutableStateOf(on && !android.provider.Settings.canDrawOverlays(context) && !prefs.getBoolean("overlay", false)) }
+    if (!asking) return
+    fun done() {
+        prefs.edit().putBoolean("overlay", true).apply()
+        asking = false
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = ::done,
+        title = { androidx.compose.material3.Text(stringResource(R.string.overlay_ask_title)) },
+        text = { androidx.compose.material3.Text(stringResource(R.string.overlay_ask_body)) },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                done()
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:${context.packageName}")),
+                    )
+                }
+            }) { androidx.compose.material3.Text(stringResource(R.string.overlay_ask_allow)) }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = ::done) { androidx.compose.material3.Text(stringResource(R.string.overlay_ask_later)) } },
+    )
+}

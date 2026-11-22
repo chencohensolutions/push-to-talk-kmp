@@ -26,8 +26,16 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
 
 - **Catch up to live**: Shorten pauses and speed up (the default), Shorten pauses only, or Off, with a line under
   each; the chosen one has a teal check.
-- **Calls › Video** (2026-11-22, hen): **Standard (VP8)**, the default, or **H.265 (smaller, sharper)**, offered only
-  on a phone with a hardware H.265 encoder. With H.265 the phone also sends VP8 (LiveKit's backup codec), so a phone
+- **Notifications › Message sound** (2026-11-22, hen): **Talk soft chime** (the default: two calm notes,
+  `res/raw/message_soft.ogg`, made by `tools/ringtone/make_message.py`, on the `messages_soft` channel) or **Phone's
+  sound** (the first `messages` channel, "Messages (phone's sound)"). Each is its own channel because a channel's sound
+  can't change once made; Android's own settings for each still apply.
+- **Calls › Ringtone** (2026-11-22, hen): **Talk soft chime** (the default: a rising pentatonic chime in a 4-second
+  loop, `res/raw/ring_soft.ogg`, made by `tools/ringtone/make_ring.py`) or **Phone's ringtone**. `CallRinger` loops it
+  on the ringer's stream until the call is answered, declined or 45 seconds pass; silent in Do Not Disturb and silent
+  mode, vibration only in vibrate mode. The ringing notification's channel (`calls_ringing_v2`) has no sound of its own.
+- **Calls › Video** (2026-11-22, hen): **H.265 (smaller, sharper)**, the default where the phone has a hardware H.265
+  encoder (2026-11-22, hen; a phone without one sends VP8), or **Standard (VP8)**. With H.265 the phone also sends VP8 (LiveKit's backup codec), so a phone
   that can't decode H.265 still sees it. Calls stay encrypted end to end; it applies from the next call.
 - **Calls › Save calls to** (2026-11-22, hen): **Choose a folder** opens Android's folder picker (the phone, an SD
   card or a USB drive), kept with a lasting permission; under it, the folder's name, or Downloads › Talk.
@@ -35,11 +43,20 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
 - **In the background › Open Talk when someone talks to me** (off by default): with the screen off it turns on with
   that Talk screen over the lock screen. Android 14 and later ask for "full-screen notifications" first; while that
   isn't allowed, a row in the warning color, "Allow Talk to open over the lock screen", opens Android's page for it
-  (2026-11-22: without it nothing opened).
-- **In the background › Reply bubble over other apps** (off by default): the bar at the bottom of the screen with a
+  (2026-11-22: without it nothing opened). "Display over other apps" (the floating window's) does as well: with it the
+  Talk screen is started straight away, which Android allows such apps from the background; else a new notification
+  of its own carries the full-screen intent (one only fires when its notification is new, and the playing
+  notification is updated in place, so it never fired; 2026-11-22, hen).
+- **In the background › Reply bubble over other apps** (on by default since 2026-11-22, hen; a phone that had it off
+  before that, most likely never chosen, starts with it on once; since then only a changed setting is stored): the bar at the bottom of the screen with a
   Talk button while the phone is in use ([notifications.md](notifications.md), "Reply bubble"). Turning it on opens
   Android's "Display over other apps" for Talk; while that isn't allowed, "Allow Talk to display over other apps"
-  shows under it.
+  shows under it. While it is on without that permission, the app asks once on opening ("Show Talk over other
+  apps?", Allow or Not now) and then only shows that row.
+- **In the background › Unmute for incoming talk** (on by default; 2026-11-22, hen): a burst that starts while the
+  media volume is 0 turns it up to 60% (`TalkUnmute`), with Android's volume bar showing, for as long as bursts play
+  (the queued ones and the catch-up too), then back to 0; a volume the user changed meanwhile stays. Nothing changes in
+  Do Not Disturb, on a fixed-volume phone or in a call, and the ringer is never touched.
 - **In the background › Stay connected** (a switch, off by default): a foreground service keeps the connection, so
   talk plays at once and buttons work with the screen off; a note says it uses a little more battery and that, off,
   the server wakes the phone when someone talks. After a restart it resumes when the app is opened (Android starts

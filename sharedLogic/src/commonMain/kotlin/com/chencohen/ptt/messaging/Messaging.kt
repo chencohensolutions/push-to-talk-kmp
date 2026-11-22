@@ -89,16 +89,22 @@ data class TalkSettings(
      * Settings › Talk › Reply bubble over other apps (off by default): while the phone is in use, a burst shows a bar at
      * the bottom of the screen with the sender and a Talk button, for the burst and the reply window after it.
      */
-    val replyBubble: Boolean = false,
+    val replyBubble: Boolean = true,
     /**
      * Settings › Calls › Video: VP8 (standard) or H.265 (smaller and sharper; 2026-11-22, hen), offered only on a phone
      * with a hardware H.265 encoder. Phones that can't take H.265 get VP8 from the same sender (a backup codec).
      */
-    val callVideo: com.chencohen.ptt.calls.CallVideo = com.chencohen.ptt.calls.CallVideo.VP8,
+    val callVideo: com.chencohen.ptt.calls.CallVideo = com.chencohen.ptt.calls.CallVideo.H265,
     /** Push-to-video (2026-11-22, hen; off by default): a press on a Talk screen sends the camera too. */
     val pushVideo: Boolean = false,
     /** The reply bubble shows a burst's video (on by default; its Video switch turns it off). */
     val bubbleVideo: Boolean = true,
+    /** Settings › Talk › Unmute for incoming talk (on by default; TalkUnmute). */
+    val unmuteForTalk: Boolean = true,
+    /** Settings › Calls › Ringtone: Talk's soft chime (the default; 2026-11-22, hen), or the phone's own ringtone. */
+    val softRing: Boolean = true,
+    /** Settings › Notifications › Message sound: Talk's soft chime (the default; 2026-11-22, hen), or the phone's sound. */
+    val softMessage: Boolean = true,
 )
 
 /**
@@ -235,6 +241,8 @@ internal class Messaging(
                 get() = settings.catchUp?.let { name -> CatchUpMode.entries.firstOrNull { it.name == name } } ?: CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP
 
             override fun notifyOnly(chat: String): Boolean = chat in settings.notifyOnlyChats
+
+            override val unmute: Boolean get() = settings.unmuteForTalk
         },
         publish = ::publish,
         awake = { foreground || stayConnected },
@@ -291,7 +299,11 @@ internal class Messaging(
     init {
         if (LIVE_TALK_AUDIO) talk.live = live
         talk.sendVideo = { talkSettings().pushVideo }
-        scope.launchCollect(calls.state) { c -> _state.update { it.copy(call = c) } }
+        scope.launchCollect(calls.state) { c ->
+            val was = _state.value.call != null
+            _state.update { it.copy(call = c) }
+            if (was != (c != null)) applyWarmCamera()
+        }
         scope.launchCollect(live.state) { l -> _state.update { it.copy(live = l) } }
         _state.update { it.copy(talkSettings = talkSettings()) }
         scope.launchCollect(socket.state) { socket -> _state.update { it.copy(socket = socket) } }
@@ -371,9 +383,12 @@ internal class Messaging(
         quickTalkPage = settings.quickTalkPage,
         openOnTalk = settings.openOnTalk,
         replyBubble = settings.replyBubble,
-        callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.VP8,
+        callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.H265,
         pushVideo = settings.pushVideo,
         bubbleVideo = settings.bubbleVideo,
+        unmuteForTalk = settings.unmuteForTalk,
+        softRing = settings.softRing,
+        softMessage = settings.softMessage,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -386,10 +401,15 @@ internal class Messaging(
         settings.quickTalkChats = talk.quickTalk
         settings.quickTalkPage = talk.quickTalkPage
         settings.openOnTalk = talk.openOnTalk
-        settings.replyBubble = talk.replyBubble
-        settings.callVideo = talk.callVideo.name
+        // Written only when changed, so one never chosen keeps following the default.
+        val before = _state.value.talkSettings
+        if (talk.replyBubble != before.replyBubble) settings.replyBubble = talk.replyBubble
+        if (talk.callVideo != before.callVideo) settings.callVideo = talk.callVideo.name
         settings.pushVideo = talk.pushVideo
         settings.bubbleVideo = talk.bubbleVideo
+        settings.unmuteForTalk = talk.unmuteForTalk
+        settings.softRing = talk.softRing
+        settings.softMessage = talk.softMessage
         _state.update { it.copy(talkSettings = talk) }
     }
 
@@ -505,6 +525,35 @@ internal class Messaging(
 
     private fun updatePresence(p: UserPresence) {
         _state.update { it.copy(presence = it.presence + (p.user to p)) }
+    }
+
+    // --- Push-to-video's camera --------------------------------------------------------------------------------
+
+    /** The chat whose Talk screen wants the camera warm (push-to-video on); null: none. */
+    private var warmWanted: String? = null
+
+    /**
+     * Keeps push-to-video's camera open for [chat]'s Talk screen (null: lets it go). Never during a call: the call's
+     * camera is the same one, and opening it for the Talk screen under the call (it opened again when a rotation laid
+     * the screen out anew) took it from the call, whose video stopped until its camera was turned off and on
+     * (2026-11-22, hen). It warms again once the call ends, if the screen still wants it.
+     */
+    fun warmCamera(chat: String?) {
+        warmWanted = chat
+        applyWarmCamera()
+    }
+
+    private fun applyWarmCamera() {
+        val camera = talk.videoCapture ?: return
+        val chat = warmWanted?.takeIf { _state.value.call == null && talk.sendVideo() }
+        if (chat != null) {
+            if (talk.videoChat != chat) camera.cool()
+            talk.videoChat = chat
+            camera.warm()
+        } else {
+            talk.videoChat = null
+            camera.cool()
+        }
     }
 
     // --- Your devices (docs/screens/devices.md) ----------------------------------------------------------------

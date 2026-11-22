@@ -121,6 +121,9 @@ interface TalkPrefs {
 
     /** The user chose Notify only for [chat] in When I'm away. */
     fun notifyOnly(chat: String): Boolean
+
+    /** Settings › Talk › Unmute for incoming talk (TalkUnmute). */
+    val unmute: Boolean get() = false
 }
 
 /**
@@ -154,6 +157,10 @@ internal class Talk(
     var captureOverride: TalkCapture? = null
     var player: TalkPlayer? = null
     var host: TalkHost? = null
+
+    /** The media volume, for Unmute for incoming talk; null: left alone. */
+    var volume: TalkVolume? = null
+    private val unmute = TalkUnmute({ volume }, { prefs.unmute })
 
     /** The live path (phase 5b); null without it. */
     var live: LiveTalk? = null
@@ -646,6 +653,7 @@ internal class Talk(
 
     private fun start(burst: Incoming) {
         val player = player ?: return
+        unmute.begin()
         burst.playing = true
         _state.update { it.copy(playing = NowPlaying(burst.chat, burst.id, burst.from, live = true, video = burst.video), queued = it.queued - burst.id) }
         if (burst.video) videoOut?.begin(burst.id)
@@ -756,6 +764,7 @@ internal class Talk(
         historyPlayback = null
         _state.value.playing?.let { bursts[it.clip]?.playback?.stop() }
         _state.update { it.copy(playing = null, queued = emptyList()) }
+        unmute.end()
     }
 
     private fun progress(id: String, played: Long, behind: Long) {
@@ -776,7 +785,12 @@ internal class Talk(
             _state.update { it.copy(playing = null) }
         }
         val next = _state.value.queued.firstOrNull()?.let { bursts[it] }
-        if (next != null) start(next) else host?.idle()
+        if (next != null) {
+            start(next)
+        } else {
+            unmute.end()
+            host?.idle()
+        }
     }
 
     /** Something plays, is being recorded, or is about to: a woken phone stays connected for it. */

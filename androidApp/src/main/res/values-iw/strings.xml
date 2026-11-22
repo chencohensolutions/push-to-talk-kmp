@@ -138,6 +138,11 @@
     <string name="talk_video_off">וידאו כבוי</string>
     <string name="bubble_video">וידאו</string>
     <string name="talk_action_chat">צ׳אט</string>
+    <string name="calls_ring_title">צלצול</string>
+    <string name="calls_ring_soft">צליל רך של Talk</string>
+    <string name="calls_ring_soft_body">צליל פעמונים עדין ועולה.</string>
+    <string name="calls_ring_phone">הצלצול של הטלפון</string>
+    <string name="calls_ring_phone_body">הצלצול שנבחר בהגדרות הצליל של Android.</string>
     <string name="calls_video_title">וידאו</string>
     <string name="calls_video_vp8">רגיל (VP8)</string>
     <string name="calls_video_vp8_body">עובד בכל טלפון.</string>
@@ -274,7 +279,7 @@
     <string name="chats_link_here_action">סריקת הקוד</string>
     <string name="chats_link_wrong_code">זה לא קוד קישור טלפון של החשבון הזה.</string>
     <string name="chats_linking_title">משלים את הקישור</string>
-    <string name="chats_linking_body">לפתוח את Talk בטלפון השני (טלפון %1$d) ולהשאיר אותו מחובר: הוא שולח לטלפון הזה את המפתחות ואת אנשי הקשר שלך.</string>
+    <string name="chats_linking_body">לפתוח את Talk בטלפון השני ולהשאיר אותו מחובר: הוא שולח לטלפון הזה את המפתחות ואת אנשי הקשר שלך.</string>
     <string name="chats_keys_failed">לא ניתן לשלוח את המפתחות שלך לשרת: %1$s</string>
     <string name="chats_waiting">מחכה לאישור שלהם</string>
     <string name="chats_blocked">חסום</string>
@@ -353,6 +358,13 @@
     <string name="contact_done_unpaired">%1$s הוסר</string>
     <string name="contact_failed">זה לא עבד: %1$s</string>
     <string name="notify_channel">הודעות</string>
+    <string name="notify_channel_phone">הודעות (הצליל של הטלפון)</string>
+    <string name="settings_notifications_title">התראות</string>
+    <string name="settings_message_sound">צליל הודעה</string>
+    <string name="settings_message_sound_soft">צליל רך של Talk</string>
+    <string name="settings_message_sound_soft_body">שני צלילים רגועים.</string>
+    <string name="settings_message_sound_phone">הצליל של הטלפון</string>
+    <string name="settings_message_sound_phone_body">צליל ההתראה שנבחר בהגדרות הצליל של Android.</string>
     <string name="notify_channel_description">הודעות מאנשי הקשר שלך</string>
     <string name="notify_you">אני</string>
     <string name="notify_reply">תשובה</string>
@@ -600,6 +612,12 @@
     <string name="bubble_send">שליחה</string>
     <string name="bubble_talk_hint">להחזיק כדי לענות, לשחרר כדי לשלוח</string>
     <string name="bubble_close">סגירה</string>
+    <string name="overlay_ask_title">להציג את Talk מעל אפליקציות אחרות?</string>
+    <string name="overlay_ask_body">כשהטלפון בשימוש, החלון הצף מראה מי מדבר אליכם עם כפתור "לדבר", ו־Talk יכול להדליק את המסך כשמדברים אליכם. Android מבקש לאשר פעם אחת ש־Talk יוצג מעל אפליקציות אחרות.</string>
+    <string name="overlay_ask_allow">לאשר</string>
+    <string name="overlay_ask_later">לא עכשיו</string>
+    <string name="talk_unmute">הפעלת השמע כשמדברים אליי</string>
+    <string name="talk_unmute_body">כשמישהו מדבר אליכם ועוצמת המדיה כבויה, היא עולה ל־60% בזמן שהוא מדבר, ואחר כך נכבית שוב. לא במצב נא לא להפריע.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>
     <string name="talk_reply_bubble_body">כשהטלפון בשימוש ומישהו מדבר אליכם, מופיע פס בתחתית המסך עם השם שלו וכפתור "לדבר", עד 30 שניות אחרי שסיים.</string>
     <string name="talk_allow_overlay">לאפשר ל-Talk להופיע מעל אפליקציות אחרות</string>

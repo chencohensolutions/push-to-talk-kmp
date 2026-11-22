@@ -15,7 +15,7 @@ conversations and how many texts of each aren't read). A contact opens their [co
   - **"<user> wants to pair"**, one per pair request (someone scanned this phone's code): **Review** opens
     [Add contact](add-contact.md) on that request.
   - **"Finishing linking"**, no button, while this phone waits for the identity key from the phone whose Link a
-    phone code it enrolled with (`KeysState.Linking`): "Open Talk on your other phone (phone N) and keep it
+    phone code it enrolled with (`KeysState.Linking`): "Open Talk on your other phone and keep it
     connected: it sends this phone your keys and contacts."
   - When the server has another identity key for this account (`KeysState.OtherIdentity`), two cards:
     **"Link this phone to your other one"**: "On your other phone open Settings, Linked devices, and scan the code

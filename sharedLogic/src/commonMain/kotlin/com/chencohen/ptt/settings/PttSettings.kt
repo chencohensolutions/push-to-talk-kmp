@@ -134,13 +134,26 @@ internal class PttSettings(private val store: KeyValueStore) {
 
     /** Settings › Talk › Reply bubble over other apps (off unless turned on). */
     var replyBubble: Boolean
-        get() = store.getString(KEY_REPLY_BUBBLE) == "true"
+        // On unless turned off (2026-11-22, hen: "floating window as default").
+        get() = defaultsV2().let { store.getString(KEY_REPLY_BUBBLE) != "false" }
         set(value) = store.putString(KEY_REPLY_BUBBLE, value.toString())
 
-    /** Settings › Calls › Video: CallVideo's name (VP8 unless chosen). */
+    /** Settings › Calls › Video: CallVideo's name; null (never chosen): H.265 where the phone has an encoder for it. */
     var callVideo: String?
-        get() = store.getString(KEY_CALL_VIDEO)
+        get() = defaultsV2().let { store.getString(KEY_CALL_VIDEO) }
         set(value) = store.putString(KEY_CALL_VIDEO, value)
+
+    /**
+     * Once, for phones from before the floating window and H.265 became the defaults (2026-11-22, hen): every setting
+     * used to be written whenever one changed, so a stored "off" or "VP8" there was most likely never chosen; they
+     * go back to unset. Since then only a setting that changes is written.
+     */
+    private fun defaultsV2() {
+        if (store.getString(KEY_DEFAULTS) == "2") return
+        if (store.getString(KEY_REPLY_BUBBLE) == "false") store.putString(KEY_REPLY_BUBBLE, null)
+        if (store.getString(KEY_CALL_VIDEO) == "VP8") store.putString(KEY_CALL_VIDEO, null)
+        store.putString(KEY_DEFAULTS, "2")
+    }
 
     /** Push-to-video (off unless turned on on a Talk screen), and the reply bubble showing video (on unless off). */
     var pushVideo: Boolean
@@ -150,6 +163,21 @@ internal class PttSettings(private val store: KeyValueStore) {
         // On unless turned off (2026-11-22, hen: a received video plays by default, in the bubble too).
         get() = store.getString(KEY_BUBBLE_VIDEO) != "false"
         set(value) = store.putString(KEY_BUBBLE_VIDEO, value.toString())
+
+    /** Settings › Talk › Unmute for incoming talk: on unless turned off (2026-11-22, hen). */
+    var unmuteForTalk: Boolean
+        get() = store.getString(KEY_UNMUTE_FOR_TALK) != "false"
+        set(value) = store.putString(KEY_UNMUTE_FOR_TALK, value.toString())
+
+    /** Settings › Calls › Ringtone: Talk's soft chime unless the phone's ringtone was chosen. */
+    var softRing: Boolean
+        get() = store.getString(KEY_SOFT_RING) != "false"
+        set(value) = store.putString(KEY_SOFT_RING, value.toString())
+
+    /** Settings › Notifications › Message sound: Talk's soft chime unless the phone's sound was chosen. */
+    var softMessage: Boolean
+        get() = store.getString(KEY_SOFT_MESSAGE) != "false"
+        set(value) = store.putString(KEY_SOFT_MESSAGE, value.toString())
 
     /** This user's email, shared with their paired contacts (Settings › Contacts › Your email); null: none. */
     var myEmail: String?
@@ -167,10 +195,14 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_KEEPS_CALLS = "server_keeps_calls"
         private const val KEY_OPEN_ON_TALK = "talk_open_on_talk"
         private const val KEY_REPLY_BUBBLE = "talk_reply_bubble"
+        private const val KEY_DEFAULTS = "defaults_version"
         private const val KEY_CALL_VIDEO = "call_video"
         private const val KEY_MY_EMAIL = "my_email"
         private const val KEY_PUSH_VIDEO = "talk_push_video"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
+        private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
+        private const val KEY_SOFT_RING = "call_soft_ring"
+        private const val KEY_SOFT_MESSAGE = "message_soft_sound"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"
         private const val KEY_STAY_CONNECTED = "talk_stay_connected"

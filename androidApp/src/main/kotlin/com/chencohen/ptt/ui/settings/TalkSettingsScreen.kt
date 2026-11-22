@@ -66,9 +66,10 @@ internal fun TalkSettingsScreen(
             SwitchRow(stringResource(R.string.talk_open_on_talk), stringResource(R.string.talk_open_on_talk_body), settings.openOnTalk) { on ->
                 change(settings.copy(openOnTalk = on))
                 // Turning it on asks Android for full-screen notifications when it needs to (Android 14+).
-                if (on && !fullScreenAllowed) openFullScreenSetting()
+                // Either permission turns the screen on: over other apps (the floating window's), or full-screen intents.
+                if (on && !fullScreenAllowed && !overlayAllowed) openFullScreenSetting()
             }
-            if (settings.openOnTalk && !fullScreenAllowed) {
+            if (settings.openOnTalk && !fullScreenAllowed && !overlayAllowed) {
                 RowDivider()
                 AllowRow(stringResource(R.string.talk_allow_full_screen)) { openFullScreenSetting() }
             }
@@ -80,6 +81,10 @@ internal fun TalkSettingsScreen(
             if (settings.replyBubble && !overlayAllowed) {
                 RowDivider()
                 AllowRow(stringResource(R.string.talk_allow_overlay)) { openOverlaySetting() }
+            }
+            RowDivider()
+            SwitchRow(stringResource(R.string.talk_unmute), stringResource(R.string.talk_unmute_body), settings.unmuteForTalk) {
+                change(settings.copy(unmuteForTalk = it))
             }
             RowDivider()
             SwitchRow(stringResource(R.string.talk_stay_connected), stringResource(R.string.talk_stay_connected_body), settings.stayConnected) {

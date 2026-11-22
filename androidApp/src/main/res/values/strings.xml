@@ -139,6 +139,11 @@
     <string name="talk_video_off">Video off</string>
     <string name="bubble_video">Video</string>
     <string name="talk_action_chat">Chat</string>
+    <string name="calls_ring_title">Ringtone</string>
+    <string name="calls_ring_soft">Talk soft chime</string>
+    <string name="calls_ring_soft_body">A gentle rising chime.</string>
+    <string name="calls_ring_phone">Phone\'s ringtone</string>
+    <string name="calls_ring_phone_body">The ringtone set in Android\'s sound settings.</string>
     <string name="calls_video_title">Video</string>
     <string name="calls_video_vp8">Standard (VP8)</string>
     <string name="calls_video_vp8_body">Works with every phone.</string>
@@ -275,7 +280,7 @@
     <string name="chats_link_here_action">Scan the code</string>
     <string name="chats_link_wrong_code">That isn\'t a Link a phone code of this account.</string>
     <string name="chats_linking_title">Finishing linking</string>
-    <string name="chats_linking_body">Open Talk on your other phone (phone %1$d) and keep it connected: it sends this phone your keys and contacts.</string>
+    <string name="chats_linking_body">Open Talk on your other phone and keep it connected: it sends this phone your keys and contacts.</string>
     <string name="chats_keys_failed">Your keys couldn’t be sent to the server: %1$s</string>
     <string name="chats_waiting">Waiting for them to confirm</string>
     <string name="chats_blocked">Blocked</string>
@@ -352,6 +357,13 @@
     <string name="contact_done_unpaired">%1$s was removed</string>
     <string name="contact_failed">That didn’t work: %1$s</string>
     <string name="notify_channel">Messages</string>
+    <string name="notify_channel_phone">Messages (phone\'s sound)</string>
+    <string name="settings_notifications_title">Notifications</string>
+    <string name="settings_message_sound">Message sound</string>
+    <string name="settings_message_sound_soft">Talk soft chime</string>
+    <string name="settings_message_sound_soft_body">Two calm notes.</string>
+    <string name="settings_message_sound_phone">Phone\'s sound</string>
+    <string name="settings_message_sound_phone_body">The notification sound set in Android\'s sound settings.</string>
     <string name="notify_channel_description">Texts from your contacts</string>
     <string name="notify_you">You</string>
     <string name="notify_reply">Reply</string>
@@ -597,6 +609,12 @@
     <string name="bubble_send">Send</string>
     <string name="bubble_talk_hint">Hold to talk back, let go to send</string>
     <string name="bubble_close">Close</string>
+    <string name="overlay_ask_title">Show Talk over other apps?</string>
+    <string name="overlay_ask_body">While you use the phone, the floating window shows who is talking to you with a Talk button, and Talk can turn the screen on when someone talks. Android asks you to allow Talk over other apps once.</string>
+    <string name="overlay_ask_allow">Allow</string>
+    <string name="overlay_ask_later">Not now</string>
+    <string name="talk_unmute">Unmute for incoming talk</string>
+    <string name="talk_unmute_body">When someone talks to you and the media volume is off, turn it up to 60% while they talk, then back off. Not in Do Not Disturb.</string>
     <string name="talk_reply_bubble">Reply bubble over other apps</string>
     <string name="talk_reply_bubble_body">While you use the phone, someone talking to you shows a bar at the bottom of the screen with their name and a Talk button, for 30 seconds after they stop.</string>
     <string name="talk_allow_overlay">Allow Talk to display over other apps</string>

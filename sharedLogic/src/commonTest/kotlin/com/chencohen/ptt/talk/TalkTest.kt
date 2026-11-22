@@ -222,6 +222,33 @@ class TalkTest {
     }
 
     @Test
+    fun anIncomingBurstUnmutesTheMediaVolumeWhileItPlays() = runTest {
+        val (_, hen, dana) = paired()
+        val volume = FakeVolume()
+        dana.talk.volume = volume
+        hen.work.launch { hen.talk.press("dana") }
+        advanceUntilIdle()
+        hen.mic.say(0, 10)
+        advanceUntilIdle()
+        assertEquals(9, volume.now, "turned up while hen talks (on by default)")
+        hen.work.launch { hen.talk.release() }
+        advanceUntilIdle()
+        assertEquals(0, volume.now, "back off once it played")
+
+        // Turned off in Settings › Talk: left muted.
+        dana.messaging.setTalkSettings(dana.state.talkSettings.copy(unmuteForTalk = false))
+        hen.work.launch { hen.talk.press("dana") }
+        advanceUntilIdle()
+        hen.mic.say(0, 10)
+        advanceUntilIdle()
+        hen.work.launch { hen.talk.release() }
+        advanceUntilIdle()
+        assertEquals(listOf(9, 0), volume.sets)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun withVideoTheCameraGoesInTheBurstAndShowsBesideTheVoice() = runTest {
         val (server, hen, dana) = paired()
         hen.talk.sendVideo = { true }

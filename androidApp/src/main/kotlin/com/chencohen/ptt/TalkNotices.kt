@@ -85,9 +85,7 @@ object TalkPlaying {
             .addAction(talkBackAction(app, chat))
         if (live && lastClip != wokeFor && wakes(app, chat)) {
             wokeFor = lastClip
-            // Screen off or locked: Android opens it (the Talk screen over the lock screen); in use: a heads-up only.
-            builder.setFullScreenIntent(wakeTalk(app, chat), true)
-            Log.i(TAG, "opening the Talk screen for $chat")
+            wake(app, chat, title)
         }
         if (live) {
             builder.setOngoing(true)
@@ -100,7 +98,53 @@ object TalkPlaying {
         NotificationManagerCompat.from(app).notify(ID, builder.build())
     }
 
-    fun cancel(context: Context) = NotificationManagerCompat.from(context).cancel(ID)
+    fun cancel(context: Context) {
+        NotificationManagerCompat.from(context).cancel(ID)
+        NotificationManagerCompat.from(context).cancel(WAKE_ID)
+    }
+
+    private const val WAKE_ID = 46
+
+    /**
+     * Turns the screen on with [chat]'s Talk screen over the lock screen (2026-11-22, hen: it didn't). Android 14+
+     * gives full-screen intents only to apps the user allowed; and one fires only when its notification is new, while
+     * the playing notification was updated in place (the last burst's often still showed), so it never fired. Now:
+     * with "Display over other apps" (the floating window's), the activity is started straight away, which Android
+     * allows such apps from the background; else a new notification of its own carries the full-screen intent.
+     */
+    private fun wake(app: TalkApp, chat: String, title: String) {
+        val intent = wakeIntent(app, chat)
+        if (android.provider.Settings.canDrawOverlays(app)) {
+            val started = runCatching { app.startActivity(intent) }.onFailure { Log.w(TAG, "can't open the Talk screen", it) }.isSuccess
+            if (started) {
+                Log.i(TAG, "opened the Talk screen for $chat")
+                return
+            }
+        }
+        val nm = app.getSystemService(android.app.NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) {
+            Log.i(TAG, "can't turn the screen on: neither over other apps nor full-screen intents are allowed")
+            return
+        }
+        NotificationManagerCompat.from(app).cancel(WAKE_ID)
+        val n = NotificationCompat.Builder(app, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(app.getString(R.string.playing_now, "0:00"))
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setFullScreenIntent(PendingIntent.getActivity(app, chat.hashCode() + 2, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE), true)
+            .setTimeoutAfter(15_000)
+            .setAutoCancel(true)
+            .build()
+        if (app.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        try {
+            NotificationManagerCompat.from(app).notify(WAKE_ID, n)
+        } catch (_: SecurityException) {
+            return
+        }
+        Log.i(TAG, "full-screen intent for $chat")
+    }
 
     /**
      * Open Talk when someone talks to me (Settings › Talk, off by default): only with the screen off, when Android
@@ -111,18 +155,14 @@ object TalkPlaying {
         // Only when the screen was off: in use (even on the lock screen) the heads-up is enough (hen, 17:07).
         if (app.getSystemService(android.os.PowerManager::class.java).isInteractive) return false
         val nm = app.getSystemService(android.app.NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) return false
         if (nm.currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL) return false
         return !muted(app, chat)
     }
 
-    private fun wakeTalk(context: Context, chat: String) = PendingIntent.getActivity(
-        context, chat.hashCode() + 2,
+    private fun wakeIntent(context: Context, chat: String) =
         Intent(context, MainActivity::class.java).setAction(TalkNotifications.ACTION_TALK).putExtra(Notifications.EXTRA_USER, chat)
             .putExtra(MainActivity.EXTRA_WAKE, true)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
 
     /**
      * Talk back: opens [chat]'s Talk screen, the big button with the microphone ready (2026-11-22, hen: not a voice
