@@ -239,7 +239,7 @@ fun HomeApp(
         val talk = messagingState.talkSettings
         messaging.setTalkSettings(talk.copy(quickTalk = com.chencohen.ptt.talk.QuickTalk.set(talk.quickTalk, chat, on)))
     }
-    val nameOf: (String) -> String = { u -> messagingState.contacts.firstOrNull { it.user == u }?.displayName?.takeIf { it.isNotBlank() } ?: u }
+    val nameOf: (String) -> String = { u -> messagingState.contacts.firstOrNull { it.user == u }?.name ?: u }
     val unnamedGroup = stringResource(R.string.group_unnamed)
     val chatName: (String) -> String = { chat ->
         Group.idOf(chat)?.let { id -> messagingState.groups.firstOrNull { it.id == id }?.name?.ifBlank { unnamedGroup } ?: unnamedGroup } ?: nameOf(chat)
@@ -611,6 +611,7 @@ fun HomeApp(
                         contact = messagingState.contacts.firstOrNull { it.user == user },
                         actions = ContactActions(
                             back = ::pop,
+                            rename = { name -> messaging.renameContact(user, name) },
                             acceptKeyChange = { messaging.acceptKeyChange(user) },
                             openSafetyNumber = { push("safety/$user") },
                             setBlocked = { blocked ->
@@ -758,7 +759,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
         if (tab == HomeTab.TALK) {
             val me = state.user.orEmpty()
             val unnamed = stringResource(R.string.group_unnamed)
-            val contactNames = chats.contacts.filter { it.paired && !it.blocked }.associate { c -> c.user to (c.displayName?.takeIf { it.isNotBlank() } ?: c.user) }
+            val contactNames = chats.contacts.filter { it.paired && !it.blocked }.associate { c -> c.user to c.name }
             val groups = chats.groups.filter { !it.gone && it.isReader(me) }.associateBy { it.chat }
             val quick = chats.talkSettings.quickTalk
             val pages = com.chencohen.ptt.talk.QuickTalk.pages(quick, contactNames.keys + groups.keys).map { chat ->

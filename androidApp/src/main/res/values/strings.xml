@@ -118,6 +118,10 @@
     <string name="kept_failed">The call couldn\'t be opened. Try again later.</string>
     <string name="kept_play">Play</string>
     <string name="kept_pause">Pause</string>
+    <string name="contact_rename">Name</string>
+    <string name="contact_rename_none">Their own name</string>
+    <string name="contact_rename_save">Save</string>
+    <string name="contact_rename_cancel">Cancel</string>
     <string name="talk_video_on">Video on</string>
     <string name="talk_video_off">Video off</string>
     <string name="bubble_video">Video</string>

@@ -66,6 +66,11 @@ class MessagingController internal constructor(
         scope.launch { withContext(work) { messaging.decline(user) } }
     }
 
+    /** Rename: this user's own name for [user] (blank: back to theirs). */
+    fun renameContact(user: String, name: String) {
+        scope.launch { withContext(work) { messaging.rename(user, name) } }
+    }
+
     fun unpair(user: String, done: (ContactResult) -> Unit) = act(done) { messaging.unpair(user) }
 
     fun setBlocked(user: String, blocked: Boolean, done: (ContactResult) -> Unit) = act(done) { messaging.setBlocked(user, blocked) }

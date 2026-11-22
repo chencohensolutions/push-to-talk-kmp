@@ -117,6 +117,10 @@
     <string name="kept_failed">לא הצלחנו לפתוח את השיחה. נסו שוב מאוחר יותר.</string>
     <string name="kept_play">ניגון</string>
     <string name="kept_pause">השהיה</string>
+    <string name="contact_rename">שם</string>
+    <string name="contact_rename_none">השם שהם בחרו</string>
+    <string name="contact_rename_save">שמירה</string>
+    <string name="contact_rename_cancel">ביטול</string>
     <string name="talk_video_on">וידאו פועל</string>
     <string name="talk_video_off">וידאו כבוי</string>
     <string name="bubble_video">וידאו</string>

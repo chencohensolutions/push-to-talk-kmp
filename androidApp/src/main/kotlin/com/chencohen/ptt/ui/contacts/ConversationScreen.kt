@@ -202,7 +202,7 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
             Avatar(user, 40.dp)
             Column(Modifier.padding(start = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(contact?.displayName ?: user, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+                    Text(contact?.name ?: user, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
                     if (contact?.verified == true) {
                         Icon(LibraryIcons.Shield, stringResource(R.string.contact_safety_verified), tint = LibraryColors.Muted, modifier = Modifier.padding(start = 4.dp).size(16.dp))
                     }

@@ -674,7 +674,10 @@ internal class Messaging(
         val self = device() ?: return
         scope.launch {
             try {
-                sender.send(self.user, Content(contact = ContactSyncContent(contact.user, Base64.decode(contact.identityKey), contact.verified, contact.displayName.orEmpty())))
+                sender.send(
+                    self.user,
+                    Content(contact = ContactSyncContent(contact.user, Base64.decode(contact.identityKey), contact.verified, contact.displayName.orEmpty(), contact.nickname.orEmpty(), nicknameSet = true)),
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -699,6 +702,7 @@ internal class Messaging(
                 verified = sync.verified,
                 changedKey = old?.changedKey?.takeIf { it != key },
                 displayName = sync.displayName.ifEmpty { null } ?: old?.displayName,
+                nickname = if (sync.nicknameSet) sync.nickname.ifBlank { null } else old?.nickname,
             )
         )
     }
@@ -955,6 +959,13 @@ internal class Messaging(
         }
         if (matches) setVerified(user, true)
         return matches
+    }
+
+    /** This user's own name for [user] ([name] blank: back to theirs), on all of this user's phones. */
+    fun rename(user: String, name: String) {
+        store.contact(user)?.let { store.putContact(it.copy(nickname = name.trim().take(60).ifBlank { null })) }
+        publish()
+        syncContact(user)
     }
 
     fun setVerified(user: String, verified: Boolean) {

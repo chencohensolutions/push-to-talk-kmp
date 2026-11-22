@@ -64,7 +64,7 @@ internal fun ContactRow(contact: Contact, last: TextMessage?, unread: Int = 0, o
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             // The name they gave, with the user name the server knows them by: two people may both be "Dana".
-            val title = contact.displayName?.takeIf { it.isNotBlank() }?.let { "$it · ${contact.user}" } ?: contact.user
+            val title = contact.name.takeIf { it != contact.user }?.let { "$it · ${contact.user}" } ?: contact.user
             Text(title, color = LibraryColors.OnBackground, style = LibraryType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val (line, warn) = when {
                 contact.blocked -> stringResource(R.string.chats_blocked) to false

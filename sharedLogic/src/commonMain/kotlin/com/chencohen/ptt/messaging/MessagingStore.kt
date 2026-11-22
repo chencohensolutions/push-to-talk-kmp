@@ -29,7 +29,13 @@ data class Contact(
     val addedAt: Long = 0,
     /** The name they gave for themselves when they joined by an invite (the server's `displayName`); null otherwise. */
     val displayName: String? = null,
-)
+    /** The name this user gave them (Rename; 2026-11-22, hen), on all of this user's phones; null: none. */
+    val nickname: String? = null,
+) {
+    /** How they are shown: this user's name for them, else their own, else their user name. */
+    val name: String get() = nickname?.takeIf { it.isNotBlank() } ?: displayName?.takeIf { it.isNotBlank() } ?: user
+}
+
 
 /** Someone scanned this phone's Add contact code and asks to pair; waits for the user to confirm or decline. */
 @Serializable

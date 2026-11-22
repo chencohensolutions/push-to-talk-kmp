@@ -279,7 +279,7 @@ suspend fun chatName(context: Context, chat: String): String {
     val messaging = hub(context)
     return withContext(messagingWork) {
         com.chencohen.ptt.messaging.Group.idOf(chat)?.let { id -> messaging.store.group(id)?.name?.takeIf { it.isNotBlank() } }
-            ?: messaging.store.contact(chat)?.let { it.displayName ?: it.user } ?: chat
+            ?: messaging.store.contact(chat)?.name ?: chat
     }
 }
 
@@ -346,7 +346,7 @@ suspend fun talkWidgetChoices(context: Context): List<Pair<String, String>> {
     val me = settings(context).device?.user.orEmpty()
     return withContext(messagingWork) {
         val contacts = messaging.store.contacts().filter { it.paired && !it.blocked }
-            .map { it.user to (it.displayName?.takeIf { n -> n.isNotBlank() } ?: it.user) }
+            .map { it.user to it.name }
         val groups = messaging.store.groups().filter { !it.gone && it.isReader(me) }.map { it.chat to it.name.ifBlank { it.chat } }
         com.chencohen.ptt.talk.TalkWidgetChoices.order(contacts + groups, messaging.talkSettings().quickTalk)
     }

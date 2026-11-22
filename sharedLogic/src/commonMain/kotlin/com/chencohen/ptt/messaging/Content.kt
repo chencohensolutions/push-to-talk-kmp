@@ -67,9 +67,13 @@ internal data class ContactSyncContent(
     @ProtoNumber(2) val identityKey: ByteArray = ByteArray(0),
     @ProtoNumber(3) val verified: Boolean = false,
     @ProtoNumber(4) val displayName: String = "",
+    /** This user's name for them ("" none); [nicknameSet]: this message says it (older phones don't). */
+    @ProtoNumber(5) val nickname: String = "",
+    @ProtoNumber(6) val nicknameSet: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean = other is ContactSyncContent && user == other.user &&
-        identityKey.contentEquals(other.identityKey) && verified == other.verified && displayName == other.displayName
+        identityKey.contentEquals(other.identityKey) && verified == other.verified && displayName == other.displayName &&
+        nickname == other.nickname && nicknameSet == other.nicknameSet
 
     override fun hashCode(): Int = user.hashCode()
 }
