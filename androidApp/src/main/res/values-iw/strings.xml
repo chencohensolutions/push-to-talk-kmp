@@ -117,9 +117,16 @@
     <string name="kept_failed">לא הצלחנו לפתוח את השיחה. נסו שוב מאוחר יותר.</string>
     <string name="kept_play">ניגון</string>
     <string name="kept_pause">השהיה</string>
+    <string name="calls_folder_note">שמירה כקובץ בשיחה שהשרת שמר כותבת לשם קובץ וידאו אחד, עם התמונה והקול של כולם. כל תיקייה: בטלפון, בכרטיס SD או בכונן USB. הקובץ נשאר שם גם אחרי הסרת האפליקציה.</string>
+    <string name="calls_folder_gone">%1$s (לא נמצאת עכשיו)</string>
+    <string name="calls_folder_default">הורדות › Talk</string>
+    <string name="calls_folder_use_default">להשתמש בהורדות</string>
+    <string name="calls_folder_pick">לבחור תיקייה</string>
+    <string name="calls_folder_title">לשמור שיחות ב</string>
+    <string name="kept_folder_gone">התיקייה %1$s לא נמצאת (כרטיס או כונן הוצאו?). לבחור אחרת בהגדרות › שיחות.</string>
     <string name="kept_save">שמירה כקובץ</string>
     <string name="kept_saving">שומרים…</string>
-    <string name="kept_saved">נשמר בהורדות › Talk</string>
+    <string name="kept_saved">נשמר ב%1$s</string>
     <string name="kept_save_failed">לא הצלחנו לשמור את הקובץ</string>
     <string name="call_voice">שיחה קולית</string>
     <string name="call_video">שיחת וידאו</string>

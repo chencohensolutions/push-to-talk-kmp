@@ -78,9 +78,9 @@ sealed interface KeptLoad {
 }
 
 /**
- * Makes the kept call [message] into `files/calls/kept-<call>.mkv` (docs/screens/calls.md, "Playing a kept call"), or
- * finds it there from before when the server had finished keeping it then. [keptTracks] is callRecording, [read]
- * reads a blob.
+ * Makes the kept call [message] into one Matroska file to play (docs/screens/calls.md, "Playing a kept call"), in the
+ * app's cache only while the player is open (2026-11-22, hen: saved calls live in the folder chosen, not in the app).
+ * [keptTracks] is callRecording, [read] reads a blob.
  */
 suspend fun loadKeptCall(
     context: android.content.Context,
@@ -91,52 +91,114 @@ suspend fun loadKeptCall(
     progress: (Float) -> Unit,
 ): KeptLoad = withContext(Dispatchers.IO) {
     val key = message.call?.keptKey ?: return@withContext KeptLoad.Failed(nothingKept = true)
-    val dir = File(context.filesDir, "calls").apply { mkdirs() }
-    val out = File(dir, keptName(message.id))
-    val meta = File(dir, "kept-${message.id}.json")
-    if (out.exists() && meta.exists()) runCatching { readMeta(out, meta) }.getOrNull()?.let { return@withContext it }
+    val scratch = File(context.cacheDir, "kept")
+    val out = File(scratch, "play-${message.id}.mkv")
     try {
         val kept = keptTracks(message)
         if (kept.tracks.isEmpty()) return@withContext KeptLoad.Failed(nothingKept = true)
-        val part = File(dir, "kept-${message.id}.part")
-        val made = KeptCallFile(read, File(context.cacheDir, "kept")).make(key, kept.tracks, nameOf, part, progress)
-        part.renameTo(out)
-        // Kept for next time only once the server has all of it.
-        if (!kept.recording && kept.tracks.all { it.complete }) writeMeta(meta, made) else meta.delete()
+        scratch.mkdirs()
+        val made = KeptCallFile(read, scratch).make(key, kept.tracks, nameOf, out.outputStream(), progress)
         KeptLoad.Ready(out, made.people, made.durationMs)
     } catch (e: kotlinx.coroutines.CancellationException) {
+        out.delete()
         throw e
     } catch (e: Exception) {
         android.util.Log.w("KeptCall", "couldn't make the kept call", e)
+        out.delete()
         KeptLoad.Failed(nothingKept = false)
+    } finally {
+        // Decrypted pieces never stay behind.
+        scratch.listFiles()?.filter { it != out }?.forEach { it.delete() }
     }
 }
 
-fun keptName(call: String) = "kept-$call.mkv"
+/** Where Save as file put a kept call, or why it couldn't. */
+sealed interface KeptSave {
+    data class Saved(val uri: Uri, val where: String) : KeptSave
+
+    /** The folder chosen in Settings › Calls isn't there any more (a card or drive taken out). */
+    data class FolderGone(val folder: String) : KeptSave
+
+    data object Failed : KeptSave
+}
 
 /**
- * Copies a kept call's file into the phone's Downloads, Download/Talk/<title> <date>.mkv (MediaStore, so no permission
- * is needed): every person's audio and video, as made. The new file's content URI, for Share; null when it failed.
+ * Settings › Calls › Save calls to (2026-11-22, hen): a folder picked with Android's own picker (any storage, an SD
+ * card or a USB drive too), kept with a lasting permission; none: Downloads › Talk.
  */
-suspend fun saveKeptCallToDownloads(context: android.content.Context, file: File, title: String, at: Long): Uri? = withContext(Dispatchers.IO) {
+object CallsFolder {
+    private const val PREFS = "calls_folder"
+    private const val KEY = "tree"
+
+    fun tree(context: android.content.Context): Uri? =
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getString(KEY, null)?.let(Uri::parse)
+
+    /** [tree] from the picker (null: back to Downloads › Talk); the old one's permission is let go. */
+    fun set(context: android.content.Context, tree: Uri?) {
+        val resolver = context.contentResolver
+        val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        tree(context)?.takeIf { it != tree }?.let { old -> runCatching { resolver.releasePersistableUriPermission(old, flags) } }
+        if (tree != null) runCatching { resolver.takePersistableUriPermission(tree, flags) }
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putString(KEY, tree?.toString()).apply()
+    }
+
+    /** The folder's name as its storage shows it; null when it can't be read (gone). */
+    fun name(context: android.content.Context, tree: Uri): String? = runCatching {
+        val doc = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, android.provider.DocumentsContract.getTreeDocumentId(tree))
+        context.contentResolver.query(doc, arrayOf(android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull()
+
+    /** What Settings shows: the folder's name, or Downloads › Talk. */
+    fun label(context: android.content.Context): String {
+        val tree = tree(context) ?: return context.getString(R.string.calls_folder_default)
+        return name(context, tree) ?: context.getString(R.string.calls_folder_gone, tree.lastPathSegment?.substringAfterLast(':').orEmpty())
+    }
+}
+
+/**
+ * Writes the kept call's file [file] (made for the player) as "<title> <date>.mkv" into the folder chosen in Settings
+ * › Calls, or into Downloads › Talk: every person's audio and video, as made. It is copied straight there.
+ */
+suspend fun saveKeptCall(context: android.content.Context, file: File, title: String, at: Long): KeptSave = withContext(Dispatchers.IO) {
     val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH.mm", java.util.Locale.ROOT).format(java.util.Date(at))
-    val safe = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(60)
+    val name = "${title.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(60)} $stamp.mkv"
+    val resolver = context.contentResolver
+    val tree = CallsFolder.tree(context)
+    if (tree != null) {
+        val folder = CallsFolder.name(context, tree) ?: return@withContext KeptSave.FolderGone(tree.lastPathSegment?.substringAfterLast(':').orEmpty())
+        return@withContext try {
+            val parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, android.provider.DocumentsContract.getTreeDocumentId(tree))
+            val uri = android.provider.DocumentsContract.createDocument(resolver, parent, "video/x-matroska", name)
+                ?: return@withContext KeptSave.FolderGone(folder)
+            try {
+                resolver.openOutputStream(uri)!!.use { out -> file.inputStream().use { it.copyTo(out) } }
+            } catch (e: Exception) {
+                runCatching { android.provider.DocumentsContract.deleteDocument(resolver, uri) }
+                throw e
+            }
+            KeptSave.Saved(uri, folder)
+        } catch (e: Exception) {
+            android.util.Log.w("KeptCall", "couldn't save to the chosen folder", e)
+            if (CallsFolder.name(context, tree) == null) KeptSave.FolderGone(folder) else KeptSave.Failed
+        }
+    }
     val values = android.content.ContentValues().apply {
-        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "$safe $stamp.mkv")
+        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
         put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "video/x-matroska")
         put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/Talk")
         put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
     }
-    val resolver = context.contentResolver
-    val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return@withContext null
+    val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return@withContext KeptSave.Failed
     try {
         resolver.openOutputStream(uri)!!.use { out -> file.inputStream().use { it.copyTo(out) } }
         resolver.update(uri, android.content.ContentValues().apply { put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
-        uri
+        KeptSave.Saved(uri, context.getString(R.string.calls_folder_default))
     } catch (e: Exception) {
         android.util.Log.w("KeptCall", "couldn't save to Downloads", e)
         runCatching { resolver.delete(uri, null, null) }
-        null
+        KeptSave.Failed
     }
 }
 
@@ -148,34 +210,15 @@ fun shareKeptCall(context: android.content.Context, uri: Uri) {
     context.startActivity(android.content.Intent.createChooser(send, context.getString(R.string.call_share)))
 }
 
-private fun writeMeta(meta: File, made: KeptCallFile.Made) {
-    val people = JSONArray()
-    made.people.forEach { p ->
-        people.put(JSONObject().put("identity", p.identity).put("name", p.name).put("video", p.video ?: -1).put("audio", p.audio ?: -1))
-    }
-    meta.writeText(JSONObject().put("durationMs", made.durationMs).put("people", people).toString())
-}
-
-private fun readMeta(out: File, meta: File): KeptLoad.Ready {
-    val json = JSONObject(meta.readText())
-    val people = json.getJSONArray("people")
-    return KeptLoad.Ready(
-        out,
-        (0 until people.length()).map { i ->
-            val p = people.getJSONObject(i)
-            KeptCallFile.Person(p.getString("identity"), p.getString("name"), p.getInt("video").takeIf { it > 0 }, p.getInt("audio").takeIf { it > 0 })
-        },
-        json.getLong("durationMs"),
-    )
-}
-
 /**
  * A kept call played back: everyone's picture in a grid (their name on it; an avatar for one without video), each
  * with their own voice, kept together by one set of controls. One player per person over the same file, each on that
  * person's tracks; the first leads and the others follow it.
  */
 @Composable
-fun KeptCallScreen(title: String, load: KeptLoad, back: () -> Unit, share: () -> Unit, save: () -> Unit, saving: Boolean = false) {
+fun KeptCallScreen(title: String, load: KeptLoad, back: () -> Unit, save: () -> Unit, saving: Boolean = false) {
+    // The file to play is the app's only while the player is open.
+    DisposableEffect(load) { onDispose { (load as? KeptLoad.Ready)?.file?.delete() } }
     Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             val backLabel = stringResource(R.string.kept_back)
@@ -189,10 +232,6 @@ fun KeptCallScreen(title: String, load: KeptLoad, back: () -> Unit, share: () ->
                     modifier = Modifier.padding(horizontal = 4.dp).background(Color.White.copy(alpha = 0.18f), CircleShape)
                         .clickable(enabled = !saving, role = Role.Button, onClick = save).padding(horizontal = 14.dp, vertical = 6.dp),
                 )
-                val shareLabel = stringResource(R.string.call_share)
-                Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = shareLabel, onClick = share), contentAlignment = Alignment.Center) {
-                    Icon(LibraryIcons.Share, shareLabel, tint = Color.White)
-                }
             }
         }
         when (load) {

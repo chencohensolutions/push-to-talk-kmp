@@ -1,6 +1,8 @@
 package com.chencohen.ptt.ui.settings
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import com.chencohen.ptt.R
 import com.chencohen.ptt.calls.SaveCalls
@@ -29,5 +31,29 @@ internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change
             }
         }
         PageNote(stringResource(R.string.calls_save_note))
+        // Where Save as file puts a kept call: a folder picked with Android's picker (SD card and USB drives too).
+        SectionTitle(stringResource(R.string.calls_folder_title))
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var label by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.chencohen.ptt.ui.calls.CallsFolder.label(context)) }
+        var chosen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.chencohen.ptt.ui.calls.CallsFolder.tree(context) != null) }
+        val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { tree ->
+            if (tree != null) {
+                com.chencohen.ptt.ui.calls.CallsFolder.set(context, tree)
+                label = com.chencohen.ptt.ui.calls.CallsFolder.label(context)
+                chosen = true
+            }
+        }
+        SettingsCard {
+            ChoiceRow(stringResource(R.string.calls_folder_pick), label, false) { pick.launch(null) }
+            if (chosen) {
+                RowDivider()
+                ChoiceRow(stringResource(R.string.calls_folder_use_default), stringResource(R.string.calls_folder_default), false) {
+                    com.chencohen.ptt.ui.calls.CallsFolder.set(context, null)
+                    label = com.chencohen.ptt.ui.calls.CallsFolder.label(context)
+                    chosen = false
+                }
+            }
+        }
+        PageNote(stringResource(R.string.calls_folder_note))
     }
 }

@@ -72,7 +72,7 @@ class KeptCallFileTest {
         val scratch = Files.createTempDirectory("kept").toFile()
         val out = File("build/kept-call.mkv").absoluteFile.also { it.parentFile.mkdirs() }
         var last = 0f
-        val made = KeptCallFile(blobs::read, scratch).make(manifest["key"]!!.jsonPrimitive.content, tracks, { it.replaceFirstChar(Char::uppercase) }, out) { last = it }
+        val made = KeptCallFile(blobs::read, scratch).make(manifest["key"]!!.jsonPrimitive.content, tracks, { it.replaceFirstChar(Char::uppercase) }, out.outputStream()) { last = it }
         assertEquals(1f, last)
         assertEquals(0, made.unreadable, "every frame opens with the call's key")
         assertEquals(listOf("Hen", "Sharon"), made.people.map { it.name })

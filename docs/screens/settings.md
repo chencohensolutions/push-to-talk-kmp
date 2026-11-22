@@ -26,6 +26,9 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
 
 - **Catch up to live**: Shorten pauses and speed up (the default), Shorten pauses only, or Off, with a line under
   each; the chosen one has a teal check.
+- **Calls › Save calls to** (2026-11-22, hen): **Choose a folder** opens Android's folder picker (the phone, an SD
+  card or a USB drive), kept with a lasting permission; under it, the folder's name, or Downloads › Talk.
+  **Use Downloads instead** goes back. Save as file on a kept call writes there.
 - **In the background › Open Talk when someone talks to me** (off by default): with the screen off it turns on with
   that Talk screen over the lock screen. Android 14 and later ask for "full-screen notifications" first; while that
   isn't allowed, a row in the warning color, "Allow Talk to open over the lock screen", opens Android's page for it

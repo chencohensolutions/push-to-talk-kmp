@@ -642,45 +642,34 @@ fun HomeApp(
                     LaunchedEffect(pageUser) {
                         load = com.chencohen.ptt.ui.calls.loadKeptCall(context, message, messaging::keptCall, messaging::readBlob, nameOf) { progress = it }
                     }
+                    suspend fun saveNow(ready: com.chencohen.ptt.ui.calls.KeptLoad.Ready) {
+                        saving = true
+                        val result = com.chencohen.ptt.ui.calls.saveKeptCall(context, ready.file, chatName(message.user), message.at)
+                        saving = false
+                        when (result) {
+                            is com.chencohen.ptt.ui.calls.KeptSave.Saved -> messages.post(resources.getString(R.string.kept_saved, result.where), resources.getString(R.string.call_share)) {
+                                com.chencohen.ptt.ui.calls.shareKeptCall(context, result.uri)
+                            }
+                            is com.chencohen.ptt.ui.calls.KeptSave.FolderGone -> messages.post(resources.getString(R.string.kept_folder_gone, result.folder), resources.getString(R.string.calls_folder_pick)) {
+                                push("callsettings")
+                            }
+                            com.chencohen.ptt.ui.calls.KeptSave.Failed -> messages.post(resources.getString(R.string.kept_save_failed))
+                        }
+                    }
                     com.chencohen.ptt.ui.calls.KeptCallScreen(
                         title = chatName(message.user),
                         load = load ?: com.chencohen.ptt.ui.calls.KeptLoad.Getting(progress),
                         back = ::pop,
-                        share = { com.chencohen.ptt.ui.calls.shareCall(context, com.chencohen.ptt.ui.calls.keptName(message.id)) },
                         save = {
                             val ready = load as? com.chencohen.ptt.ui.calls.KeptLoad.Ready
-                            if (ready != null && !saving) {
-                                saving = true
-                                keptScope.launch {
-                                    val uri = com.chencohen.ptt.ui.calls.saveKeptCallToDownloads(context, ready.file, chatName(message.user), message.at)
-                                    saving = false
-                                    if (uri != null) {
-                                        messages.post(resources.getString(R.string.kept_saved), resources.getString(R.string.call_share)) {
-                                            com.chencohen.ptt.ui.calls.shareKeptCall(context, uri)
-                                        }
-                                    } else {
-                                        messages.post(resources.getString(R.string.kept_save_failed))
-                                    }
-                                }
-                            }
+                            if (ready != null && !saving) keptScope.launch { saveNow(ready) }
                         },
                         saving = saving,
                     )
                     // From the call log's Save: once it's ready, save it.
                     LaunchedEffect(load) {
-                        if (load is com.chencohen.ptt.ui.calls.KeptLoad.Ready && keptSaveAsked.remove(pageUser)) {
-                            saving = true
-                            val ready = load as com.chencohen.ptt.ui.calls.KeptLoad.Ready
-                            val uri = com.chencohen.ptt.ui.calls.saveKeptCallToDownloads(context, ready.file, chatName(message.user), message.at)
-                            saving = false
-                            if (uri != null) {
-                                messages.post(resources.getString(R.string.kept_saved), resources.getString(R.string.call_share)) {
-                                    com.chencohen.ptt.ui.calls.shareKeptCall(context, uri)
-                                }
-                            } else {
-                                messages.post(resources.getString(R.string.kept_save_failed))
-                            }
-                        }
+                        val ready = load as? com.chencohen.ptt.ui.calls.KeptLoad.Ready
+                        if (ready != null && keptSaveAsked.remove(pageUser)) saveNow(ready)
                     }
                 }
                 name.startsWith("safety/") && pageUser != null -> {

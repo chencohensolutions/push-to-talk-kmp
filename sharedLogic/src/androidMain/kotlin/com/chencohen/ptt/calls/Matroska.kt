@@ -74,8 +74,8 @@ class Matroska(private val tracks: List<Track>) {
         clusterBlocks = 0
     }
 
-    /** Writes the whole file to [out] and deletes the scratch file. */
-    fun finish(out: File, durationMs: Long = lastMs + 20) {
+    /** Writes the whole file to [out] (and closes it), and deletes the scratch file. */
+    fun finish(out: OutputStream, durationMs: Long = lastMs + 20) {
         flushCluster()
         body.close()
         val info = element(
@@ -108,7 +108,7 @@ class Matroska(private val tracks: List<Track>) {
                 seek(ID_CUES, (seekHeadSize + info.size + tracksElement.size).toLong()),
         )
         val segmentSize = clustersAt + bodySize
-        out.outputStream().buffered(1 shl 16).use { o ->
+        out.buffered(1 shl 16).use { o ->
             o.write(ebmlHeader())
             o.write(idBytes(ID_SEGMENT))
             o.write(size8(segmentSize))

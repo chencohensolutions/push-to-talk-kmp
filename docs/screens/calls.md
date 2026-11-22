@@ -48,14 +48,16 @@ room's metadata said the server keeps it; the server never has it.
   asks `callRecording` for the tracks it may read, downloads each one (`GET /blob/<id>`), decrypts the frames with the
   call's key (LiveKit's frame encryption, `LiveKitFrames`), and writes one Matroska file without re-encoding
   (`KeptCallFile`, `Matroska`): a video and an audio track per person, named after them, lined up by when each keeping
-  began. It stays in the app's `files/calls/` as `kept-<call>.mkv`, and is opened from there next time once the server
-  had finished keeping it.
+  began. It is only in the app's cache while the player is open, and goes when it closes (2026-11-22, hen: saved
+  calls live in the folder chosen, not in the app); the decrypted pieces go as soon as the file is made.
 - **The player**: everyone's picture in a grid (one or two people one above the other, more two by two), each with
   their name, and an avatar for someone without video; every voice plays. One set of controls: play or pause, a slider
   to move through it, and the time.
 - **Save as file** (in the player's top bar, or on the call's row, which opens the player and saves once it's ready):
-  copies the file into the phone's Downloads, `Download/Talk/<chat> <date>.mkv`, then "Saved in Downloads › Talk"
-  with **Share**. **Share** in the top bar shares the app's own copy.
+  writes `<chat> <date>.mkv` into the folder chosen in Settings › Calls › Save calls to (any folder Android's picker
+  offers: the phone, an SD card, a USB drive), or into Downloads › Talk when none is chosen; then "Saved in <folder>"
+  with **Share**. The file stays there after the app is removed. A chosen folder that isn't there any more (a card
+  taken out): "The folder … isn't there", with **Choose a folder**.
 - Nothing kept that this user may open: "Your server has nothing of this call you can open." A failure: "The call
   couldn't be opened. Try again later."
 

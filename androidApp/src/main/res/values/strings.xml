@@ -118,9 +118,16 @@
     <string name="kept_failed">The call couldn\'t be opened. Try again later.</string>
     <string name="kept_play">Play</string>
     <string name="kept_pause">Pause</string>
+    <string name="calls_folder_note">Save as file on a call the server kept writes one video file there, with everyone\'s picture and voice. Any folder: the phone, an SD card or a USB drive. It stays there after the app is removed.</string>
+    <string name="calls_folder_gone">%1$s (not there now)</string>
+    <string name="calls_folder_default">Downloads › Talk</string>
+    <string name="calls_folder_use_default">Use Downloads instead</string>
+    <string name="calls_folder_pick">Choose a folder</string>
+    <string name="calls_folder_title">Save calls to</string>
+    <string name="kept_folder_gone">The folder %1$s isn\'t there (a card or drive taken out?). Pick another in Settings › Calls.</string>
     <string name="kept_save">Save as file</string>
     <string name="kept_saving">Saving…</string>
-    <string name="kept_saved">Saved in Downloads › Talk</string>
+    <string name="kept_saved">Saved in %1$s</string>
     <string name="kept_save_failed">The file couldn\'t be saved</string>
     <string name="call_voice">Voice call</string>
     <string name="call_video">Video call</string>

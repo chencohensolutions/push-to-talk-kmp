@@ -17,7 +17,7 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
     /** One person in the file: their name, and their Matroska track numbers. */
     data class Person(val identity: String, val name: String, val video: Int?, val audio: Int?)
 
-    data class Made(val file: File, val people: List<Person>, val durationMs: Long, val frames: Int, val unreadable: Int)
+    data class Made(val people: List<Person>, val durationMs: Long, val frames: Int, val unreadable: Int)
 
     private class Group(val identity: String, val video: Boolean, val codec: String, val file: File) {
         var frames = 0
@@ -33,7 +33,7 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
      * Writes [out] from [tracks] of a call whose key is [callKey] (the base64 kept on its entry). [progress] goes
      * from 0 to 1 by bytes downloaded. Throws when nothing could be read.
      */
-    suspend fun make(callKey: String, tracks: List<KeptTrack>, nameOf: (String) -> String, out: File, progress: (Float) -> Unit = {}): Made {
+    suspend fun make(callKey: String, tracks: List<KeptTrack>, nameOf: (String) -> String, out: java.io.OutputStream, progress: (Float) -> Unit = {}): Made {
         val key = LiveKitFrames.key(callKey.encodeToByteArray())
         scratch.mkdirs()
         val usable = tracks.filter { it.codec.equals(LiveKitFrames.OPUS, true) || it.codec.equals(LiveKitFrames.VP8, true) || it.codec.equals(LiveKitFrames.H264, true) }
@@ -157,7 +157,7 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
                     if (h.next()) heads += h
                 }
                 mkv.finish(out, lastMs + 20)
-                return Made(out, people, lastMs + 20, frames, unreadable)
+                return Made(people, lastMs + 20, frames, unreadable)
             } finally {
                 opened.forEach { runCatching { it.input.close() } }
             }
