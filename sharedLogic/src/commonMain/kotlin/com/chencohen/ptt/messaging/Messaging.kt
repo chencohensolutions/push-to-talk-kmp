@@ -86,6 +86,8 @@ data class TalkSettings(
      * opens, lets woken bursts play as media (Android 17's background audio rule); off: in a call session.
      */
     val fullVolumeBackground: Boolean = true,
+    /** Settings › Talk › Open Talk when someone talks to me: the screen turns on with that Talk screen (off by default). */
+    val openOnTalk: Boolean = false,
 )
 
 /**
@@ -321,6 +323,7 @@ internal class Messaging(
         quickTalk = settings.quickTalkChats,
         quickTalkPage = settings.quickTalkPage,
         fullVolumeBackground = settings.fullVolumeBackground,
+        openOnTalk = settings.openOnTalk,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -333,6 +336,7 @@ internal class Messaging(
         settings.quickTalkChats = talk.quickTalk
         settings.quickTalkPage = talk.quickTalkPage
         settings.fullVolumeBackground = talk.fullVolumeBackground
+        settings.openOnTalk = talk.openOnTalk
         _state.update { it.copy(talkSettings = talk) }
     }
 

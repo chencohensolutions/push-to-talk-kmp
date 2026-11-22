@@ -521,4 +521,6 @@
     <string name="talking_auto_send">Sent by itself after a minute</string>
     <string name="talking_send">Send</string>
     <string name="talking_cancel">Cancel</string>
+    <string name="talk_open_on_talk">Open Talk when someone talks to me</string>
+    <string name="talk_open_on_talk_body">When the screen is off, it turns on with their Talk screen over the lock screen. With the screen on you get the notification only. Not in Do Not Disturb or for muted chats.</string>
 </resources>

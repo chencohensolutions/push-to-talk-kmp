@@ -369,6 +369,9 @@ what was shown (the server sends HIGH only to phones that registered notificatio
     (`requestEndpointChange`), quieter than media. It ends 20 s after the last burst.
   - The "Talk playing" notification while it plays, Talk back from it, and the 30 s reply window for hardware talk
     buttons ([notifications.md](screens/notifications.md), "Talk (background)"; `TalkPlaying`, `TalkReply`).
+  - **Open Talk when someone talks to me** (off by default, 1.2.5): with the screen off, the playing notification's
+    full-screen intent opens that Talk screen over the lock screen, and closes it 3 s after the bursts if untouched
+    ([talk.md](screens/talk.md), "Opened when someone talks").
   - logcat `TalkHost` says which path ran; `TalkPlayer` logs the track's usage, route, Android's playback record and
     the volumes. `Messaging.wake` keeps `/ws` until the path's reply time is over (at most 2 minutes). If neither
     plays, the talk notification shows instead.

@@ -88,6 +88,7 @@ private class TrackPlayback(
         } catch (e: Exception) {
             Log.w(TAG, "playback failed", e)
         } finally {
+            TalkAudio.playLevel = 0f
             if (::track.isInitialized) {
                 if (stopped) runCatching { track.pause(); track.flush() }
                 track.release()
@@ -168,6 +169,7 @@ private class TrackPlayback(
     }
 
     private fun writeToTrack(samples: ShortArray, count: Int) {
+        TalkAudio.playLevel = VoiceLevel.fromRms(VoiceLevel.rms(samples, count))
         var at = 0
         while (at < count && !stopped) {
             val n = track.write(samples, at, count - at, AudioTrack.WRITE_BLOCKING)
