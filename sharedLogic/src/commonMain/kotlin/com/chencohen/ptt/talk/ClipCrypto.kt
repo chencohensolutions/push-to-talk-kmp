@@ -22,8 +22,8 @@ internal expect object Aes256Gcm {
 internal object ClipCrypto {
     const val KEY_BYTES = 32
 
-    /** A ciphertext is at most 16 KB (the server's limit); ten packets at 24 kbit/s are about 600 bytes. */
-    const val MAX_SEGMENT = 16 * 1024
+    /** A ciphertext is at most 64 KiB (the server's limit since bf1b11e, for push-to-video); ten Opus packets are about 600 bytes. */
+    const val MAX_SEGMENT = 64 * 1024
 
     fun seal(key: ByteArray, clip: String, index: Int, last: Boolean, packets: List<ByteArray>): ByteArray =
         Aes256Gcm.seal(key, nonce(index), aad(clip, index, last), pack(packets))

@@ -53,6 +53,19 @@ internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change
             }
         }
         if (!hevc) PageNote(stringResource(R.string.calls_video_no_h265))
+        // Advanced: 60 fps for calls and push-to-video, where the front camera can (2026-11-22, hen).
+        val context60 = androidx.compose.ui.platform.LocalContext.current
+        val can60 = androidx.compose.runtime.remember {
+            com.chencohen.ptt.calls.LiveKitCallTransport.supports60(context60) || com.chencohen.ptt.talk.AndroidTalkVideoCapture.supports60(context60)
+        }
+        SectionTitle(stringResource(R.string.calls_advanced_title))
+        SettingsCard {
+            com.chencohen.ptt.ui.talk.SwitchRow(
+                stringResource(R.string.calls_video_60),
+                stringResource(if (can60) R.string.calls_video_60_body else R.string.calls_video_60_unsupported),
+                settings.video60 && can60,
+            ) { on -> if (can60) change(settings.copy(video60 = on)) }
+        }
         // Where Save as file puts a kept call: a folder picked with Android's picker (SD card and USB drives too).
         SectionTitle(stringResource(R.string.calls_folder_title))
         val context = androidx.compose.ui.platform.LocalContext.current

@@ -143,6 +143,10 @@
     <string name="calls_ring_soft_body">צליל פעמונים עדין ועולה.</string>
     <string name="calls_ring_phone">הצלצול של הטלפון</string>
     <string name="calls_ring_phone_body">הצלצול שנבחר בהגדרות הצליל של Android.</string>
+    <string name="calls_advanced_title">מתקדם</string>
+    <string name="calls_video_60">וידאו ב־60 פריימים לשנייה</string>
+    <string name="calls_video_60_body">תנועה חלקה יותר בשיחות וידאו ובדיבור עם וידאו, על חשבון יותר נתונים וסוללה. בדיבור עם וידאו נשלחות כך כ־60 שניות וידאו בכל לחיצה (85 ב־30 פריימים); אחרי זה ממשיך רק הקול.</string>
+    <string name="calls_video_60_unsupported">המצלמה הקדמית של הטלפון הזה לא מצלמת ב־60 פריימים לשנייה, אז הווידאו נשאר ב־30.</string>
     <string name="calls_video_title">וידאו</string>
     <string name="calls_video_vp8">רגיל (VP8)</string>
     <string name="calls_video_vp8_body">עובד בכל טלפון.</string>

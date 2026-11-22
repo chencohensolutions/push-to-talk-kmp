@@ -144,6 +144,10 @@
     <string name="calls_ring_soft_body">A gentle rising chime.</string>
     <string name="calls_ring_phone">Phone\'s ringtone</string>
     <string name="calls_ring_phone_body">The ringtone set in Android\'s sound settings.</string>
+    <string name="calls_advanced_title">Advanced</string>
+    <string name="calls_video_60">60 fps video</string>
+    <string name="calls_video_60_body">Smoother motion in video calls and push-to-video, using more data and battery. Push-to-video then sends about 60 seconds of video per burst (85 at 30 fps); after that it goes on with your voice only.</string>
+    <string name="calls_video_60_unsupported">This phone\'s front camera can\'t record 60 fps, so video stays at 30 fps.</string>
     <string name="calls_video_title">Video</string>
     <string name="calls_video_vp8">Standard (VP8)</string>
     <string name="calls_video_vp8_body">Works with every phone.</string>

@@ -274,7 +274,7 @@ class TalkTest {
         val heard = dana.chat("hen").single()
         assertTrue(heard.clip!!.video)
         assertEquals(500L, heard.clip?.durationMs, "the length counts the voice only")
-        assertTrue(server.segmentSizes.all { it < 16 * 1024 }, "every segment fits the server")
+        assertTrue(server.segmentSizes.all { it < 64 * 1024 }, "every segment fits the server")
         hen.stop()
         dana.stop()
     }
