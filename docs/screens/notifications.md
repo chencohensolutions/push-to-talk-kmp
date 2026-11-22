@@ -38,12 +38,10 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
 - **Reply bubble** (Settings › Talk › Reply bubble over other apps, off by default; needs Android's "Display over
   other apps", asked for when it's turned on): while the phone is in use and unlocked and the app isn't on screen, a
   woken burst also shows a bar at the bottom of the screen, full width with a margin, above the navigation bar. It
-  slides up from the bottom edge: ✕ in its corner, the sender (and the group) and "Talking now" centred, and under
-  them a big round pink **Talk** button in the middle. Hold it to talk back and let go to send, or tap to start and
-  tap **Send**; "Talking 0:03 · let go or tap to send" while it records (Talk is ready's service records, as the
-  widget does). After the burst it says "Hold Talk to reply", "Sent" after sending. It stays until a touch outside it
-  (not while talking), ✕, or opening the app, and slides down off the screen (2026-11-22, hen 19:05). Without the
-  permission there is only the heads-up.
+  slides up from the bottom edge: the sender (and the group) centred, a round Video switch while the burst has video,
+  and under them a big round button with a microphone. Hold it to talk back and let go to send, or tap to start and
+  tap again (a check mark) to send. Icons only, no ✕ and no hint line (2026-11-22, hen); TalkBack reads their names.
+  It stays until a touch outside it (not while talking) or opening the app, and slides down off the screen.
 - **Video in the reply bubble** (on by default; 2026-11-22, hen: a received video plays): a video burst's picture
   plays above the sender's name, in the picture's own shape, in step with the voice; the bar's "Video on" switch turns
   it off (and on again) for later bursts.

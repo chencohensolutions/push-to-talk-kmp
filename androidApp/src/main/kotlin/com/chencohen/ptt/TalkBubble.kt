@@ -39,11 +39,11 @@ object TalkBubble {
     private var title: TextView? = null
     private var line: TextView? = null
     private var videoBox: android.widget.FrameLayout? = null
-    private var videoSwitch: TextView? = null
+    private var videoSwitch: android.widget.ImageView? = null
     private var videoSurface: android.view.Surface? = null
     /** The burst now has video (push-to-video). */
     private var burstVideo = false
-    private var button: TextView? = null
+    private var button: android.widget.ImageView? = null
     private var chat: String? = null
     private var talking = false
     private var talkStarted = 0L
@@ -84,7 +84,8 @@ object TalkBubble {
     private fun showVideo(context: Context) {
         val on = messagingState(context).value.talkSettings.bubbleVideo
         videoSwitch?.visibility = if (burstVideo) View.VISIBLE else View.GONE
-        videoSwitch?.text = context.getString(if (on) R.string.talk_video_on else R.string.talk_video_off)
+        videoSwitch?.setImageResource(if (on) R.drawable.ic_bubble_video else R.drawable.ic_bubble_video_off)
+        videoSwitch?.contentDescription = context.getString(if (on) R.string.talk_video_on else R.string.talk_video_off)
         videoBox?.visibility = if (burstVideo && on) View.VISIBLE else View.GONE
         main.removeCallbacks(turn)
         if (burstVideo && on) main.post(turn)
@@ -150,28 +151,18 @@ object TalkBubble {
             elevation = dp(8).toFloat()
         }
         val top = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val close = TextView(context).apply {
-            text = "✕"
-            setTextColor(0xFFC9D1CF.toInt())
-            textSize = 20f
-            gravity = Gravity.CENTER
-            contentDescription = context.getString(R.string.bubble_close)
-            setOnClickListener { if (talking) endTalk(context, send = false); dismissNow() }
-        }
-        top.addView(close, LinearLayout.LayoutParams(dp(48), dp(48)))
+        // No ✕ (2026-11-22, hen): a touch outside closes it. Icons only: the name, no hint line.
+        top.addView(View(context), LinearLayout.LayoutParams(dp(40), dp(40)))
         val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         title = TextView(context).apply { setTextColor(Color.WHITE); textSize = 19f; maxLines = 1; gravity = Gravity.CENTER; setTypeface(typeface, android.graphics.Typeface.BOLD) }
-        line = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 15f; maxLines = 1; gravity = Gravity.CENTER }
+        line = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 15f; maxLines = 1; gravity = Gravity.CENTER; visibility = View.GONE }
         words.addView(title)
         words.addView(line)
         top.addView(words, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         // As wide as ✕, so the words are centred over the button.
-        videoSwitch = TextView(context).apply {
-            textSize = 12f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(0x33FFFFFF) }
+        videoSwitch = android.widget.ImageView(context).apply {
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
             visibility = View.GONE
             setOnClickListener {
                 val settings = messagingState(context).value.talkSettings
@@ -179,7 +170,7 @@ object TalkBubble {
                 main.postDelayed({ showVideo(context) }, 100)
             }
         }
-        top.addView(videoSwitch, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        top.addView(videoSwitch, LinearLayout.LayoutParams(dp(40), dp(40)))
         // The burst's picture, drawn in step with the voice (AndroidTalkVideoOut).
         videoBox = android.widget.FrameLayout(context).apply {
             visibility = View.GONE
@@ -209,12 +200,10 @@ object TalkBubble {
         }
         root.addView(videoBox, LinearLayout.LayoutParams(dp(240), dp(240)).apply { bottomMargin = dp(8) })
         root.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        button = TextView(context).apply {
-            text = context.getString(R.string.bubble_talk)
-            setTextColor(Color.WHITE)
-            textSize = 18f
-            gravity = Gravity.CENTER
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        button = android.widget.ImageView(context).apply {
+            setImageResource(R.drawable.ic_bubble_mic)
+            scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(26), dp(26), dp(26), dp(26))
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(PINK) }
             contentDescription = context.getString(R.string.bubble_talk_hint)
             setOnTouchListener { v, e -> touch(context, v, e) }
@@ -286,7 +275,8 @@ object TalkBubble {
         talking = true
         talkStarted = System.currentTimeMillis()
         (button?.background as? GradientDrawable)?.setColor(Color.RED)
-        button?.text = context.getString(R.string.bubble_send)
+        button?.setImageResource(R.drawable.ic_bubble_send)
+        button?.contentDescription = context.getString(R.string.bubble_send)
         main.post(tick)
         runCatching {
             context.startForegroundService(Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_TALK_BACK).putExtra(TalkReadyService.EXTRA_CHAT, chat))
@@ -306,7 +296,8 @@ object TalkBubble {
             context.startService(Intent(context, TalkReadyService::class.java).setAction(if (send) TalkReadyService.ACTION_SEND else TalkReadyService.ACTION_CANCEL_TALK))
         }
         (button?.background as? GradientDrawable)?.setColor(PINK)
-        button?.text = context.getString(R.string.bubble_talk)
+        button?.setImageResource(R.drawable.ic_bubble_mic)
+        button?.contentDescription = context.getString(R.string.bubble_talk_hint)
         line?.text = context.getString(if (send) R.string.bubble_sent else R.string.bubble_reply)
     }
 
