@@ -296,8 +296,6 @@ internal fun TalkModeScreen(
             }
             Text(title, color = LibraryColors.OnBackground, style = LibraryType.PageTitle, modifier = Modifier.weight(1f))
         }
-        Spacer(Modifier.height(12.dp))
-        TalkChatActions(openChat, call)
         Spacer(Modifier.height(16.dp))
         Text(
             talkLine(chat, talk, nameOf, me),
@@ -317,24 +315,13 @@ internal fun TalkModeScreen(
                 color = LibraryColors.Muted, style = LibraryType.Tiny,
             )
         }
-        // Someone's video burst plays here, above the button.
-        val video = talk.playing?.takeIf { it.chat == chat && it.video }
-        if (video != null) {
-            TalkVideoView(Modifier.weight(2f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
-        } else {
-            Spacer(Modifier.weight(1f))
-        }
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release)
-            androidx.compose.foundation.layout.Column(Modifier.align(Alignment.TopEnd).padding(end = 16.dp), horizontalAlignment = Alignment.End) {
-                PushVideoSwitch(pushVideo, setPushVideo)
-                if (pushVideo) {
-                    Spacer(Modifier.height(8.dp))
-                    PushVideoPreview()
-                }
-            }
-        }
-        Spacer(Modifier.weight(1f))
+        // Centred above the button: someone's video burst, or this phone's camera while Video is on.
+        val video = talk.playing?.takeIf { it.chat == chat && it.video } != null
+        TalkVideoBox(video, pushVideo, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp))
+        TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release)
+        Spacer(Modifier.height(16.dp))
+        TalkChatActions(openChat, call, pushVideo = pushVideo, setPushVideo = setPushVideo)
+        Spacer(Modifier.height(16.dp))
         if (bursts.isNotEmpty()) {
             Text(stringResource(R.string.talk_last), color = LibraryColors.Muted, style = LibraryType.SectionLabel, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp))
             LazyColumn(
@@ -521,10 +508,19 @@ internal fun SwitchRow(title: String, body: String?, on: Boolean, onChange: (Boo
     }
 }
 
-/** Under a Talk screen's name: open the chat, a voice call, a video call (2026-11-22, hen). */
+/**
+ * Under a Talk screen's button (2026-11-22, hen): push-to-video's Video switch, the chat, a voice call, a video call.
+ */
 @Composable
-internal fun TalkChatActions(openChat: () -> Unit, call: (video: Boolean) -> Unit, modifier: Modifier = Modifier) {
+internal fun TalkChatActions(
+    openChat: () -> Unit,
+    call: (video: Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    pushVideo: Boolean = false,
+    setPushVideo: (Boolean) -> Unit = {},
+) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        PushVideoSwitch(pushVideo, setPushVideo)
         TalkChatAction(LibraryIcons.Chat, stringResource(R.string.talk_action_chat), openChat)
         TalkChatAction(LibraryIcons.Call, stringResource(R.string.call_voice)) { call(false) }
         TalkChatAction(LibraryIcons.Video, stringResource(R.string.call_video)) { call(true) }

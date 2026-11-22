@@ -122,18 +122,41 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
         }
     }
 
+    /**
+     * The encoder: H.265 when wanted (and there is a hardware one), else VP8; when VP8 can't be set up (the S25 has only
+     * Android's software VP8), H.264, which every phone decodes.
+     */
     private fun startEncoder() {
-        val h265 = wantH265() && hasEncoder(MediaFormat.MIMETYPE_VIDEO_HEVC)
-        codec = if (h265) TalkVideo.H265 else TalkVideo.VP8
-        val mime = if (h265) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_VP8
+        val order = buildList {
+            if (wantH265() && hasEncoder(MediaFormat.MIMETYPE_VIDEO_HEVC)) add(TalkVideo.H265)
+            add(TalkVideo.VP8)
+            add(TalkVideo.H264)
+        }
+        for (c in order) {
+            if (tryEncoder(c)) return
+        }
+        throw IllegalStateException("no video encoder")
+    }
+
+    private fun tryEncoder(c: Int): Boolean {
+        val mime = when (c) {
+            TalkVideo.H265 -> MediaFormat.MIMETYPE_VIDEO_HEVC
+            TalkVideo.H264 -> MediaFormat.MIMETYPE_VIDEO_AVC
+            else -> MediaFormat.MIMETYPE_VIDEO_VP8
+        }
         val format = MediaFormat.createVideoFormat(mime, WIDTH, HEIGHT).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, BITRATE)
             setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-            setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
+            if (c != TalkVideo.VP8) setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
         }
-        val enc = MediaCodec.createEncoderByType(mime)
+        val enc = try {
+            MediaCodec.createEncoderByType(mime)
+        } catch (e: Exception) {
+            Log.w(TAG, "no $mime encoder", e)
+            return false
+        }
         enc.setCallback(object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {}
             override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
@@ -153,11 +176,19 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
             override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) { Log.w(TAG, "encoder", e) }
             override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {}
         }, handler)
-        enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        encoderSurface = enc.createInputSurface()
-        enc.start()
-        synchronized(lock) { encoder = enc }
-        Log.i(TAG, "push-to-video encoder: $mime ${WIDTH}x$HEIGHT")
+        return try {
+            enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            encoderSurface = enc.createInputSurface()
+            enc.start()
+            codec = c
+            synchronized(lock) { encoder = enc }
+            Log.i(TAG, "push-to-video encoder: ${enc.name} ($mime) ${WIDTH}x$HEIGHT")
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "${enc.name} can't be set up for $mime", e)
+            runCatching { enc.release() }
+            false
+        }
     }
 
     private fun emit(bytes: ByteArray, info: MediaCodec.BufferInfo) {
@@ -175,7 +206,7 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
             s
         }
         // A key frame carries its parameter sets (H.265), whether the encoder put them in or not.
-        val data = if (key && codec == TalkVideo.H265 && config != null && !startsWith(bytes, config!!)) config!! + bytes else bytes
+        val data = if (key && codec != TalkVideo.VP8 && config != null && !startsWith(bytes, config!!)) config!! + bytes else bytes
         out(TalkVideo.Frame((info.presentationTimeUs - startUs) / 1000, key, rotation(), data, codec))
     }
 

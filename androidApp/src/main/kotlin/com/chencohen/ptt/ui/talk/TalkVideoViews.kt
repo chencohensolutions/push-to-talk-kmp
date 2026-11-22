@@ -47,21 +47,29 @@ import com.chencohen.ptt.ui.style.LibraryType
 internal fun PushVideoSwitch(on: Boolean, set: (Boolean) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) set(true) }
-    Text(
-        stringResource(if (on) R.string.talk_video_on else R.string.talk_video_off),
-        color = if (on) Color.White else LibraryColors.OnBackground, style = LibraryType.Small,
-        modifier = modifier.background(if (on) LibraryColors.Inverse else LibraryColors.Raised, CircleShape)
-            .clickable(role = Role.Switch) {
-                if (on) {
-                    set(false)
-                } else if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                    set(true)
-                } else {
-                    ask.launch(Manifest.permission.CAMERA)
-                }
-            }
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-    )
+    val label = stringResource(if (on) R.string.talk_video_on else R.string.talk_video_off)
+    androidx.compose.foundation.layout.Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(52.dp).background(if (on) LibraryColors.Inverse else LibraryColors.Raised, CircleShape)
+                .clickable(role = Role.Switch, onClickLabel = label) {
+                    if (on) {
+                        set(false)
+                    } else if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        set(true)
+                    } else {
+                        ask.launch(Manifest.permission.CAMERA)
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.material3.Icon(
+                if (on) com.chencohen.ptt.ui.style.LibraryIcons.Video else com.chencohen.ptt.ui.style.LibraryIcons.VideoOff, null,
+                tint = if (on) Color.White else LibraryColors.OnBackground, modifier = Modifier.size(24.dp),
+            )
+        }
+        androidx.compose.foundation.layout.Spacer(Modifier.size(4.dp))
+        Text(label, color = LibraryColors.Muted, style = LibraryType.Tiny)
+    }
 }
 
 /** While shown with push-to-video on, the camera stays open for [chat] (a press sends at once); closed after. */
@@ -73,38 +81,58 @@ internal fun WarmCamera(chat: String, on: Boolean, warm: (String?) -> Unit) {
     }
 }
 
-/** This phone's camera as it sends it, small, mirrored like a mirror. */
+/** This phone's camera as it sends it, turned upright and fitted in the space given, mirrored like a mirror. */
 @Composable
 internal fun PushVideoPreview(modifier: Modifier = Modifier) {
     val capture = com.chencohen.ptt.talkVideoCapture ?: return
     val rotation = capture.previewRotation()
-    Box(modifier.size(96.dp, 128.dp).clip(RoundedCornerShape(12.dp)).background(Color.Black).clipToBounds(), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black), contentAlignment = Alignment.Center) {
+        val density = LocalDensity.current
         val turned = rotation % 180 != 0
-        // The camera's 4:3 frames, turned upright, covering the 3:4 box.
-        val (w, h) = if (turned) 128.dp to 96.dp else 96.dp to 128.dp
-        AndroidView(
-            factory = { context ->
-                TextureView(context).apply {
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        private var surface: Surface? = null
-                        override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
-                            texture.setDefaultBufferSize(com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH, com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT)
-                            surface = Surface(texture).also { capture.setPreview(it) }
-                        }
+        val frameAspect = com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT
+        val shownAspect = if (turned) 1f / frameAspect else frameAspect
+        val w = constraints.maxWidth.toFloat()
+        val h = constraints.maxHeight.toFloat()
+        val (bw, bh) = if (w / h > shownAspect) (h * shownAspect) to h else w to (w / shownAspect)
+        val (vw, vh) = if (turned) bh to bw else bw to bh
+        with(density) {
+            AndroidView(
+                factory = { context ->
+                    TextureView(context).apply {
+                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                            private var surface: Surface? = null
+                            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                                texture.setDefaultBufferSize(com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH, com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT)
+                                surface = Surface(texture).also { capture.setPreview(it) }
+                            }
 
-                        override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
-                        override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
-                            capture.setPreview(null)
-                            surface?.release()
-                            return true
-                        }
+                            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
+                            override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+                                capture.setPreview(null)
+                                surface?.release()
+                                return true
+                            }
 
-                        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
+                            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
+                        }
                     }
-                }
-            },
-            modifier = Modifier.requiredSize(w, h).graphicsLayer { rotationZ = rotation.toFloat(); scaleX = -1f },
-        )
+                },
+                modifier = Modifier.requiredSize(vw.toDp(), vh.toDp()).graphicsLayer { rotationZ = rotation.toFloat(); scaleX = -1f },
+            )
+        }
+    }
+}
+
+/**
+ * Above a Talk screen's button, centred: someone's video burst while it plays, else this phone's camera while Video
+ * is on, else nothing.
+ */
+@Composable
+internal fun TalkVideoBox(playingVideo: Boolean, pushVideo: Boolean, modifier: Modifier = Modifier) {
+    when {
+        playingVideo -> TalkVideoView(modifier)
+        pushVideo -> PushVideoPreview(modifier)
+        else -> Box(modifier)
     }
 }
 

@@ -491,7 +491,8 @@ frames in pieces of at most 3 KB, a segment cut early so it stays under the serv
 one into a hardware encoder (`AndroidTalkVideoCapture`), 640×480, 15 fps, 350 kbit/s (a minute fits the 4 MB clip),
 frames as captured with their rotation. One format per burst: H.265 only when Settings › Calls › Video is H.265,
 this phone has the encoder and every other phone in the chat said it decodes H.265 (`ContentCodec.caps`, on every
-message, end to end); otherwise VP8. The listener splits the packets, plays the voice (without catch-up, so the
+message, end to end); otherwise VP8, or H.264 (which every phone decodes) where VP8 can't be set up (the S25 has
+only Android's software VP8, which refused the encoder's settings). The listener splits the packets, plays the voice (without catch-up, so the
 pictures keep up) and draws each frame when the voice gets there (`AndroidTalkVideoOut`), on the Talk screen or in
 the reply bubble (its own Video switch, off by default).
 

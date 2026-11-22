@@ -118,8 +118,6 @@ internal fun QuickTalkHome(
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                TalkChatActions(openChat = { openChat(page.chat) }, call = { video -> call(page.chat, video) })
-                Spacer(Modifier.height(12.dp))
                 Text(
                     talkLine(page.chat, talk, nameOf, me),
                     color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
@@ -129,28 +127,21 @@ internal fun QuickTalkHome(
                 )
                 // The page on screen keeps the camera warm for its chat.
                 if (pager.currentPage == i) WarmCamera(page.chat, pushVideo, warmCamera)
-                val video = talk.playing?.takeIf { it.chat == page.chat && it.video }
-                if (video != null) {
-                    TalkVideoView(Modifier.weight(2f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    TalkCircle(
-                        live = live,
-                        someoneTalking = someone != null,
-                        press = { microphone { press(page.chat) } },
-                        release = release,
-                    )
-                    Column(Modifier.align(Alignment.TopEnd).padding(end = 16.dp), horizontalAlignment = Alignment.End) {
-                        PushVideoSwitch(pushVideo, setPushVideo)
-                        if (pushVideo && pager.currentPage == i) {
-                            Spacer(Modifier.height(8.dp))
-                            PushVideoPreview()
-                        }
-                    }
-                }
-                Spacer(Modifier.weight(1f))
+                // Centred above the button: someone's video burst, or this phone's camera while Video is on.
+                val video = talk.playing?.takeIf { it.chat == page.chat && it.video } != null
+                TalkVideoBox(video, pushVideo && pager.currentPage == i, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp))
+                TalkCircle(
+                    live = live,
+                    someoneTalking = someone != null,
+                    press = { microphone { press(page.chat) } },
+                    release = release,
+                )
+                Spacer(Modifier.height(16.dp))
+                TalkChatActions(
+                    openChat = { openChat(page.chat) }, call = { v -> call(page.chat, v) },
+                    pushVideo = pushVideo, setPushVideo = setPushVideo,
+                )
+                Spacer(Modifier.height(16.dp))
             }
         }
         if (pages.size > 1) PageDots(pages.size, pager.currentPage, Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp))
