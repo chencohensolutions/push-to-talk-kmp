@@ -118,6 +118,7 @@
     <string name="kept_failed">The call couldn\'t be opened. Try again later.</string>
     <string name="kept_play">Play</string>
     <string name="kept_pause">Pause</string>
+    <string name="talk_here">Here now</string>
     <string name="settings_contacts_title">Contacts</string>
     <string name="settings_android_contacts">Show in Android Contacts</string>
     <string name="settings_android_contacts_body">Your Talk contacts appear in the phone\'s Contacts with Talk message, voice call and video call. Only their names are shared with Contacts.</string>

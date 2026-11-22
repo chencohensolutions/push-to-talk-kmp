@@ -297,7 +297,9 @@ internal fun TalkModeScreen(
             Box(Modifier.size(48.dp).clickable(role = Role.Button, onClick = close), contentAlignment = Alignment.Center) {
                 Icon(LibraryIcons.ChevronDown, stringResource(R.string.talk_close), tint = LibraryColors.OnBackground)
             }
-            Text(title, color = LibraryColors.OnBackground, style = LibraryType.PageTitle, modifier = Modifier.weight(1f))
+            Text(title, color = LibraryColors.OnBackground, style = LibraryType.PageTitle)
+            HereDot(peerHere)
+            Spacer(Modifier.weight(1f))
         }
         val playing = talk.playing?.takeIf { it.chat == chat && it.live }
         if (playing != null && isDebugBuild()) {

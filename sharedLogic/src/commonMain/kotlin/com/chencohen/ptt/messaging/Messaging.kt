@@ -1081,6 +1081,7 @@ internal class Messaging(
 
     /** This user is typing to [user] (or stopped): sent with no wake-up, and only when connected. */
     private var hereChat: String? = null
+    private val hereFrom = mutableMapOf<String, String>()
     private var hereJob: kotlinx.coroutines.Job? = null
 
     /**
@@ -1088,8 +1089,10 @@ internal class Messaging(
      * again every 20 s while it stays open, so their phone can offer a quick video call (2026-11-22, hen). One-to-one
      * chats only.
      */
-    fun setHere(chat: String?) {
-        val target = chat?.takeIf { Group.idOf(it) == null }
+    fun setHere(chat: String?, from: String = HERE_SCREEN) {
+        // A Talk screen and the bubble each say what they show; the screen wins while both do.
+        if (chat == null) hereFrom.remove(from) else hereFrom[from] = chat
+        val target = (hereFrom[HERE_SCREEN] ?: hereFrom[HERE_BUBBLE])?.takeIf { Group.idOf(it) == null }
         if (target == hereChat) return
         val old = hereChat
         hereChat = target
@@ -1233,7 +1236,9 @@ internal class Messaging(
             }
         }
         content.here?.let { here ->
-            _state.update { it.copy(here = if (here.open) it.here + (contact.user to now() + HERE_FOR) else it.here - contact.user) }
+            // From when the server took it: one that waited (this phone was away) is already over.
+            val until = minOf(now(), envelope.serverTimestamp.takeIf { it > 0 } ?: now()) + HERE_FOR
+            _state.update { it.copy(here = if (here.open && until > now()) it.here + (contact.user to until) else it.here - contact.user) }
         }
     }
 
@@ -1293,6 +1298,8 @@ internal class Messaging(
         /** The key in [MessagingState.typing] of [author] typing in a group's chat. */
         /** "Here" lasts this long after the last word of it; it is said again every HERE_EVERY. */
         const val HERE_FOR = 30_000L
+        const val HERE_SCREEN = "screen"
+        const val HERE_BUBBLE = "bubble"
         const val HERE_EVERY = 20_000L
 
         fun typingKey(chat: String, author: String): String = "$chat/$author"

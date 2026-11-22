@@ -617,7 +617,7 @@ fun HomeApp(
                         setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
                         warmCamera = messaging::warmCamera,
                         setHere = messaging::setHere,
-                        peerHere = (messagingState.here[chat] ?: 0L) > System.currentTimeMillis(),
+                        peerHere = com.chencohen.ptt.ui.talk.rememberHere(messagingState.here, chat),
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
