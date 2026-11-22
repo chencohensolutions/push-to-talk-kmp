@@ -52,6 +52,8 @@ class ContactActions(
     val setQuickTalk: (Boolean) -> Unit = {},
     /** Rename: this user's own name for them (blank: back to theirs). */
     val rename: (String) -> Unit = {},
+    /** Their email as this user knows it (blank: none), for Android Contacts to join cards by. */
+    val setEmail: (String) -> Unit = {},
 )
 
 /**
@@ -91,8 +93,35 @@ internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActi
         }
         // Rename (2026-11-22, hen): this user's own name for them, on all of this user's phones.
         var renaming by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+        var emailing by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
         SettingsCard {
             InfoRow(stringResource(R.string.contact_rename), contact.nickname ?: stringResource(R.string.contact_rename_none), onClick = { renaming = true })
+            RowDivider()
+            // Their email (2026-11-22, hen): Android Contacts joins the Talk card with the phone's card by it.
+            InfoRow(
+                stringResource(R.string.contact_email),
+                contact.shownEmail ?: stringResource(R.string.contact_email_none),
+                onClick = { emailing = true },
+            )
+        }
+        if (emailing) {
+            var text by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(contact.shownEmail.orEmpty()) }
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { emailing = false },
+                title = { Text(stringResource(R.string.contact_email)) },
+                text = {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = text, onValueChange = { text = it.take(254) }, singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Email),
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = { actions.setEmail(text); emailing = false }) { Text(stringResource(R.string.contact_rename_save)) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { emailing = false }) { Text(stringResource(R.string.contact_rename_cancel)) }
+                },
+            )
         }
         if (renaming) {
             var text by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(contact.nickname ?: contact.displayName ?: "") }

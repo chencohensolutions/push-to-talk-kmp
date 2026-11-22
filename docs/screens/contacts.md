@@ -45,3 +45,8 @@ identifiers); the code is `ptt://safety?v=1&n=<base64url>`.
 - **Name** (Rename; 2026-11-22, hen): on a contact's page, under their picture, a row with this user's own name for
   them ("Their own name" when none). A tap asks for it; empty goes back to theirs. It shows everywhere in the app
   (chats, Talk, calls, notifications) and goes to this user's other phones with the contact (ContactSyncContent).
+
+- **Email** (2026-11-22, hen): under Name, their email: as this user typed it (on all of this user's phones), else the
+  one their own phone shared (Settings › Contacts › Your email, sent end to end to each paired contact, ProfileContent;
+  set by itself from an invite's email at enrollment). It goes on their Talk entry in Android Contacts, so Android
+  joins it with the phone's card that has the same email.

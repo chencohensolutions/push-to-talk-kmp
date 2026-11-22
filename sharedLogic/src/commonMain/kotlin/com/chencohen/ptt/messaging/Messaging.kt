@@ -312,7 +312,17 @@ internal class Messaging(
     suspend fun start() {
         foreground = true
         open()
+        // Once a run: this user's email to contacts (some paired since it was last said).
+        if (!profileShared && settings.myEmail != null) {
+            profileShared = true
+            scope.launch {
+                socket.state.first { it is SocketState.Live }
+                shareProfile()
+            }
+        }
     }
+
+    private var profileShared = false
 
     /** The app went to the back. */
     fun stop() {
@@ -678,7 +688,12 @@ internal class Messaging(
             try {
                 sender.send(
                     self.user,
-                    Content(contact = ContactSyncContent(contact.user, Base64.decode(contact.identityKey), contact.verified, contact.displayName.orEmpty(), contact.nickname.orEmpty(), nicknameSet = true)),
+                    Content(
+                        contact = ContactSyncContent(
+                            contact.user, Base64.decode(contact.identityKey), contact.verified, contact.displayName.orEmpty(),
+                            contact.nickname.orEmpty(), nicknameSet = true, email = contact.email.orEmpty(), emailSet = true,
+                        ),
+                    ),
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -705,6 +720,7 @@ internal class Messaging(
                 changedKey = old?.changedKey?.takeIf { it != key },
                 displayName = sync.displayName.ifEmpty { null } ?: old?.displayName,
                 nickname = if (sync.nicknameSet) sync.nickname.ifBlank { null } else old?.nickname,
+                email = if (sync.emailSet) sync.email.ifBlank { null } else old?.email,
             )
         )
     }
@@ -961,6 +977,38 @@ internal class Messaging(
         }
         if (matches) setVerified(user, true)
         return matches
+    }
+
+    /** Their email as this user knows it ([email] blank: none), on all of this user's phones. */
+    fun setEmail(user: String, email: String) {
+        store.contact(user)?.let { store.putContact(it.copy(email = email.trim().take(254).ifBlank { null })) }
+        publish()
+        syncContact(user)
+    }
+
+    val myEmail: String? get() = settings.myEmail
+
+    /** This user's own email ([email] blank: none), shared with every paired contact (ProfileContent). */
+    fun setMyEmail(email: String) {
+        settings.myEmail = email.trim().take(254).ifBlank { null }
+        shareProfile()
+    }
+
+    /** Tells each paired contact this user's email (also when the app opens, for contacts paired since). */
+    fun shareProfile() {
+        val email = settings.myEmail.orEmpty()
+        val contacts = store.contacts().filter { it.paired && !it.blocked }
+        if (contacts.isEmpty()) return
+        scope.launch {
+            for (c in contacts) {
+                try {
+                    sender.send(c.user, Content(profile = ProfileContent(email)), pushKind = PushKind.NONE)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     /** This user's own name for [user] ([name] blank: back to theirs), on all of this user's phones. */
@@ -1233,6 +1281,15 @@ internal class Messaging(
         content.typing?.let { typing ->
             _state.update {
                 it.copy(typing = if (typing.typing) it.typing + (contact.user to now() + TYPING_FOR) else it.typing - contact.user)
+            }
+        }
+        content.profile?.let { profile ->
+            store.contact(contact.user)?.let { c ->
+                val email = profile.email.trim().take(254).ifBlank { null }
+                if (c.theirEmail != email) {
+                    store.putContact(c.copy(theirEmail = email))
+                    publish()
+                }
             }
         }
         content.here?.let { here ->

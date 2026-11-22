@@ -151,6 +151,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_BUBBLE_VIDEO) != "false"
         set(value) = store.putString(KEY_BUBBLE_VIDEO, value.toString())
 
+    /** This user's email, shared with their paired contacts (Settings › Contacts › Your email); null: none. */
+    var myEmail: String?
+        get() = store.getString(KEY_MY_EMAIL)
+        set(value) = store.putString(KEY_MY_EMAIL, value)
+
     var pendingLink: String?
         get() = store.getString(KEY_PENDING_LINK)
         set(value) = store.putString(KEY_PENDING_LINK, value)
@@ -163,6 +168,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_OPEN_ON_TALK = "talk_open_on_talk"
         private const val KEY_REPLY_BUBBLE = "talk_reply_bubble"
         private const val KEY_CALL_VIDEO = "call_video"
+        private const val KEY_MY_EMAIL = "my_email"
         private const val KEY_PUSH_VIDEO = "talk_push_video"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"

@@ -338,6 +338,8 @@ class EnrollmentController internal constructor(
             },
             onSaved = {
                 settings.pendingInvitePair = pairing
+                // Enrolled with this email: shared with contacts (Settings › Contacts › Your email can change it).
+                if (settings.myEmail == null) settings.myEmail = email?.trim()?.ifBlank { null }
                 inviteLink = null
             },
         )

@@ -33,7 +33,7 @@ object AndroidContacts {
     const val TALK = "vnd.android.cursor.item/vnd.com.chencohen.ptt.talk"
 
     /** Bumped when the rows change, so entries written before are written again (v2: Talk to). */
-    private const val ROWS = "v2"
+    private const val ROWS = "v3"
     private const val PREFS = "android_contacts"
 
     fun enabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("on", false)
@@ -99,20 +99,29 @@ object AndroidContacts {
         val data = ContactsContract.Data.CONTENT_URI.buildUpon().appendQueryParameter(ContactsContract.CALLER_IS_SYNCADAPTER, "true").build()
         for (contact in contacts) {
             val row = existing[contact.user]
-            if (row != null && row.second == "${contact.name}|$ROWS") continue
+            if (row != null && row.second == "${contact.name}|${contact.shownEmail.orEmpty()}|$ROWS") continue
             if (row != null) ops += ContentProviderOperation.newDelete(android.content.ContentUris.withAppendedId(raw, row.first)).build()
             val back = ops.size
             ops += ContentProviderOperation.newInsert(raw)
                 .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, account.name)
                 .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, account.type)
                 .withValue(ContactsContract.RawContacts.SOURCE_ID, contact.user)
-                .withValue(ContactsContract.RawContacts.SYNC1, "${contact.name}|$ROWS")
+                .withValue(ContactsContract.RawContacts.SYNC1, "${contact.name}|${contact.shownEmail.orEmpty()}|$ROWS")
                 .build()
             ops += ContentProviderOperation.newInsert(data)
                 .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, back)
                 .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
                 .withValue(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, contact.name)
                 .build()
+            // Their email: Android joins this card with the phone's card that has it (2026-11-22, hen).
+            contact.shownEmail?.let { email ->
+                ops += ContentProviderOperation.newInsert(data)
+                    .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, back)
+                    .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)
+                    .withValue(ContactsContract.CommonDataKinds.Email.ADDRESS, email)
+                    .withValue(ContactsContract.CommonDataKinds.Email.TYPE, ContactsContract.CommonDataKinds.Email.TYPE_OTHER)
+                    .build()
+            }
             for ((mime, words) in listOf(
                 TALK to R.string.contacts_action_talk,
                 MESSAGE to R.string.contacts_action_message,

@@ -289,6 +289,20 @@ class TalkTest {
     }
 
     @Test
+    fun anEmailSharedReachesTheOtherPhoneForItsContacts() = runTest {
+        val (_, hen, dana) = paired()
+        hen.work.launch { hen.messaging.setMyEmail(" hen@example.com ") }
+        advanceUntilIdle()
+        assertEquals("hen@example.com", dana.state.contacts.single { it.user == "hen" }.shownEmail)
+        // Dana's own entry for him wins over what he shares.
+        dana.work.launch { dana.messaging.setEmail("hen", "work@example.com") }
+        advanceUntilIdle()
+        assertEquals("work@example.com", dana.state.contacts.single { it.user == "hen" }.shownEmail)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun theWholeBurstPlaysFromTheFirstWordToTheLast() = runTest {
         val (_, hen, dana) = paired()
         // Spoken at once with the press, before the server gives the floor: kept, and sent once it does.

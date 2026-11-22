@@ -41,7 +41,13 @@ internal data class Content(
     @ProtoNumber(16) val caps: Int = 0,
     /** "Here": the sender has this chat's Talk screen or reply bubble open now (true) or closed it (false). */
     @ProtoNumber(17) val here: HereContent? = null,
+    /** The sender's own profile for a paired contact (their email, which they chose to share). */
+    @ProtoNumber(18) val profile: ProfileContent? = null,
 )
+
+/** What a user shares with their paired contacts about themselves: their email ("" none; Settings › Contacts). */
+@Serializable
+internal data class ProfileContent(@ProtoNumber(1) val email: String = "")
 
 /** The sender's Talk screen or reply bubble for this chat is open ([open]); said again every 20 s while it is. */
 @Serializable
@@ -77,10 +83,13 @@ internal data class ContactSyncContent(
     /** This user's name for them ("" none); [nicknameSet]: this message says it (older phones don't). */
     @ProtoNumber(5) val nickname: String = "",
     @ProtoNumber(6) val nicknameSet: Boolean = false,
+    /** Their email as this user typed it ("" none); [emailSet]: this message says it. */
+    @ProtoNumber(7) val email: String = "",
+    @ProtoNumber(8) val emailSet: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean = other is ContactSyncContent && user == other.user &&
         identityKey.contentEquals(other.identityKey) && verified == other.verified && displayName == other.displayName &&
-        nickname == other.nickname && nicknameSet == other.nicknameSet
+        nickname == other.nickname && nicknameSet == other.nicknameSet && email == other.email && emailSet == other.emailSet
 
     override fun hashCode(): Int = user.hashCode()
 }
