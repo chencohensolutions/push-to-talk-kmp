@@ -33,159 +33,42 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 // Talk outside the screen (docs/design.md, "Phase 5a"; the plan's "Background delivery and battery"). With Stay
-// connected off nothing runs in the background: a `talk` push wakes the phone, and a burst it should play aloud plays
-// as media in a media-playback foreground service started from that high-priority push (TalkPlayback): loudspeaker,
-// media volume. Only if Android refuses that service, or the audio focus, the burst plays in a Telecom talk session
-// (Core-Telecom's addCall, answered by the app itself) instead. If neither can start, or the chat is Notify only, a
-// notification with Play and Reply. Stay connected keeps /ws in a foreground service started from Settings.
+// connected off nothing runs in the background: a `talk` push wakes the phone, and a burst it should play aloud is
+// registered with Telecom as a talk session (Core-Telecom's addCall, answered by the app itself), which the system
+// backs with a phone-call service: Android 17 lets an app play from the background only that way (a media-playback
+// service started from the push is silenced, 1.0.3-1.2.0). The burst plays as the call's voice on the loudspeaker
+// (TalkAudio). With the app on screen it plays as media, no session. If the session can't start, or the chat is
+// Notify only, a notification with Play and Reply instead. Stay connected keeps /ws in a foreground service.
 
 /** The platform's part in playing talk (TalkHost): the talk session, and the talk notifications. */
 class AndroidTalkHost(private val app: TalkApp) : TalkHost {
     override suspend fun prepareToPlay(chat: String, from: String): Boolean {
         if (StayConnectedService.running) return true
-        if (TalkPlayback.begin(app, chat)) {
-            Log.i(TalkPlayback.TAG, "woken burst plays as media")
+        if (onScreen()) {
+            Log.i(TAG, "burst plays as media: the app is on screen")
             return true
         }
-        Log.i(TalkPlayback.TAG, "woken burst plays in a Telecom talk session (the media path was refused)")
-        return TalkSession.begin(app, chat, from)
+        val ok = TalkSession.begin(app, chat, from)
+        Log.i(TAG, if (ok) "woken burst plays in a Telecom talk session, on the loudspeaker" else "no talk session: a notification instead")
+        return ok
+    }
+
+    /** The app is on screen (its activity started): talk may play as media without a session. */
+    private fun onScreen(): Boolean {
+        val info = android.app.ActivityManager.RunningAppProcessInfo()
+        android.app.ActivityManager.getMyMemoryState(info)
+        return info.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+    }
+
+    private companion object {
+        const val TAG = "TalkHost"
     }
 
     override fun talkNotify(chat: String, from: String, clip: String) {
         app.scope.launch { TalkNotifications.show(app, chat, from, clip) }
     }
 
-    override fun idle() {
-        TalkPlayback.endSoon(app)
-        TalkSession.endSoon(app)
-    }
-}
-
-/**
- * Woken bursts played as media (2026-11-22, hen: talk is heard like a walkie-talkie, on the loudspeaker at media
- * volume, not as call audio; in a Telecom session Android even muted the media track). TalkPlaybackService runs as a
- * media-playback foreground service, which a high-priority push may start from the background, with transient audio
- * focus that lets other sound duck. It ends 20 s after the last burst, so a reply can follow.
- */
-object TalkPlayback {
-    const val TAG = "TalkPlayback"
-    private const val REPLY_WAIT = 20_000L
-
-    @Volatile
-    var active = false
-        private set
-
-    private var started: CompletableDeferred<Boolean>? = null
-    private var ending: Job? = null
-    private var focus: android.media.AudioFocusRequest? = null
-
-    /** Starts the media session if none runs; false when Android refuses the service or the audio focus. */
-    suspend fun begin(app: TalkApp, chat: String): Boolean {
-        ending?.cancel()
-        if (active) return true
-        val name = runCatching { chatName(app, chat) }.getOrDefault(chat)
-        val ready = CompletableDeferred<Boolean>()
-        started = ready
-        try {
-            app.startForegroundService(Intent(app, TalkPlaybackService::class.java).putExtra(TalkPlaybackService.EXTRA_NAME, name))
-        } catch (e: Exception) {
-            // ForegroundServiceStartNotAllowedException: no exemption (a normal-priority push, or none left).
-            Log.w(TAG, "no media playback service", e)
-            started = null
-            return false
-        }
-        if (withTimeoutOrNull(3_000) { ready.await() } != true) {
-            Log.w(TAG, "the media playback service didn't start")
-            stop(app)
-            return false
-        }
-        val audio = app.getSystemService(android.media.AudioManager::class.java)
-        val request = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-            .setAudioAttributes(
-                android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            )
-            .setOnAudioFocusChangeListener { }
-            .build()
-        if (audio.requestAudioFocus(request) != android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            // A phone call is on, for one.
-            Log.w(TAG, "audio focus refused")
-            stop(app)
-            return false
-        }
-        focus = request
-        active = true
-        return true
-    }
-
-    /** Nothing plays: the media session ends after the reply time unless another burst comes. */
-    fun endSoon(app: TalkApp) {
-        if (!active) return
-        ending?.cancel()
-        ending = app.scope.launch {
-            delay(REPLY_WAIT)
-            stop(app)
-        }
-    }
-
-    /** TalkPlaybackService is in the foreground (true) or couldn't get there (false). */
-    internal fun serviceStarted(ok: Boolean) {
-        started?.complete(ok)
-    }
-
-    /** Ends it now (Leave, or the reply time is up). */
-    fun stop(context: Context) {
-        ending?.cancel()
-        ending = null
-        focus?.let { context.getSystemService(android.media.AudioManager::class.java).abandonAudioFocusRequest(it) }
-        focus = null
-        active = false
-        started = null
-        context.stopService(Intent(context, TalkPlaybackService::class.java))
-    }
-}
-
-/** The media-playback service woken bursts play in, with its ongoing notification ("Talk · Family", Leave). */
-class TalkPlaybackService : Service() {
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_LEAVE) {
-            TalkPlayback.stop(this)
-            return START_NOT_STICKY
-        }
-        val name = intent?.getStringExtra(EXTRA_NAME).orEmpty()
-        val leave = PendingIntent.getService(
-            this, 0, Intent(this, TalkPlaybackService::class.java).setAction(ACTION_LEAVE), PendingIntent.FLAG_IMMUTABLE,
-        )
-        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(this, TalkNotifications.SESSION_CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(getString(R.string.talk_session_name, name))
-            .setContentIntent(open)
-            .addAction(0, getString(R.string.talk_session_leave), leave)
-            .setOngoing(true)
-            .setSilent(true)
-            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-            .build()
-        try {
-            startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-            TalkPlayback.serviceStarted(true)
-        } catch (e: Exception) {
-            Log.w(TalkPlayback.TAG, "can't play in the foreground", e)
-            TalkPlayback.serviceStarted(false)
-            stopSelf()
-        }
-        return START_NOT_STICKY
-    }
-
-    companion object {
-        private const val ID = 43
-        private const val ACTION_LEAVE = "com.chencohen.ptt.TALK_PLAYBACK_LEAVE"
-        const val EXTRA_NAME = "name"
-    }
+    override fun idle() = TalkSession.endSoon(app)
 }
 
 /**
@@ -238,6 +121,7 @@ object TalkSession {
                         // Answered by the app itself: a talk session isn't a call the user picks up.
                         answer(CallAttributesCompat.CALL_TYPE_AUDIO_CALL)
                         launch { toLoudspeaker() }
+                        com.chencohen.ptt.talk.TalkAudio.inCallSession = true
                         active = true
                         TalkSessionService.start(app, name)
                         ready.complete(true)
@@ -250,6 +134,7 @@ object TalkSession {
                 ready.complete(false)
             } finally {
                 active = false
+                com.chencohen.ptt.talk.TalkAudio.inCallSession = false
                 TalkSessionService.stop(app)
             }
         }

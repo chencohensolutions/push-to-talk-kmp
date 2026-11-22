@@ -205,7 +205,9 @@ private class TrackPlayback(
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    // Inside a Telecom talk session (a woken burst in the background), the call's own voice:
+                    // Android mutes media during a call (TalkAudio).
+                    .setUsage(if (TalkAudio.inCallSession) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )

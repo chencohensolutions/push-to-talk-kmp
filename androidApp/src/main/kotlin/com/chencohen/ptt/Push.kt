@@ -83,13 +83,13 @@ class TalkMessagingService : FirebaseMessagingService() {
             return
         }
         // onMessageReceived runs on its own thread, with about 20 seconds before Android may stop the process. A burst
-        // that plays starts a media-playback service (or, as a fallback, a Telecom talk session), which keeps the process
-        // for it: the wake-up goes on past those seconds then, until its reply time is over.
+        // that plays starts a talk session (a phone-call service), which keeps the process for it: the wake-up goes
+        // on past those seconds then, until the session's reply time is over.
         val wake = app.scope.launch { wakeForPush(app) }
         runBlocking {
             withTimeoutOrNull(18_000) {
                 // A ringing call (a Telecom call) keeps the process too.
-                while (wake.isActive && !TalkPlayback.active && !TalkSession.active && !callKeepsProcess()) kotlinx.coroutines.delay(100)
+                while (wake.isActive && !TalkSession.active && !callKeepsProcess()) kotlinx.coroutines.delay(100)
             }
         }
     }

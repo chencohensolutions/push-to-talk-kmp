@@ -466,7 +466,6 @@
     <string name="talk_requesting">מתחבר…</string>
     <string name="talk_session_channel">שיחת דיבור</string>
     <string name="talk_session_name">דיבור · %1$s</string>
-    <string name="talk_session_leave">יציאה</string>
     <string name="talk_someone">%1$s מדבר/ת</string>
     <string name="talk_stay_connected">חיבור קבוע</string>
     <string name="talk_stay_connected_body">החיבור נשאר פתוח, כך שהדיבור מושמע מיד והכפתורים עובדים גם כשהמסך כבוי</string>

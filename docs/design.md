@@ -353,18 +353,18 @@ what was shown (the server sends HIGH only to phones that registered notificatio
   `Blob-Offset`) and its key in a `ClipContent` (kind VOICE, PUSH_MESSAGE). The outbox sends them as it sends texts.
   Voice messages and bursts get delivered receipts like texts, and notifications ("Voice message").
 - **Woken by `talk`** (`TalkMessagingService`): the wake-up runs on in the app's scope; when a burst should play
-  aloud, `AndroidTalkHost` starts `TalkPlaybackService` (`TalkPlayback`), a **media-playback foreground service**
-  that the high-priority `talk` push may start from the background, with an ongoing notification "Talk · Family" and
-  Leave, and takes transient audio focus (others may duck). The burst plays as media (`AndroidTalkPlayer`,
-  USAGE_MEDIA): on the loudspeaker (or the headset or Bluetooth device in use) at media volume, like a walkie-talkie
-  (2026-11-22, hen: in a Telecom call session it played as call audio, and Android muted the media track during the
-  call). It ends 20 s after the last burst (a reply can follow), and `Messaging.wake` keeps `/ws` until then (at most
-  2 minutes). Only if Android refuses that service (no foreground-service exemption) or the focus (a phone call is
-  on) does the burst play in a **talk session** with Telecom instead (Core-Telecom `CallsManager.addCall`, an incoming
-  audio call the app answers itself, run by `TalkSessionService` as a phone-call service, moved to the loudspeaker
-  with `requestEndpointChange`); logcat's `TalkPlayback` line says which path ran. If neither starts (the plan's R1
-  fallback) the talk notification shows instead. R1 itself (a Pixel and a Samsung asleep for 30 minutes) is still to
-  be run on the phones.
+  aloud, `AndroidTalkHost` registers a **talk session** with Telecom (Core-Telecom `CallsManager.addCall`, an
+  incoming audio call the app answers itself, "Talk · Family"), and `TalkSessionService` runs it as a phone-call
+  foreground service with a call-style notification and Leave. Android 17 lets an app play from the background only
+  this way: 1.0.3 to 1.2.0 played woken bursts from a media-playback service started from the push, and Android
+  silenced them (2026-11-22, hen: the notification showed, no sound). Inside the session the burst plays as the
+  call's voice (`TalkAudio.inCallSession`: `AndroidTalkPlayer` uses USAGE_VOICE_COMMUNICATION; Android mutes media
+  tracks during a call), and the session moves itself to the loudspeaker (`requestEndpointChange`) unless a headset
+  or Bluetooth device is the route, so it sounds like a walkie-talkie; its volume is the in-call volume on the
+  speaker. With the app on screen, or with Stay connected, talk plays as media with no session. The session ends 20 s
+  after the last burst (a reply can follow), and `Messaging.wake` keeps `/ws` until then (at most 2 minutes). If
+  Telecom refuses it (the plan's R1 fallback) the talk notification shows instead. logcat `TalkHost` says which path
+  ran.
 - **Stay connected** (`StayConnectedService`, Settings › Talk): a foreground service of types microphone and media
   playback, started from the screen, with an ongoing notification and Turn off; `Messaging.keepConnected` keeps `/ws`
   open while it runs. It resumes when the app is next opened after a restart (nothing starts at boot). Its media

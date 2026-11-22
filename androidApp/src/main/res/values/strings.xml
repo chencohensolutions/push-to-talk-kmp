@@ -462,7 +462,6 @@
     <string name="talk_requesting">Connecting…</string>
     <string name="talk_session_channel">Talk session</string>
     <string name="talk_session_name">Talk · %1$s</string>
-    <string name="talk_session_leave">Leave</string>
     <string name="talk_someone">%1$s is talking</string>
     <string name="talk_stay_connected">Stay connected</string>
     <string name="talk_stay_connected_body">Keeps the connection open, so talk plays at once and buttons work with the screen off</string>
