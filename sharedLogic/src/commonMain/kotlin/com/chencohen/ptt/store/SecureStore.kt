@@ -49,6 +49,8 @@ object Spaces {
     const val MESSAGES = "messages"
     /** Linking a phone: the Link a phone codes this phone showed, or the one it scanned to join (MessagingStore). */
     const val LINKS = "links"
+    /** Groups, by id (MessagingStore). */
+    const val GROUPS = "groups"
 }
 
 /** A [SecureStore] in memory: the tests', and a fallback that keeps nothing. */

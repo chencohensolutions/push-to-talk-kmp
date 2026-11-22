@@ -68,6 +68,12 @@ class ConversationActions(
 data class ConversationHeader(val typing: Boolean, val presence: UserPresence?)
 
 /**
+ * A group's chat instead of a contact's: its [name] and [picture] in the header, [line] under it (who is typing, or
+ * how many members), and [note] in place of the line to write in when this user can't write (an invitation, gone).
+ */
+data class GroupChat(val name: String, val picture: String?, val line: String, val note: String?)
+
+/**
  * A conversation (docs/screens/conversation.md), Signal's: the contact in the header (a tap opens their page), the
  * texts in bubbles with when and how far each of ours got, a changed safety number on top, and the line to write in.
  */
@@ -78,9 +84,10 @@ internal fun ConversationScreen(
     messages: List<TextMessage>,
     header: ConversationHeader,
     actions: ConversationActions,
+    group: GroupChat? = null,
 ) {
     Column(Modifier.fillMaxSize().background(LibraryColors.Background).statusBarsPadding().navigationBarsPadding().imePadding()) {
-        Header(user, contact, header, actions)
+        if (group != null) GroupHeader(group, actions) else Header(user, contact, header, actions)
         if (contact?.changedKey != null) {
             HomeCard(
                 title = stringResource(R.string.chat_key_changed, contact.user),
@@ -96,9 +103,10 @@ internal fun ConversationScreen(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions.retry) }
+            items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions.retry, showAuthor = group != null) }
         }
         when {
+            group != null -> if (group.note != null) Note(group.note) else Composer(user, actions)
             contact == null -> Note(stringResource(R.string.contact_gone))
             contact.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
             !contact.paired -> Note(stringResource(R.string.contact_waiting))
@@ -140,6 +148,25 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
     }
 }
 
+@Composable
+private fun GroupHeader(group: GroupChat, actions: ConversationActions) {
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back), contentAlignment = Alignment.Center) {
+            Icon(LibraryIcons.Back, stringResource(R.string.library_back), tint = LibraryColors.OnBackground)
+        }
+        Row(
+            Modifier.weight(1f).clickable(role = Role.Button, onClick = actions.openContact).padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            com.chencohen.ptt.ui.groups.GroupAvatar(group.name, group.picture, 40.dp)
+            Column(Modifier.padding(start = 12.dp)) {
+                Text(group.name, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+                Text(group.line, color = LibraryColors.Muted, style = LibraryType.Caption)
+            }
+        }
+    }
+}
+
 /** "14:05" today, else the date and time. */
 private fun lastSeen(at: Long): String {
     val today = System.currentTimeMillis() - at < 20 * 3600_000L
@@ -148,7 +175,7 @@ private fun lastSeen(at: Long): String {
 }
 
 @Composable
-private fun Bubble(message: TextMessage, retry: (String) -> Unit) {
+private fun Bubble(message: TextMessage, retry: (String) -> Unit, showAuthor: Boolean = false) {
     val mine = message.outgoing
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
@@ -158,6 +185,9 @@ private fun Bubble(message: TextMessage, retry: (String) -> Unit) {
                 .then(if (message.status == MessageStatus.FAILED) Modifier.clickable(role = Role.Button) { retry(message.id) } else Modifier)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
+            if (showAuthor && !mine && message.author != null) {
+                Text(message.author!!, color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
+            }
             Text(message.body, color = if (mine) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)
             val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
             val status = if (!mine) null else when (message.status) {

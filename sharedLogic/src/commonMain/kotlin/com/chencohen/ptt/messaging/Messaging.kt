@@ -45,8 +45,10 @@ data class MessagingState(
     val typing: Map<String, Long> = emptyMap(),
     /** How many texts from each contact aren't read yet. */
     val unread: Map<String, Int> = emptyMap(),
-    /** Each conversation's texts, oldest first, by user. */
+    /** Each conversation's texts, oldest first, by user (a group's by [Group.chat]). */
     val conversations: Map<String, List<TextMessage>> = emptyMap(),
+    /** The groups this user is in, invited to, or was in (gone), oldest first. */
+    val groups: List<Group> = emptyList(),
 )
 
 /**
@@ -57,6 +59,9 @@ interface MessageNotifier {
     fun incoming(contact: Contact, unread: List<TextMessage>)
 
     fun read(user: String)
+
+    /** A group message came in; [unread] are the group chat's unread ones. */
+    fun incomingGroup(group: Group, unread: List<TextMessage>) {}
 }
 
 /**
@@ -88,7 +93,7 @@ internal class Messaging(
 
     private val keys = KeyUploader(engine, api, store, now)
 
-    val socket = RelaySocket(
+    val socket: RelaySocket = RelaySocket(
         scope = scope,
         connector = connector,
         url = { wsUrl(settings.serverUrl) },
@@ -103,6 +108,8 @@ internal class Messaging(
         onPresence = { p -> updatePresence(UserPresence(p.user, p.online, p.lastSeen.takeIf { it > 0 })) },
         onLive = {
             scope.launch {
+                // The groups first: a message waiting for a group needs its devices and readers.
+                groups.refresh()
                 flushOutbox()
                 sendPendingReads()
             }
@@ -115,7 +122,22 @@ internal class Messaging(
         },
     )
 
-    private val sender = Sender(engine, api, socket::send, { settings.device })
+    private val sender: Sender = Sender(engine, api, socket::send, { settings.device })
+
+    val groups: Groups = Groups(
+        engine = engine, store = store, api = api, sender = sender, send = socket::send, scope = scope, now = now, random = random,
+        me = ::device, publish = ::publish,
+        onText = { group, message ->
+            val read = message.outgoing || (openChat == group.chat && foreground)
+            store.putMessage(message.copy(read = read))
+            _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty())) }
+            if (!read) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
+        },
+        onTyping = { group, author, typing ->
+            val key = typingKey(group.chat, author)
+            _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key) }
+        },
+    )
 
     init {
         scope.launchCollect(socket.state) { socket -> _state.update { it.copy(socket = socket) } }
@@ -627,7 +649,7 @@ internal class Messaging(
 
     fun decline(user: String) {
         store.removeRequest(user)
-        if (store.contact(user) == null) engine.forget(user)
+        if (store.contact(user) == null && !groups.knows(user)) engine.forget(user)
         publish()
     }
 
@@ -740,6 +762,8 @@ internal class Messaging(
         store.removeRequest(user)
         store.removeMessagesOf(user)
         engine.forget(user)
+        // Still in a group with them: the key the owner named stays trusted, for the sender keys.
+        store.groups().firstNotNullOfOrNull { g -> g.member(user)?.takeIf { !g.gone } }?.let { engine.trustIdentity(user, Base64.decode(it.identityKey)) }
     }
 
     // --- Messages ------------------------------------------------------------------------------------------------
@@ -758,12 +782,18 @@ internal class Messaging(
     /** Sends one kept text; answers it with its new status. */
     private suspend fun deliver(message: TextMessage): TextMessage {
         val status = try {
-            sender.send(message.user, Content(text = TextContent(message.body, message.at, message.id)), pushKind = PushKind.MESSAGE)
+            val text = Content(text = TextContent(message.body, message.at, message.id))
+            val group = Group.idOf(message.user)
+            if (group != null) groups.send(group, text, PushKind.MESSAGE) else sender.send(message.user, text, pushKind = PushKind.MESSAGE)
             MessageStatus.SENT
         } catch (e: CancellationException) {
             throw e
         } catch (e: com.chencohen.ptt.relay.SocketUnavailableException) {
             MessageStatus.PENDING
+        } catch (e: GroupUnavailableException) {
+            MessageStatus.FAILED
+        } catch (e: SendRefusedException) {
+            if (e.status == com.chencohen.ptt.relay.SendStatus.NOT_MEMBER || e.toPairingError() != PairingError.UNREACHABLE) MessageStatus.FAILED else MessageStatus.PENDING
         } catch (e: Exception) {
             // Refused (blocked, unpaired), or no session can be made (their key changed): not tried again by itself.
             if (e.toPairingError() == PairingError.UNREACHABLE) MessageStatus.PENDING else MessageStatus.FAILED
@@ -799,6 +829,8 @@ internal class Messaging(
         unread.forEach { store.putMessage(it.copy(read = true)) }
         publish()
         notifier?.read(user)
+        // Groups have no receipts yet.
+        if (Group.idOf(user) != null) return
         sendReceipt(user, read = true, unread.map { it.id })
     }
 
@@ -827,6 +859,15 @@ internal class Messaging(
     /** This user is typing to [user] (or stopped): sent with no wake-up, and only when connected. */
     suspend fun sendTyping(user: String, typing: Boolean) {
         if (socket.state.value !is SocketState.Live) return
+        Group.idOf(user)?.let { id ->
+            try {
+                groups.send(id, Content(typing = TypingContent(typing)), PushKind.NONE)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+            return
+        }
         val contact = store.contact(user)?.takeIf { it.paired && !it.blocked } ?: return
         try {
             sender.send(contact.user, Content(typing = TypingContent(typing)), pushKind = PushKind.NONE)
@@ -854,7 +895,9 @@ internal class Messaging(
                 refreshContacts()
             }
             EnvelopeType.PROVISIONING -> receiveProvisioning(envelope)
-            // Group messages come in a later phase.
+            EnvelopeType.SENDER_KEY_MESSAGE -> groups.receiveMessage(envelope)
+            // Not awaited: refreshing may send the owner's changes, whose SendResults come through this read loop.
+            EnvelopeType.GROUP_CHANGED -> scope.launch { groups.refresh() }
             else -> Unit
         }
         publish()
@@ -871,6 +914,8 @@ internal class Messaging(
             return
         }
         val content = ContentCodec.decode(decrypted.plaintext) ?: return
+        content.groupChange?.let { return groups.receiveChange(envelope.senderUser, it) }
+        content.senderKey?.let { return groups.receiveSenderKey(from, decrypted.senderIdentityKey, it) }
         if (envelope.senderUser == self.user) {
             content.contact?.let { return takeContactSync(it) }
             // A copy of what another phone of this user sent.
@@ -922,7 +967,7 @@ internal class Messaging(
         val secret = PairCode.base64Url.encode(request.secret)
         val invite = store.invites().firstOrNull { it.secret == secret && now() <= it.keptUntil() }
         if (invite == null || request.user != sender || !request.identityKey.contentEquals(sessionKey)) {
-            if (store.contact(sender) == null) engine.forget(sender)
+            if (store.contact(sender) == null && !groups.knows(sender)) engine.forget(sender)
             return
         }
         store.removeInvite(invite)
@@ -952,6 +997,7 @@ internal class Messaging(
                 lastMessages = messages.groupBy { it.user }.mapValues { (_, list) -> list.last() },
                 conversations = messages.groupBy { it.user },
                 unread = messages.filter { !it.outgoing && !it.read }.groupingBy { it.user }.eachCount(),
+                groups = store.groups().sortedBy { it.createdAt },
             )
         }
     }
@@ -959,6 +1005,9 @@ internal class Messaging(
     companion object {
         /** How long "typing…" shows after the last typing message, unless a text or a stop comes first. */
         const val TYPING_FOR = 8_000L
+
+        /** The key in [MessagingState.typing] of [author] typing in a group's chat. */
+        fun typingKey(chat: String, author: String): String = "$chat/$author"
 
         /** How long past its end a Link a phone code still answers: the new phone may connect a while after enrolling. */
         private const val LINK_GRACE = 60 * 60_000L

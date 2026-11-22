@@ -11,6 +11,14 @@ import com.chencohen.ptt.graphql.AcceptInviteMutation
 import com.chencohen.ptt.graphql.BlockMutation
 import com.chencohen.ptt.graphql.CreateInviteMutation
 import com.chencohen.ptt.graphql.CreateLinkCodeMutation
+import com.chencohen.ptt.graphql.AcceptGroupInviteMutation
+import com.chencohen.ptt.graphql.CreateGroupMutation
+import com.chencohen.ptt.graphql.DeleteGroupMutation
+import com.chencohen.ptt.graphql.GroupsQuery
+import com.chencohen.ptt.graphql.InviteToGroupMutation
+import com.chencohen.ptt.graphql.LeaveGroupMutation
+import com.chencohen.ptt.graphql.RemoveFromGroupMutation
+import com.chencohen.ptt.graphql.fragment.GroupFields
 import com.chencohen.ptt.graphql.PresenceQuery
 import com.chencohen.ptt.graphql.RegisterPushMutation
 import com.chencohen.ptt.graphql.SetPresenceVisibleMutation
@@ -74,7 +82,16 @@ internal object ApiCodes {
     const val NO_PAIRING = "NO_PAIRING"
     const val RATE_LIMITED = "RATE_LIMITED"
     const val NOT_ENROLLED = "NOT_ENROLLED"
+    const val NO_GROUP = "NO_GROUP"
+    const val NOT_OWNER = "NOT_OWNER"
+    const val NOT_MEMBER = "NOT_MEMBER"
+    const val NOT_INVITED = "NOT_INVITED"
+    const val GROUP_FULL = "GROUP_FULL"
+    const val TOO_MANY_GROUPS = "TOO_MANY_GROUPS"
 }
+
+/** A group as the server lists it (`groups`): who is in it, only to route. */
+internal class ServerGroup(val id: String, val owner: String, val members: List<String>, val invited: List<String>, val createdAt: String)
 
 /** The keys, pairing and contacts part of the server's API; [ApolloMessagingApi] in the app, a fake in tests. */
 internal interface MessagingApi {
@@ -119,6 +136,22 @@ internal interface MessagingApi {
 
     /** Redeems an invite on this enrolled phone: the inviter's pairing token. */
     suspend fun acceptInvite(code: String): InvitePairing
+
+    // Groups (the server's docs/messaging.md, "Groups").
+    suspend fun groups(): List<ServerGroup>
+
+    suspend fun createGroup(): ServerGroup
+
+    suspend fun inviteToGroup(group: String, user: String): ServerGroup
+
+    suspend fun acceptGroupInvite(group: String): ServerGroup
+
+    /** Leaves the group, or declines its invitation. */
+    suspend fun leaveGroup(group: String): Boolean
+
+    suspend fun removeFromGroup(group: String, user: String): ServerGroup
+
+    suspend fun deleteGroup(group: String): Boolean
 }
 
 /** A contact online now, or when last connected ([lastSeen], milliseconds; null when unknown or hidden). */
@@ -248,6 +281,25 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
         val pairing = answer.onInvitePairing ?: throw ApiException(null, "Unexpected answer ${answer.__typename}")
         return InvitePairing(pairing.inviter, pairing.pairingToken?.token)
     }
+
+    private fun GroupFields.toGroup() = ServerGroup(id, owner, members, invited, createdAt.toString())
+
+    override suspend fun groups(): List<ServerGroup> = run { it.query(GroupsQuery()).execute() }.groups.map { it.groupFields.toGroup() }
+
+    override suspend fun createGroup(): ServerGroup = run { it.mutation(CreateGroupMutation()).execute() }.createGroup.groupFields.toGroup()
+
+    override suspend fun inviteToGroup(group: String, user: String): ServerGroup =
+        run { it.mutation(InviteToGroupMutation(group, user)).execute() }.inviteToGroup.groupFields.toGroup()
+
+    override suspend fun acceptGroupInvite(group: String): ServerGroup =
+        run { it.mutation(AcceptGroupInviteMutation(group)).execute() }.acceptGroupInvite.groupFields.toGroup()
+
+    override suspend fun leaveGroup(group: String): Boolean = run { it.mutation(LeaveGroupMutation(group)).execute() }.leaveGroup
+
+    override suspend fun removeFromGroup(group: String, user: String): ServerGroup =
+        run { it.mutation(RemoveFromGroupMutation(group, user)).execute() }.removeFromGroup.groupFields.toGroup()
+
+    override suspend fun deleteGroup(group: String): Boolean = run { it.mutation(DeleteGroupMutation(group)).execute() }.deleteGroup
 
     private fun SignedPublicPrekey.toInput() = SignedPrekeyInput(keyId, Base64.encode(publicKey), Base64.encode(signature))
 }

@@ -72,11 +72,13 @@ internal data class Envelope(
     @ProtoNumber(8) val serverTimestamp: Long = 0,
     @ProtoNumber(9) val routingToken: String = "",
     @ProtoNumber(10) val recipientRegistrationId: Int = 0,
+    /** Set by the server: the group a SENDER_KEY_MESSAGE was sent to, or that a GROUP_CHANGED is about. */
+    @ProtoNumber(11) val group: String = "",
 ) {
     override fun equals(other: Any?): Boolean = other is Envelope && id == other.id && senderUser == other.senderUser &&
         senderDevice == other.senderDevice && recipientUser == other.recipientUser && recipientDevice == other.recipientDevice &&
         type == other.type && ciphertext.contentEquals(other.ciphertext) && serverTimestamp == other.serverTimestamp &&
-        routingToken == other.routingToken && recipientRegistrationId == other.recipientRegistrationId
+        routingToken == other.routingToken && recipientRegistrationId == other.recipientRegistrationId && group == other.group
 
     override fun hashCode(): Int = id.hashCode() * 31 + ciphertext.contentHashCode()
 }
@@ -89,6 +91,8 @@ internal object EnvelopeType {
     const val PROVISIONING = 4
     const val IDENTITY_KEY_CHANGED = 5
     const val PAIRED = 6
+    /** Made by the server: the group in `group` changed on the server, so the phone fetches `groups` again. */
+    const val GROUP_CHANGED = 7
 }
 
 @Serializable
@@ -100,6 +104,10 @@ internal data class Send(
     @ProtoNumber(2) val envelopes: List<Envelope> = emptyList(),
     /** What a wake-up for it is ([PushKind]): the server can't read the ciphertext. */
     @ProtoNumber(3) val pushKind: Int = 0,
+    /** A group Send: the group's id; [envelopes] is then one SENDER_KEY_MESSAGE with no recipient. */
+    @ProtoNumber(4) val group: String = "",
+    /** In a group Send: the devices it is for, by user (exactly the server's, or STALE_DEVICES). */
+    @ProtoNumber(5) val groupDevices: List<UserDevices> = emptyList(),
 )
 
 /** ptt.proto's PushKind: which FCM push a recipient without an open /ws gets. */
@@ -131,6 +139,8 @@ internal object SendStatus {
     const val INVALID = 6
     const val TOO_LARGE = 7
     const val QUEUE_FULL = 8
+    /** A group Send to a group the sender isn't a member of, or that doesn't exist. */
+    const val NOT_MEMBER = 9
 }
 
 @Serializable

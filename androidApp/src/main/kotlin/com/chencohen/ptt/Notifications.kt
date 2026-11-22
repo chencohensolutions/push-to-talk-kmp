@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
 import com.chencohen.ptt.messaging.Contact
+import com.chencohen.ptt.messaging.Group
 import com.chencohen.ptt.messaging.MessageNotifier
 import com.chencohen.ptt.messaging.TextMessage
 import kotlinx.coroutines.launch
@@ -24,17 +25,35 @@ import kotlinx.coroutines.launch
  */
 class Notifications(private val context: Context) : MessageNotifier {
     override fun incoming(contact: Contact, unread: List<TextMessage>) {
-        if (unread.isEmpty()) return
-        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val name = contact.displayName ?: contact.user
         val sender = Person.Builder().setName(name).setKey(contact.user).build()
         val me = Person.Builder().setName(context.getString(R.string.notify_you)).build()
         val style = NotificationCompat.MessagingStyle(me)
         unread.takeLast(MAX_LINES).forEach { style.addMessage(it.body, it.at, sender) }
-        val id = idOf(contact.user)
+        show(contact.user, style, unread.size)
+    }
+
+    /** A group's: the group's name on top, each line with who wrote it. */
+    override fun incomingGroup(group: Group, unread: List<TextMessage>) {
+        val me = Person.Builder().setName(context.getString(R.string.notify_you)).build()
+        val style = NotificationCompat.MessagingStyle(me)
+            .setConversationTitle(group.name.ifBlank { context.getString(R.string.group_unnamed) })
+            .setGroupConversation(true)
+        unread.takeLast(MAX_LINES).forEach { m ->
+            val author = m.author.orEmpty()
+            style.addMessage(m.body, m.at, Person.Builder().setName(author).setKey(author).build())
+        }
+        show(group.chat, style, unread.size)
+    }
+
+    /** [user]: the conversation's key (a contact, or a group's chat). */
+    private fun show(user: String, style: NotificationCompat.MessagingStyle, count: Int) {
+        if (count == 0) return
+        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val id = idOf(user)
         val open = PendingIntent.getActivity(
             context, id,
-            Intent(context, MainActivity::class.java).setAction(ACTION_OPEN).putExtra(EXTRA_USER, contact.user)
+            Intent(context, MainActivity::class.java).setAction(ACTION_OPEN).putExtra(EXTRA_USER, user)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -42,7 +61,7 @@ class Notifications(private val context: Context) : MessageNotifier {
             0, context.getString(R.string.notify_reply),
             PendingIntent.getBroadcast(
                 context, id,
-                Intent(context, NotificationActions::class.java).setAction(ACTION_REPLY).putExtra(EXTRA_USER, contact.user),
+                Intent(context, NotificationActions::class.java).setAction(ACTION_REPLY).putExtra(EXTRA_USER, user),
                 // Mutable: Android puts the typed reply into it.
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
             ),
@@ -54,7 +73,7 @@ class Notifications(private val context: Context) : MessageNotifier {
             0, context.getString(R.string.notify_mark_read),
             PendingIntent.getBroadcast(
                 context, id + 1,
-                Intent(context, NotificationActions::class.java).setAction(ACTION_READ).putExtra(EXTRA_USER, contact.user),
+                Intent(context, NotificationActions::class.java).setAction(ACTION_READ).putExtra(EXTRA_USER, user),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             ),
         ).setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ).setShowsUserInterface(false).build()
@@ -67,7 +86,7 @@ class Notifications(private val context: Context) : MessageNotifier {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .addAction(reply)
             .addAction(read)
-            .setNumber(unread.size)
+            .setNumber(count)
             .build()
         NotificationManagerCompat.from(context).notify(TAG, id, notification)
     }

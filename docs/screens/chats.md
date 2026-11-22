@@ -38,3 +38,5 @@ Back closes the top one. Messages (`MessageBar`) sit above the tabs on home and 
 The connection is checked when the app comes to the front and again with backoff while offline
 (`ConnectionController.connect`/`stop`). `MessagingController.start` (keys checked and uploaded, then /ws) and `stop`
 are called beside them from `MainActivity`'s onStart and onStop, and `start` again right after enrolling.
+
+Groups and group invitations show here too: see [groups.md](groups.md).

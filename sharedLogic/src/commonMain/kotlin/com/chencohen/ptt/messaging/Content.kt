@@ -23,6 +23,12 @@ internal data class Content(
     @ProtoNumber(4) val receipt: ReceiptContent? = null,
     /** The sender is typing (or stopped). Sent with PUSH_NONE: never wakes a phone. */
     @ProtoNumber(5) val typing: TypingContent? = null,
+    /** From the group's owner's devices: the group as it is now, signed by the owner's identity key. */
+    @ProtoNumber(6) val groupChange: GroupChangeContent? = null,
+    /** A device's sender key for a group, to members the owner's devices named only. */
+    @ProtoNumber(7) val senderKey: SenderKeyContent? = null,
+    /** Inside a group message (a SENDER_KEY_MESSAGE): the group it is for, which must be the envelope's. */
+    @ProtoNumber(8) val group: String = "",
     /** On a copy for the sender's own other devices: the user the message went to. */
     @ProtoNumber(15) val destination: String = "",
 )
@@ -82,6 +88,73 @@ internal data class ReceiptContent(
 
 @Serializable
 internal data class TypingContent(@ProtoNumber(1) val typing: Boolean = false)
+
+/**
+ * A group as its owner's devices say it is (docs/design.md, "Groups"): [version] goes up with every change, and a
+ * phone takes only a newer one. The server's list of members is only for routing: these are the members a phone gives
+ * its sender key to, each with the identity key the owner trusts for them.
+ */
+@Serializable
+internal data class GroupStateContent(
+    @ProtoNumber(1) val id: String = "",
+    @ProtoNumber(2) val owner: String = "",
+    @ProtoNumber(3) val version: Long = 0,
+    @ProtoNumber(4) val name: String = "",
+    /** A small JPEG; empty for none. */
+    @ProtoNumber(5) val picture: ByteArray = ByteArray(0),
+    @ProtoNumber(6) val members: List<GroupMemberContent> = emptyList(),
+    @ProtoNumber(7) val invited: List<GroupMemberContent> = emptyList(),
+    /** The owner deleted the group. */
+    @ProtoNumber(8) val deleted: Boolean = false,
+) {
+    override fun equals(other: Any?): Boolean = other is GroupStateContent && id == other.id && owner == other.owner &&
+        version == other.version && name == other.name && picture.contentEquals(other.picture) &&
+        members == other.members && invited == other.invited && deleted == other.deleted
+
+    override fun hashCode(): Int = id.hashCode() * 31 + version.hashCode()
+}
+
+@Serializable
+internal data class GroupMemberContent(
+    @ProtoNumber(1) val user: String = "",
+    @ProtoNumber(2) val identityKey: ByteArray = ByteArray(0),
+) {
+    override fun equals(other: Any?): Boolean = other is GroupMemberContent && user == other.user && identityKey.contentEquals(other.identityKey)
+
+    override fun hashCode(): Int = user.hashCode()
+}
+
+/** [state] is an encoded [GroupStateContent]; [signature] the owner's identity key's over those bytes. */
+@Serializable
+internal data class GroupChangeContent(
+    @ProtoNumber(1) val state: ByteArray = ByteArray(0),
+    @ProtoNumber(2) val signature: ByteArray = ByteArray(0),
+) {
+    override fun equals(other: Any?): Boolean = other is GroupChangeContent && state.contentEquals(other.state) && signature.contentEquals(other.signature)
+
+    override fun hashCode(): Int = state.contentHashCode()
+}
+
+/** libsignal's sender key distribution message of the sending device, for [group]. */
+@Serializable
+internal data class SenderKeyContent(
+    @ProtoNumber(1) val group: String = "",
+    @ProtoNumber(2) val distribution: ByteArray = ByteArray(0),
+) {
+    override fun equals(other: Any?): Boolean = other is SenderKeyContent && group == other.group && distribution.contentEquals(other.distribution)
+
+    override fun hashCode(): Int = group.hashCode()
+}
+
+internal object GroupStateCodec {
+    fun encode(state: GroupStateContent): ByteArray = ProtoBuf.encodeToByteArray(GroupStateContent.serializer(), state)
+
+    fun decode(bytes: ByteArray): GroupStateContent? = try {
+        ProtoBuf.decodeFromByteArray(GroupStateContent.serializer(), bytes)
+    } catch (_: Exception) {
+        null
+    }
+}
 
 internal object ContentCodec {
     const val BLOCK = 160

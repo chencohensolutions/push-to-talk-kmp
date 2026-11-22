@@ -296,4 +296,53 @@
     <string name="invite_error_code">That code isn’t right. Check the message with the link and try again.</string>
     <string name="invite_error_name">Type your name.</string>
     <string name="invite_error_rate_limited">Too many tries. Wait a minute, then try again.</string>
+
+    <!-- Groups (docs/screens/groups.md) -->
+    <string name="new_chat_group">New group</string>
+    <string name="new_chat_group_body">Talk with several contacts at once</string>
+    <string name="group_unnamed">A group</string>
+    <string name="group_gone_short">You’re not in this group anymore</string>
+    <string name="group_gone">You’re not in this group anymore. Its messages stay here.</string>
+    <string name="group_members_count">%1$d members</string>
+    <plurals name="group_members">
+        <item quantity="one">%d member</item>
+        <item quantity="other">%d members</item>
+    </plurals>
+    <string name="group_new_title">New group</string>
+    <string name="group_picture_add">Add a picture</string>
+    <string name="group_picture_change">Change the picture</string>
+    <string name="group_name">Group name</string>
+    <string name="group_choose_members">Invite contacts</string>
+    <string name="group_no_contacts">No contacts to invite yet. You can make the group and invite them later.</string>
+    <string name="group_create">Create group</string>
+    <string name="group_add_members">Add members</string>
+    <string name="group_no_more_contacts">All your contacts are in this group.</string>
+    <string name="group_invite">Invite</string>
+    <string name="group_missing">This group isn’t on this phone.</string>
+    <string name="group_invited_by">%1$s invited you</string>
+    <string name="group_invitation_body">Join to read and send its messages. %1$s and the members will see that you joined.</string>
+    <string name="group_invitation_note">Join the group on its page to send messages.</string>
+    <string name="group_waiting_owner">Waiting for the owner’s phone to add you.</string>
+    <string name="group_decline">Decline</string>
+    <string name="group_accept">Join</string>
+    <string name="group_rename">Change the name</string>
+    <string name="group_save_name">Save</string>
+    <string name="group_members">Members</string>
+    <string name="group_owner">Owner</string>
+    <string name="group_invited">Invited</string>
+    <string name="group_you">You</string>
+    <string name="group_contact_unverified">Your contact, not verified</string>
+    <string name="group_not_verified_by_you">Added by the owner, not verified by you</string>
+    <string name="group_remove">Remove</string>
+    <string name="group_remove_confirm">Remove %1$s from the group? They won’t get its messages from now on.</string>
+    <string name="group_leave">Leave group</string>
+    <string name="group_leave_body">You stop getting its messages. The owner can invite you again.</string>
+    <string name="group_leave_confirm">Leave this group?</string>
+    <string name="group_delete">Delete group</string>
+    <string name="group_delete_body">The group ends for everyone. Its messages stay on each phone.</string>
+    <string name="group_delete_confirm">Delete this group for everyone?</string>
+    <string name="group_typing">%1$s typing…</string>
+    <string name="chats_group_invite_title">%1$s invited you to %2$s</string>
+    <string name="chats_group_invite_body">Join or decline on the group’s page.</string>
+    <string name="chats_group_invite_action">Open</string>
 </resources>

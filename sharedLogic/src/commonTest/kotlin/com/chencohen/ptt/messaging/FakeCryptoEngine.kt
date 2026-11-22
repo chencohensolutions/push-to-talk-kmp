@@ -157,7 +157,55 @@ class FakeCryptoEngine(private val random: Random = Random(1)) : CryptoEngine {
     override fun matchesScanned(myUser: String, theirUser: String, theirIdentityKey: ByteArray, scanned: ByteArray): Boolean =
         safetyNumber(myUser, theirUser, theirIdentityKey).scannable.contentEquals(scanned)
 
+    // Sender keys: a distribution is "SKD", the distribution id and a secret; a group message carries the secret's
+    // hash, so only a device that took the distribution opens it.
+    private val ownSenderKeys = mutableMapOf<String, ByteArray>()
+    private val senderKeys = mutableMapOf<Pair<DeviceAddress, String>, ByteArray>()
+
+    /** The devices whose sender key for a distribution id this engine took. */
+    val takenSenderKeys: Set<Pair<DeviceAddress, String>> get() = senderKeys.keys
+
+    override fun senderKeyDistribution(distributionId: String): ByteArray {
+        val secret = ownSenderKeys.getOrPut(distributionId) { random.nextBytes(16) }
+        return "SKD|$distributionId|".encodeToByteArray() + secret
+    }
+
+    private fun parse(bytes: ByteArray, tag: String): Pair<String, ByteArray>? {
+        val head = "$tag|".encodeToByteArray()
+        if (bytes.size < head.size + 37 || !bytes.copyOf(head.size).contentEquals(head)) return null
+        val id = bytes.copyOfRange(head.size, head.size + 36).decodeToString()
+        return id to bytes.copyOfRange(head.size + 37, bytes.size)
+    }
+
+    override fun takeSenderKey(sender: DeviceAddress, distribution: ByteArray) {
+        val (id, secret) = parse(distribution, "SKD") ?: throw InvalidKeysException("not a sender key")
+        senderKeys[sender to id] = secret
+    }
+
+    override fun distributionIdOf(distribution: ByteArray): String? = parse(distribution, "SKD")?.first
+
+    override fun groupEncrypt(distributionId: String, plaintext: ByteArray): ByteArray {
+        val secret = ownSenderKeys[distributionId] ?: throw UndecryptableException("no sender key")
+        return "SKM|$distributionId|".encodeToByteArray() + secret.toByteString().sha256().toByteArray() + plaintext
+    }
+
+    override fun groupDecrypt(sender: DeviceAddress, bytes: ByteArray): ByteArray {
+        val (id, rest) = parse(bytes, "SKM") ?: throw UndecryptableException("not a group message")
+        val secret = senderKeys[sender to id] ?: throw UndecryptableException("no sender key from $sender")
+        if (rest.size < 32 || !rest.copyOf(32).contentEquals(secret.toByteString().sha256().toByteArray())) throw UndecryptableException("another key")
+        return rest.copyOfRange(32, rest.size)
+    }
+
+    override fun groupMessageDistributionId(bytes: ByteArray): String? = parse(bytes, "SKM")?.first
+
+    override fun sign(data: ByteArray): ByteArray = (identity!! + data).toByteString().sha256().toByteArray()
+
+    override fun verify(identityKey: ByteArray, data: ByteArray, signature: ByteArray): Boolean =
+        (identityKey + data).toByteString().sha256().toByteArray().contentEquals(signature)
+
     override fun wipe() {
+        ownSenderKeys.clear()
+        senderKeys.clear()
         identity = null
         registration = 0
         trusted.clear()

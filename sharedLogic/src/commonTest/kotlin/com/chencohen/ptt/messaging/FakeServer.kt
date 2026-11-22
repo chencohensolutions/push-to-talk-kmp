@@ -68,6 +68,35 @@ internal class FakeServer {
 
     private fun blocked(a: String, b: String) = (a to b) in blocks || (b to a) in blocks
 
+    /** A group as groups.json keeps it: only who is in it. */
+    class FakeGroup(val id: String, val owner: String, val members: MutableList<String>, val invited: MutableList<String> = mutableListOf())
+
+    val groups = mutableMapOf<String, FakeGroup>()
+
+    private fun shareGroup(a: String, b: String) = groups.values.any { a in it.members && b in it.members }
+
+    private fun FakeGroup.toServer() = ServerGroup(id, owner, members.toList(), invited.toList(), "2026-11-22T10:00:00Z")
+
+    private fun groupOf(id: String, user: String): FakeGroup {
+        val g = groups[id] ?: throw ApiException(ApiCodes.NO_GROUP, "no group")
+        if (user !in g.members && user !in g.invited) throw ApiException(ApiCodes.NO_GROUP, "no group")
+        return g
+    }
+
+    /** GROUP_CHANGED to every device of the group's users and of [also], but [by]. */
+    private fun announceGroup(g: FakeGroup, by: DeviceAddress, also: Collection<String> = emptyList()) {
+        for (user in (g.members + g.invited + also).toSet()) {
+            for (device in keys.keys.filter { it.user == user && it != by }) {
+                enqueue(Envelope(id = "e${nextId++}", senderUser = by.user, senderDevice = by.device, recipientUser = user, recipientDevice = device.device, type = EnvelopeType.GROUP_CHANGED, group = g.id))
+            }
+        }
+    }
+
+    /** Adds [user] to group [id] as a member on the server's list only (as editing groups.json would). */
+    fun addMemberOnServerOnly(id: String, user: String) {
+        groups.getValue(id).members += user
+    }
+
     fun api(device: DeviceAddress): MessagingApi = object : MessagingApi {
         override suspend fun myIdentityKey(): ByteArray? = identityKeys[device.user]
 
@@ -93,7 +122,7 @@ internal class FakeServer {
         override suspend fun prekeyBundles(user: String, routingToken: String?): Bundles {
             val identity = identityKeys[user] ?: throw ApiException(ApiCodes.UNKNOWN_USER, "unknown")
             if (blocked(device.user, user)) throw ApiException(ApiCodes.BLOCKED, "blocked")
-            val allowed = user == device.user || setOf(user, device.user) in pairs ||
+            val allowed = user == device.user || setOf(user, device.user) in pairs || shareGroup(user, device.user) ||
                 (routingToken != null && tokens[routingToken] == user && (tokenFetches[routingToken] ?: 0) < 5)
             if (!allowed) throw ApiException(ApiCodes.NOT_PAIRED, "not paired")
             routingToken?.let { tokenFetches[it] = (tokenFetches[it] ?: 0) + 1 }
@@ -174,6 +203,60 @@ internal class FakeServer {
             return CreatedInvite(code, "2026-11-28T10:00:00Z", "123456")
         }
 
+        override suspend fun groups(): List<ServerGroup> =
+            groups.values.filter { device.user in it.members || device.user in it.invited }.map { it.toServer() }
+
+        override suspend fun createGroup(): ServerGroup {
+            val g = FakeGroup("g${nextId++}".padEnd(32, '0'), device.user, mutableListOf(device.user))
+            groups[g.id] = g
+            announceGroup(g, device)
+            return g.toServer()
+        }
+
+        override suspend fun inviteToGroup(group: String, user: String): ServerGroup {
+            val g = groupOf(group, device.user)
+            if (g.owner != device.user) throw ApiException(ApiCodes.NOT_OWNER, "not owner")
+            if (setOf(user, device.user) !in pairs) throw ApiException(ApiCodes.NOT_PAIRED, "not paired")
+            if (user !in g.members && user !in g.invited) g.invited += user
+            announceGroup(g, device)
+            return g.toServer()
+        }
+
+        override suspend fun acceptGroupInvite(group: String): ServerGroup {
+            val g = groupOf(group, device.user)
+            if (device.user !in g.invited) throw ApiException(ApiCodes.NOT_INVITED, "not invited")
+            g.invited -= device.user
+            g.members += device.user
+            announceGroup(g, device)
+            return g.toServer()
+        }
+
+        override suspend fun leaveGroup(group: String): Boolean {
+            val g = groupOf(group, device.user)
+            if (g.owner == device.user) throw ApiException("OWNER_CANT_LEAVE", "owner")
+            g.members -= device.user
+            g.invited -= device.user
+            announceGroup(g, device, listOf(device.user))
+            return true
+        }
+
+        override suspend fun removeFromGroup(group: String, user: String): ServerGroup {
+            val g = groupOf(group, device.user)
+            if (g.owner != device.user) throw ApiException(ApiCodes.NOT_OWNER, "not owner")
+            g.members -= user
+            g.invited -= user
+            announceGroup(g, device, listOf(user))
+            return g.toServer()
+        }
+
+        override suspend fun deleteGroup(group: String): Boolean {
+            val g = groupOf(group, device.user)
+            if (g.owner != device.user) throw ApiException(ApiCodes.NOT_OWNER, "not owner")
+            groups.remove(group)
+            announceGroup(FakeGroup(g.id, g.owner, mutableListOf()), device, g.members + g.invited)
+            return true
+        }
+
         override suspend fun acceptInvite(code: String): InvitePairing {
             val inviter = invites[code] ?: throw InviteRefusedException("INVALID_CODE")
             if (inviter == device.user) throw InviteRefusedException("OWN_INVITE")
@@ -212,13 +295,14 @@ internal class FakeServer {
             enqueue(e.copy(id = id, senderUser = from.user, senderDevice = from.device, serverTimestamp = 1_000_000L + nextId))
             return SendResult(send.clientId, SendStatus.ACCEPTED, envelopeIds = listOf(id))
         }
+        if (send.group.isNotEmpty()) return sendGroup(from, send)
         val others = send.envelopes.map { it.recipientUser }.filter { it != from.user }.toSet()
         if (send.envelopes.isEmpty() || others.size > 1) return result(SendStatus.INVALID)
         val other = others.firstOrNull()
         if (other != null) {
             if (identityKeys[other] == null && active(other).isEmpty()) return result(SendStatus.UNKNOWN_USER)
             if (blocked(from.user, other)) return result(SendStatus.BLOCKED)
-            if (setOf(from.user, other) !in pairs) {
+            if (setOf(from.user, other) !in pairs && !shareGroup(from.user, other)) {
                 val token = send.envelopes.filter { it.recipientUser == other }.map { it.routingToken }.toSet().singleOrNull()
                 if (token == null || tokens[token] != other) return result(SendStatus.NOT_PAIRED)
             }
@@ -235,7 +319,7 @@ internal class FakeServer {
                 devices = listOfNotNull(other, from.user).map { u -> UserDevices(u, active(u).map { (n, r) -> ActiveDevice(n, r) }) },
             )
         }
-        if (other != null && setOf(from.user, other) !in pairs) {
+        if (other != null && setOf(from.user, other) !in pairs && !shareGroup(from.user, other)) {
             val token = send.envelopes.first { it.recipientUser == other }.routingToken
             tokens.remove(token)
             pending.getOrPut(setOf(from.user, other)) { mutableSetOf() }
@@ -243,6 +327,34 @@ internal class FakeServer {
         val ids = send.envelopes.map { e ->
             val id = "e${nextId++}"
             enqueue(e.copy(id = id, senderUser = from.user, senderDevice = from.device, routingToken = "", recipientRegistrationId = 0, serverTimestamp = 1_000_000L + nextId))
+            id
+        }
+        pushKinds += send.pushKind
+        return SendResult(send.clientId, SendStatus.ACCEPTED, envelopeIds = ids)
+    }
+
+    /** The group Sends accepted, in order: each envelope copied to every member device but the sender's. */
+    val groupSends = mutableListOf<Send>()
+
+    private fun sendGroup(from: DeviceAddress, send: Send): SendResult {
+        val g = groups[send.group]
+        if (g == null || from.user !in g.members) return SendResult(send.clientId, SendStatus.NOT_MEMBER)
+        val e = send.envelopes.singleOrNull()
+        if (e == null || e.type != EnvelopeType.SENDER_KEY_MESSAGE || e.recipientUser.isNotEmpty()) return SendResult(send.clientId, SendStatus.INVALID)
+        val targets = g.members.filter { it == from.user || !blocked(from.user, it) }.sorted().associateWith { u ->
+            active(u).filterKeys { !(u == from.user && it == from.device) }
+        }
+        val named = send.groupDevices.flatMap { u -> u.devices.map { DeviceAddress(u.user, it.deviceNumber) to it.registrationId } }
+        val want = targets.flatMap { (u, d) -> d.keys.map { DeviceAddress(u, it) } }.toSet()
+        val stale = named.map { it.first }.toSet() != want || named.size != want.size ||
+            named.any { (a, r) -> r != 0 && targets[a.user]?.get(a.device) != r }
+        if (stale) {
+            return SendResult(send.clientId, SendStatus.STALE_DEVICES, devices = targets.map { (u, d) -> UserDevices(u, d.map { (n, r) -> ActiveDevice(n, r) }) })
+        }
+        groupSends += send
+        val ids = want.sortedBy { it.toString() }.map { to ->
+            val id = "e${nextId++}"
+            enqueue(e.copy(id = id, senderUser = from.user, senderDevice = from.device, recipientUser = to.user, recipientDevice = to.device, group = g.id, serverTimestamp = 1_000_000L + nextId))
             id
         }
         pushKinds += send.pushKind

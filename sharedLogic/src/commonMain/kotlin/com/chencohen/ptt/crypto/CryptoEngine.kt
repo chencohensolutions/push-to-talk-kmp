@@ -138,6 +138,36 @@ interface CryptoEngine {
     /** Whether [scanned] (their safety number QR code) is the same safety number as ours. */
     fun matchesScanned(myUser: String, theirUser: String, theirIdentityKey: ByteArray, scanned: ByteArray): Boolean
 
+    // --- Groups (phase 4): libsignal's sender keys, and the identity key's signature on the owner's group changes ---
+
+    /**
+     * Makes this device's sender key for [distributionId] (a UUID string: one per group and key, a new one replaces
+     * the old) when there is none yet, and answers its distribution message: what goes to each member device over the
+     * pairwise sessions.
+     */
+    fun senderKeyDistribution(distributionId: String): ByteArray
+
+    /** Takes [distribution] (another device's [senderKeyDistribution]) from [sender]. Throws [InvalidKeysException]. */
+    fun takeSenderKey(sender: DeviceAddress, distribution: ByteArray): Unit
+
+    /** The distribution id inside [distribution]; null when it isn't one. */
+    fun distributionIdOf(distribution: ByteArray): String?
+
+    /** Encrypts [plaintext] (padded) once with this device's sender key for [distributionId]: a SENDER_KEY_MESSAGE. */
+    fun groupEncrypt(distributionId: String, plaintext: ByteArray): ByteArray
+
+    /** Opens a SENDER_KEY_MESSAGE from [sender]. Throws [UndecryptableException] without its sender key. */
+    fun groupDecrypt(sender: DeviceAddress, bytes: ByteArray): ByteArray
+
+    /** The distribution id a SENDER_KEY_MESSAGE was made with; null when it isn't one. */
+    fun groupMessageDistributionId(bytes: ByteArray): String?
+
+    /** This phone's identity key's signature over [data] (the owner's group changes). */
+    fun sign(data: ByteArray): ByteArray
+
+    /** Whether [signature] over [data] was made by [identityKey]. */
+    fun verify(identityKey: ByteArray, data: ByteArray, signature: ByteArray): Boolean
+
     /** Forgets everything: identity, prekeys, sessions, trusted keys (another account or server). */
     fun wipe()
 }

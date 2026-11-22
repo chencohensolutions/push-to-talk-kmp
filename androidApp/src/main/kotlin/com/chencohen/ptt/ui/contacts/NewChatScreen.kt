@@ -35,8 +35,24 @@ import com.chencohen.ptt.ui.style.SettingsScaffold
  * opens their page (the conversation itself is phase 3).
  */
 @Composable
-internal fun NewChatScreen(contacts: List<Contact>, back: () -> Unit, addContact: () -> Unit, openContact: (String) -> Unit) {
+internal fun NewChatScreen(contacts: List<Contact>, back: () -> Unit, addContact: () -> Unit, openContact: (String) -> Unit, newGroup: () -> Unit = {}) {
     SettingsScaffold(title = stringResource(R.string.new_chat_title), back = back) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClick = newGroup)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(48.dp).background(LibraryColors.Raised, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(LibraryIcons.Group, null, tint = LibraryColors.OnBackground, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column {
+                Text(stringResource(R.string.new_chat_group), color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+                Text(stringResource(R.string.new_chat_group_body), color = LibraryColors.Muted, style = LibraryType.Caption)
+            }
+        }
         Row(
             Modifier
                 .fillMaxWidth()

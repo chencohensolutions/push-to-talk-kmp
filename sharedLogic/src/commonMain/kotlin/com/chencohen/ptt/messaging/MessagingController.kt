@@ -158,6 +158,48 @@ class MessagingController internal constructor(
     /** Starts over with a new identity key, when every other phone of the user is revoked (KeysState.OtherIdentity). */
     fun replaceIdentityKey(done: (ContactResult) -> Unit) = act(done) { messaging.replaceIdentityKey() }
 
+    // --- Groups (docs/screens/groups.md) ------------------------------------------------------------------------
+
+    /**
+     * A new group named [name] with [picture] (a small JPEG, or null), owned by this user, with [members] (paired
+     * contacts) invited. [done] gets the group's chat key ([Group.chat]), or the error's message.
+     */
+    fun createGroup(name: String, picture: ByteArray?, members: List<String>, done: (String?, String?) -> Unit) {
+        scope.launch {
+            val result = try {
+                val chat = withContext(work) {
+                    val group = messaging.groups.create(name, picture)
+                    if (members.isNotEmpty()) messaging.groups.invite(group.id, members)
+                    group.chat
+                }
+                chat to null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null to e.describe()
+            }
+            done(result.first, result.second)
+        }
+    }
+
+    fun inviteToGroup(id: String, users: List<String>, done: (ContactResult) -> Unit) = act(done) { messaging.groups.invite(id, users) }
+
+    fun removeFromGroup(id: String, user: String, done: (ContactResult) -> Unit) = act(done) { messaging.groups.remove(id, user) }
+
+    /** Renames the group; [picture] null keeps the picture, an empty one takes it away. */
+    fun renameGroup(id: String, name: String, picture: ByteArray?, done: (ContactResult) -> Unit) = act(done) { messaging.groups.rename(id, name, picture) }
+
+    fun deleteGroup(id: String, done: (ContactResult) -> Unit) = act(done) { messaging.groups.delete(id) }
+
+    fun acceptGroup(id: String, done: (ContactResult) -> Unit) = act(done) { messaging.groups.accept(id) }
+
+    /** Declines an invitation, or leaves the group. */
+    fun leaveGroup(id: String, done: (ContactResult) -> Unit) = act(done) { messaging.groups.leave(id) }
+
+    fun refreshGroups() {
+        scope.launch { withContext(work) { messaging.groups.refresh() } }
+    }
+
     private fun act(done: (ContactResult) -> Unit, block: suspend () -> Unit) {
         scope.launch {
             val result = try {

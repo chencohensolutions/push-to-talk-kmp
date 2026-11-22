@@ -271,9 +271,46 @@ of the conversation; texts to them fail until the new key is accepted on their p
 Not done yet from the plan's phase 3: the idle battery run, and checking `RemoteMessage.getPriority()` against
 what was shown (the server sends HIGH only to phones that registered notifications as on).
 
+## Phase 4: groups
+
+`messaging/Groups.kt`, under `Messaging`; the server's side is its docs/messaging.md, "Groups". Screens:
+[groups.md](screens/groups.md).
+
+- **Two lists.** The server's `groups` (owner, members, invited) only routes: group Sends, and prekey bundles and
+  pairwise sends between members who never paired. Who reads a group is what its owner's devices say: a
+  `GroupStateContent` (id, owner, version, name, a picture of at most 192 pixels a side, the members and the invited,
+  each with the identity key the owner trusts for them, deleted), encoded and signed with the owner's identity key
+  (`CryptoEngine.sign`), sent as `Content.groupChange` over the pairwise sessions to everyone in it, to whoever just went,
+  and (as copies) to the owner's other phones. A phone takes one only when the sender is the group's owner, the
+  signature verifies against the key it trusts for them (its own for its user), and the version is newer
+  (`max(version + 1, now)`, so the owner's phones stay in order).
+- **Readers** (`Group.readers`): the signed members, and the signed invited whom the server lists as members (they
+  accepted; the owner's phone then signs them in as members when it sees the server's list). A user only on the
+  server's list is never one: editing groups.json adds nobody who can read (GroupsTest checks it).
+- **Members this user never paired with** are trusted on the key the owner named, and show as "Added by the owner, not
+  verified by you" on the group's page. Their sessions open from the server's prekey bundles only on that key.
+- **Sender keys.** Each device has one libsignal sender key per group (`Group.senderKeyId`, a distribution id). It goes
+  as `Content.senderKey` over the pairwise sessions to readers' devices (and this user's other phones) that don't have
+  it (`Group.keyHolders`), never to anyone else; a phone takes one only from a reader, on the key the owner named. It is
+  replaced (a new distribution id, nobody holds it) when a reader goes (left, removed, declined) or the group is gone
+  for this user, and when a device that held it is gone from the server's list or re-registered (a revoke).
+- **A group Send** is one `SENDER_KEY_MESSAGE` (`Content` with `group` set: a text, or typing with PUSH_NONE) and
+  `group_devices`: the server's devices as last listed (`Group.devices`), with the registration id each key holder had
+  (0 for devices given no key: the server insists on naming every member device, but those get nothing they can open).
+  The first Send, and any after a change, is refused STALE_DEVICES with the members' devices; the new ones get the key
+  and it goes again (three tries).
+- **GROUP_CHANGED** fetches `groups` again (launched, not awaited in the read loop): invitations appear, groups this user
+  is out of turn read only (`Group.gone`), and on the owner's phones the signed members follow the server (accepted,
+  left, declined).
+- **Group chats** use phase 3's pieces under the chat key `#<id>` (`Group.chatOf`): the outbox, notifications (the
+  group's name, each line with its author), typing (`MessagingState.typing` keyed `#<id>/<user>`), unread counts.
+  Group texts carry their `author`; there are no delivered or read receipts in groups yet.
+- **Not yet:** linking a phone doesn't send the groups' signed state (the new phone lists the groups from the server,
+  and takes the state from the owner's next change); MLS if groups grow past 50.
+
 ## Next
 
-Groups (phase 4), push-to-talk (5), calls (6) and iOS, as the plan says.
+Push-to-talk (5), calls (6) and iOS, as the plan says.
 
 The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3

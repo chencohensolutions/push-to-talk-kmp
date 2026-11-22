@@ -18,3 +18,5 @@ Signal's conversation in the library's look. How texts, receipts, typing and pre
   pair", or "This contact isn’t in your list anymore."
 
 While it is on screen, texts that come in are read at once (no notification), and a read receipt goes back.
+
+A group's chat uses this screen with a group header and authors on the bubbles: see [groups.md](groups.md).

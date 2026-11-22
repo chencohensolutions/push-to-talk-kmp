@@ -160,4 +160,37 @@ class LibsignalCryptoEngineTest {
         dana.wipe()
         assertEquals(null, dana.identityKey())
     }
+
+    @Test
+    fun senderKeysCarryGroupMessagesAndANewKeyShutsOutWhoDidntGetIt() {
+        val hen = engine(hen1)
+        val dana = engine(dana1)
+        val noa = engine(DeviceAddress("noa", 1))
+        val henKey = hen.createIdentity()
+        dana.createIdentity()
+        noa.createIdentity()
+        val first = "11111111-1111-4111-8111-111111111111"
+        val distribution = hen.senderKeyDistribution(first)
+        assertEquals(first, hen.distributionIdOf(distribution))
+        dana.takeSenderKey(hen1, distribution)
+        noa.takeSenderKey(hen1, distribution)
+        val sent = hen.groupEncrypt(first, "to the group".encodeToByteArray())
+        assertEquals(first, dana.groupMessageDistributionId(sent))
+        assertEquals("to the group", dana.groupDecrypt(hen1, sent).decodeToString())
+        assertEquals("to the group", noa.groupDecrypt(hen1, sent).decodeToString())
+
+        // Noa is taken out: a new key goes to Dana only.
+        val second = "22222222-2222-4222-8222-222222222222"
+        dana.takeSenderKey(hen1, hen.senderKeyDistribution(second))
+        val later = hen.groupEncrypt(second, "after noa".encodeToByteArray())
+        assertEquals("after noa", dana.groupDecrypt(hen1, later).decodeToString())
+        assertFailsWith<UndecryptableException> { noa.groupDecrypt(hen1, later) }
+
+        // The owner's signature on a group change.
+        val change = "group state".encodeToByteArray()
+        val signature = hen.sign(change)
+        assertTrue(dana.verify(henKey, change, signature))
+        assertFalse(dana.verify(henKey, "other state".encodeToByteArray(), signature))
+        assertFalse(dana.verify(dana.identityKey()!!, change, signature))
+    }
 }

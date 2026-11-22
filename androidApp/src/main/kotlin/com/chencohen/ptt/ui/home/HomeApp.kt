@@ -52,6 +52,14 @@ import com.chencohen.ptt.messaging.MessagingState
 import com.chencohen.ptt.messaging.PairRequest
 import com.chencohen.ptt.messaging.PairingController
 import com.chencohen.ptt.messaging.TextMessage
+import com.chencohen.ptt.messaging.Group
+import com.chencohen.ptt.ui.contacts.GroupChat
+import com.chencohen.ptt.ui.groups.AddMembersScreen
+import com.chencohen.ptt.ui.groups.GroupActions
+import com.chencohen.ptt.ui.groups.GroupRow
+import com.chencohen.ptt.ui.groups.GroupScreen
+import com.chencohen.ptt.ui.groups.NewGroupScreen
+import com.chencohen.ptt.ui.groups.groupName
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -104,6 +112,8 @@ class HomeActions(
     val newChat: () -> Unit = {},
     val reviewRequest: (String) -> Unit = {},
     val openContact: (String) -> Unit = {},
+    /** A group invitation's card: the group's page, to accept or decline. */
+    val openGroup: (String) -> Unit = {},
     val replaceIdentityKey: () -> Unit = {},
     /** Scan the other phone's Link a phone code (KeysState.OtherIdentity). */
     val linkHere: () -> Unit = {},
@@ -175,6 +185,7 @@ fun HomeApp(
                         newChat = { push("new") },
                         reviewRequest = { push("review/$it") },
                         openContact = { push("chat/$it") },
+                        openGroup = { push("group/$it") },
                         replaceIdentityKey = {
                             messaging.replaceIdentityKey { result ->
                                 if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
@@ -228,7 +239,84 @@ fun HomeApp(
                     back = ::pop,
                     addContact = { push("add") },
                     openContact = { push("chat/$it") },
+                    newGroup = { push("newgroup") },
                 )
+                name == "newgroup" -> {
+                    var busy by remember { mutableStateOf(false) }
+                    NewGroupScreen(
+                        contacts = messagingState.contacts,
+                        back = ::pop,
+                        busy = busy,
+                        create = { groupName, picture, members ->
+                            busy = true
+                            messaging.createGroup(groupName, picture, members) { chat, error ->
+                                busy = false
+                                if (chat != null) saved = "chat/$chat" else messages.post(resources.getString(R.string.contact_failed, error.orEmpty()))
+                            }
+                        },
+                    )
+                }
+                name.startsWith("groupadd/") && pageUser != null -> {
+                    val group = messagingState.groups.firstOrNull { it.id == pageUser }
+                    var busy by remember { mutableStateOf(false) }
+                    AddMembersScreen(
+                        contacts = messagingState.contacts,
+                        inGroup = group?.let { g -> (g.members + g.invited).map { it.user }.toSet() }.orEmpty(),
+                        back = ::pop,
+                        busy = busy,
+                        add = { users ->
+                            busy = true
+                            messaging.inviteToGroup(pageUser, users) { result ->
+                                busy = false
+                                when (result) {
+                                    ContactResult.Done -> pop()
+                                    is ContactResult.Failed -> messages.post(resources.getString(R.string.contact_failed, result.message))
+                                }
+                            }
+                        },
+                    )
+                }
+                name.startsWith("group/") && pageUser != null -> {
+                    val id = pageUser
+                    val group = messagingState.groups.firstOrNull { it.id == id }
+                    LaunchedEffect(id) { messaging.refreshGroups() }
+                    fun report(result: ContactResult, then: () -> Unit = {}) {
+                        when (result) {
+                            ContactResult.Done -> then()
+                            is ContactResult.Failed -> messages.post(resources.getString(R.string.contact_failed, result.message))
+                        }
+                    }
+                    GroupScreen(
+                        me = state.device?.user.orEmpty(),
+                        group = group,
+                        contacts = messagingState.contacts,
+                        actions = GroupActions(
+                            back = ::pop,
+                            accept = { messaging.acceptGroup(id) { report(it) { saved = "chat/${Group.chatOf(id)}" } } },
+                            decline = { messaging.leaveGroup(id) { report(it, ::home) } },
+                            rename = { newName, picture -> messaging.renameGroup(id, newName, picture) { report(it) } },
+                            addMembers = { push("groupadd/$id") },
+                            remove = { user ->
+                                messages.post(resources.getString(R.string.group_remove_confirm, user), resources.getString(R.string.group_remove)) {
+                                    messaging.removeFromGroup(id, user) { report(it) }
+                                }
+                            },
+                            openMember = { user ->
+                                if (messagingState.contacts.any { it.user == user }) push("contact/$user") else push("add")
+                            },
+                            leave = {
+                                messages.post(resources.getString(R.string.group_leave_confirm), resources.getString(R.string.group_leave)) {
+                                    messaging.leaveGroup(id) { report(it) }
+                                }
+                            },
+                            delete = {
+                                messages.post(resources.getString(R.string.group_delete_confirm), resources.getString(R.string.group_delete)) {
+                                    messaging.deleteGroup(id) { report(it, ::home) }
+                                }
+                            },
+                        ),
+                    )
+                }
                 name == "invite" -> {
                     val pairingState by pairing.state.collectAsStateWithLifecycle()
                     DisposableEffect(page) { onDispose { pairing.clearInvite() } }
@@ -313,7 +401,9 @@ fun HomeApp(
                     LaunchedEffect(messagingState.unread[user]) { if ((messagingState.unread[user] ?: 0) > 0) messaging.openChat(user) }
                     // "typing…" ends by itself when its time is up.
                     var now by remember { mutableStateOf(System.currentTimeMillis()) }
-                    val typingUntil = messagingState.typing[user]
+                    val group = Group.idOf(user)?.let { id -> messagingState.groups.firstOrNull { it.id == id } }
+                    val groupTyping = messagingState.typing.filterKeys { it.startsWith("$user/") }
+                    val typingUntil = if (Group.idOf(user) != null) groupTyping.values.maxOrNull() else messagingState.typing[user]
                     LaunchedEffect(typingUntil) {
                         now = System.currentTimeMillis()
                         if (typingUntil != null && typingUntil > now) {
@@ -326,9 +416,28 @@ fun HomeApp(
                         contact = messagingState.contacts.firstOrNull { it.user == user },
                         messages = messagingState.conversations[user].orEmpty(),
                         header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
+                        group = Group.idOf(user)?.let { id ->
+                            val me = state.device?.user.orEmpty()
+                            val typers = groupTyping.filterValues { it > now }.keys.map { it.substringAfter('/') }
+                            GroupChat(
+                                name = group?.let { groupName(it) } ?: resources.getString(R.string.group_unnamed),
+                                picture = group?.picture,
+                                line = when {
+                                    typers.isNotEmpty() -> resources.getString(R.string.group_typing, typers.joinToString(", "))
+                                    else -> resources.getQuantityString(R.plurals.group_members, group?.readers?.size ?: 0, group?.readers?.size ?: 0)
+                                },
+                                note = when {
+                                    group == null -> resources.getString(R.string.group_missing)
+                                    group.gone -> resources.getString(R.string.group_gone)
+                                    group.isInvitation(me) -> resources.getString(R.string.group_invitation_note)
+                                    !group.isReader(me) -> resources.getString(R.string.group_waiting_owner)
+                                    else -> null
+                                },
+                            )
+                        },
                         actions = ConversationActions(
                             back = ::pop,
-                            openContact = { push("contact/$user") },
+                            openContact = { Group.idOf(user)?.let { push("group/$it") } ?: push("contact/$user") },
                             send = { body ->
                                 messaging.sendText(user, body) { result ->
                                     if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
@@ -461,6 +570,14 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                         )
                     }
                     (chats.keys as? KeysState.Failed)?.let { PageNote(stringResource(R.string.chats_keys_failed, it.message), top = 4, bottom = 4) }
+                    chats.groups.filter { it.isInvitation(state.user.orEmpty()) }.forEach { group ->
+                        HomeCard(
+                            title = stringResource(R.string.chats_group_invite_title, group.owner, groupName(group)),
+                            body = stringResource(R.string.chats_group_invite_body),
+                            action = stringResource(R.string.chats_group_invite_action),
+                            onAction = { actions.openGroup(group.id) },
+                        )
+                    }
                     chats.requests.forEach { request ->
                         HomeCard(
                             title = stringResource(R.string.chats_request_title, request.user),
@@ -469,14 +586,25 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                             onAction = { actions.reviewRequest(request.user) },
                         )
                     }
-                    if (chats.contacts.isEmpty()) {
+                    val groups = chats.groups.filter { !it.isInvitation(state.user.orEmpty()) }
+                    if (chats.contacts.isEmpty() && groups.isEmpty()) {
                         Spacer(Modifier.height(96.dp))
                         EmptyTab(LibraryIcons.Chat, stringResource(R.string.chats_empty))
                     } else {
-                        // The latest text first, then the newest contacts.
-                        chats.contacts
-                            .sortedWith(compareByDescending<Contact> { chats.lastMessages[it.user]?.at ?: 0L }.thenByDescending { it.addedAt })
-                            .forEach { contact -> ContactRow(contact, chats.lastMessages[contact.user], chats.unread[contact.user] ?: 0) { actions.openContact(contact.user) } }
+                        // The latest text first, then the newest contacts and groups; a group's row by its chat key.
+                        val rows = chats.contacts.map { it.user to (chats.lastMessages[it.user]?.at ?: 0L) to it.addedAt } +
+                            groups.map { it.chat to (chats.lastMessages[it.chat]?.at ?: 0L) to it.createdAt }
+                        rows.sortedWith(compareByDescending<Pair<Pair<String, Long>, Long>> { it.first.second }.thenByDescending { it.second }).forEach { row ->
+                            val key = row.first.first
+                            val group = groups.firstOrNull { it.chat == key }
+                            if (group != null) {
+                                GroupRow(group, chats.lastMessages[key], chats.unread[key] ?: 0) { actions.openContact(key) }
+                            } else {
+                                chats.contacts.firstOrNull { it.user == key }?.let { contact ->
+                                    ContactRow(contact, chats.lastMessages[key], chats.unread[key] ?: 0) { actions.openContact(key) }
+                                }
+                            }
+                        }
                     }
                 }
                 HomeTab.CALLS -> {

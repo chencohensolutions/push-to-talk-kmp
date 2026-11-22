@@ -72,7 +72,65 @@ data class TextMessage(
     val at: Long,
     val status: MessageStatus = MessageStatus.SENT,
     val read: Boolean = false,
+    /** In a group chat ([user] is then [Group.chatOf] its id): who wrote it. */
+    val author: String? = null,
 )
+
+/** A member of a group as the owner's devices named them: the user and the identity key the owner trusts (base64). */
+@Serializable
+data class GroupMember(val user: String, val identityKey: String)
+
+/**
+ * A group this phone's user is in or invited to (docs/design.md, "Groups"). [name], [picture], [members] and [invited]
+ * are what the owner's devices said, signed, at [version] (0: nothing from them yet); [serverMembers] and
+ * [serverInvited] are the server's list, which only routes. A phone gives its sender key only to [readers].
+ */
+@Serializable
+data class Group(
+    val id: String,
+    val owner: String,
+    val name: String = "",
+    /** A small JPEG, base64; null for none. */
+    val picture: String? = null,
+    val version: Long = 0,
+    val members: List<GroupMember> = emptyList(),
+    val invited: List<GroupMember> = emptyList(),
+    val serverMembers: List<String> = emptyList(),
+    val serverInvited: List<String> = emptyList(),
+    /** Deleted, or this user left or was taken out: its chat stays, read only. */
+    val gone: Boolean = false,
+    val createdAt: Long = 0,
+    /** The owner's last signed change, as it came (base64): what this phone checks a newer one against. */
+    val signedState: String? = null,
+    /** This device's current sender key's distribution id; null until the next message makes a new one. */
+    val senderKeyId: String? = null,
+    /** The devices ("user.device") that have that sender key, with the registration id they had then. */
+    val keyHolders: Map<String, Int> = emptyMap(),
+    /** The devices a group Send goes to, as the server last listed them ("user.device" to registration id). */
+    val devices: Map<String, Int> = emptyMap(),
+) {
+    /**
+     * Who reads the group: the members the owner's devices named, and those they invited who accepted on the server.
+     * A user only on the server's list isn't one.
+     */
+    val readers: List<GroupMember> get() = members + invited.filter { it.user in serverMembers && members.none { m -> m.user == it.user } }
+
+    fun isReader(user: String): Boolean = readers.any { it.user == user }
+
+    fun member(user: String): GroupMember? = readers.firstOrNull { it.user == user } ?: invited.firstOrNull { it.user == user }
+
+    /** This user is asked to join and hasn't answered. */
+    fun isInvitation(me: String): Boolean = !gone && me in serverInvited && me !in serverMembers
+
+    val chat: String get() = chatOf(id)
+
+    companion object {
+        /** The conversation key of a group's chat: user names have no '#'. */
+        fun chatOf(id: String): String = "#$id"
+
+        fun idOf(chat: String): String? = chat.takeIf { it.startsWith("#") }?.substring(1)
+    }
+}
 
 /**
  * The secret of an Add contact code this phone showed, or of an invite link it made ([viaLink]; [token] is then the
@@ -190,6 +248,17 @@ internal class MessagingStore(val store: SecureStore) {
         store.keys(Spaces.MESSAGES).forEach { key ->
             if (read(Spaces.MESSAGES, key, TextMessage.serializer())?.user == user) store.remove(Spaces.MESSAGES, key)
         }
+    }
+
+    fun groups(): List<Group> = all(Spaces.GROUPS, Group.serializer())
+
+    fun group(id: String): Group? = read(Spaces.GROUPS, id, Group.serializer())
+
+    fun putGroup(group: Group) = write(Spaces.GROUPS, group.id, Group.serializer(), group)
+
+    fun removeGroup(id: String) {
+        store.remove(Spaces.GROUPS, id)
+        removeMessagesOf(Group.chatOf(id))
     }
 
     private companion object {

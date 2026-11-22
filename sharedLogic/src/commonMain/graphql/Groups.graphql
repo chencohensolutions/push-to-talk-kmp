@@ -1,0 +1,38 @@
+# Groups (phase 4; the server's docs/messaging.md, "Groups"). Called by ApolloMessagingApi. The server keeps only who
+# is in which group, to route: the name, picture and members' keys travel end to end in the owner's signed changes.
+
+fragment GroupFields on Group {
+  id
+  owner
+  members
+  invited
+  createdAt
+}
+
+query Groups {
+  groups { ...GroupFields }
+}
+
+mutation CreateGroup {
+  createGroup { ...GroupFields }
+}
+
+mutation InviteToGroup($group: ID!, $user: String!) {
+  inviteToGroup(group: $group, user: $user) { ...GroupFields }
+}
+
+mutation AcceptGroupInvite($group: ID!) {
+  acceptGroupInvite(group: $group) { ...GroupFields }
+}
+
+mutation LeaveGroup($group: ID!) {
+  leaveGroup(group: $group)
+}
+
+mutation RemoveFromGroup($group: ID!, $user: String!) {
+  removeFromGroup(group: $group, user: $user) { ...GroupFields }
+}
+
+mutation DeleteGroup($group: ID!) {
+  deleteGroup(group: $group)
+}

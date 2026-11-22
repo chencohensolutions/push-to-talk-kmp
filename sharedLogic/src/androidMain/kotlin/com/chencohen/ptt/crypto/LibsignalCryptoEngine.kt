@@ -12,6 +12,11 @@ import org.signal.libsignal.protocol.ecc.ECKeyPair
 import org.signal.libsignal.protocol.ecc.ECPrivateKey
 import org.signal.libsignal.protocol.ecc.ECPublicKey
 import org.signal.libsignal.protocol.fingerprint.Fingerprint
+import org.signal.libsignal.protocol.groups.GroupCipher
+import org.signal.libsignal.protocol.groups.GroupSessionBuilder
+import org.signal.libsignal.protocol.message.SenderKeyDistributionMessage
+import org.signal.libsignal.protocol.message.SenderKeyMessage
+import java.util.UUID
 import org.signal.libsignal.protocol.fingerprint.NumericFingerprintGenerator
 import org.signal.libsignal.protocol.kem.KEMKeyPair
 import org.signal.libsignal.protocol.kem.KEMKeyType
@@ -209,6 +214,49 @@ internal class LibsignalCryptoEngine(
             throw UndecryptableException("Can't open a message from $address", e)
         }
     }
+
+    override fun senderKeyDistribution(distributionId: String): ByteArray =
+        GroupSessionBuilder(signal).create(localAddress(), UUID.fromString(distributionId)).serialize()
+
+    override fun takeSenderKey(sender: DeviceAddress, distribution: ByteArray) {
+        val message = try {
+            SenderKeyDistributionMessage(distribution)
+        } catch (e: Exception) {
+            throw InvalidKeysException("Not a sender key", e)
+        }
+        try {
+            GroupSessionBuilder(signal).process(toSignal(sender), message)
+        } catch (e: Exception) {
+            throw InvalidKeysException("The sender key of $sender can't be taken", e)
+        }
+    }
+
+    override fun distributionIdOf(distribution: ByteArray): String? =
+        runCatching { SenderKeyDistributionMessage(distribution).distributionId.toString() }.getOrNull()
+
+    override fun groupEncrypt(distributionId: String, plaintext: ByteArray): ByteArray = try {
+        GroupCipher(signal, localAddress()).encrypt(UUID.fromString(distributionId), plaintext).serialize()
+    } catch (e: IllegalStateException) {
+        throw e
+    } catch (e: Exception) {
+        throw UndecryptableException("No sender key $distributionId", e)
+    }
+
+    override fun groupDecrypt(sender: DeviceAddress, bytes: ByteArray): ByteArray = try {
+        GroupCipher(signal, toSignal(sender)).decrypt(bytes)
+    } catch (e: IllegalStateException) {
+        throw e
+    } catch (e: Exception) {
+        throw UndecryptableException("Can't open a group message from $sender", e)
+    }
+
+    override fun groupMessageDistributionId(bytes: ByteArray): String? =
+        runCatching { SenderKeyMessage(bytes).distributionId.toString() }.getOrNull()
+
+    override fun sign(data: ByteArray): ByteArray = signal.getIdentityKeyPair().privateKey.calculateSignature(data)
+
+    override fun verify(identityKey: ByteArray, data: ByteArray, signature: ByteArray): Boolean =
+        runCatching { IdentityKey(identityKey).publicKey.verifySignature(data, signature) }.getOrDefault(false)
 
     private fun fingerprint(myUser: String, theirUser: String, theirIdentityKey: ByteArray): Fingerprint =
         NumericFingerprintGenerator(FINGERPRINT_ITERATIONS).createFor(
