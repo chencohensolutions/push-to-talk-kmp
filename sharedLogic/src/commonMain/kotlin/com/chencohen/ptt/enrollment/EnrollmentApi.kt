@@ -3,10 +3,10 @@ package com.chencohen.ptt.enrollment
 import com.apollographql.apollo.ApolloClient
 import com.apollographql.apollo.api.ApolloResponse
 import com.apollographql.apollo.api.Operation
+import com.apollographql.apollo.api.Optional
 import com.chencohen.ptt.graphql.EnrollDeviceMutation
 import com.chencohen.ptt.graphql.EnrollWithInviteMutation
 import com.chencohen.ptt.graphql.EnrollmentPreviewQuery
-import com.chencohen.ptt.graphql.InviteEmailCodeMutation
 import com.chencohen.ptt.graphql.InvitePreviewQuery
 import com.chencohen.ptt.graphql.type.InviteEnrollInput
 import com.chencohen.ptt.graphql.type.InviteRejectedReason
@@ -72,22 +72,13 @@ internal data class InvitePreview(
     val inviterDisplayName: String?,
     val email: String?,
     val expiresAt: String,
-    /** The inviter's phone emailed the code with the link: no code is asked of the server. */
-    val codeFromInviter: Boolean,
 )
 
 internal suspend fun previewInvite(apollo: ApolloClient, code: String): InvitePreview {
     val result = apollo.query(InvitePreviewQuery(code)).execute().dataOrThrow().invitePreview
     result.onInviteRejected?.let { throw InviteRejectedException(it.reason) }
     val preview = result.onInvitePreview ?: throw EnrollmentTransportException("Unexpected answer ${result.__typename}")
-    return InvitePreview(preview.inviter, preview.inviterDisplayName, preview.email, preview.expiresAt, preview.codeFromInviter)
-}
-
-/** Sends the six-digit code to [email]; gives the address as the server keeps it. */
-internal suspend fun sendInviteEmailCode(apollo: ApolloClient, code: String, email: String): String {
-    val result = apollo.mutation(InviteEmailCodeMutation(code, email)).execute().dataOrThrow().inviteEmailCode
-    result.onInviteRejected?.let { throw InviteRejectedException(it.reason) }
-    return result.onInviteEmailSent?.email ?: throw EnrollmentTransportException("Unexpected answer ${result.__typename}")
+    return InvitePreview(preview.inviter, preview.inviterDisplayName, preview.email, preview.expiresAt)
 }
 
 /** The certificate, and the inviter's pairing token (null when the server couldn't make one). */
@@ -96,8 +87,10 @@ internal class InviteIssued(val certificate: IssuedCertificate, val inviter: Str
 internal suspend fun enrollWithInvite(
     apollo: ApolloClient,
     code: String,
-    email: String,
-    emailCode: String,
+    /** The six digits the inviter sent beside the link. */
+    passcode: String,
+    /** The invite's email, or for an invite to anyone the friend's own (null: none). */
+    email: String?,
     displayName: String,
     deviceName: String,
     csrDer: ByteArray,
@@ -105,8 +98,8 @@ internal suspend fun enrollWithInvite(
 ): InviteIssued {
     val input = InviteEnrollInput(
         code = code,
-        email = email,
-        emailCode = emailCode,
+        passcode = passcode,
+        email = Optional.presentIfNotNull(email),
         displayName = displayName,
         deviceName = deviceName,
         csr = Base64.encode(csrDer),

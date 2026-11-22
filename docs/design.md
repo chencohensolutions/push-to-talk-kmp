@@ -144,32 +144,44 @@ unblock only change the server's block and the contact's flag.
 
 ### Invites
 
-One link that enrolls a friend and pairs them with whoever invited them (the server's docs/authentication.md,
-"Invites"), for a friend who isn't in front of you:
+One link and a six-digit code that enroll a friend and pair them with whoever invited them (the server's
+docs/authentication.md, "Invites"), for a friend who isn't in front of you. **The phones send the invite; the server
+sends no mail** (owner's decision, 2026-11-22: enrollment and invitations go from client to client):
 
 1. **Make it.** Add contact → **Invite a friend**: `createInvite(email)` (the email optional; with one, only that
-   address can use it) answers a code that works once, for 7 days. `Messaging.newInvite` builds
-   `ptt://invite?v=1&code=…&server=…&fingerprint=…&key=…&address=…&u=…&k=…&s=…&e=…` (`InviteLink`): an enrollment
-   link's server part, the invite code, and the Add contact code's pairing part without a token, with a new secret
-   kept as an `Invite` with `viaLink`. Shared by the share sheet, copied, or shown as a QR code. **An invite with an
-   email** also comes with a six-digit code (`emailCode`, not in the link): **Email the invite** opens the user's own
-   mail app (`mailto:`) with the link and the code, from their own address, so the server sends no mail and holds no
-   mail password.
-2. **A phone that isn't enrolled** opens it (the app's `ptt://invite` intent filter, or Paste in the wizard):
-   `EnrollmentController.openInvite` pins the server's key from the link, `invitePreview` says who it is from. When
-   the inviter emailed the code (`codeFromInviter`) the wizard goes straight to typing it; for an invite without an
-   email the friend types theirs and `inviteEmailCode` has the server send six digits there. `enrollWithInvite` (the digits, their name,
-   the certificate request) makes the user and the certificate in one step. Its pairing token goes into
-   `PttSettings.pendingInvitePair` as the inviter's `PairCode`, and `Messaging` pairs with it once the keys are up
-   and `/ws` is live, as after a scan.
-3. **An enrolled phone** opens it: Add contact asks "Pair with <inviter>?" (`PairingController.openInvite`); Pair
-   calls `acceptInvite` for a token, then pairs the same way.
-4. **The inviter's phone** recognises the pair request by the invite's secret and confirms it without a tap: making
+   address can use it) answers a code for the link and a `passcode`, six digits, both working once, for 7 days.
+   `Messaging.newInvite` builds `ptt://invite?v=1&code=…&server=…&fingerprint=…&key=…&address=…&u=…&k=…&s=…&e=…`
+   (`InviteLink`): an enrollment link's server part, the invite code, and the Add contact code's pairing part
+   without a token, with a new secret kept as an `Invite` with `viaLink`.
+2. **Send it.** `InviteMessage` is the text it goes out in: "<user> invited you to Talk", the steps, the link and
+   the code ("type this code: 042 917"). With an email typed, **Email the invite** opens the user's own mail app
+   (`ACTION_SENDTO` with a `mailto:` URI carrying To, subject and body, so only mail apps answer), from their own
+   address. **Share** (always) gives the same text to the share sheet (WhatsApp, SMS…); **Copy invite** copies it.
+   The screen shows the QR code of the link and the code beside it, for a friend in the room. The text is built in
+   `sharedLogic` rather than from Android strings because the friend's phone reads it back (step 3).
+3. **A phone that isn't enrolled** opens it (the app's `ptt://invite` intent filter, a scan, or Paste in the
+   wizard): `EnrollmentController.openInvite` pins the server's key from the link, `invitePreview` says who it is
+   from and the email it is for, and the wizard goes straight to the code screen. Pasting the whole message fills
+   the code in too (`InviteMessage.passcodeIn`: the first six digits standing alone once the links are taken out).
+   `enrollWithInvite` (the code, the email, their name, the certificate request) makes the user and the certificate
+   in one step. Its pairing token goes into `PttSettings.pendingInvitePair` as the inviter's `PairCode`, and
+   `Messaging` pairs with it once the keys are up and `/ws` is live, as after a scan.
+4. **An enrolled phone** opens it: Add contact asks "Pair with <inviter>?" (`PairingController.openInvite`); Pair
+   calls `acceptInvite` for a token (no code: the friend is a user of the server already), then pairs the same way.
+5. **The inviter's phone** recognises the pair request by the invite's secret and confirms it without a tap: making
    the invite was the decision. Both sides mark the contact **not verified**, since a link can be forwarded; they
    compare safety numbers to verify.
 
-The email is what makes an invited account unique; the server names the user from it (`dana.cohen`), and the
-friend's own name is a display name (`Contact.displayName`, shown as "Dana Cohen · dana.cohen").
+**The code is not in the link** (decided 2026-11-22). With it in the link, the link alone would be enough, so it
+would have to be sent privately, and anything that sees only the link (a forwarded message, a link scanner, a chat
+backup, a photo of the QR code) could use it. Kept apart, the link alone does nothing, and an inviter who wants to can
+send the code another way (said aloud, another chat). The cost is typing six digits, or none when the whole message
+is pasted. Either way, whoever has both can redeem the invite, so they go to the friend only.
+
+**The email.** For an invite with one, the friend's account gets that email (shown, locked); for an invite to anyone
+the friend may type theirs, or leave it empty. Nothing checks it: no code is sent there. The server names the user
+from the email (`dana.cohen`), or without one from the name (`Dana Cohen` → `dana.cohen`); the friend's own name is a
+display name (`Contact.displayName`, shown as "Dana Cohen · dana.cohen").
 
 ## Next
 

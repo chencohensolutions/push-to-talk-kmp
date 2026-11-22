@@ -42,20 +42,20 @@ enrolled. An address typed by hand, with no link, must have a certificate the sy
 
 ## Joining by an invite
 
-An Invite a friend link ([invite.md](invite.md)) opened on a phone that isn't enrolled, or pasted, skips the code:
+An Invite a friend link ([invite.md](invite.md)) opened on a phone that isn't enrolled, scanned or pasted, skips the
+enrollment code and goes straight to one screen:
 
-1. **Invite** (step 1): "<Hen Cohen (hen)> invited you", "Type your email. We’ll send you a code to confirm it’s
-   yours.", the server (with its id, from the link), and **Email** (filled in and locked when the invite is for one
-   address). **Send code**.
-   When the inviter emailed the invite with its code, this step is skipped.
-2. **Check your email** (step 2): "We sent a 6-digit code to <email>." (or, when the inviter emailed it, "<inviter>
-   invited you" and "<inviter> emailed you a 6-digit code at <email>, with the link.", without Send a new code), **Code** (six digits, "It works for 15
-   minutes."), **Send a new code**, **Your name** ("How <inviter> and your other contacts see you."), **Device name**,
-   the key note, and **Join and pair with <inviter>**.
-3. Registering and You’re connected as with a code. Then the phone pairs with the inviter on its own, and they show
+1. **Invite** (step 2): "<Hen Cohen (hen)> invited you", "Type the 6-digit code <inviter> sent you with the link.",
+   the server (with its id, from the link), **Code** (six digits, "It’s in the same message as the link."; filled in
+   when the whole message was pasted), **Email** (the invite's, locked, "This invite is for this address."), or for
+   an invite to anyone **Your email (optional)** ("Your contacts don’t see it, and nobody emails you. You can leave it
+   empty."), **Your name** ("How <inviter> and your other contacts see you."), **Device name**, the key note, and
+   **Join and pair with <inviter>**. Back leaves the invite (to Welcome).
+2. Registering and You’re connected as with a code. Then the phone pairs with the inviter on its own, and they show
    in Chats.
 
-Errors say what to do: the link was used, canceled or expired (ask for a new one); not an email; the invite is for
-another address; the email has an account already (register with a code from the server's owner); a wrong or
-expired code; no name; too many tries; the server couldn't send the email. A failed registration says "Ask
+Errors say what to do, under the field they are about: the link was used, canceled or expired (ask for a new one);
+a wrong code ("Check the message with the link"; 10 wrong ones end the invite); too many tries; not an email; the
+invite is for another address; the email has an account already (register with a code from the server's owner); no
+name. A failed registration says "Ask
 <inviter> for a new invite link." instead of the enroll-code command.

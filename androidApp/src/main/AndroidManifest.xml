@@ -35,7 +35,7 @@
 
                 <data android:scheme="ptt" android:host="enroll" />
             </intent-filter>
-            <!-- ptt://invite?…: an Invite a friend link (enrolls by email and pairs with the inviter). -->
+            <!-- ptt://invite?…: an Invite a friend link (enrolls with its code and pairs with the inviter). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 

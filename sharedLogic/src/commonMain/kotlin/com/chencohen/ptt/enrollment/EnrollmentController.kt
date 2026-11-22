@@ -7,6 +7,7 @@ import com.chencohen.ptt.discovery.DhtClient
 import com.chencohen.ptt.discovery.KeptDiscovery
 import com.chencohen.ptt.discovery.ServerId
 import com.chencohen.ptt.discovery.ServerRecord
+import com.chencohen.ptt.messaging.InviteMessage
 import com.chencohen.ptt.discovery.answersAt
 import com.chencohen.ptt.discovery.firstToAnswer
 import kotlin.time.Duration.Companion.milliseconds
@@ -53,21 +54,11 @@ sealed interface EnrollmentStep {
     data class Confirm(val user: String, val minutesLeft: Int) : EnrollmentStep
 
     /**
-     * An invite link was opened ([EnrollmentState.invite]): the friend types their email, and a code is sent there.
-     * [checking] while the invite is looked up or the code is sent.
+     * An invite link was opened ([EnrollmentState.invite]): the friend types the six-digit passcode the inviter sent
+     * with it, their name, and for an invite without an email their own if they want. [checking] while the invite is
+     * looked up.
      */
-    data class InviteEmail(val checking: Boolean = false, val error: EnrollmentError? = null) : EnrollmentStep
-
-    /**
-     * The code was sent to [email]: the friend types it, and their name. [fromInviter]: the inviter emailed it with
-     * the link, so there is no "Send a new code".
-     */
-    data class InviteCode(
-        val email: String,
-        val sending: Boolean = false,
-        val error: EnrollmentError? = null,
-        val fromInviter: Boolean = false,
-    ) : EnrollmentStep
+    data class InviteCode(val checking: Boolean = false, val error: EnrollmentError? = null) : EnrollmentStep
 
     data class Registering(val progress: RegistrationProgress) : EnrollmentStep
 
@@ -124,10 +115,10 @@ enum class InviteProblem {
     EMAIL_MISMATCH,
     /** This email has an account already: enroll with a code from the server's owner instead. */
     EMAIL_TAKEN,
-    WRONG_EMAIL_CODE,
+    /** Not the invite's six digits; after 10 wrong ones the invite stops working. */
+    WRONG_PASSCODE,
     MISSING_NAME,
     RATE_LIMITED,
-    MAIL_FAILED,
 }
 
 /** The invite being redeemed: who it is from, and the address it is for (null: any). */
@@ -145,9 +136,12 @@ data class EnrollmentState(
     val serverId: String? = null,
     /** The invite link being redeemed; null for an enrollment code. */
     val invite: InviteInfo? = null,
-    /** What the friend typed on the invite screens. */
+    /**
+     * What the friend typed on the invite screen: [email] is the invite's own when it is for one (and can't be
+     * changed), else theirs or empty; [passcode] the six digits.
+     */
     val email: String = "",
-    val emailCode: String = "",
+    val passcode: String = "",
     val displayName: String = "",
 )
 
@@ -203,9 +197,6 @@ class EnrollmentController internal constructor(
     /** The invite link opened, until enrolled or left. */
     private var inviteLink: com.chencohen.ptt.messaging.InviteLink? = null
 
-    /** The inviter's phone emailed the invite's code (invitePreview.codeFromInviter). */
-    private var invitedByEmail = false
-
     private val _state = MutableStateFlow(
         EnrollmentState(
             serverAddress = serverAddress(settings.serverUrl),
@@ -225,13 +216,13 @@ class EnrollmentController internal constructor(
 
     /** A whole enrollment link pasted into the address (or code) field opens it, as [openPasted] does. */
     fun updateServerAddress(address: String) {
-        com.chencohen.ptt.messaging.InviteLink.find(address)?.let { return openInvite(it) }
+        com.chencohen.ptt.messaging.InviteLink.find(address)?.let { return openInvite(it, InviteMessage.passcodeIn(address)) }
         findEnrollmentLink(address)?.let { return openLink(it) }
         _state.update { it.copy(serverAddress = address, step = clearedCodeError(it.step)) }
     }
 
     fun updateCode(code: String) {
-        com.chencohen.ptt.messaging.InviteLink.find(code)?.let { return openInvite(it) }
+        com.chencohen.ptt.messaging.InviteLink.find(code)?.let { return openInvite(it, InviteMessage.passcodeIn(code)) }
         findEnrollmentLink(code)?.let { return openLink(it) }
         _state.update { it.copy(code = cleanCode(code), step = clearedCodeError(it.step)) }
     }
@@ -240,13 +231,15 @@ class EnrollmentController internal constructor(
         _state.update { it.copy(deviceName = name) }
     }
 
+    /** The friend's email, for an invite without one (an invite for an email keeps that one). */
     fun updateEmail(email: String) {
+        if (_state.value.invite?.email != null) return
         _state.update { it.copy(email = email.trim(), step = clearedInviteError(it.step)) }
     }
 
     /** Keeps the six digits of what was typed or pasted. */
-    fun updateEmailCode(code: String) {
-        _state.update { it.copy(emailCode = code.filter(Char::isDigit).take(6), step = clearedInviteError(it.step)) }
+    fun updatePasscode(code: String) {
+        _state.update { it.copy(passcode = cleanPasscode(code), step = clearedInviteError(it.step)) }
     }
 
     fun updateDisplayName(name: String) {
@@ -255,9 +248,14 @@ class EnrollmentController internal constructor(
 
     /**
      * Opens an Invite a friend link on a phone that isn't enrolled: pins the server's key from it, looks the invite up
-     * (who it is from), and goes to the email screen, with the address filled in when the invite is for one.
+     * (who it is from, and the email it is for), and goes to the passcode screen.
      */
     fun openInvite(link: com.chencohen.ptt.messaging.InviteLink) {
+        openInvite(link, null)
+    }
+
+    /** [openInvite], with the passcode filled in when the pasted message had it ([InviteMessage.passcodeIn]). */
+    private fun openInvite(link: com.chencohen.ptt.messaging.InviteLink, passcode: String?) {
         if (_state.value.step is EnrollmentStep.Registering) return
         job?.cancel()
         forgetPin()
@@ -270,9 +268,9 @@ class EnrollmentController internal constructor(
                 code = "",
                 serverId = ServerId.format(link.fingerprint),
                 invite = InviteInfo(link.inviter, null, link.email),
-                email = link.email ?: it.email,
-                emailCode = "",
-                step = EnrollmentStep.InviteEmail(checking = true),
+                email = link.email ?: "",
+                passcode = passcode?.let(::cleanPasscode).orEmpty(),
+                step = EnrollmentStep.InviteCode(checking = true),
             )
         }
         val address = _state.value.serverAddress
@@ -286,13 +284,7 @@ class EnrollmentController internal constructor(
                         email = preview.email ?: it.email,
                     )
                 }
-                // The inviter emailed the code with the link: straight to typing it.
-                invitedByEmail = preview.codeFromInviter && preview.email != null
-                if (invitedByEmail && preview.email != null) {
-                    EnrollmentStep.InviteCode(preview.email, fromInviter = true)
-                } else {
-                    EnrollmentStep.InviteEmail()
-                }
+                EnrollmentStep.InviteCode()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -302,46 +294,20 @@ class EnrollmentController internal constructor(
         }
     }
 
-    /** InviteEmail → InviteCode: sends the code to the email typed. Also "Send a new code" on InviteCode. */
-    fun sendEmailCode() {
-        val link = inviteLink ?: return
-        val current = _state.value
-        val resend = current.step is EnrollmentStep.InviteCode
-        when (val step = current.step) {
-            is EnrollmentStep.InviteEmail -> if (step.checking) return
-            is EnrollmentStep.InviteCode -> if (step.sending) return
-            else -> return
-        }
-        if (!current.email.contains('@')) {
-            return setStep(EnrollmentStep.InviteEmail(error = EnrollmentError.Invite(InviteProblem.INVALID_EMAIL)))
-        }
-        setStep(if (resend) EnrollmentStep.InviteCode(current.email, sending = true) else EnrollmentStep.InviteEmail(checking = true))
-        job = scope.launch {
-            val next = try {
-                val (_, email) = reachServer(current.serverAddress) { sendInviteEmailCode(it, link.code, current.email) }
-                _state.update { it.copy(email = email, emailCode = "") }
-                EnrollmentStep.InviteCode(email)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                val error = e.toEnrollmentError()
-                if (resend) EnrollmentStep.InviteCode(current.email, error = error) else EnrollmentStep.InviteEmail(error = error)
-            }
-            setStep(next)
-        }
-    }
-
     /**
-     * InviteCode → Registering → Enrolled or Failed: enrolls with the invite, the email and its code, and keeps the
-     * inviter's pairing code for Messaging to pair with once this phone's keys are on the server.
+     * InviteCode → Registering → Enrolled or Failed: enrolls with the invite, its passcode and the email (the invite's,
+     * or the friend's when they typed one), and keeps the inviter's pairing code for Messaging to pair with once this
+     * phone's keys are on the server.
      */
     fun registerWithInvite() {
         val link = inviteLink ?: return
         val current = _state.value
         val step = current.step as? EnrollmentStep.InviteCode ?: return
-        if (step.sending) return
+        if (step.checking) return
+        val email = current.invite?.email ?: current.email.trim().takeIf { it.isNotEmpty() }
         when {
-            current.emailCode.length != 6 -> return setStep(step.copy(error = EnrollmentError.Invite(InviteProblem.WRONG_EMAIL_CODE)))
+            current.passcode.length != 6 -> return setStep(step.copy(error = EnrollmentError.Invite(InviteProblem.WRONG_PASSCODE)))
+            email != null && !email.contains('@') -> return setStep(step.copy(error = EnrollmentError.Invite(InviteProblem.INVALID_EMAIL)))
             current.displayName.isBlank() -> return setStep(step.copy(error = EnrollmentError.Invite(InviteProblem.MISSING_NAME)))
         }
         var pairing: String? = null
@@ -349,7 +315,7 @@ class EnrollmentController internal constructor(
             current,
             enroll = { apollo, deviceName, csr, protection ->
                 val issued = enrollWithInvite(
-                    apollo, link.code, current.email, current.emailCode, current.displayName.trim(), deviceName, csr, protection,
+                    apollo, link.code, current.passcode, email, current.displayName.trim(), deviceName, csr, protection,
                 )
                 pairing = issued.pairingToken?.let { link.pairCode(it).format() }
                 issued.certificate
@@ -434,9 +400,9 @@ class EnrollmentController internal constructor(
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     val error = e.toEnrollmentError()
-                    // An invite's wrong code or email: back to typing it, with what was wrong.
+                    // An invite's wrong passcode or email: back to typing it, with what was wrong.
                     if (inviteLink != null && error is EnrollmentError.Invite && error.problem != InviteProblem.INVALID_INVITE) {
-                        return@launch setStep(EnrollmentStep.InviteCode(current.email, error = error, fromInviter = invitedByEmail))
+                        return@launch setStep(EnrollmentStep.InviteCode(error = error))
                     }
                     return@launch setStep(EnrollmentStep.Failed(error))
                 }
@@ -507,14 +473,11 @@ class EnrollmentController internal constructor(
         _state.update {
             when (it.step) {
                 is EnrollmentStep.EnterCode -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
-                is EnrollmentStep.InviteEmail -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
-                is EnrollmentStep.InviteCode ->
-                    if (it.step.fromInviter) it.copy(step = EnrollmentStep.Welcome).also { forgetPin() } else it.copy(step = EnrollmentStep.InviteEmail())
-                is EnrollmentStep.Registering -> it.copy(step = if (inviteLink != null) EnrollmentStep.InviteCode(it.email, fromInviter = invitedByEmail) else EnrollmentStep.EnterCode())
+                is EnrollmentStep.InviteCode -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
+                is EnrollmentStep.Registering -> it.copy(step = if (inviteLink != null) EnrollmentStep.InviteCode() else EnrollmentStep.EnterCode())
                 is EnrollmentStep.Confirm -> it.copy(step = EnrollmentStep.EnterCode())
                 is EnrollmentStep.Failed -> when {
-                    inviteLink != null && it.step.error is EnrollmentError.Invite ->
-                        it.copy(step = if (invitedByEmail) EnrollmentStep.InviteCode(it.email, fromInviter = true) else EnrollmentStep.InviteEmail())
+                    inviteLink != null && it.step.error is EnrollmentError.Invite -> it.copy(step = EnrollmentStep.InviteCode())
                     inviteLink != null -> it.copy(step = EnrollmentStep.Welcome).also { forgetPin() }
                     else -> it.copy(code = "", step = EnrollmentStep.EnterCode())
                 }
@@ -557,7 +520,8 @@ class EnrollmentController internal constructor(
      */
     fun openPasted(text: String): PasteResult {
         com.chencohen.ptt.messaging.InviteLink.find(text)?.let {
-            openInvite(it)
+            // The whole invite message pasted: its passcode fills in too.
+            openInvite(it, InviteMessage.passcodeIn(text))
             return PasteResult.LINK
         }
         findEnrollmentLink(text)?.let {
@@ -652,7 +616,6 @@ class EnrollmentController internal constructor(
     private fun forgetPin() {
         pinned = null
         inviteLink = null
-        invitedByEmail = false
         _state.update { it.copy(serverId = null, invite = null) }
     }
 
@@ -680,11 +643,10 @@ class EnrollmentController internal constructor(
     private fun clearedCodeError(step: EnrollmentStep): EnrollmentStep =
         if (step is EnrollmentStep.EnterCode && step.error != null) step.copy(error = null) else step
 
-    private fun clearedInviteError(step: EnrollmentStep): EnrollmentStep = when {
-        step is EnrollmentStep.InviteEmail && step.error != null -> step.copy(error = null)
-        step is EnrollmentStep.InviteCode && step.error != null -> step.copy(error = null)
-        else -> step
-    }
+    private fun clearedInviteError(step: EnrollmentStep): EnrollmentStep =
+        if (step is EnrollmentStep.InviteCode && step.error != null) step.copy(error = null) else step
+
+    private fun cleanPasscode(text: String): String = text.filter(Char::isDigit).take(6)
 
     companion object {
         /** Aliases of keys created by enrollment, as opposed to identities imported by the user. */
@@ -767,9 +729,8 @@ private fun Exception.toEnrollmentError(): EnrollmentError = when (this) {
             InviteRejectedReason.INVALID_EMAIL -> InviteProblem.INVALID_EMAIL
             InviteRejectedReason.EMAIL_MISMATCH -> InviteProblem.EMAIL_MISMATCH
             InviteRejectedReason.EMAIL_TAKEN -> InviteProblem.EMAIL_TAKEN
-            InviteRejectedReason.WRONG_EMAIL_CODE -> InviteProblem.WRONG_EMAIL_CODE
+            InviteRejectedReason.WRONG_PASSCODE -> InviteProblem.WRONG_PASSCODE
             InviteRejectedReason.RATE_LIMITED -> InviteProblem.RATE_LIMITED
-            InviteRejectedReason.MAIL_FAILED -> InviteProblem.MAIL_FAILED
             InviteRejectedReason.INVALID_CSR -> return EnrollmentError.RequestRejected
             else -> InviteProblem.INVALID_INVITE
         }

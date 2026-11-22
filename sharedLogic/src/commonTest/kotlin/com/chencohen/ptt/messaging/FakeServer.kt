@@ -142,7 +142,7 @@ internal class FakeServer {
         override suspend fun createInvite(email: String?): CreatedInvite {
             val code = "invite${nextId++}".padEnd(22, 'i')
             invites[code] = device.user
-            return CreatedInvite(code, "2026-11-28T10:00:00Z", email?.let { "123456" })
+            return CreatedInvite(code, "2026-11-28T10:00:00Z", "123456")
         }
 
         override suspend fun acceptInvite(code: String): InvitePairing {

@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -74,7 +75,8 @@ class MessagingTest {
         advanceUntilIdle()
         val invite = assertNotNull(hen.pairing.currentState.invite)
         assertEquals("dana@example.com", invite.email)
-        assertEquals("123456", invite.emailCode, "the code to email with the link")
+        assertEquals("123456", invite.passcode, "the passcode, sent beside the link")
+        assertFalse("123456" in invite.link, "the passcode isn't in the link")
         val link = assertNotNull(InviteLink.parse(invite.link))
         assertEquals("hen", link.inviter)
         assertEquals(FINGERPRINT, link.fingerprint)
@@ -143,6 +145,36 @@ class MessagingTest {
         assertNull(InviteLink.parse(link.format().replace("fingerprint=", "fingerprint=0")))
         assertEquals("abcdefghijklmnopqrstuv", link.enrollmentLink().code)
         assertEquals("ab12ab12ab12ab12", link.pairCode("t").server)
+    }
+
+    /** The invite's message: the steps, the link and the passcode, as Email the invite and Share send it. */
+    @Test
+    fun anInviteMessageCarriesTheLinkAndThePasscode() {
+        val link = InviteLink(
+            code = "abc123456defghijklmnop", server = "https://192.168.50.2:56400", fingerprint = "ab".repeat(32),
+            key = null, addresses = emptyList(), inviter = "hen", identityKey = byteArrayOf(5) + ByteArray(32) { 3 },
+            secret = ByteArray(16) { 1 }, email = "dana@example.com",
+        ).format()
+        val message = MadeInvite(link, "dana@example.com", 0, "hen", "042917").message("Nov 29, 2026")
+        assertEquals("hen invited you to Talk", message.subject)
+        assertContains(message.body, "Open this link on your phone: $link\n")
+        assertContains(message.body, "type this code: 042 917")
+        assertContains(message.body, "until Nov 29, 2026")
+
+        // What the friend's phone finds in it when the whole message is pasted, and the link with it.
+        assertEquals("042917", InviteMessage.passcodeIn(message.body))
+        assertEquals(link, InviteLink.find(message.body)?.format())
+        assertEquals("123456", InviteMessage.passcodeIn("code 123-456"))
+        assertNull(InviteMessage.passcodeIn("only the link: $link"), "digits in the invite code aren't the passcode")
+        assertNull(InviteMessage.passcodeIn("call 0521234567"))
+
+        // mailto: the address, the subject and the body, percent-encoded with CRLF line ends.
+        val mailto = message.mailto("dana@example.com")
+        assertTrue(mailto.startsWith("mailto:dana@example.com?subject=hen%20invited%20you%20to%20Talk&body=hen%20invited"), mailto)
+        assertContains(mailto, "%0D%0A%0D%0A1.%20Install")
+        assertContains(mailto, "ptt%3A%2F%2Finvite%3Fv%3D1%26code%3Dabc123456defghijklmnop")
+        assertContains(mailto, "weren%E2%80%99t")
+        assertEquals(1, mailto.count { it == '&' }, "the link's own & is encoded")
     }
 
     @Test

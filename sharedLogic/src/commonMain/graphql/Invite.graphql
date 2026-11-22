@@ -4,7 +4,7 @@
 mutation CreateInvite($email: String) {
   createInvite(email: $email) {
     code
-    emailCode
+    passcode
     invite { id email expiresAt }
   }
 }
@@ -20,15 +20,7 @@ mutation AcceptInvite($code: String!) {
 query InvitePreview($code: String!) {
   invitePreview(code: $code) {
     __typename
-    ... on InvitePreview { inviter inviterDisplayName email expiresAt codeFromInviter }
-    ... on InviteRejected { reason }
-  }
-}
-
-mutation InviteEmailCode($code: String!, $email: String!) {
-  inviteEmailCode(code: $code, email: $email) {
-    __typename
-    ... on InviteEmailSent { email expiresAt }
+    ... on InvitePreview { inviter inviterDisplayName email expiresAt }
     ... on InviteRejected { reason }
   }
 }

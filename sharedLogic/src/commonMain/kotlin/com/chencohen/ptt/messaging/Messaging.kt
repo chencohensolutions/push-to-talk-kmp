@@ -167,7 +167,7 @@ internal class Messaging(
     /**
      * A new Invite a friend link from this phone (for [email] when not null): the server's invite code, where the
      * server is, and this phone's pairing part, with a secret kept to recognise the friend's pair request. Gives the
-     * link, when it expires, and for an invite with an email the code to email there with it.
+     * link, when it expires, and the invite's passcode, which goes beside the link (not in it).
      */
     suspend fun newInvite(email: String?): NewInvite {
         val self = device() ?: throw IllegalStateException("This phone isn't registered")
@@ -191,7 +191,7 @@ internal class Messaging(
             secret = secret,
             email = wanted,
         )
-        return NewInvite(link, expires, created.emailCode)
+        return NewInvite(link, expires, created.passcode)
     }
 
     /** Redeems [link] on this enrolled phone and pairs with the inviter. True when the pair is made. */
@@ -511,7 +511,7 @@ internal class Messaging(
 }
 
 /** [Messaging.newInvite]'s answer. */
-internal class NewInvite(val link: InviteLink, val expiresAt: Long, val emailCode: String?)
+internal class NewInvite(val link: InviteLink, val expiresAt: Long, val passcode: String)
 
 @OptIn(kotlin.time.ExperimentalTime::class)
 private fun parseTime(rfc3339: String): Long? = runCatching { kotlin.time.Instant.parse(rfc3339).toEpochMilliseconds() }.getOrNull()

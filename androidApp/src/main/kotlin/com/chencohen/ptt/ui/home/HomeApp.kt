@@ -188,19 +188,25 @@ fun HomeApp(
                         actions = InviteActions(
                             back = ::pop,
                             make = pairing::makeInvite,
+                            // The invite's message (sharedLogic InviteMessage): the steps, the link and its code. This
+                            // phone sends it; the server sends no mail.
                             share = { invite ->
-                                val text = resources.getString(R.string.invite_share_text, invite.inviter, invite.link)
-                                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+                                val message = invite.message(inviteDate(invite.expiresAt))
+                                val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                                    .putExtra(Intent.EXTRA_SUBJECT, message.subject)
+                                    .putExtra(Intent.EXTRA_TEXT, message.body)
                                 context.startActivity(Intent.createChooser(send, resources.getString(R.string.invite_share)))
                             },
                             email = { invite ->
-                                val date = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(invite.expiresAt))
-                                val body = resources.getString(R.string.invite_email_body, invite.inviter, invite.link, invite.emailCode, date)
-                                // mailto: only mail apps answer it; the user's own app sends it, from their address.
-                                val mail = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:"))
-                                    .putExtra(Intent.EXTRA_EMAIL, arrayOf(invite.email))
-                                    .putExtra(Intent.EXTRA_SUBJECT, resources.getString(R.string.invite_email_subject, invite.inviter))
-                                    .putExtra(Intent.EXTRA_TEXT, body)
+                                val to = invite.email.orEmpty()
+                                val message = invite.message(inviteDate(invite.expiresAt))
+                                // ACTION_SENDTO with mailto: only mail apps answer it, and the user's own app sends it
+                                // from their address. The URI carries To, subject and body; the extras too, for apps
+                                // that read only those.
+                                val mail = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse(message.mailto(to)))
+                                    .putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
+                                    .putExtra(Intent.EXTRA_SUBJECT, message.subject)
+                                    .putExtra(Intent.EXTRA_TEXT, message.body)
                                 try {
                                     context.startActivity(mail)
                                 } catch (_: android.content.ActivityNotFoundException) {
@@ -208,8 +214,9 @@ fun HomeApp(
                                 }
                             },
                             copy = { invite ->
+                                val message = invite.message(inviteDate(invite.expiresAt))
                                 val clipboard = context.getSystemService(ClipboardManager::class.java)
-                                clipboard?.setPrimaryClip(ClipData.newPlainText(resources.getString(R.string.invite_title), invite.link))
+                                clipboard?.setPrimaryClip(ClipData.newPlainText(message.subject, message.body))
                                 messages.post(resources.getString(R.string.invite_copied))
                             },
                             another = pairing::clearInvite,
@@ -516,3 +523,7 @@ private fun ChatsListPreview() {
         )
     }
 }
+
+/** An invite's last day, as the phone writes a date ("Nov 29, 2026"). */
+private fun inviteDate(millis: Long): String =
+    java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(millis))

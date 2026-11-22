@@ -18,10 +18,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.chencohen.ptt.R
+import com.chencohen.ptt.messaging.InviteMessage
 import com.chencohen.ptt.messaging.MadeInvite
 import com.chencohen.ptt.messaging.PairingState
 import com.chencohen.ptt.ui.QrImage
@@ -47,8 +50,9 @@ class InviteActions(
 )
 
 /**
- * Invite a friend (docs/screens/invite.md): an optional email, then the link as a QR code with Share and Copy. The
- * friend's phone enrolls with it after a code sent to their email, and pairs with this phone.
+ * Invite a friend (docs/screens/invite.md): an optional email, then the link as a QR code and its six-digit code, with
+ * Email the invite (when an email was typed), Share and Copy. This phone sends the invite: the server sends no mail.
+ * The friend's phone enrolls with the link and the code, and pairs with this phone.
  */
 @Composable
 internal fun InviteScreen(state: PairingState, actions: InviteActions) {
@@ -95,8 +99,15 @@ internal fun InviteScreen(state: PairingState, actions: InviteActions) {
                     style = LibraryType.Body,
                     textAlign = TextAlign.Center,
                 )
-                if (invite.emailCode != null) {
-                    // The link and its code from the user's own mail app: the server sends no mail for it.
+                // The code goes beside the link, not in it: shown here too, for a friend who scans the QR code.
+                Text(stringResource(R.string.invite_passcode_label), color = LibraryColors.Muted, style = LibraryType.Caption, modifier = Modifier.padding(top = 4.dp))
+                Text(
+                    InviteMessage.spaced(invite.passcode),
+                    style = LibraryType.PageTitle.copy(fontFamily = FontFamily.Monospace, letterSpacing = 4.sp),
+                    textAlign = TextAlign.Center,
+                )
+                if (invite.email != null) {
+                    // The link and its code from the user's own mail app, from their own address.
                     PrimaryButton(stringResource(R.string.invite_email_it), { actions.email(invite) }, Modifier.fillMaxWidth().padding(top = 12.dp), icon = LibraryIcons.Chat)
                     Text(stringResource(R.string.invite_email_it_note), color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center)
                     SecondaryButton(stringResource(R.string.invite_share), { actions.share(invite) }, Modifier.fillMaxWidth(), icon = LibraryIcons.Share)

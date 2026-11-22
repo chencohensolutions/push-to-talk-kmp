@@ -107,10 +107,10 @@ internal interface MessagingApi {
 }
 
 /**
- * A new invite: its [code] (for the link), when it expires (RFC 3339), and for one with an email the six digits this
- * phone emails there with the link ([emailCode]).
+ * A new invite: its [code] (for the link), when it expires (RFC 3339), and its [passcode], the six digits this phone
+ * sends beside the link.
  */
-internal class CreatedInvite(val code: String, val expiresAt: String, val emailCode: String?)
+internal class CreatedInvite(val code: String, val expiresAt: String, val passcode: String)
 
 /** What redeeming an invite gave: the inviter, and their pairing token (null when the server couldn't make one). */
 internal class InvitePairing(val inviter: String, val token: String?)
@@ -203,7 +203,7 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
 
     override suspend fun createInvite(email: String?): CreatedInvite {
         val created = run { it.mutation(CreateInviteMutation(Optional.presentIfNotNull(email))).execute() }.createInvite
-        return CreatedInvite(created.code, created.invite.expiresAt, created.emailCode)
+        return CreatedInvite(created.code, created.invite.expiresAt, created.passcode)
     }
 
     override suspend fun acceptInvite(code: String): InvitePairing {

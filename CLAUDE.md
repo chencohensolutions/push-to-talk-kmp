@@ -22,7 +22,7 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
   door to the Signal protocol), `store/SecureStore.kt` (the encrypted store's spaces), `relay/` (`Frames.kt`, the
   /ws frames of `commonMain/proto/ptt.proto`; `RelaySocket`, the WebSocket with acks and backoff), `messaging/`
   (`Messaging`, the hub; `KeyUploader`; `Sender` with the STALE_DEVICES retry; `Content`, what is inside the
-  ciphertext; `PairCode`, the Add contact QR code; `InviteLink`, the Invite a friend link; `MessagingStore`; `MessagingController` and `PairingController`
+  ciphertext; `PairCode`, the Add contact QR code; `InviteLink`, the Invite a friend link; `InviteMessage`, the text it and its code go out in (phone to phone: the server sends no mail); `MessagingStore`; `MessagingController` and `PairingController`
   for the screens; `ApolloMessagingApi`). GraphQL schema and operations in `commonMain/graphql/` (the schema and the
   .proto are the server's: `./gradlew :sharedLogic:syncServerSchema`).
   `androidMain`: Keystore keys (`AndroidDeviceKeyStore`), the OkHttp mTLS client with the pinned key and the

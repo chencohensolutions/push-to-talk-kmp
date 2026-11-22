@@ -98,9 +98,12 @@ data class MadeInvite(
     val expiresAt: Long,
     /** The user who made it, for the message around the link. */
     val inviter: String,
-    /** For an invite with an email: the six digits this phone emails there with the link (not in the link). */
-    val emailCode: String? = null,
-)
+    /** The six digits that go beside the link (not in it): the friend types them. */
+    val passcode: String,
+) {
+    /** The message the link and its passcode go out in, with [until] as the phone writes [expiresAt]'s date. */
+    fun message(until: String): InviteMessage = InviteMessage(inviter, link, passcode, until)
+}
 
 data class PairingState(
     /** This phone's code, the text of the QR code; null while it is made or when it couldn't be. */
@@ -188,7 +191,7 @@ class PairingController internal constructor(
                 val made = withContext(work) { messaging.newInvite(email.takeIf { it.isNotBlank() }) }
                 val link = made.link
                 _state.update {
-                    it.copy(invite = MadeInvite(link.format(), link.email, made.expiresAt, link.inviter, made.emailCode), inviteLoading = false)
+                    it.copy(invite = MadeInvite(link.format(), link.email, made.expiresAt, link.inviter, made.passcode), inviteLoading = false)
                 }
             } catch (e: CancellationException) {
                 throw e
