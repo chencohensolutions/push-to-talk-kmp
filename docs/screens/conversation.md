@@ -7,7 +7,7 @@ Signal's conversation in the library's look. How texts, receipts, typing and pre
 - **Header:** back; the contact's letter circle, their name (the display name when they gave one) and a shield when
   verified; under it "typing…" or "online" (teal), or "last seen <time>" (muted; a date before today), or nothing when
   it isn't known or hidden. A tap on the name opens the [contact's page](contacts.md) (safety number, block, remove).
-  At the right, the **Talk button** (a walkie-talkie) opens [Talk mode](talk.md); it shows only where one can talk
+  At the right, **Video call** and **Voice call** ([calls.md](calls.md)), then the **Talk button** (a walkie-talkie) opens [Talk mode](talk.md); it shows only where one can talk
   (paired and not blocked, or a member of the group). While someone talks there (or this phone does), a teal line
   under the header says so ("Dana is talking", "Live"); a tap opens Talk mode.
 - **Safety number changed** (a warning card on top), when `Contact.changedKey` is set: "They may have a new phone, or

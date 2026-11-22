@@ -208,6 +208,21 @@ class MessagingController internal constructor(
         scope.launch { withContext(work) { block() } }
     }
 
+    /** Calls [chat] (a user, or a group's chat); [video] with the camera on (phase 6). */
+    fun startCall(chat: String, video: Boolean) = onWork { messaging.calls.start(chat, video) }
+
+    fun acceptCall() = onWork { messaging.calls.accept() }
+
+    fun declineCall() = onWork { messaging.calls.decline() }
+
+    fun hangUp() = onWork { messaging.calls.hangUp() }
+
+    fun setCallMicrophone(on: Boolean) = onWork { messaging.calls.setMicrophone(on) }
+
+    fun setCallCamera(on: Boolean) = onWork { messaging.calls.setCamera(on) }
+
+    fun switchCallCamera() = onWork { messaging.calls.switchCamera() }
+
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     fun pressTalk(chat: String) = onWork { messaging.talk.press(chat) }
 

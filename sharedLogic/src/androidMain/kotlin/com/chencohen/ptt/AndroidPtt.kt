@@ -120,6 +120,7 @@ private fun hub(context: Context): Messaging {
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
+        it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
         hub = it
     }
 }
@@ -134,6 +135,29 @@ fun setMessageNotifier(context: Context, notifier: MessageNotifier) {
 /** Who plays talk when the app isn't on screen (a Telecom talk session) and shows talk notifications. */
 fun setTalkHost(context: Context, host: com.chencohen.ptt.talk.TalkHost) {
     hub(context).talk.host = host
+}
+
+/** Who rings and keeps the call session (phase 6). */
+fun setCallHost(context: Context, host: com.chencohen.ptt.calls.CallHost) {
+    hub(context).calls.host = host
+}
+
+/** The call room, for the call screen's video. */
+fun callTransport(context: Context): com.chencohen.ptt.calls.LiveKitCallTransport =
+    hub(context).calls.transport as com.chencohen.ptt.calls.LiveKitCallTransport
+
+/** Answer, Decline or Hang up from the call's notification or Telecom (a headset button). */
+suspend fun callAction(context: Context, action: String) {
+    val messaging = hub(context)
+    withContext(messagingWork) {
+        when (action) {
+            "accept" -> messaging.calls.accept()
+            "decline" -> messaging.calls.decline()
+            "hang_up" -> messaging.calls.hangUp()
+            "mute" -> messaging.calls.setMicrophone(false)
+            "unmute" -> messaging.calls.setMicrophone(true)
+        }
+    }
 }
 
 /** Stay connected's service started or stopped. */

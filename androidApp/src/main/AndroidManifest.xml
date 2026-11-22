@@ -16,6 +16,11 @@
     <!-- A woken burst plays in a Telecom talk session (Core-Telecom), a phone-call service. -->
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <!-- Phase 6: video calls, a ringing call on the lock screen, the running call's service. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- No backup and no phone-to-phone transfer: a copied app would think it is enrolled without its key, which
          can't leave the phone's secure hardware (res/xml/data_extraction_rules.xml). -->
@@ -84,6 +89,14 @@
             android:name=".StayConnectedService"
             android:exported="false"
             android:foregroundServiceType="microphone|mediaPlayback" />
+        <!-- A running call (phase 6), and Decline and Hang up from its notifications. -->
+        <service
+            android:name=".CallService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone|camera" />
+        <receiver
+            android:name=".CallActionReceiver"
+            android:exported="false" />
         <!-- Reply and Mark as read from a notification. -->
         <receiver
             android:name=".NotificationActions"

@@ -32,6 +32,8 @@ class TalkApp : Application() {
         TalkNotifications.createChannels(this)
         setMessageNotifier(this, Notifications(this))
         setTalkHost(this, AndroidTalkHost(this))
+        CallNotifications.createChannels(this)
+        setCallHost(this, AndroidCallHost(this))
     }
 }
 
@@ -80,7 +82,8 @@ class TalkMessagingService : FirebaseMessagingService() {
         val wake = app.scope.launch { wakeForPush(app) }
         runBlocking {
             withTimeoutOrNull(18_000) {
-                while (wake.isActive && !TalkSession.active) kotlinx.coroutines.delay(100)
+                // A ringing call (a Telecom call) keeps the process too.
+                while (wake.isActive && !TalkSession.active && !callKeepsProcess()) kotlinx.coroutines.delay(100)
             }
         }
     }

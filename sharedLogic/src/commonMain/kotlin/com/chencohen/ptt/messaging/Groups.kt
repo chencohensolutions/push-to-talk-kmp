@@ -51,6 +51,8 @@ internal class Groups(
     private val onTyping: (Group, String, Boolean) -> Unit,
     /** A member device's live talk key in the group's room. */
     private val onTalkKey: (identity: String, key: TalkKeyContent) -> Unit = { _, _ -> },
+    /** A call's signalling in the group, from [author]. */
+    private val onCall: (group: Group, author: String, call: CallContent, at: Long) -> Unit = { _, _, _, _ -> },
     private val attempts: Int = 3,
 ) {
     private fun self(): EnrolledDevice = me() ?: throw IllegalStateException("This phone isn't registered")
@@ -417,5 +419,6 @@ internal class Groups(
         content.typing?.let { if (author != self.user) onTyping(group, author, it.typing) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }
         content.talkKey?.let { onTalkKey("$author.${envelope.senderDevice}", it) }
+        content.call?.let { onCall(group, author, it, envelope.serverTimestamp) }
     }
 }

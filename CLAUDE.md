@@ -26,10 +26,10 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
   for the screens; `ApolloMessagingApi`). `talk/` (phase 5a): `Talk` (floor, bursts out and in, voice messages,
   playback queue), `ClipCrypto` and `ClipRecords` (segments and clip files), `Blobs.kt` (`/blob`, `ClipFiles`),
   `TalkAudio.kt` (`TalkCapture`, `TalkPlayer`, `CatchUp`); phase 5b's `LiveTalk` (the live room, talk keys,
-  `TalkTransport`). GraphQL schema and operations in `commonMain/graphql/` (the schema and the
+  `TalkTransport`). `calls/Calls.kt` (phase 6): call signalling, the call log, `CallTransport`, `CallHost`. GraphQL schema and operations in `commonMain/graphql/` (the schema and the
   .proto are the server's: `./gradlew :sharedLogic:syncServerSchema`).
   `androidMain`: Keystore keys (`AndroidDeviceKeyStore`), the OkHttp mTLS client with the pinned key and the
-  server's CA (`AndroidMtlsHttpClientFactory`, with Ktor's WebSockets), Opus capture and playback (`talk/OpusCodec.kt`, `AndroidTalkCapture`, `AndroidTalkPlayer`), LiveKit (`talk/LiveKitTalkTransport.kt`),
+  server's CA (`AndroidMtlsHttpClientFactory`, with Ktor's WebSockets), Opus capture and playback (`talk/OpusCodec.kt`, `AndroidTalkCapture`, `AndroidTalkPlayer`), LiveKit (`talk/LiveKitTalkTransport.kt`, `calls/LiveKitCallTransport.kt`),
   libsignal (`crypto/LibsignalCryptoEngine.kt`,
   `SignalStore.kt`), SQLCipher (`store/SqlCipherStore.kt`, its key wrapped in the Keystore), and the factories
   (`AndroidPtt.kt`). `androidHostTest`: libsignal itself on the JVM. `iosMain`: only the actuals common code
@@ -39,7 +39,7 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
   `LibraryChrome.kt` with the Offline pill, the tabs, `HomeCard`, settings cards and rows). The names stay Journal's
   so its style.md applies. `ui/EnrollmentWizard.kt`, `ui/home/HomeApp.kt` (Chats and Calls, the stack of pages over home),
   `ui/settings/SettingsScreen.kt`, `ui/contacts/` (New chat, Add contact, a contact's page, the safety number;
-  `ContactParts.kt` with the letter circle and `ContactRow`; `InviteScreen.kt`, Invite a friend), `ui/settings/LinkPhoneScreen.kt` (Link a phone), `ui/contacts/ConversationScreen.kt` (a conversation, a group's too), `ui/groups/` (New group, a group's page), `Push.kt` (TalkApp, FCM registration and `TalkMessagingService`), `Notifications.kt` (notifications with Reply), `TalkServices.kt` (the Telecom talk session, Stay connected, talk notifications, hardware buttons), `ui/talk/` (Talk mode, clips, the voice button, When I'm away), `ui/settings/TalkSettingsScreen.kt`, `ui/Qr.kt` (ZXing QR codes, Google's code scanner).
+  `ContactParts.kt` with the letter circle and `ContactRow`; `InviteScreen.kt`, Invite a friend), `ui/settings/LinkPhoneScreen.kt` (Link a phone), `ui/contacts/ConversationScreen.kt` (a conversation, a group's too), `ui/groups/` (New group, a group's page), `Push.kt` (TalkApp, FCM registration and `TalkMessagingService`), `Notifications.kt` (notifications with Reply), `TalkServices.kt` (the Telecom talk session, Stay connected, talk notifications, hardware buttons), `CallServices.kt` (calls in Telecom, ringing, the call service), `ui/calls/` (the call screen, the Calls tab), `ui/talk/` (Talk mode, clips, the voice button, When I'm away), `ui/settings/TalkSettingsScreen.kt`, `ui/Qr.kt` (ZXing QR codes, Google's code scanner).
   `PttViewModel.kt` keeps the controllers alive. Strings in
   `res/values/strings.xml`.
 

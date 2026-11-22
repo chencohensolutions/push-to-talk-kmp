@@ -117,6 +117,10 @@ class HomeActions(
     val replaceIdentityKey: () -> Unit = {},
     /** Scan the other phone's Link a phone code (KeysState.OtherIdentity). */
     val linkHere: () -> Unit = {},
+    /** The Calls tab: call [chat] again (phase 6). */
+    val call: (chat: String, video: Boolean) -> Unit = { _, _ -> },
+    /** A chat's name: a contact's, or a group's. */
+    val chatName: (String) -> String = { it },
 )
 
 /**
@@ -181,6 +185,13 @@ fun HomeApp(
         messaging.setTalkSettings(talk.copy(notifyOnly = if (on) talk.notifyOnly + chat else talk.notifyOnly - chat))
     }
     val nameOf: (String) -> String = { u -> messagingState.contacts.firstOrNull { it.user == u }?.displayName?.takeIf { it.isNotBlank() } ?: u }
+    val unnamedGroup = stringResource(R.string.group_unnamed)
+    val chatName: (String) -> String = { chat ->
+        Group.idOf(chat)?.let { id -> messagingState.groups.firstOrNull { it.id == id }?.name?.ifBlank { unnamedGroup } ?: unnamedGroup } ?: nameOf(chat)
+    }
+    // Calls (phase 6): the microphone, and the camera for video, are asked for first.
+    val callPermissions = com.chencohen.ptt.ui.calls.rememberCallPermissions { messages.post(resources.getString(R.string.call_mic_denied)) }
+    fun call(chat: String, video: Boolean) = callPermissions(video) { v -> messaging.startCall(chat, v) }
     CompositionLocalProvider(LocalMessages provides messages) {
         Box(Modifier.fillMaxSize()) {
             val page = stack.lastOrNull()
@@ -208,6 +219,8 @@ fun HomeApp(
                                 messaging.linkWithScanned(text) { ok -> if (!ok) messages.post(resources.getString(R.string.chats_link_wrong_code)) }
                             }) { messages.post(resources.getString(R.string.add_scan_failed)) }
                         },
+                        call = ::call,
+                        chatName = chatName,
                     ),
                 )
                 name == "settings" -> {
@@ -476,6 +489,7 @@ fun HomeApp(
                             startVoice = { messaging.startVoice(user) },
                             finishVoice = { messaging.releaseTalk(it) },
                             micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
+                            call = { video -> call(user, video) },
                         ),
                         talk = messagingState.talk,
                         talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
@@ -568,6 +582,29 @@ fun HomeApp(
                 else -> LaunchedEffect(page) { home() }
             }
             MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarRoom().imePadding().padding(bottom = if (page == null) 88.dp else 16.dp))
+            // A call, over everything (phase 6).
+            messagingState.call?.let { current ->
+                BackHandler {}
+                com.chencohen.ptt.ui.calls.CallScreen(
+                    call = current,
+                    title = chatName(current.chat),
+                    nameOf = nameOf,
+                    transport = remember { runCatching { com.chencohen.ptt.callTransport(context) }.getOrNull() },
+                    actions = com.chencohen.ptt.ui.calls.CallActions(
+                        accept = {
+                            callPermissions(current.video) { video ->
+                                if (current.video && !video) messaging.setCallCamera(false)
+                                messaging.acceptCall()
+                            }
+                        },
+                        decline = messaging::declineCall,
+                        hangUp = messaging::hangUp,
+                        setMicrophone = messaging::setCallMicrophone,
+                        setCamera = { on -> if (on) callPermissions(true) { if (it) messaging.setCallCamera(true) } else messaging.setCallCamera(false) },
+                        switchCamera = messaging::switchCallCamera,
+                    ),
+                )
+            }
         }
     }
 }
@@ -661,8 +698,13 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                     }
                 }
                 HomeTab.CALLS -> {
-                    Spacer(Modifier.height(96.dp))
-                    EmptyTab(LibraryIcons.Call, stringResource(R.string.calls_empty))
+                    val calls = chats.conversations.values.flatten().filter { it.call != null }.sortedByDescending { it.at }
+                    if (calls.isEmpty()) {
+                        Spacer(Modifier.height(96.dp))
+                        EmptyTab(LibraryIcons.Call, stringResource(R.string.calls_empty))
+                    } else {
+                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact)
+                    }
                 }
             }
         }

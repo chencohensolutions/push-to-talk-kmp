@@ -400,9 +400,39 @@ Not done yet from the plan's 5b: R3 on the real setup (LiveKit on hen-server, UD
 indicator), the 4G press-to-hear against 0.3 s, and the packet capture; a new talk key when membership changes and
 every 7 days (now: one per join).
 
+## Phase 6: calls
+
+The server's side is its docs/messaging.md, "Calls": `callToken(call, peer | group)` makes the call's own LiveKit room
+`c-<call id>` (at most 8 devices) and signs a token for it. Everything else is end to end between the phones.
+
+- **Signalling** (`Content.call`, field 11, `CallContent`): INVITE (a new 32-hex-digit id and the call's fresh 32-byte
+  media key, voice or video, sent with PUSH_CALL), ACCEPT, DECLINE, BUSY, HANG_UP, RECORDING. Sent as ordinary
+  messages to the conversation, so the user's own other phones get copies.
+- **`calls/Calls.kt`** (common): one call at a time. The caller sends the invite and waits in the room; nobody in
+  it after 45 s is No answer. An invite rings for 45 s; one older than 30 s when it comes (the phone slept) doesn't
+  ring and is a missed call; one that comes during a call is answered BUSY. Answering joins the room and sends ACCEPT,
+  whose copy makes this user's other phones stop ringing ("Answered on another phone"); DECLINE's copy too. A
+  one-to-one call ends when either side hangs up, declines, is busy, or leaves the room; a group call ends for a phone
+  when it hangs up or is the last one in the room (the caller's hang-up while ringing stops the ringing). A call
+  releases Talk and leaves the talk room first.
+- **The call log** is in the chats: each call is a `TextMessage` with `call` (`CallEntry`: video, `CallOutcome`,
+  length), keyed by the call's id. A missed one is unread. The Calls tab lists them.
+- **`calls/LiveKitCallTransport.kt`** (Android): LiveKit with the same mTLS OkHttp client, the call's key as
+  LiveKit's shared key (frames dropped while a cryptor isn't ready), LiveKit's own audio handling (focus, call audio
+  mode), the camera and microphone published at join, video in LiveKit's simulcast layers.
+- **Telecom** (`CallServices.kt`): every call is a Core-Telecom call (incoming or outgoing), so the system rings and
+  routes it and keeps the process; `CallService` is its phone-call foreground service (with the microphone and camera
+  types when allowed) and ongoing notification; an incoming call has a full-screen notification; a push that wakes
+  the phone for a call keeps the process while it rings. Telecom's own answer and disconnect (a headset, the car) act
+  on the call.
+
+Not done yet from the plan's 6: Save calls (Settings › Calls) and the phone's own recording (6b); R4 (HEVC; the
+calls use LiveKit's default codec now); the 720p cap set explicitly; the tests on phones (a call ringing a sleeping
+phone, three on 4G).
+
 ## Next
 
-Calls (6) and iOS, as the plan says.
+Save calls (6b), then iOS, as the plan says.
 
 The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3

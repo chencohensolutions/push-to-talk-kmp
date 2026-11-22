@@ -118,6 +118,7 @@ internal fun pairingErrorText(error: PairingError): String = stringResource(
 /** The preview line of a message in Chats: its text, or what kind of clip it is. */
 @Composable
 internal fun previewOf(message: com.chencohen.ptt.messaging.TextMessage): String {
+    if (message.call != null) return com.chencohen.ptt.ui.calls.callLine(message)
     val clip = message.clip ?: return message.body
     val length = clip.durationMs.takeIf { it > 0 }?.let { com.chencohen.ptt.ui.talk.clipLength(it) }
     return when (clip.kind) {

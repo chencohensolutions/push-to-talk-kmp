@@ -28,7 +28,8 @@ conversations and how many texts of each aren't read). A contact opens their [co
   else Paired. The count of unread texts in an ink pill, and a shield for a verified contact. The latest text first,
   then the newest contacts. A tap opens the [conversation](conversation.md). With no contacts: a chat icon over "No chats yet. Add a contact by scanning their
   QR code."
-- **Calls** tab: a call icon over "No calls yet. Calls you make and get show here."
+- **Calls** tab: every call, newest first, with call-back buttons ([calls.md](calls.md)); before the first, a call
+  icon over "No calls yet. Calls you make and get show here."
 - **The pencil** (new chat), bottom right on Chats only, in ink: opens [New chat](contacts.md).
 - **Tabs** at the bottom: Chats and Calls in one segmented pill (`SegmentedBar`), the selected one in ink.
 

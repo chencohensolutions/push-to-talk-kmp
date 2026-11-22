@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -66,6 +67,13 @@ class MainActivity : ComponentActivity() {
                     } else if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                         notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
+                }
+                // A call rings or runs: the app shows over the lock screen and wakes the screen for it.
+                val ringing by viewModel.messaging.state.collectAsStateWithLifecycle()
+                val callOn = ringing.call != null
+                LaunchedEffect(callOn) {
+                    setShowWhenLocked(callOn)
+                    setTurnScreenOn(callOn)
                 }
                 // Without an identity the phone has to be registered first.
                 var showWizard by rememberSaveable { mutableStateOf(!viewModel.connection.currentState.enrolled) }
@@ -188,6 +196,11 @@ class MainActivity : ComponentActivity() {
     private fun openLink(intent: Intent?) {
         // Opened again from Recents, Android hands back the intent the task started with: a link used long ago.
         if (intent != null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        // Answer on a ringing call's notification: the app opens on the call screen and answers.
+        if (intent?.action == CallNotifications.ACTION_ANSWER) {
+            viewModel.messaging.acceptCall()
+            return
+        }
         if (intent?.action == Notifications.ACTION_OPEN) {
             openedChat = intent.getStringExtra(Notifications.EXTRA_USER)
             return

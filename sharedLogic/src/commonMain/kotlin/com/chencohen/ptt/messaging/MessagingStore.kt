@@ -76,6 +76,32 @@ data class TextMessage(
     val author: String? = null,
     /** A talk burst or a voice message instead of a text ([body] is then empty). */
     val clip: Clip? = null,
+    /** A call instead of a text ([id] is the call's, [outgoing] this user called; phase 6). */
+    val call: CallEntry? = null,
+)
+
+/** How a call went, for the chat and the Calls tab. */
+enum class CallOutcome {
+    /** Someone answered; [CallEntry.durationMs] is how long it ran. */
+    ANSWERED,
+    MISSED,
+    DECLINED,
+    /** Nobody answered this phone's call. */
+    NO_ANSWER,
+    BUSY,
+    /** The caller hung up before anyone answered. */
+    CANCELLED,
+    /** Answered or declined on another phone of this user. */
+    ELSEWHERE,
+    /** The room couldn't be reached. */
+    FAILED,
+}
+
+@Serializable
+data class CallEntry(
+    val video: Boolean,
+    val outcome: CallOutcome,
+    val durationMs: Long = 0,
 )
 
 /** What a clip is: a burst said with the Talk button, or a voice message recorded in the composer. */

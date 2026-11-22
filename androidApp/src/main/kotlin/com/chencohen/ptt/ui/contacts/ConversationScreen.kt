@@ -75,6 +75,8 @@ class ConversationActions(
     val finishVoice: (send: Boolean) -> Unit = {},
     /** The microphone wasn't allowed. */
     val micDenied: () -> Unit = {},
+    /** The call buttons in the header, and a call's entry in the chat (phase 6). */
+    val call: (video: Boolean) -> Unit = {},
 )
 
 /** What the header says under the name: typing, online, last seen, or nothing known. */
@@ -180,7 +182,21 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
                 }
             }
         }
+        if (canTalk) CallButtons(actions)
         if (canTalk) TalkButton(actions)
+    }
+}
+
+/** Voice call and video call, Signal's way, before Talk. */
+@Composable
+private fun CallButtons(actions: ConversationActions) {
+    val voice = stringResource(R.string.call_voice)
+    val video = stringResource(R.string.call_video)
+    Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = video) { actions.call(true) }, contentAlignment = Alignment.Center) {
+        Icon(LibraryIcons.Video, video, tint = LibraryColors.OnBackground)
+    }
+    Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = voice) { actions.call(false) }, contentAlignment = Alignment.Center) {
+        Icon(LibraryIcons.Call, voice, tint = LibraryColors.OnBackground)
     }
 }
 
@@ -200,6 +216,7 @@ private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk:
                 Text(group.line, color = LibraryColors.Muted, style = LibraryType.Caption)
             }
         }
+        if (canTalk) CallButtons(actions)
         if (canTalk) TalkButton(actions)
     }
 }
@@ -226,7 +243,9 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             if (showAuthor && !mine && message.author != null) {
                 Text(message.author!!, color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
             }
-            if (message.clip != null) {
+            if (message.call != null) {
+                com.chencohen.ptt.ui.calls.CallEntryContent(message, onInverse = mine) { actions.call(message.call!!.video) }
+            } else if (message.clip != null) {
                 ClipContent(message, playing, actions.playClip, actions.stopClip, onInverse = mine)
             } else {
                 Text(message.body, color = if (mine) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)

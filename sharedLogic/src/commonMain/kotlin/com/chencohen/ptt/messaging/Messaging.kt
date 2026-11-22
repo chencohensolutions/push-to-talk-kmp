@@ -62,6 +62,8 @@ data class MessagingState(
     val talkSettings: TalkSettings = TalkSettings(),
     /** The live path: the room this phone is in, the last press-to-hear. */
     val live: com.chencohen.ptt.talk.LiveState = com.chencohen.ptt.talk.LiveState(),
+    /** The call on this phone (phase 6); null when none. */
+    val call: com.chencohen.ptt.calls.CallUi? = null,
 )
 
 /** Settings › Talk, and each chat's When I'm away. */
@@ -170,6 +172,7 @@ internal class Messaging(
             }
         },
         onTalkKey = { identity, key -> live.takeKey(identity, key) },
+        onCall = { group, author, call, at -> calls.receive(group.chat, author, call, at, ownCopy = author == device()?.user) },
         onTyping = { group, author, typing ->
             val key = typingKey(group.chat, author)
             _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key) }
@@ -214,8 +217,30 @@ internal class Messaging(
         now = now, random = random,
     )
 
+    val calls: com.chencohen.ptt.calls.Calls = com.chencohen.ptt.calls.Calls(
+        scope = scope,
+        me = { device()?.user },
+        tokens = { call, peer, group -> api.callToken(call, peer, group) },
+        serverUrl = { settings.serverUrl },
+        sendContent = { chat, content, pushKind ->
+            val group = Group.idOf(chat)
+            if (group != null) groups.send(group, content, pushKind) else sender.send(chat, content, pushKind = pushKind)
+        },
+        putEntry = { entry ->
+            store.putMessage(entry)
+            publish()
+        },
+        entry = { id -> store.message(id) },
+        onCall = {
+            talk.release(send = true)
+            live.leaveNow()
+        },
+        now = now, random = random,
+    )
+
     init {
         talk.live = live
+        scope.launchCollect(calls.state) { c -> _state.update { it.copy(call = c) } }
         scope.launchCollect(live.state) { l -> _state.update { it.copy(live = l) } }
         _state.update { it.copy(talkSettings = talkSettings()) }
         scope.launchCollect(socket.state) { socket -> _state.update { it.copy(socket = socket) } }
@@ -1046,6 +1071,7 @@ internal class Messaging(
             }
             content.clip?.let { talk.receiveClip(to, self.user, it, envelope.serverTimestamp, outgoingCopy = true) }
             content.talkKey?.let { live.takeKey("${self.user}.${envelope.senderDevice}", it) }
+            content.call?.let { calls.receive(to, self.user, it, envelope.serverTimestamp, ownCopy = true) }
             // Read on another phone of this user: read here too, and its notification goes.
             content.receipt?.takeIf { it.read }?.let { receipt ->
                 receipt.ids.mapNotNull(store::message).filter { !it.outgoing && !it.read }.forEach { store.putMessage(it.copy(read = true)) }
@@ -1068,6 +1094,7 @@ internal class Messaging(
             if (!read) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
         }
         content.talkKey?.let { live.takeKey("${contact.user}.${envelope.senderDevice}", it) }
+        content.call?.let { calls.receive(contact.user, contact.user, it, envelope.serverTimestamp, ownCopy = false) }
         content.clip?.let { clip ->
             val fresh = store.message(clip.id) == null
             talk.receiveClip(contact.user, contact.user, clip, envelope.serverTimestamp, outgoingCopy = false)
