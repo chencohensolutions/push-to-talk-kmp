@@ -29,3 +29,6 @@ A group's chat uses this screen with a group header and authors on the bubbles: 
 - **New messages at the bottom** (2026-11-22, hen): at the bottom of the conversation (or one message from it), a new
   message or clip scrolls into view; scrolled up, a "New message ↓" chip shows at the bottom, which scrolls down. What
   this phone sends always scrolls down.
+
+- **The microphone by the text field is push-to-talk** (2026-11-22, hen): hold it to talk live to them, as on the Talk
+  screen (the floor, the burst in the chat); slide away to cancel. It no longer records a voice message.
