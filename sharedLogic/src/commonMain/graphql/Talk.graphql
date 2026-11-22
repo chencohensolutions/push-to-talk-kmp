@@ -12,3 +12,8 @@ mutation CallToken($call: ID!, $peer: String, $group: ID) {
 query LiveTalk {
   serverInfo { liveTalk }
 }
+
+# A call kept on the server while this user records it (Calls.setRecording; docs/screens/calls.md).
+mutation RecordCall($call: ID!, $peer: String, $group: ID, $on: Boolean!) {
+  recordCall(call: $call, peer: $peer, group: $group, on: $on) { recording }
+}

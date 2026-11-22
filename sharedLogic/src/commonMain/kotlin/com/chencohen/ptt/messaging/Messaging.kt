@@ -240,6 +240,7 @@ internal class Messaging(
         },
         entry = { id -> store.message(id) },
         saveCalls = { talkSettings().saveCalls },
+        keepOnServer = { call, peer, group, on -> api.recordCall(call, peer, group, on) },
         onCall = {
             talk.release(send = true)
             live.leaveNow()

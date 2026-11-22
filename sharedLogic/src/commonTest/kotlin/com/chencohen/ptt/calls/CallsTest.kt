@@ -60,6 +60,7 @@ class CallsTest {
         val sent = mutableListOf<Triple<String, CallContent, Int>>()
         val entries = mutableMapOf<String, TextMessage>()
         val tokenAsks = mutableListOf<Triple<String, String?, String?>>()
+        val keeps = mutableListOf<Pair<String?, Boolean>>()
         var leftTalk = 0
         val calls = Calls(
             scope = scope.backgroundScope,
@@ -74,6 +75,7 @@ class CallsTest {
             entry = { entries[it] },
             onCall = { leftTalk++ },
             saveCalls = { save },
+            keepOnServer = { _, peer, group, on -> keeps += (peer ?: "g:$group") to on },
             now = { scope.testScheduler.currentTime + 1_000_000 },
             random = Random(2),
         ).also {
@@ -262,5 +264,28 @@ class CallsTest {
         runCurrent()
         assertEquals(setOf("sharon", "hen"), s.calls.state.value!!.recordingBy)
         assertTrue(s.sent.last().second.recording)
+    }
+
+    /** 2026-11-22 (hen): the server keeps a call only while someone records it: Save asks, Stop and the end stop. */
+    @Test
+    fun recordingAsksTheServerToKeepTheCallUntilItStops() = runTest {
+        val s = Setup(this)
+        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
+        s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1"))
+        runCurrent()
+        assertEquals(emptyList(), s.keeps, "nothing kept before anyone records")
+        s.calls.setRecording(true)
+        runCurrent()
+        assertEquals(listOf<Pair<String?, Boolean>>("sharon" to true), s.keeps)
+        s.calls.setRecording(false)
+        runCurrent()
+        assertEquals("sharon" to false, s.keeps.last())
+        // Recording again, then hanging up while it records: the server is told to stop.
+        s.calls.setRecording(true)
+        s.calls.hangUp()
+        runCurrent()
+        assertEquals("sharon" to false, s.keeps.last())
     }
 }

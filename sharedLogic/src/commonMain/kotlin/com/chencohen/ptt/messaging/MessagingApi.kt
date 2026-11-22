@@ -164,6 +164,9 @@ internal interface MessagingApi {
 
     /** A LiveKit token for [call]'s own room (phase 6). */
     suspend fun callToken(call: String, peer: String?, group: String?): LiveToken = throw ApiException("LIVE_OFF", "No live talk")
+
+    /** recordCall: the server keeps [call] while this user records it ([on]); whether it keeps it now. */
+    suspend fun recordCall(call: String, peer: String?, group: String?, on: Boolean): Boolean = false
 }
 
 /** A contact online now, or when last connected ([lastSeen], milliseconds; null when unknown or hidden). */
@@ -260,6 +263,10 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
     override suspend fun callToken(call: String, peer: String?, group: String?): LiveToken =
         run { it.mutation(com.chencohen.ptt.graphql.CallTokenMutation(call, Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group))).execute() }
             .callToken.let { LiveToken(it.token, it.room, it.identity, it.path, it.expiresAt.toString()) }
+
+    override suspend fun recordCall(call: String, peer: String?, group: String?, on: Boolean): Boolean =
+        run { it.mutation(com.chencohen.ptt.graphql.RecordCallMutation(call, Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group), on)).execute() }
+            .recordCall.recording
 
     override suspend fun createLinkCode(): Pair<String, String> {
         val code = run { it.mutation(CreateLinkCodeMutation()).execute() }.createLinkCode

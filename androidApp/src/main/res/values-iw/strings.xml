@@ -102,7 +102,7 @@
     <string name="calls_save_ask_body">כששיחה מתחילה, נשאל אם לשמור אותה</string>
     <string name="calls_save_always">תמיד</string>
     <string name="calls_save_always_body">כל שיחה נשמרת מתחילתה</string>
-    <string name="calls_save_note">שיחה שנשמרה נשארת בטלפון הזה, באחסון של האפליקציה, ויוצאת ממנו רק דרך שיתוף. כל מי שבשיחה רואה תג הקלטה אדום כל עוד היא נשמרת.</string>
+    <string name="calls_save_note">שיחה שנשמרה נשארת בטלפון הזה (ויוצאת ממנו רק דרך שיתוף), והשרת שלכם שומר אותה גם, מוצפנת כך שרק מי שהיה בשיחה יכול לפתוח אותה, ורק כל עוד מישהו מקליט. כל מי שבשיחה רואה תג הקלטה אדום כל עוד היא נשמרת.</string>
     <string name="call_save">שמירה</string>
     <string name="call_save_stop">הפסקת השמירה</string>
     <string name="call_save_ask">לשמור את השיחה?</string>

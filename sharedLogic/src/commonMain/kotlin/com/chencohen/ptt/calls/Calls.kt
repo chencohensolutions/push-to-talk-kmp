@@ -133,6 +133,12 @@ internal class Calls(
     /** A call takes the audio: the talk room is left while it runs. */
     private val onCall: () -> Unit,
     private val saveCalls: () -> SaveCalls = { SaveCalls.OFF },
+    /**
+     * The server keeps the call, encrypted end to end, while this user records it ([on]), and stops when nobody in
+     * the call records any more (recordCall; 2026-11-22, hen: only when someone records). Failures don't stop the
+     * phone's own saving.
+     */
+    private val keepOnServer: suspend (call: String, peer: String?, group: String?, on: Boolean) -> Unit = { _, _, _, _ -> },
     private val now: () -> Long,
     private val random: Random,
 ) {
@@ -233,6 +239,12 @@ internal class Calls(
         }
         _state.update { it?.copy(saving = on, askToSave = false, recordingBy = if (on) it.recordingBy + self else it.recordingBy - self) }
         scope.launch { send(call.chat, CallContent(CallContent.RECORDING, call.id, recording = on), PushKind.NONE) }
+        scope.launch { keepOnServer(call, on) }
+    }
+
+    private suspend fun keepOnServer(call: CallUi, on: Boolean) {
+        val group = com.chencohen.ptt.messaging.Group.idOf(call.chat)
+        runCatching { keepOnServer(call.id, if (group == null) call.chat else null, group, on) }
     }
 
     /** "Save this call?" answered Not now. */
@@ -339,6 +351,8 @@ internal class Calls(
         joined = false
         key = null
         if (call.saving) transport?.stopRecording()?.let { savedAs = it }
+        // This phone stops asking the server to keep it (the server also stops when the room empties).
+        if (call.saving) scope.launch { keepOnServer(call, false) }
         val ended = call.copy(phase = CallPhase.ENDED, outcome = outcome, saving = false, askToSave = false)
         _state.value = ended
         host?.ended(ended)

@@ -26,6 +26,10 @@ says "Calls need the microphone. Allow it in the app's settings."
 - **Saving** (Save calls on, in a running call): a **Save** pill above the buttons starts saving, **Stop saving**
   (red) stops it. With Ask each time, a card "Save this call?" ("Everyone in the call will see that you're
   recording.", **Not now** and **Save**) shows once the call is on; with Always saving starts by itself.
+- **Kept on the server while someone records** (2026-11-22, hen): starting to save also asks the server to keep the
+  call (`recordCall`, on), encrypted end to end so only the people in the call can open it; stopping, or the call
+  ending, takes the ask back, and the server stops keeping it when nobody in the call records any more. A server that
+  doesn't keep calls (or an older one) is ignored: the phone's own saving goes on.
 - **Ended**: for two seconds, "Call ended", "Busy", "Declined", "No answer", "Couldn't connect" or "Answered on another
   phone", then the screen goes.
 
