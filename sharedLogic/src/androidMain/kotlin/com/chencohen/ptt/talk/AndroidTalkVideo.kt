@@ -110,10 +110,11 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
                     configure()
                 }
 
-                override fun onDisconnected(device: CameraDevice) = close()
+                // Taken by another app, or an error: let it go (a press then sends the voice only).
+                override fun onDisconnected(device: CameraDevice) = lost(device)
                 override fun onError(device: CameraDevice, error: Int) {
                     Log.w(TAG, "camera error $error")
-                    close()
+                    lost(device)
                 }
             }, handler)
         } catch (e: Exception) {
@@ -229,6 +230,13 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
         return (sensor + display) % 360
     }
 
+    private fun lost(device: CameraDevice) {
+        if (camera === device) camera = null
+        runCatching { session?.close() }
+        session = null
+        runCatching { device.close() }
+    }
+
     private fun configure() {
         val device = camera ?: return
         val enc = encoderSurface ?: return
@@ -272,6 +280,7 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
             )
         } catch (e: Exception) {
             Log.w(TAG, "camera session", e)
+            if (e is IllegalStateException) lost(device)
         }
     }
 
