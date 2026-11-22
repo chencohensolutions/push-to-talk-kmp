@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
+import kotlin.random.asKotlinRandom
 import com.chencohen.ptt.messaging.MessageNotifier
 import com.chencohen.ptt.enrollment.AndroidDeviceKeyStore
 import com.chencohen.ptt.enrollment.CertificateRenewal
@@ -108,8 +109,16 @@ private fun hub(context: Context): Messaging {
         connector = KtorFrameConnector { http.client() },
         scope = CoroutineScope(SupervisorJob() + messagingWork),
         now = { System.currentTimeMillis() },
+        // Pair, invite and link secrets, clip keys: from the system's secure generator.
+        random = java.security.SecureRandom().asKotlinRandom(),
         onRevoked = { onRevokedNow() },
-    ).also { hub = it }
+        clipFiles = com.chencohen.ptt.talk.AndroidClipFiles(context.applicationContext),
+        blobApi = com.chencohen.ptt.talk.KtorBlobApi(http),
+    ).also {
+        it.talk.capture = com.chencohen.ptt.talk.AndroidTalkCapture()
+        it.talk.player = com.chencohen.ptt.talk.AndroidTalkPlayer()
+        hub = it
+    }
 }
 
 // --- For the push service and the notifications (androidApp), which run without a screen -----------------------
@@ -117,6 +126,48 @@ private fun hub(context: Context): Messaging {
 /** Who shows notifications for texts that come in, and takes them down when read. */
 fun setMessageNotifier(context: Context, notifier: MessageNotifier) {
     hub(context).notifier = notifier
+}
+
+/** Who plays talk when the app isn't on screen (a Telecom talk session) and shows talk notifications. */
+fun setTalkHost(context: Context, host: com.chencohen.ptt.talk.TalkHost) {
+    hub(context).talk.host = host
+}
+
+/** Stay connected's service started or stopped. */
+suspend fun keepConnected(context: Context, on: Boolean) {
+    val messaging = hub(context)
+    withContext(messagingWork) { messaging.keepConnected(on) }
+}
+
+/** Stay connected turned off from its notification. */
+suspend fun setStayConnectedSetting(context: Context, on: Boolean) {
+    val messaging = hub(context)
+    withContext(messagingWork) { messaging.setTalkSettings(messaging.talkSettings().copy(stayConnected = on)) }
+}
+
+/** Talk in the default conversation from a hardware button: [down] pressed, or let go. */
+suspend fun talkButton(context: Context, down: Boolean): Boolean {
+    val messaging = hub(context)
+    return withContext(messagingWork) {
+        val chat = messaging.talkSettings().takeIf { it.hardwareButtons }?.defaultChat ?: return@withContext false
+        if (down) messaging.talk.press(chat) else messaging.talk.release(true)
+        true
+    }
+}
+
+/** A talk notification's Play: the burst from the chat's history. */
+suspend fun playClip(context: Context, id: String) {
+    val messaging = hub(context)
+    withContext(messagingWork) { messaging.talk.play(id) }
+}
+
+/** The name to show for a chat: a contact's name, or a group's. */
+suspend fun chatName(context: Context, chat: String): String {
+    val messaging = hub(context)
+    return withContext(messagingWork) {
+        com.chencohen.ptt.messaging.Group.idOf(chat)?.let { id -> messaging.store.group(id)?.name?.takeIf { it.isNotBlank() } }
+            ?: messaging.store.contact(chat)?.let { it.displayName ?: it.user } ?: chat
+    }
 }
 
 /** A push came: connects, takes the queue, sends the outbox, and closes again unless the app is on screen. */

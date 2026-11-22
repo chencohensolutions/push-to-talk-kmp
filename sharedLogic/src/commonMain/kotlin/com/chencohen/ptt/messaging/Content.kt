@@ -29,6 +29,8 @@ internal data class Content(
     @ProtoNumber(7) val senderKey: SenderKeyContent? = null,
     /** Inside a group message (a SENDER_KEY_MESSAGE): the group it is for, which must be the envelope's. */
     @ProtoNumber(8) val group: String = "",
+    /** The "clip start" message of a talk burst, or a voice message: the clip's id and key (phase 5a). */
+    @ProtoNumber(9) val clip: ClipContent? = null,
     /** On a copy for the sender's own other devices: the user the message went to. */
     @ProtoNumber(15) val destination: String = "",
 )
@@ -85,6 +87,32 @@ internal data class ReceiptContent(
     @ProtoNumber(1) val read: Boolean = false,
     @ProtoNumber(2) val ids: List<String> = emptyList(),
 )
+
+/**
+ * A clip's key (docs/design.md, "Phase 5a"): sent when a burst is granted (PUSH_TALK), or with a voice message once it
+ * is uploaded (PUSH_MESSAGE). [id] is the blob's on the server, 32 hex digits, and the message's in the chat.
+ */
+@Serializable
+internal data class ClipContent(
+    @ProtoNumber(1) val id: String = "",
+    @ProtoNumber(2) val key: ByteArray = ByteArray(0),
+    /** 1 a talk burst, 2 a voice message. */
+    @ProtoNumber(3) val kind: Int = 0,
+    /** When it was said, milliseconds since 1970 (UTC). */
+    @ProtoNumber(4) val sentAt: Long = 0,
+    /** A voice message's length; 0 for a burst, which is still being said. */
+    @ProtoNumber(5) val durationMs: Long = 0,
+) {
+    override fun equals(other: Any?): Boolean = other is ClipContent && id == other.id && key.contentEquals(other.key) &&
+        kind == other.kind && sentAt == other.sentAt && durationMs == other.durationMs
+
+    override fun hashCode(): Int = id.hashCode()
+
+    companion object {
+        const val BURST = 1
+        const val VOICE = 2
+    }
+}
 
 @Serializable
 internal data class TypingContent(@ProtoNumber(1) val typing: Boolean = false)

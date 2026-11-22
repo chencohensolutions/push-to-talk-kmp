@@ -118,6 +118,8 @@ internal class RelaySocket(
     private val onRevoked: () -> Unit = {},
     private val onLive: suspend () -> Unit = {},
     private val onPresence: (Presence) -> Unit = {},
+    /** Talk's frames (TalkState, ClipSegment), live only: never acknowledged. */
+    private val onTalk: suspend (FrameKind) -> Unit = {},
     private val backoff: List<Duration> = listOf(1.seconds, 2.seconds, 5.seconds, 10.seconds, 30.seconds),
     private val sendTimeout: Duration = 20.seconds,
     private val random: Random = Random.Default,
@@ -164,6 +166,22 @@ internal class RelaySocket(
             throw SocketUnavailableException(e.describe())
         } finally {
             pending.remove(clientId)
+        }
+    }
+
+    /**
+     * Sends one frame that has no answer of its own (talk's TalkStart, ClipSegment, TalkEnd, TalkAck); false when not
+     * connected or the connection broke.
+     */
+    suspend fun sendFrame(kind: FrameKind): Boolean {
+        val open = connection ?: return false
+        return try {
+            sendMutex.withLock { open.send(Frames.encode(Frame(kind))) }
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -229,7 +247,13 @@ internal class RelaySocket(
                 }
                 is PingFrame -> sendMutex.withLock { open.send(Frames.encode(Frame(PongFrame(Pong(kind.ping.id))))) }
                 is PresenceFrame -> onPresence(kind.presence)
-                is PongFrame, is AckFrame, is SendFrame, null -> Unit
+                is TalkStateFrame, is ClipSegmentFrame -> try {
+                    onTalk(kind)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+                is PongFrame, is AckFrame, is SendFrame, is TalkStartFrame, is TalkEndFrame, is TalkAckFrame, null -> Unit
             }
         }
     }

@@ -309,9 +309,69 @@ what was shown (the server sends HIGH only to phones that registered notificatio
 - **Not yet:** linking a phone doesn't send the groups' signed state (the new phone lists the groups from the server,
   and takes the state from the owner's next change); MLS if groups grow past 50.
 
+## Phase 5a: talk, the clip path
+
+`talk/` in `sharedLogic`; the server's side is its docs/messaging.md, "Talk" and "Blobs". Screens:
+[talk.md](screens/talk.md).
+
+- **A burst** (`Talk.press` / `release`). The microphone opens on the press (`TalkCapture`: 20 ms Opus packets,
+  24 kbit/s mono 48 kHz, `AndroidTalkCapture` on MediaCodec's Opus with the echo canceller and noise suppressor) and
+  `TalkStart` (a new 32-hex burst id, the conversation) goes on `/ws`. What is recorded before the answer is kept
+  and sent first, so nothing of the start is lost. **GRANTED**: the burst is kept in the chat (`Clip`, kind BURST),
+  its key goes in an encrypted "clip start" message (`Content.clip`, `ClipContent`, with PUSH_TALK), and each 200 ms
+  segment (ten packets) goes as a `ClipSegment`. Release sends the last segment (`last`), which ends the floor.
+  **BUSY**: nothing is kept or sent; "Dana is talking" shows. **REFUSED** or no microphone: said, nothing sent.
+  **Not connected**, no answer within 3 s, or the connection breaking mid-burst: it goes on recording and becomes a
+  voice message (below). The server ends a floor after 60 s (TIMEOUT: the phone lets go) or 3 s after the talker's
+  connection dropped (DROPPED: what was recorded goes as a voice message).
+- **Segments** (`ClipCrypto`): AES-256-GCM under the clip's own random 32-byte key; the nonce is the index
+  (big-endian in the last 4 of 12 bytes: one key per clip, so a nonce never repeats); the authenticated data is
+  `ptt clip v1|<clip id>|<index>|<0 or 1>`, so a segment moved to another clip or index, or marked last, doesn't open.
+  Inside, the packets, each with a 2-byte length. A clip as a file (`ClipRecords`) is the server's records: a 4-byte
+  big-endian length and a `ClipSegment` without its burst id. The phone keeps its clips that way (`ClipFiles`,
+  `files/clips` outside backups; ciphertext only, the keys are in the encrypted store).
+- **Listening.** `STARTED` (live, from the server) shows who talks (`TalkUiState.talkers`); a phone that will play
+  answers `TalkAck` (or the server wakes it by FCM after 0.5 s). Segments forwarded on `/ws` and the key from the
+  clip-start message meet in an `Incoming`, are opened in order and played (`TalkPlayer`). A gap (a slow phone
+  missing forwarded segments), an ENDED without the last segment, or a phone that saw no STARTED reads the clip with
+  `GET /blob/<id>` from its start (the server follows a growing clip) and plays from there. One clip plays at a time;
+  others queue. Once whole, the clip is kept and its length set.
+- **Who plays.** On screen, or with Stay connected: at once. Otherwise only a burst newer than 30 s, and by the
+  chat's **When I'm away**: Play aloud asks the platform (`TalkHost.prepareToPlay`) for a talk session, Notify only (or
+  a session that can't start) shows a notification with Play and Reply (`TalkHost.talkNotify`).
+- **Catch-up** (`CatchUp`, Settings › Talk › Catch up to live): while a live clip plays more than 350 ms behind, the
+  pauses are shortened (a pause keeps its first 100 ms), and with the default the speech plays 1.1 times faster
+  (1.25 more than 2 s behind) with the pitch kept (AudioTrack's time stretching), until it is back at 250 ms. A pause
+  is a 20 ms frame under about -45 dBFS (`Silence`). Off plays at normal speed. Clips from the history play at normal
+  speed.
+- **Voice messages** (`Talk.startVoice`, the composer's microphone): the same clip format without the floor, kept
+  `PENDING` with its file, then `PUT /blob/<id>?peer=` or `?group=` (resumable: a 409 goes on from the server's
+  `Blob-Offset`) and its key in a `ClipContent` (kind VOICE, PUSH_MESSAGE). The outbox sends them as it sends texts.
+  Voice messages and bursts get delivered receipts like texts, and notifications ("Voice message").
+- **Woken by `talk`** (`TalkMessagingService`): the wake-up runs on in the app's scope; when a burst should play
+  aloud, `AndroidTalkHost` registers a **talk session** with Telecom (Core-Telecom `CallsManager.addCall`, an
+  incoming audio call the app answers itself, "Talk · Family"), and `TalkSessionService` runs it as a phone-call
+  foreground service with a call-style notification and Leave; the session ends 20 s after the last burst (a reply
+  can follow), and `Messaging.wake` keeps `/ws` until then (at most 2 minutes). If Telecom refuses it (the plan's R1
+  fallback) the talk notification shows instead. R1 itself (a Pixel and a Samsung asleep for 30 minutes) is still to
+  be run on the phones.
+- **Stay connected** (`StayConnectedService`, Settings › Talk): a foreground service of types microphone and media
+  playback, started from the screen, with an ongoing notification and Turn off; `Messaging.keepConnected` keeps `/ws`
+  open while it runs. It resumes when the app is next opened after a restart (nothing starts at boot). Its media
+  session takes headset and Bluetooth talk buttons with the screen off.
+- **Hardware buttons** (Settings › Talk): with a conversation chosen in Buttons talk in, a volume key held more than
+  350 ms talks while the app is on screen (a short press still changes the volume), and a headset's button
+  (HEADSETHOOK, PLAY_PAUSE, CALL) presses and releases (`talkButton`).
+- **Secrets.** The hub's `random` is the system's `SecureRandom` (clip keys and ids; and the pair, invite and link
+  secrets, which used Kotlin's default generator before).
+
+Not done yet from the plan's 5a: measuring press-to-hear on two phones (the plan's 0.7 s), R1 on a sleeping Pixel
+and Samsung, the 8-hour idle run, and Stay connected's measured cost shown in the setting; the optional chirp when
+the microphone opens.
+
 ## Next
 
-Push-to-talk (5), calls (6) and iOS, as the plan says.
+The live talk path (5b), calls (6) and iOS, as the plan says.
 
 The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3

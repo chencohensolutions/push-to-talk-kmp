@@ -46,6 +46,8 @@ internal class Groups(
     private val me: () -> EnrolledDevice?,
     private val publish: () -> Unit,
     private val onText: (Group, TextMessage) -> Unit,
+    /** A clip's key in a group (a burst or a voice message): from [author], at the server's time. */
+    private val onClip: (group: Group, author: String, clip: ClipContent, at: Long) -> Unit = { _, _, _, _ -> },
     private val onTyping: (Group, String, Boolean) -> Unit,
     private val attempts: Int = 3,
 ) {
@@ -411,5 +413,6 @@ internal class Groups(
             onText(group, message)
         }
         content.typing?.let { if (author != self.user) onTyping(group, author, it.typing) }
+        content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }
     }
 }

@@ -50,6 +50,86 @@ internal data class QueueEmptyFrame(@ProtoNumber(7) val queueEmpty: QueueEmpty) 
 @Serializable
 internal data class PresenceFrame(@ProtoNumber(8) val presence: Presence) : FrameKind
 
+@Serializable
+internal data class TalkStartFrame(@ProtoNumber(9) val talkStart: TalkStart) : FrameKind
+
+@Serializable
+internal data class TalkStateFrame(@ProtoNumber(10) val talkState: TalkState) : FrameKind
+
+@Serializable
+internal data class ClipSegmentFrame(@ProtoNumber(11) val clipSegment: ClipSegment) : FrameKind
+
+@Serializable
+internal data class TalkEndFrame(@ProtoNumber(12) val talkEnd: TalkEnd) : FrameKind
+
+@Serializable
+internal data class TalkAckFrame(@ProtoNumber(13) val talkAck: TalkAck) : FrameKind
+
+/** Takes the floor of a conversation for a burst (the server's docs/messaging.md, "Talk"): [peer] or [group]. */
+@Serializable
+internal data class TalkStart(
+    @ProtoNumber(1) val burstId: String = "",
+    @ProtoNumber(2) val peer: String = "",
+    @ProtoNumber(3) val group: String = "",
+)
+
+@Serializable
+internal data class TalkEnd(@ProtoNumber(1) val burstId: String = "")
+
+@Serializable
+internal data class TalkAck(@ProtoNumber(1) val burstId: String = "")
+
+/** The floor's news: the answer to a TalkStart, or a burst STARTED or ENDED in a conversation. Live only. */
+@Serializable
+internal data class TalkState(
+    /** One of [TalkEvent]. */
+    @ProtoNumber(1) val event: Int = 0,
+    @ProtoNumber(2) val burstId: String = "",
+    @ProtoNumber(3) val talkerUser: String = "",
+    @ProtoNumber(4) val talkerDevice: Int = 0,
+    @ProtoNumber(5) val peer: String = "",
+    @ProtoNumber(6) val group: String = "",
+    /** One of [TalkEndReason]. */
+    @ProtoNumber(7) val endReason: Int = 0,
+    /** With REFUSED: one of [SendStatus]. */
+    @ProtoNumber(8) val refusal: Int = 0,
+    @ProtoNumber(9) val detail: String = "",
+    @ProtoNumber(10) @ProtoType(ProtoIntegerType.DEFAULT) val startedAt: Long = 0,
+)
+
+/** `TalkState.Event`. */
+internal object TalkEvent {
+    const val GRANTED = 1
+    const val BUSY = 2
+    const val REFUSED = 3
+    const val STARTED = 4
+    const val ENDED = 5
+}
+
+/** `TalkState.EndReason`. */
+internal object TalkEndReason {
+    const val RELEASED = 1
+    const val TIMEOUT = 2
+    const val DROPPED = 3
+}
+
+/**
+ * One encrypted 200 ms piece of a clip ([com.chencohen.ptt.talk.ClipCrypto]). In a clip's file on the server (and
+ * on the phone) it is kept as a record without its [burstId] ([com.chencohen.ptt.talk.ClipRecords]).
+ */
+@Serializable
+internal data class ClipSegment(
+    @ProtoNumber(1) val burstId: String = "",
+    @ProtoNumber(2) val index: Int = 0,
+    @ProtoNumber(3) val last: Boolean = false,
+    @ProtoNumber(4) val ciphertext: ByteArray = ByteArray(0),
+) {
+    override fun equals(other: Any?): Boolean = other is ClipSegment && burstId == other.burstId && index == other.index &&
+        last == other.last && ciphertext.contentEquals(other.ciphertext)
+
+    override fun hashCode(): Int = burstId.hashCode() * 31 + index
+}
+
 /** A contact came online or went offline (the server's docs/messaging.md, "Presence"); live only. */
 @Serializable
 internal data class Presence(
@@ -170,6 +250,14 @@ internal class QueueEmpty {
 /** Encodes and decodes [Frame]s; unknown fields (a newer server's) are skipped. */
 internal object Frames {
     private val proto = ProtoBuf
+
+    fun encodeSegment(segment: ClipSegment): ByteArray = proto.encodeToByteArray(ClipSegment.serializer(), segment)
+
+    fun decodeSegment(bytes: ByteArray): ClipSegment? = try {
+        proto.decodeFromByteArray(ClipSegment.serializer(), bytes)
+    } catch (_: Exception) {
+        null
+    }
 
     fun encode(frame: Frame): ByteArray = proto.encodeToByteArray(Frame.serializer(), frame)
 

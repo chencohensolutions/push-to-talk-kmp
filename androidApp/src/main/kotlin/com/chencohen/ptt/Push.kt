@@ -29,7 +29,9 @@ class TalkApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Notifications.createChannel(this)
+        TalkNotifications.createChannels(this)
         setMessageNotifier(this, Notifications(this))
+        setTalkHost(this, AndroidTalkHost(this))
     }
 }
 
@@ -71,8 +73,16 @@ class TalkMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val kind = message.data["kind"] ?: return
         Log.i("Push", "woken: $kind (priority ${message.priority})")
-        // onMessageReceived runs on its own thread, with about 20 seconds before Android may stop the process.
-        runBlocking { withTimeoutOrNull(18_000) { wakeForPush(applicationContext) } }
+        val app = applicationContext as TalkApp
+        // onMessageReceived runs on its own thread, with about 20 seconds before Android may stop the process. A burst
+        // that plays starts a talk session (a phone-call service), which keeps the process for it: the wake-up goes
+        // on past those seconds then, until the session's reply time is over.
+        val wake = app.scope.launch { wakeForPush(app) }
+        runBlocking {
+            withTimeoutOrNull(18_000) {
+                while (wake.isActive && !TalkSession.active) kotlinx.coroutines.delay(100)
+            }
+        }
     }
 
     override fun onNewToken(token: String) {

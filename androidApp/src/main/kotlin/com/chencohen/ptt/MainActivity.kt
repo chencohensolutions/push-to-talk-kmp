@@ -35,6 +35,13 @@ class MainActivity : ComponentActivity() {
     /** A conversation to open: a notification was tapped. */
     private var openedChat by mutableStateOf<String?>(null)
 
+    /** A talk notification's Play: the clip to play. */
+    private var openedClip by mutableStateOf<String?>(null)
+
+    /** A volume key held down for talk, not yet let go. */
+    private var volumeTalk = false
+    private var volumeDownAt = 0L
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -94,6 +101,11 @@ class MainActivity : ComponentActivity() {
                         onInviteTaken = { openedInvite = null },
                         openedChat = openedChat,
                         onChatTaken = { openedChat = null },
+                        onTalkSettings = { new ->
+                            viewModel.messaging.setTalkSettings(new)
+                            StayConnectedService.set(this@MainActivity, new.stayConnected)
+                        },
+                        openedClip = openedClip,
                     )
                 }
             }
@@ -110,7 +122,51 @@ class MainActivity : ComponentActivity() {
             viewModel.messaging.start()
             // The push token and the notifications setting, told to the server when they changed.
             (application as TalkApp).scope.launch { Push.register(this@MainActivity) }
+            // Stay connected after a restart: nothing may start at boot, so it resumes when the app is opened.
+            if (viewModel.messaging.talkSettings.stayConnected && !StayConnectedService.running) StayConnectedService.set(this, true)
         }
+    }
+
+    /**
+     * Hardware buttons (Settings › Talk): a held volume key talks in the default conversation while the app is on
+     * screen (a short press still changes the volume); a headset's or Bluetooth talk button presses and releases.
+     */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        val talk = viewModel.messaging.talkSettings
+        if (!talk.hardwareButtons || talk.defaultChat == null) return super.dispatchKeyEvent(event)
+        val app = application as TalkApp
+        val code = event.keyCode
+        if (HardwareButtons.isTalkKey(code)) {
+            if (event.repeatCount == 0) app.scope.launch { talkButton(app, event.action == android.view.KeyEvent.ACTION_DOWN) }
+            return true
+        }
+        if (HardwareButtons.isVolumeKey(code)) {
+            when (event.action) {
+                android.view.KeyEvent.ACTION_DOWN -> {
+                    if (event.repeatCount == 0) volumeDownAt = event.eventTime
+                    // Held past a moment: it is a talk press, not a volume change.
+                    if (!volumeTalk && event.eventTime - volumeDownAt > 350) {
+                        volumeTalk = true
+                        app.scope.launch { talkButton(app, true) }
+                    }
+                    return true
+                }
+                android.view.KeyEvent.ACTION_UP -> {
+                    if (volumeTalk) {
+                        volumeTalk = false
+                        app.scope.launch { talkButton(app, false) }
+                    } else {
+                        val audio = getSystemService(android.media.AudioManager::class.java)
+                        audio.adjustSuggestedStreamVolume(
+                            if (code == android.view.KeyEvent.KEYCODE_VOLUME_UP) android.media.AudioManager.ADJUST_RAISE else android.media.AudioManager.ADJUST_LOWER,
+                            android.media.AudioManager.USE_DEFAULT_STREAM_TYPE, android.media.AudioManager.FLAG_SHOW_UI,
+                        )
+                    }
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onStop() {
@@ -129,6 +185,13 @@ class MainActivity : ComponentActivity() {
         if (intent != null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
         if (intent?.action == Notifications.ACTION_OPEN) {
             openedChat = intent.getStringExtra(Notifications.EXTRA_USER)
+            return
+        }
+        // A talk notification: Play plays the burst in its chat; Reply opens Talk mode there.
+        if (intent?.action == TalkNotifications.ACTION_PLAY || intent?.action == TalkNotifications.ACTION_TALK) {
+            val chat = intent.getStringExtra(Notifications.EXTRA_USER) ?: return
+            openedChat = if (intent.action == TalkNotifications.ACTION_TALK) "$chat\ntalk/$chat" else chat
+            if (intent.action == TalkNotifications.ACTION_PLAY) openedClip = intent.getStringExtra(TalkNotifications.EXTRA_CLIP)
             return
         }
         val data = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return

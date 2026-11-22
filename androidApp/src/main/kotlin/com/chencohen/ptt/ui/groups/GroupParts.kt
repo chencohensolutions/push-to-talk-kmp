@@ -77,7 +77,7 @@ internal fun GroupRow(group: Group, last: TextMessage?, unread: Int, onClick: ()
             Text(groupName(group), color = LibraryColors.OnBackground, style = LibraryType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val line = when {
                 group.gone -> stringResource(R.string.group_gone_short)
-                last != null -> if (last.outgoing) stringResource(R.string.chats_you, last.body) else "${last.author}: ${last.body}"
+                last != null -> com.chencohen.ptt.ui.contacts.previewOf(last).let { if (last.outgoing) stringResource(R.string.chats_you, it) else "${last.author}: $it" }
                 else -> stringResource(R.string.group_members_count, group.readers.size)
             }
             Text(line, color = LibraryColors.Muted, style = LibraryType.Caption, maxLines = 1, overflow = TextOverflow.Ellipsis)

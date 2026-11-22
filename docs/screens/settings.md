@@ -20,6 +20,20 @@ and each time the connection's state changes.
   or "Off: nobody sees when you’re online, and you don’t see theirs. …"; a tap switches it (`setPresenceVisible`);
   "Couldn’t change it: the server didn’t answer." when it can't.
 
+## Talk
+
+A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Settings › Talk (`TalkSettingsScreen.kt`):
+
+- **Catch up to live**: Shorten pauses and speed up (the default), Shorten pauses only, or Off, with a line under
+  each; the chosen one has a teal check.
+- **In the background › Stay connected** (a switch, off by default): a foreground service keeps the connection, so
+  talk plays at once and buttons work with the screen off; a note says it uses a little more battery and that, off,
+  the server wakes the phone when someone talks. After a restart it resumes when the app is opened (Android starts
+  no microphone service at boot).
+- **Hardware buttons › Talk with a button**: a held volume key (while the app is on screen; a short press still
+  changes the volume), a headset's button or a Bluetooth talk button press and release talk.
+- **Buttons talk in**: No conversation, or one of the contacts and groups.
+
 ## Your server
 
 One card, all selectable to copy:

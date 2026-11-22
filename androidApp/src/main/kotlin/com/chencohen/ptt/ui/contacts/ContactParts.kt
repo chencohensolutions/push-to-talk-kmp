@@ -70,7 +70,7 @@ internal fun ContactRow(contact: Contact, last: TextMessage?, unread: Int = 0, o
                 contact.blocked -> stringResource(R.string.chats_blocked) to false
                 contact.changedKey != null -> stringResource(R.string.chats_key_changed) to true
                 !contact.paired -> stringResource(R.string.chats_waiting) to false
-                last != null -> (if (last.outgoing) stringResource(R.string.chats_you, last.body) else last.body) to false
+                last != null -> (if (last.outgoing) stringResource(R.string.chats_you, previewOf(last)) else previewOf(last)) to false
                 else -> stringResource(R.string.chats_paired) to false
             }
             Text(
@@ -114,3 +114,14 @@ internal fun pairingErrorText(error: PairingError): String = stringResource(
         PairingError.INVITES_OFF -> R.string.pair_error_invites_off
     },
 )
+
+/** The preview line of a message in Chats: its text, or what kind of clip it is. */
+@Composable
+internal fun previewOf(message: com.chencohen.ptt.messaging.TextMessage): String {
+    val clip = message.clip ?: return message.body
+    val length = clip.durationMs.takeIf { it > 0 }?.let { com.chencohen.ptt.ui.talk.clipLength(it) }
+    return when (clip.kind) {
+        com.chencohen.ptt.messaging.ClipKind.BURST -> if (length != null) stringResource(R.string.chats_burst_length, length) else stringResource(R.string.chats_burst)
+        com.chencohen.ptt.messaging.ClipKind.VOICE -> if (length != null) stringResource(R.string.chats_voice_length, length) else stringResource(R.string.chats_voice)
+    }
+}

@@ -23,10 +23,13 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
   /ws frames of `commonMain/proto/ptt.proto`; `RelaySocket`, the WebSocket with acks and backoff), `messaging/`
   (`Messaging`, the hub; `KeyUploader`; `Sender` with the STALE_DEVICES retry; `Content`, what is inside the
   ciphertext; `PairCode`, the Add contact QR code; `InviteLink`, the Invite a friend link; `LinkCode`, the Link a phone code and the sealed PROVISIONING messages; `InviteMessage`, the text it and its code go out in (phone to phone: the server sends no mail); `Groups`, phase 4's groups (the owner's signed changes, sender keys, the group Send); `MessagingStore`; `MessagingController` and `PairingController`
-  for the screens; `ApolloMessagingApi`). GraphQL schema and operations in `commonMain/graphql/` (the schema and the
+  for the screens; `ApolloMessagingApi`). `talk/` (phase 5a): `Talk` (floor, bursts out and in, voice messages,
+  playback queue), `ClipCrypto` and `ClipRecords` (segments and clip files), `Blobs.kt` (`/blob`, `ClipFiles`),
+  `TalkAudio.kt` (`TalkCapture`, `TalkPlayer`, `CatchUp`). GraphQL schema and operations in `commonMain/graphql/` (the schema and the
   .proto are the server's: `./gradlew :sharedLogic:syncServerSchema`).
   `androidMain`: Keystore keys (`AndroidDeviceKeyStore`), the OkHttp mTLS client with the pinned key and the
-  server's CA (`AndroidMtlsHttpClientFactory`, with Ktor's WebSockets), libsignal (`crypto/LibsignalCryptoEngine.kt`,
+  server's CA (`AndroidMtlsHttpClientFactory`, with Ktor's WebSockets), Opus capture and playback (`talk/OpusCodec.kt`, `AndroidTalkCapture`, `AndroidTalkPlayer`),
+  libsignal (`crypto/LibsignalCryptoEngine.kt`,
   `SignalStore.kt`), SQLCipher (`store/SqlCipherStore.kt`, its key wrapped in the Keystore), and the factories
   (`AndroidPtt.kt`). `androidHostTest`: libsignal itself on the JVM. `iosMain`: only the actuals common code
   expects, until iOS is built.
@@ -35,7 +38,7 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
   `LibraryChrome.kt` with the Offline pill, the tabs, `HomeCard`, settings cards and rows). The names stay Journal's
   so its style.md applies. `ui/EnrollmentWizard.kt`, `ui/home/HomeApp.kt` (Chats and Calls, the stack of pages over home),
   `ui/settings/SettingsScreen.kt`, `ui/contacts/` (New chat, Add contact, a contact's page, the safety number;
-  `ContactParts.kt` with the letter circle and `ContactRow`; `InviteScreen.kt`, Invite a friend), `ui/settings/LinkPhoneScreen.kt` (Link a phone), `ui/contacts/ConversationScreen.kt` (a conversation, a group's too), `ui/groups/` (New group, a group's page), `Push.kt` (TalkApp, FCM registration and `TalkMessagingService`), `Notifications.kt` (notifications with Reply), `ui/Qr.kt` (ZXing QR codes, Google's code scanner).
+  `ContactParts.kt` with the letter circle and `ContactRow`; `InviteScreen.kt`, Invite a friend), `ui/settings/LinkPhoneScreen.kt` (Link a phone), `ui/contacts/ConversationScreen.kt` (a conversation, a group's too), `ui/groups/` (New group, a group's page), `Push.kt` (TalkApp, FCM registration and `TalkMessagingService`), `Notifications.kt` (notifications with Reply), `TalkServices.kt` (the Telecom talk session, Stay connected, talk notifications, hardware buttons), `ui/talk/` (Talk mode, clips, the voice button, When I'm away), `ui/settings/TalkSettingsScreen.kt`, `ui/Qr.kt` (ZXing QR codes, Google's code scanner).
   `PttViewModel.kt` keeps the controllers alive. Strings in
   `res/values/strings.xml`.
 
@@ -73,4 +76,6 @@ every push.
   `commonTest` (an actual for `resolveIpv4` is all it needs).
 - On a phone, an address typed by hand (no QR link) must be in a certificate the system trusts; enroll by the QR code
   or its link, which pins the server's key, for a home server.
+- An emulator whose microphone is opened can hang QEMU in macOS CoreAudio (a microphone prompt for qemu); after
+  that no emulator boots until it is answered or coreaudiod restarts. Instrumented tests don't open the real mic.
 - Android 17 needs `ACCESS_LOCAL_NETWORK` to reach a server on the local network; `MainActivity` asks for it.

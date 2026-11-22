@@ -255,6 +255,14 @@ internal object LibraryIcons {
     )
     val Pin = icon("Pin", false, "M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z", "M12 7.5a2 2 0 1 0 0.01 0")
     /** Search's orders: newest first (down), oldest first (up), most relevant (a sparkle). */
+    val Mic = icon("Mic", false, "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z", "M5 11a7 7 0 0 0 14 0", "M12 18v3")
+    /** The Talk button: a walkie-talkie. */
+    val Talk = icon("Talk", false, "M8 7h8a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z", "M9 2v5", "M9 11h6", "M9 14h6", "M12 18h0.01")
+    val Video = icon("Video", false, "M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z", "M17 10l5-3v10l-5-3")
+    val VideoOff = icon("VideoOff", false, "M17 10l5-3v10l-5-3", "M10 6h5a2 2 0 0 1 2 2v5", "M15 18H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2", "M2 2l20 20")
+    val MicOff = icon("MicOff", false, "M9 9v3a3 3 0 0 0 5.1 2.1", "M15 9.3V6a3 3 0 0 0-5.9-.7", "M17 16.9A7 7 0 0 1 5 12", "M19 11a7 7 0 0 1-.4 2.3", "M12 18v3", "M2 2l20 20")
+    val Speaker = icon("Speaker", false, "M11 5L6 9H2v6h4l5 4z", "M15.5 8.5a5 5 0 0 1 0 7", "M19 5a10 10 0 0 1 0 14")
+    val Flip = icon("Flip", false, "M3 12a9 9 0 0 1 15-6.7L21 8", "M21 3v5h-5", "M21 12a9 9 0 0 1-15 6.7L3 16", "M3 21v-5h5")
     val ArrowDown = icon("ArrowDown", false, "M12 5v14", "M6 13l6 6 6-6")
     val ArrowUp = icon("ArrowUp", false, "M12 19V5", "M6 11l6-6 6 6")
     val Sparkle = icon("Sparkle", false, "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z", "M19 16l.7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7z")

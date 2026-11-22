@@ -14,6 +14,14 @@ import com.chencohen.ptt.relay.RelaySocket
 import com.chencohen.ptt.relay.SocketState
 import com.chencohen.ptt.settings.EnrolledDevice
 import com.chencohen.ptt.settings.PttSettings
+import com.chencohen.ptt.talk.BlobApi
+import com.chencohen.ptt.talk.BlobException
+import com.chencohen.ptt.talk.CatchUpMode
+import com.chencohen.ptt.talk.ClipFiles
+import com.chencohen.ptt.talk.MemoryClipFiles
+import com.chencohen.ptt.talk.Talk
+import com.chencohen.ptt.talk.TalkPrefs
+import com.chencohen.ptt.talk.TalkUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
@@ -49,6 +57,20 @@ data class MessagingState(
     val conversations: Map<String, List<TextMessage>> = emptyMap(),
     /** The groups this user is in, invited to, or was in (gone), oldest first. */
     val groups: List<Group> = emptyList(),
+    /** Push-to-talk: who talks where, this phone's own talking, what plays. */
+    val talk: TalkUiState = TalkUiState(),
+    val talkSettings: TalkSettings = TalkSettings(),
+)
+
+/** Settings › Talk, and each chat's When I'm away. */
+data class TalkSettings(
+    val catchUp: CatchUpMode = CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP,
+    val stayConnected: Boolean = false,
+    /** The conversation hardware buttons talk in; null: none. */
+    val defaultChat: String? = null,
+    val hardwareButtons: Boolean = false,
+    /** Chats set to Notify only. */
+    val notifyOnly: Set<String> = emptySet(),
 )
 
 /**
@@ -79,6 +101,8 @@ internal class Messaging(
     private val now: () -> Long,
     private val random: Random = Random.Default,
     private val onRevoked: () -> Unit = {},
+    clipFiles: ClipFiles = MemoryClipFiles(),
+    blobApi: BlobApi? = null,
 ) {
     /** Android's notifications; set by the app. */
     var notifier: MessageNotifier? = null
@@ -106,6 +130,7 @@ internal class Messaging(
         },
         onRevoked = onRevoked,
         onPresence = { p -> updatePresence(UserPresence(p.user, p.online, p.lastSeen.takeIf { it > 0 })) },
+        onTalk = { talk.onFrame(it) },
         onLive = {
             scope.launch {
                 // The groups first: a message waiting for a group needs its devices and readers.
@@ -133,14 +158,51 @@ internal class Messaging(
             _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty())) }
             if (!read) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
         },
+        onClip = { group, author, clip, at ->
+            val mine = author == device()?.user
+            val fresh = store.message(clip.id) == null
+            talk.receiveClip(group.chat, author, clip, at, outgoingCopy = mine)
+            if (fresh && !mine) {
+                if (openChat == group.chat && foreground) store.message(clip.id)?.let { store.putMessage(it.copy(read = true)) }
+                else if (clip.kind == ClipContent.VOICE) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
+            }
+        },
         onTyping = { group, author, typing ->
             val key = typingKey(group.chat, author)
             _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key) }
         },
     )
 
+    /** Stay connected's service runs: bursts play without the app on screen. */
+    var stayConnected = false
+
+    val talk: Talk = Talk(
+        scope = scope, store = store, clips = clipFiles,
+        blobs = blobApi ?: object : BlobApi {
+            override suspend fun read(id: String, onBytes: suspend (ByteArray) -> Unit) = throw BlobException(0, "No server")
+            override suspend fun put(id: String, peer: String?, group: String?, bytes: ByteArray) = throw BlobException(0, "No server")
+        },
+        sendFrame = socket::sendFrame,
+        connected = { socket.state.value is SocketState.Live || socket.state.value is SocketState.Syncing },
+        sendContent = { chat, content, pushKind ->
+            val group = Group.idOf(chat)
+            if (group != null) groups.send(group, content, pushKind) else sender.send(chat, content, pushKind = pushKind)
+        },
+        me = ::device, now = now, random = random,
+        prefs = object : TalkPrefs {
+            override val catchUp: CatchUpMode
+                get() = settings.catchUp?.let { name -> CatchUpMode.entries.firstOrNull { it.name == name } } ?: CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP
+
+            override fun notifyOnly(chat: String): Boolean = chat in settings.notifyOnlyChats
+        },
+        publish = ::publish,
+        awake = { foreground || stayConnected },
+    )
+
     init {
+        _state.update { it.copy(talkSettings = talkSettings()) }
         scope.launchCollect(socket.state) { socket -> _state.update { it.copy(socket = socket) } }
+        scope.launchCollect(talk.state) { talk -> _state.update { it.copy(talk = talk) } }
     }
 
     private fun device(): EnrolledDevice? = settings.device?.takeIf { it.deviceNumber > 0 }
@@ -162,7 +224,7 @@ internal class Messaging(
     /** The app went to the back. */
     fun stop() {
         foreground = false
-        socket.stop()
+        if (!stayConnected && !talk.busy) socket.stop()
     }
 
     /**
@@ -178,7 +240,44 @@ internal class Messaging(
             // The receipts and the outbox go out after the queue: give them a moment.
             kotlinx.coroutines.delay(1_500)
         }
-        if (!foreground) socket.stop()
+        // A burst that plays (or is about to), and the reply time after it: the connection stays for them.
+        kotlinx.coroutines.withTimeoutOrNull(TALK_WAKE_LIMIT) {
+            var heard = false
+            var quietSince = now()
+            while (true) {
+                if (talk.busy) {
+                    heard = true
+                    quietSince = now()
+                } else if (!heard || now() - quietSince >= TALK_REPLY_WAIT) {
+                    break
+                }
+                kotlinx.coroutines.delay(500)
+            }
+        }
+        if (!foreground && !stayConnected) socket.stop()
+    }
+
+    fun talkSettings(): TalkSettings = TalkSettings(
+        catchUp = settings.catchUp?.let { name -> CatchUpMode.entries.firstOrNull { it.name == name } } ?: CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP,
+        stayConnected = settings.stayConnected,
+        defaultChat = settings.defaultTalkChat,
+        hardwareButtons = settings.hardwareButtons,
+        notifyOnly = settings.notifyOnlyChats,
+    )
+
+    fun setTalkSettings(talk: TalkSettings) {
+        settings.catchUp = talk.catchUp.name
+        settings.stayConnected = talk.stayConnected
+        settings.defaultTalkChat = talk.defaultChat
+        settings.hardwareButtons = talk.hardwareButtons
+        settings.notifyOnlyChats = talk.notifyOnly
+        _state.update { it.copy(talkSettings = talk) }
+    }
+
+    /** Stay connected's service started ([on]) or stopped: /ws stays open in the background while it runs. */
+    suspend fun keepConnected(on: Boolean) {
+        stayConnected = on
+        if (on) open() else if (!foreground) socket.stop()
     }
 
     /** Uploads the keys if needed and opens /ws. */
@@ -781,6 +880,10 @@ internal class Messaging(
 
     /** Sends one kept text; answers it with its new status. */
     private suspend fun deliver(message: TextMessage): TextMessage {
+        if (message.clip != null) {
+            talk.deliverVoice(message.id)
+            return store.message(message.id) ?: message
+        }
         val status = try {
             val text = Content(text = TextContent(message.body, message.at, message.id))
             val group = Group.idOf(message.user)
@@ -924,6 +1027,7 @@ internal class Messaging(
                 val id = text.id.ifEmpty { envelope.id }
                 if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt))
             }
+            content.clip?.let { talk.receiveClip(to, self.user, it, envelope.serverTimestamp, outgoingCopy = true) }
             // Read on another phone of this user: read here too, and its notification goes.
             content.receipt?.takeIf { it.read }?.let { receipt ->
                 receipt.ids.mapNotNull(store::message).filter { !it.outgoing && !it.read }.forEach { store.putMessage(it.copy(read = true)) }
@@ -944,6 +1048,16 @@ internal class Messaging(
                 if (read) sendReceipt(contact.user, read = true, listOf(id))
             }
             if (!read) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
+        }
+        content.clip?.let { clip ->
+            val fresh = store.message(clip.id) == null
+            talk.receiveClip(contact.user, contact.user, clip, envelope.serverTimestamp, outgoingCopy = false)
+            if (fresh) {
+                scope.launch { sendReceipt(contact.user, read = false, listOf(clip.id)) }
+                val read = openChat == contact.user && foreground
+                if (read) store.message(clip.id)?.let { store.putMessage(it.copy(read = true)) }
+                else if (clip.kind == ClipContent.VOICE) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
+            }
         }
         content.receipt?.let { receipt ->
             val status = if (receipt.read) MessageStatus.READ else MessageStatus.DELIVERED
@@ -1003,6 +1117,12 @@ internal class Messaging(
     }
 
     companion object {
+        /** A woken phone stays connected this long after the last burst it played, so a reply can follow. */
+        const val TALK_REPLY_WAIT = 20_000L
+
+        /** The longest a talk wake-up keeps the connection. */
+        const val TALK_WAKE_LIMIT = 120_000L
+
         /** How long "typing…" shows after the last typing message, unless a text or a stop comes first. */
         const val TYPING_FOR = 8_000L
 

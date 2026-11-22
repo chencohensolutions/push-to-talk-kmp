@@ -139,6 +139,10 @@ fun HomeApp(
     /** A conversation a notification opened (MainActivity), until home showed it. */
     openedChat: String? = null,
     onChatTaken: () -> Unit = {},
+    /** Settings › Talk changed: kept, and Stay connected's service started or stopped (MainActivity). */
+    onTalkSettings: (com.chencohen.ptt.messaging.TalkSettings) -> Unit = { messaging.setTalkSettings(it) },
+    /** A talk notification's Play: the clip to play once home shows its chat. */
+    openedClip: String? = null,
 ) {
     val state by connection.state.collectAsStateWithLifecycle()
     val messagingState by messaging.state.collectAsStateWithLifecycle()
@@ -165,10 +169,18 @@ fun HomeApp(
             onChatTaken()
         }
     }
+    // A talk notification's Play: the burst plays from the chat's history.
+    LaunchedEffect(openedClip) { if (openedClip != null) messaging.playClip(openedClip) }
     // An invite link: Add contact asks "Pair with them?".
     LaunchedEffect(openedInvite) {
         if (openedInvite != null && stack.lastOrNull() != "join") push("join")
     }
+    // A contact's name as the user sees it: the name they gave, or their user name.
+    fun setNotifyOnly(chat: String, on: Boolean) {
+        val talk = messagingState.talkSettings
+        messaging.setTalkSettings(talk.copy(notifyOnly = if (on) talk.notifyOnly + chat else talk.notifyOnly - chat))
+    }
+    val nameOf: (String) -> String = { u -> messagingState.contacts.firstOrNull { it.user == u }?.displayName?.takeIf { it.isNotBlank() } ?: u }
     CompositionLocalProvider(LocalMessages provides messages) {
         Box(Modifier.fillMaxSize()) {
             val page = stack.lastOrNull()
@@ -207,6 +219,7 @@ fun HomeApp(
                         refresh = settings::refresh,
                         registerAgain = onRegisterAgain,
                         linkPhone = { push("link") },
+                        openTalk = { push("talksettings") },
                         presenceVisible = presenceVisible,
                         setPresenceVisible = { visible ->
                             presenceVisible = null
@@ -215,6 +228,16 @@ fun HomeApp(
                                 if (shown == null) messages.post(resources.getString(R.string.settings_presence_failed))
                             }
                         },
+                    )
+                }
+                name == "talksettings" -> {
+                    val chats = messagingState.contacts.filter { it.paired && !it.blocked }.map { it.user to nameOf(it.user) } +
+                        messagingState.groups.filter { !it.gone && it.isReader(state.device?.user.orEmpty()) }.map { it.chat to groupName(it) }
+                    com.chencohen.ptt.ui.settings.TalkSettingsScreen(
+                        settings = messagingState.talkSettings,
+                        chats = chats,
+                        back = ::pop,
+                        change = { new -> onTalkSettings(new) },
                     )
                 }
                 name == "link" -> {
@@ -314,7 +337,9 @@ fun HomeApp(
                                     messaging.deleteGroup(id) { report(it, ::home) }
                                 }
                             },
+                            setNotifyOnly = { on -> setNotifyOnly(Group.chatOf(id), on) },
                         ),
+                        notifyOnly = Group.chatOf(id) in messagingState.talkSettings.notifyOnly,
                     )
                 }
                 name == "invite" -> {
@@ -445,7 +470,32 @@ fun HomeApp(
                             },
                             retry = messaging::retry,
                             typing = { messaging.typing(user, it) },
+                            openTalk = { push("talk/$user") },
+                            playClip = messaging::playClip,
+                            stopClip = messaging::stopPlaying,
+                            startVoice = { messaging.startVoice(user) },
+                            finishVoice = { messaging.releaseTalk(it) },
+                            micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                         ),
+                        talk = messagingState.talk,
+                        talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
+                    )
+                }
+                name.startsWith("talk/") && pageUser != null -> {
+                    val chat = name.removePrefix("talk/")
+                    val group = Group.idOf(chat)?.let { id -> messagingState.groups.firstOrNull { it.id == id } }
+                    com.chencohen.ptt.ui.talk.TalkModeScreen(
+                        chat = chat,
+                        title = group?.let { groupName(it) } ?: nameOf(chat),
+                        me = state.device?.user.orEmpty(),
+                        talk = messagingState.talk,
+                        bursts = messagingState.conversations[chat].orEmpty().filter { it.clip != null },
+                        nameOf = nameOf,
+                        press = { messaging.pressTalk(chat) },
+                        release = { messaging.releaseTalk(true) },
+                        play = { id -> if (messagingState.talk.playing?.clip == id) messaging.stopPlaying() else messaging.playClip(id) },
+                        close = ::pop,
+                        micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -481,7 +531,9 @@ fun HomeApp(
                                     }
                                 }
                             },
+                            setNotifyOnly = { on -> setNotifyOnly(user, on) },
                         ),
+                        notifyOnly = user in messagingState.talkSettings.notifyOnly,
                     )
                 }
                 name.startsWith("safety/") && pageUser != null -> {

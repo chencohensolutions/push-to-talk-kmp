@@ -43,7 +43,11 @@ import com.chencohen.ptt.messaging.Contact
 import com.chencohen.ptt.messaging.MessageStatus
 import com.chencohen.ptt.messaging.TextMessage
 import com.chencohen.ptt.messaging.UserPresence
+import com.chencohen.ptt.talk.NowPlaying
+import com.chencohen.ptt.talk.TalkUiState
 import com.chencohen.ptt.ui.TalkTheme
+import com.chencohen.ptt.ui.talk.ClipContent
+import com.chencohen.ptt.ui.talk.VoiceButton
 import com.chencohen.ptt.ui.style.HomeCard
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryIcons
@@ -62,6 +66,15 @@ class ConversationActions(
     val retry: (String) -> Unit = {},
     /** Typing started (true) or stopped; already throttled here. */
     val typing: (Boolean) -> Unit = {},
+    /** The Talk button in the header: Talk mode. */
+    val openTalk: () -> Unit = {},
+    val playClip: (String) -> Unit = {},
+    val stopClip: () -> Unit = {},
+    /** The composer's microphone went down (a voice message) or up ([send] false: cancelled). */
+    val startVoice: () -> Unit = {},
+    val finishVoice: (send: Boolean) -> Unit = {},
+    /** The microphone wasn't allowed. */
+    val micDenied: () -> Unit = {},
 )
 
 /** What the header says under the name: typing, online, last seen, or nothing known. */
@@ -85,9 +98,22 @@ internal fun ConversationScreen(
     header: ConversationHeader,
     actions: ConversationActions,
     group: GroupChat? = null,
+    talk: TalkUiState = TalkUiState(),
+    /** What the Talk button's line says ("Dana is talking"); null hides it. */
+    talkLine: String? = null,
 ) {
     Column(Modifier.fillMaxSize().background(LibraryColors.Background).statusBarsPadding().navigationBarsPadding().imePadding()) {
-        if (group != null) GroupHeader(group, actions) else Header(user, contact, header, actions)
+        val canTalk = if (group != null) group.note == null else contact?.paired == true && !contact.blocked
+        if (group != null) GroupHeader(group, actions, canTalk) else Header(user, contact, header, actions, canTalk)
+        if (talkLine != null && (talk.talkers[user] != null || talk.own?.chat == user)) {
+            Text(
+                talkLine,
+                color = LibraryColors.Accent,
+                style = LibraryType.Caption,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = actions.openTalk).padding(vertical = 4.dp),
+            )
+        }
         if (contact?.changedKey != null) {
             HomeCard(
                 title = stringResource(R.string.chat_key_changed, contact.user),
@@ -103,20 +129,29 @@ internal fun ConversationScreen(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions.retry, showAuthor = group != null) }
+            items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions, talk.playing, showAuthor = group != null) }
         }
         when {
-            group != null -> if (group.note != null) Note(group.note) else Composer(user, actions)
+            group != null -> if (group.note != null) Note(group.note) else Composer(user, actions, talk)
             contact == null -> Note(stringResource(R.string.contact_gone))
             contact.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
             !contact.paired -> Note(stringResource(R.string.contact_waiting))
-            else -> Composer(user, actions)
+            else -> Composer(user, actions, talk)
         }
     }
 }
 
+/** The Talk button of the header: Talk mode. */
 @Composable
-private fun Header(user: String, contact: Contact?, header: ConversationHeader, actions: ConversationActions) {
+private fun TalkButton(actions: ConversationActions) {
+    Box(
+        Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.openTalk),
+        contentAlignment = Alignment.Center,
+    ) { Icon(LibraryIcons.Talk, stringResource(R.string.talk_open), tint = LibraryColors.OnBackground) }
+}
+
+@Composable
+private fun Header(user: String, contact: Contact?, header: ConversationHeader, actions: ConversationActions, canTalk: Boolean) {
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back),
@@ -145,11 +180,12 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
                 }
             }
         }
+        if (canTalk) TalkButton(actions)
     }
 }
 
 @Composable
-private fun GroupHeader(group: GroupChat, actions: ConversationActions) {
+private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk: Boolean) {
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back), contentAlignment = Alignment.Center) {
             Icon(LibraryIcons.Back, stringResource(R.string.library_back), tint = LibraryColors.OnBackground)
@@ -164,6 +200,7 @@ private fun GroupHeader(group: GroupChat, actions: ConversationActions) {
                 Text(group.line, color = LibraryColors.Muted, style = LibraryType.Caption)
             }
         }
+        if (canTalk) TalkButton(actions)
     }
 }
 
@@ -175,7 +212,8 @@ private fun lastSeen(at: Long): String {
 }
 
 @Composable
-private fun Bubble(message: TextMessage, retry: (String) -> Unit, showAuthor: Boolean = false) {
+private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, showAuthor: Boolean = false) {
+    val retry = actions.retry
     val mine = message.outgoing
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
@@ -188,7 +226,11 @@ private fun Bubble(message: TextMessage, retry: (String) -> Unit, showAuthor: Bo
             if (showAuthor && !mine && message.author != null) {
                 Text(message.author!!, color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
             }
-            Text(message.body, color = if (mine) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)
+            if (message.clip != null) {
+                ClipContent(message, playing, actions.playClip, actions.stopClip, onInverse = mine)
+            } else {
+                Text(message.body, color = if (mine) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)
+            }
             val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
             val status = if (!mine) null else when (message.status) {
                 MessageStatus.PENDING -> stringResource(R.string.chat_status_pending)
@@ -218,7 +260,7 @@ private fun Note(text: String) {
 
 /** The line to write in, and Send. Typing is told at most every 4 seconds, and stopped when the line empties or goes. */
 @Composable
-private fun Composer(user: String, actions: ConversationActions) {
+private fun Composer(user: String, actions: ConversationActions, talk: TalkUiState) {
     var text by rememberSaveable(user) { mutableStateOf("") }
     var lastTyping by remember { mutableLongStateOf(0L) }
     LaunchedEffect(text) {
@@ -250,16 +292,20 @@ private fun Composer(user: String, actions: ConversationActions) {
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
             modifier = Modifier.weight(1f),
         )
-        PrimaryButton(
-            stringResource(R.string.chat_send),
-            {
-                actions.send(text.trim())
-                text = ""
-                lastTyping = 0L
-            },
-            Modifier.padding(start = 8.dp),
-            enabled = text.isNotBlank(),
-        )
+        // Signal's way: the microphone while the line is empty, Send once there is text.
+        if (text.isBlank()) {
+            VoiceButton(talk.own?.takeIf { it.chat == user }, actions.startVoice, actions.finishVoice, actions.micDenied, Modifier.padding(start = 8.dp))
+        } else {
+            PrimaryButton(
+                stringResource(R.string.chat_send),
+                {
+                    actions.send(text.trim())
+                    text = ""
+                    lastTyping = 0L
+                },
+                Modifier.padding(start = 8.dp),
+            )
+        }
     }
 }
 

@@ -1,5 +1,17 @@
 package com.chencohen.ptt.messaging
 
+import com.chencohen.ptt.relay.ClipSegment
+import com.chencohen.ptt.relay.ClipSegmentFrame
+import com.chencohen.ptt.relay.FrameKind
+import com.chencohen.ptt.relay.TalkAckFrame
+import com.chencohen.ptt.relay.TalkEndFrame
+import com.chencohen.ptt.relay.TalkEndReason
+import com.chencohen.ptt.relay.TalkEvent
+import com.chencohen.ptt.relay.TalkStart
+import com.chencohen.ptt.relay.TalkStartFrame
+import com.chencohen.ptt.relay.TalkState
+import com.chencohen.ptt.relay.TalkStateFrame
+
 import com.chencohen.ptt.crypto.DeviceAddress
 import com.chencohen.ptt.crypto.PrekeyBundle
 import com.chencohen.ptt.crypto.PublicPrekey
@@ -361,6 +373,79 @@ internal class FakeServer {
         return SendResult(send.clientId, SendStatus.ACCEPTED, envelopeIds = ids)
     }
 
+    // --- Talk (the server's docs/messaging.md, "Talk"), one-to-one only -------------------------------------------
+
+    class Floor(val id: String, val talker: DeviceAddress, val peer: String)
+
+    /** The floor of each pair of users, while someone talks. */
+    val floors = mutableMapOf<Set<String>, Floor>()
+
+    /** Each clip's records, as GET /blob answers them; and whether its last segment came. */
+    val clips = mutableMapOf<String, MutableList<ByteArray>>()
+    val completeClips = mutableSetOf<String>()
+
+    /** Uploaded files (PUT /blob). */
+    val files = mutableMapOf<String, ByteArray>()
+    val talkAcks = mutableListOf<Pair<DeviceAddress, String>>()
+    val talkStates = mutableListOf<Pair<DeviceAddress, TalkState>>()
+
+    /** Forwarded segments are dropped (a slow phone), so it reads the clip over /blob. */
+    var dropForwarded = false
+
+    private fun frame(to: DeviceAddress, kind: FrameKind) {
+        if (kind is TalkStateFrame) talkStates += to to kind.talkState
+        connections[to]?.incoming?.trySend(Frames.encode(Frame(kind)))
+    }
+
+    private fun devicesOf(user: String) = connections.keys.filter { it.user == user }
+
+    private fun talkStart(from: DeviceAddress, start: TalkStart) {
+        val pair = setOf(from.user, start.peer)
+        val held = floors[pair]
+        when {
+            start.peer.isEmpty() || pair !in pairs -> frame(from, TalkStateFrame(TalkState(TalkEvent.REFUSED, start.burstId, refusal = SendStatus.NOT_PAIRED)))
+            held != null && held.id != start.burstId -> frame(from, TalkStateFrame(TalkState(TalkEvent.BUSY, start.burstId, held.talker.user, held.talker.device, peer = start.peer)))
+            else -> {
+                floors[pair] = Floor(start.burstId, from, start.peer)
+                clips.getOrPut(start.burstId) { mutableListOf() }
+                frame(from, TalkStateFrame(TalkState(TalkEvent.GRANTED, start.burstId, from.user, from.device, peer = start.peer)))
+                for (d in devicesOf(start.peer) + devicesOf(from.user).filter { it != from }) {
+                    frame(d, TalkStateFrame(TalkState(TalkEvent.STARTED, start.burstId, from.user, from.device, peer = if (d.user == from.user) start.peer else from.user)))
+                }
+            }
+        }
+    }
+
+    private fun clipSegment(from: DeviceAddress, segment: ClipSegment) {
+        val (pair, floor) = floors.entries.firstOrNull { it.value.id == segment.burstId && it.value.talker == from }?.toPair() ?: return
+        clips.getValue(segment.burstId) += com.chencohen.ptt.talk.ClipRecords.record(segment.index, segment.last, segment.ciphertext)
+        if (!dropForwarded) for (d in devicesOf(floor.peer) + devicesOf(from.user).filter { it != from }) frame(d, ClipSegmentFrame(segment))
+        if (segment.last) {
+            completeClips += segment.burstId
+            endFloor(pair)
+        }
+    }
+
+    private fun endFloor(pair: Set<String>) {
+        val floor = floors.remove(pair) ?: return
+        for (d in devicesOf(floor.peer) + devicesOf(floor.talker.user)) {
+            frame(d, TalkStateFrame(TalkState(TalkEvent.ENDED, floor.id, floor.talker.user, floor.talker.device, peer = if (d.user == floor.talker.user) floor.peer else floor.talker.user, endReason = TalkEndReason.RELEASED)))
+        }
+    }
+
+    fun blobs(device: DeviceAddress): com.chencohen.ptt.talk.BlobApi = object : com.chencohen.ptt.talk.BlobApi {
+        override suspend fun read(id: String, onBytes: suspend (ByteArray) -> Unit) {
+            files[id]?.let { return onBytes(it) }
+            val records = clips[id] ?: throw com.chencohen.ptt.talk.BlobException(404, "no such blob")
+            records.toList().forEach { onBytes(it) }
+        }
+
+        override suspend fun put(id: String, peer: String?, group: String?, bytes: ByteArray) {
+            if (peer != null && setOf(device.user, peer) !in pairs) throw com.chencohen.ptt.talk.BlobException(403, "not paired")
+            files[id] = bytes
+        }
+    }
+
     /** Closes [device]'s connection with [code], as the server does on 4001 and 4003. */
     fun close(device: DeviceAddress, code: Int) {
         connections.remove(device)?.end(code)
@@ -394,6 +479,10 @@ internal class FakeServer {
             when (val kind = Frames.decode(bytes)?.kind) {
                 is AckFrame -> queues[device]?.removeAll { it.id in kind.ack.ids }
                 is SendFrame -> incoming.trySend(Frames.encode(Frame(SendResultFrame(send(device, kind.send)))))
+                is TalkStartFrame -> talkStart(device, kind.talkStart)
+                is ClipSegmentFrame -> clipSegment(device, kind.clipSegment)
+                is TalkAckFrame -> talkAcks += device to kind.talkAck.burstId
+                is TalkEndFrame -> floors.entries.firstOrNull { it.value.id == kind.talkEnd.burstId && it.value.talker == device }?.let { endFloor(it.key) }
                 else -> Unit
             }
         }

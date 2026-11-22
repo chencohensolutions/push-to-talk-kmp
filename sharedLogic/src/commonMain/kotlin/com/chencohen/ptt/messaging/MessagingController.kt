@@ -200,6 +200,31 @@ class MessagingController internal constructor(
         scope.launch { withContext(work) { messaging.groups.refresh() } }
     }
 
+    // --- Talk (docs/design.md, "Phase 5a") -----------------------------------------------------------------------
+
+    private fun onWork(block: suspend () -> Unit) {
+        scope.launch { withContext(work) { block() } }
+    }
+
+    /** The Talk button went down in [chat] (a user, or a group's chat). */
+    fun pressTalk(chat: String) = onWork { messaging.talk.press(chat) }
+
+    /** The Talk button, or the composer's microphone, came up; [send] false cancels a voice message. */
+    fun releaseTalk(send: Boolean) = onWork { messaging.talk.release(send) }
+
+    /** The composer's microphone went down: a voice message to [chat]. */
+    fun startVoice(chat: String) = onWork { messaging.talk.startVoice(chat) }
+
+    /** Plays a burst or voice message from the chat. */
+    fun playClip(id: String) = onWork { messaging.talk.play(id) }
+
+    fun stopPlaying() = onWork { messaging.talk.stopPlaying() }
+
+    /** The Talk settings and each chat's When I'm away, as kept on this phone. */
+    val talkSettings: TalkSettings get() = messaging.talkSettings()
+
+    fun setTalkSettings(settings: TalkSettings) = onWork { messaging.setTalkSettings(settings) }
+
     private fun act(done: (ContactResult) -> Unit, block: suspend () -> Unit) {
         scope.launch {
             val result = try {

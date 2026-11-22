@@ -26,11 +26,16 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.core.telecom)
     // libsignal needs it (its AAR asks for core library desugaring).
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.junit)
 }
 
 android {
@@ -47,6 +52,7 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionName = findProperty("versionName") as String? ?: "0.1"
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Firebase's settings from google-services.json, as the resources its own plugin would make (google_app_id
         // and the rest), so Firebase starts by itself without the plugin. They are public identifiers, not secrets.
         googleServices(file("google-services.json"), applicationId!!).forEach { (name, value) -> resValue("string", name, value) }

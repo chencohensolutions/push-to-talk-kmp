@@ -82,6 +82,31 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_PUSH_REGISTERED)
         set(value) = store.putString(KEY_PUSH_REGISTERED, value)
 
+    /** Settings › Talk › Catch up to live (a `CatchUpMode` name); null: the default. */
+    var catchUp: String?
+        get() = store.getString(KEY_CATCH_UP)
+        set(value) = store.putString(KEY_CATCH_UP, value)
+
+    /** Settings › Talk › Stay connected: a foreground service keeps /ws open. */
+    var stayConnected: Boolean
+        get() = store.getString(KEY_STAY_CONNECTED) == "true"
+        set(value) = store.putString(KEY_STAY_CONNECTED, value.toString())
+
+    /** The conversation hardware buttons talk in (a user, or a group's chat); null: none chosen. */
+    var defaultTalkChat: String?
+        get() = store.getString(KEY_DEFAULT_TALK)?.takeIf { it.isNotEmpty() }
+        set(value) = store.putString(KEY_DEFAULT_TALK, value)
+
+    /** Settings › Talk › Hardware buttons: a held volume key or a headset button talks. */
+    var hardwareButtons: Boolean
+        get() = store.getString(KEY_HARDWARE_BUTTONS) == "true"
+        set(value) = store.putString(KEY_HARDWARE_BUTTONS, value.toString())
+
+    /** The chats set to When I'm away: Notify only (the rest play aloud). */
+    var notifyOnlyChats: Set<String>
+        get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
+        set(value) = store.putString(KEY_NOTIFY_ONLY, json.encodeToString(value.sorted()))
+
     var pendingLink: String?
         get() = store.getString(KEY_PENDING_LINK)
         set(value) = store.putString(KEY_PENDING_LINK, value)
@@ -89,6 +114,11 @@ internal class PttSettings(private val store: KeyValueStore) {
     companion object {
         private const val KEY_PENDING_INVITE_PAIR = "pending_invite_pair"
         private const val KEY_PENDING_LINK = "pending_link"
+        private const val KEY_CATCH_UP = "talk_catch_up"
+        private const val KEY_STAY_CONNECTED = "talk_stay_connected"
+        private const val KEY_DEFAULT_TALK = "talk_default_chat"
+        private const val KEY_HARDWARE_BUTTONS = "talk_hardware_buttons"
+        private const val KEY_NOTIFY_ONLY = "talk_notify_only"
         private const val KEY_PUSH_TOKEN = "push_token"
         private const val KEY_PRESENCE_VISIBLE = "presence_visible"
         private const val KEY_PUSH_REGISTERED = "push_registered"

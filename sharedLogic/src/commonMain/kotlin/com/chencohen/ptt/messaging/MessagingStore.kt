@@ -74,6 +74,30 @@ data class TextMessage(
     val read: Boolean = false,
     /** In a group chat ([user] is then [Group.chatOf] its id): who wrote it. */
     val author: String? = null,
+    /** A talk burst or a voice message instead of a text ([body] is then empty). */
+    val clip: Clip? = null,
+)
+
+/** What a clip is: a burst said with the Talk button, or a voice message recorded in the composer. */
+enum class ClipKind { BURST, VOICE }
+
+/**
+ * A clip in a conversation (docs/design.md, "Phase 5a"): [id] is the blob's on the server and the message's, [key]
+ * (base64) the AES-256-GCM key only the phones have.
+ */
+@Serializable
+data class Clip(
+    val id: String,
+    val key: String,
+    val kind: ClipKind,
+    /** How long it is; 0 until it is whole. */
+    val durationMs: Long = 0,
+    /** This phone keeps the whole clip (ClipFiles), so it plays without the server. */
+    val kept: Boolean = false,
+    /** A voice message this phone sent: on the server (PUT /blob) already. */
+    val uploaded: Boolean = false,
+    /** An incoming clip was played here. */
+    val heard: Boolean = false,
 )
 
 /** A member of a group as the owner's devices named them: the user and the identity key the owner trusts (base64). */

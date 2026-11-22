@@ -29,7 +29,7 @@ class Notifications(private val context: Context) : MessageNotifier {
         val sender = Person.Builder().setName(name).setKey(contact.user).build()
         val me = Person.Builder().setName(context.getString(R.string.notify_you)).build()
         val style = NotificationCompat.MessagingStyle(me)
-        unread.takeLast(MAX_LINES).forEach { style.addMessage(it.body, it.at, sender) }
+        unread.takeLast(MAX_LINES).forEach { style.addMessage(lineOf(it), it.at, sender) }
         show(contact.user, style, unread.size)
     }
 
@@ -41,7 +41,7 @@ class Notifications(private val context: Context) : MessageNotifier {
             .setGroupConversation(true)
         unread.takeLast(MAX_LINES).forEach { m ->
             val author = m.author.orEmpty()
-            style.addMessage(m.body, m.at, Person.Builder().setName(author).setKey(author).build())
+            style.addMessage(lineOf(m), m.at, Person.Builder().setName(author).setKey(author).build())
         }
         show(group.chat, style, unread.size)
     }
@@ -89,6 +89,13 @@ class Notifications(private val context: Context) : MessageNotifier {
             .setNumber(count)
             .build()
         NotificationManagerCompat.from(context).notify(TAG, id, notification)
+    }
+
+    /** A text's line, or "Voice message" / "Talk" for a clip. */
+    private fun lineOf(message: TextMessage): String = when (message.clip?.kind) {
+        null -> message.body
+        com.chencohen.ptt.messaging.ClipKind.VOICE -> context.getString(R.string.chats_voice)
+        com.chencohen.ptt.messaging.ClipKind.BURST -> context.getString(R.string.chats_burst)
     }
 
     override fun read(user: String) {
