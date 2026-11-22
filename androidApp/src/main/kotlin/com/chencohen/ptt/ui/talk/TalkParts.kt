@@ -265,8 +265,13 @@ internal fun TalkModeScreen(
     /** The chat, and calling there. */
     openChat: () -> Unit = {},
     call: (video: Boolean) -> Unit = {},
+    /** Push-to-video: on (a press sends the camera too), switched here; the camera kept warm for this chat. */
+    pushVideo: Boolean = false,
+    setPushVideo: (Boolean) -> Unit = {},
+    warmCamera: (String?) -> Unit = {},
 ) {
     WarmMicrophone(warmMicrophone)
+    WarmCamera(chat, pushVideo, warmCamera)
     val microphone = rememberMicrophone(micDenied)
     val own = talk.own?.takeIf { it.chat == chat }
     val live = own?.phase == TalkPhase.TALKING
@@ -312,8 +317,23 @@ internal fun TalkModeScreen(
                 color = LibraryColors.Muted, style = LibraryType.Tiny,
             )
         }
-        Spacer(Modifier.weight(1f))
-        TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release)
+        // Someone's video burst plays here, above the button.
+        val video = talk.playing?.takeIf { it.chat == chat && it.video }
+        if (video != null) {
+            TalkVideoView(Modifier.weight(2f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release)
+            androidx.compose.foundation.layout.Column(Modifier.align(Alignment.TopEnd).padding(end = 16.dp), horizontalAlignment = Alignment.End) {
+                PushVideoSwitch(pushVideo, setPushVideo)
+                if (pushVideo) {
+                    Spacer(Modifier.height(8.dp))
+                    PushVideoPreview()
+                }
+            }
+        }
         Spacer(Modifier.weight(1f))
         if (bursts.isNotEmpty()) {
             Text(stringResource(R.string.talk_last), color = LibraryColors.Muted, style = LibraryType.SectionLabel, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp))

@@ -67,6 +67,10 @@ internal fun QuickTalkHome(
     warmMicrophone: (Boolean) -> Unit = {},
     /** A voice or video call in a page's chat. */
     call: (chat: String, video: Boolean) -> Unit = { _, _ -> },
+    /** Push-to-video: on, switched here; the camera kept warm for the page shown. */
+    pushVideo: Boolean = false,
+    setPushVideo: (Boolean) -> Unit = {},
+    warmCamera: (String?) -> Unit = {},
 ) {
     if (pages.isEmpty()) {
         Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
@@ -123,13 +127,29 @@ internal fun QuickTalkHome(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 24.dp),
                 )
-                Spacer(Modifier.weight(1f))
-                TalkCircle(
-                    live = live,
-                    someoneTalking = someone != null,
-                    press = { microphone { press(page.chat) } },
-                    release = release,
-                )
+                // The page on screen keeps the camera warm for its chat.
+                if (pager.currentPage == i) WarmCamera(page.chat, pushVideo, warmCamera)
+                val video = talk.playing?.takeIf { it.chat == page.chat && it.video }
+                if (video != null) {
+                    TalkVideoView(Modifier.weight(2f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    TalkCircle(
+                        live = live,
+                        someoneTalking = someone != null,
+                        press = { microphone { press(page.chat) } },
+                        release = release,
+                    )
+                    Column(Modifier.align(Alignment.TopEnd).padding(end = 16.dp), horizontalAlignment = Alignment.End) {
+                        PushVideoSwitch(pushVideo, setPushVideo)
+                        if (pushVideo && pager.currentPage == i) {
+                            Spacer(Modifier.height(8.dp))
+                            PushVideoPreview()
+                        }
+                    }
+                }
                 Spacer(Modifier.weight(1f))
             }
         }

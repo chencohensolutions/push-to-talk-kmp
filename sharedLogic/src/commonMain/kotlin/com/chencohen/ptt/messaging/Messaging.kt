@@ -93,6 +93,10 @@ data class TalkSettings(
      * with a hardware H.265 encoder. Phones that can't take H.265 get VP8 from the same sender (a backup codec).
      */
     val callVideo: com.chencohen.ptt.calls.CallVideo = com.chencohen.ptt.calls.CallVideo.VP8,
+    /** Push-to-video (2026-11-22, hen; off by default): a press on a Talk screen sends the camera too. */
+    val pushVideo: Boolean = false,
+    /** The reply bubble shows a burst's video (off by default). */
+    val bubbleVideo: Boolean = false,
 )
 
 /**
@@ -271,8 +275,20 @@ internal class Messaging(
         now = now, random = random,
     )
 
+    /**
+     * Push-to-video in [chat] may go as H.265: chosen in Settings › Calls › Video, and every other phone there said
+     * it decodes H.265 (ContentCodec.caps); otherwise VP8. One format per burst, no second copy.
+     */
+    fun videoH265For(chat: String?): Boolean {
+        if (chat == null || talkSettings().callVideo != com.chencohen.ptt.calls.CallVideo.H265) return false
+        val me = device()?.user
+        val users = Group.idOf(chat)?.let { id -> store.group(id)?.readers?.map { it.user }?.filter { it != me } } ?: listOf(chat)
+        return users.isNotEmpty() && users.all { ContentCodec.decodesH265(it) }
+    }
+
     init {
         if (LIVE_TALK_AUDIO) talk.live = live
+        talk.sendVideo = { talkSettings().pushVideo }
         scope.launchCollect(calls.state) { c -> _state.update { it.copy(call = c) } }
         scope.launchCollect(live.state) { l -> _state.update { it.copy(live = l) } }
         _state.update { it.copy(talkSettings = talkSettings()) }
@@ -344,6 +360,8 @@ internal class Messaging(
         openOnTalk = settings.openOnTalk,
         replyBubble = settings.replyBubble,
         callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.VP8,
+        pushVideo = settings.pushVideo,
+        bubbleVideo = settings.bubbleVideo,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -358,6 +376,8 @@ internal class Messaging(
         settings.openOnTalk = talk.openOnTalk
         settings.replyBubble = talk.replyBubble
         settings.callVideo = talk.callVideo.name
+        settings.pushVideo = talk.pushVideo
+        settings.bubbleVideo = talk.bubbleVideo
         _state.update { it.copy(talkSettings = talk) }
     }
 
@@ -1104,6 +1124,7 @@ internal class Messaging(
             return
         }
         val content = ContentCodec.decode(decrypted.plaintext) ?: return
+        ContentCodec.note(envelope.senderUser, content)
         content.groupChange?.let { return groups.receiveChange(envelope.senderUser, it) }
         content.senderKey?.let { return groups.receiveSenderKey(from, decrypted.senderIdentityKey, it) }
         if (envelope.senderUser == self.user) {

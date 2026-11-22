@@ -406,6 +406,7 @@ internal class Groups(
             return
         }
         val content = ContentCodec.decode(plaintext)?.takeIf { it.group == group.id } ?: return
+        ContentCodec.note(author, content)
         content.text?.let { text ->
             val id = text.id.ifEmpty { envelope.id }
             if (store.message(id) != null) return

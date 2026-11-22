@@ -38,6 +38,11 @@ object TalkBubble {
     private var view: LinearLayout? = null
     private var title: TextView? = null
     private var line: TextView? = null
+    private var videoBox: android.widget.FrameLayout? = null
+    private var videoSwitch: TextView? = null
+    private var videoSurface: android.view.Surface? = null
+    /** The burst now has video (push-to-video). */
+    private var burstVideo = false
     private var button: TextView? = null
     private var chat: String? = null
     private var talking = false
@@ -60,7 +65,7 @@ object TalkBubble {
     }
 
     /** [from] talks in [chat] now ([live]) or just did (the reply window). */
-    fun show(context: Context, chat: String, title: String, live: Boolean) = main.post {
+    fun show(context: Context, chat: String, title: String, live: Boolean, video: Boolean = false) = main.post {
         if (view == null) {
             if (!allowed(context)) return@post
             if (!add(context.applicationContext)) return@post
@@ -68,6 +73,47 @@ object TalkBubble {
         this.chat = chat
         this.title?.text = title
         if (!talking) line?.text = context.getString(if (live) R.string.bubble_live else R.string.bubble_reply)
+        burstVideo = live && video
+        showVideo(context)
+    }
+
+    /**
+     * A video burst shows its picture above the bar's words, unless the bubble's Video is off (2026-11-22, hen: off by
+     * default, like all of push-to-video); the Video switch shows while a burst has video.
+     */
+    private fun showVideo(context: Context) {
+        val on = messagingState(context).value.talkSettings.bubbleVideo
+        videoSwitch?.visibility = if (burstVideo) View.VISIBLE else View.GONE
+        videoSwitch?.text = context.getString(if (on) R.string.talk_video_on else R.string.talk_video_off)
+        videoBox?.visibility = if (burstVideo && on) View.VISIBLE else View.GONE
+        main.removeCallbacks(turn)
+        if (burstVideo && on) main.post(turn)
+    }
+
+    /** Keeps the picture upright and its shape as the sender's camera says, while it shows. */
+    private val turn = object : Runnable {
+        override fun run() {
+            val box = videoBox ?: return
+            if (box.visibility != View.VISIBLE) return
+            val video = box.findViewWithTag<View>("video") ?: return
+            val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value
+            val rotation = shown?.rotation ?: 0
+            val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 4f / 3f
+            val side = box.width.takeIf { it > 0 } ?: return main.postDelayed(this, 200).let { }
+            // Fitted in the square box once turned.
+            val turned = rotation % 180 != 0
+            val shownAspect = if (turned) 1f / aspect else aspect
+            val (w, h) = if (shownAspect >= 1f) side to (side / shownAspect).toInt() else (side * shownAspect).toInt() to side
+            val (vw, vh) = if (turned) h to w else w to h
+            val lp = video.layoutParams
+            if (lp.width != vw || lp.height != vh) {
+                lp.width = vw
+                lp.height = vh
+                video.layoutParams = lp
+            }
+            video.rotation = rotation.toFloat()
+            main.postDelayed(this, 300)
+        }
     }
 
     /** The app came on screen, or the bubble isn't wanted any more. */
@@ -113,7 +159,48 @@ object TalkBubble {
         words.addView(line)
         top.addView(words, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         // As wide as ✕, so the words are centred over the button.
-        top.addView(View(context), LinearLayout.LayoutParams(dp(48), dp(48)))
+        videoSwitch = TextView(context).apply {
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            background = GradientDrawable().apply { cornerRadius = dp(14).toFloat(); setColor(0x33FFFFFF) }
+            visibility = View.GONE
+            setOnClickListener {
+                val settings = messagingState(context).value.talkSettings
+                setTalkSettings(context, settings.copy(bubbleVideo = !settings.bubbleVideo))
+                main.postDelayed({ showVideo(context) }, 100)
+            }
+        }
+        top.addView(videoSwitch, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        // The burst's picture, drawn in step with the voice (AndroidTalkVideoOut).
+        videoBox = android.widget.FrameLayout(context).apply {
+            visibility = View.GONE
+            background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(Color.BLACK) }
+            clipToOutline = true
+            addView(
+                android.view.TextureView(context).apply {
+                    surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                            videoSurface = android.view.Surface(texture).also { com.chencohen.ptt.talk.AndroidTalkVideoOut.attach(it) }
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
+                        override fun onSurfaceTextureDestroyed(texture: android.graphics.SurfaceTexture): Boolean {
+                            videoSurface?.let { com.chencohen.ptt.talk.AndroidTalkVideoOut.detach(it); it.release() }
+                            videoSurface = null
+                            return true
+                        }
+
+                        override fun onSurfaceTextureUpdated(texture: android.graphics.SurfaceTexture) {}
+                    }
+                    // Turned upright as the sender's camera says.
+                    tag = "video"
+                },
+                android.widget.FrameLayout.LayoutParams(dp(240), dp(180), Gravity.CENTER),
+            )
+        }
+        root.addView(videoBox, LinearLayout.LayoutParams(dp(240), dp(240)).apply { bottomMargin = dp(8) })
         root.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         button = TextView(context).apply {
             text = context.getString(R.string.bubble_talk)
@@ -228,6 +315,11 @@ object TalkBubble {
     private fun remove() {
         val v = view ?: return
         view = null
+        videoSurface?.let { com.chencohen.ptt.talk.AndroidTalkVideoOut.detach(it) }
+        videoSurface = null
+        videoBox = null
+        videoSwitch = null
+        burstVideo = false
         title = null
         line = null
         button = null

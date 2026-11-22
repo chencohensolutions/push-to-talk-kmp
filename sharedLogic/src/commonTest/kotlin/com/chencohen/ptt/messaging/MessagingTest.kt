@@ -651,7 +651,8 @@ class ContentTest {
         val content = Content(text = TextContent("hello", 42))
         val padded = ContentCodec.encode(content)
         assertEquals(0, padded.size % ContentCodec.BLOCK)
-        assertEquals(content, ContentCodec.decode(padded))
+        // Every message says what its phone can play.
+        assertEquals(content.copy(caps = ContentCodec.myCaps), ContentCodec.decode(padded))
         assertNull(ContentCodec.decode(ByteArray(160)))
     }
 

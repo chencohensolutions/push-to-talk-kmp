@@ -244,6 +244,26 @@ class MessagingController internal constructor(
     /** A Talk screen shown ([on]) or left: the microphone open ahead of a press, or closed. */
     fun warmMicrophone(on: Boolean) = onWork { messaging.talk.warmMicrophone(on) }
 
+    /**
+     * The Talk screen of [chat] shows (null: it left): with push-to-video on, the camera opens ahead of a press (in
+     * that chat's format), else it closes.
+     */
+    fun warmCamera(chat: String?) = onWork {
+        val talk = messaging.talk
+        val camera = talk.videoCapture ?: return@onWork
+        if (chat != null && talk.sendVideo()) {
+            if (talk.videoChat != chat) camera.cool()
+            talk.videoChat = chat
+            camera.warm()
+        } else {
+            talk.videoChat = null
+            camera.cool()
+        }
+    }
+
+    /** Push-to-video's codec for [chat] (H.265 only when chosen and every phone there plays it). */
+    fun videoH265For(chat: String?): Boolean = messaging.videoH265For(chat)
+
     /** The Talk button, or the composer's microphone, came up; [send] false cancels a voice message. */
     fun releaseTalk(send: Boolean) = onWork { messaging.talk.release(send) }
 

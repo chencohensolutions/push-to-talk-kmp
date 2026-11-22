@@ -132,6 +132,9 @@ class HomeActions(
     val shareCall: (String) -> Unit = {},
     /** A call the server kept: play it. */
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
+    /** Push-to-video switched on a Talk screen; the camera warm for a chat (null: none). */
+    val setPushVideo: (Boolean) -> Unit = {},
+    val warmCamera: (String?) -> Unit = {},
     /** A call the server kept: save it as one file in Downloads. */
     val saveKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** The Talk tab: hold to talk in a Quick talk chat, and let go. */
@@ -276,6 +279,8 @@ fun HomeApp(
                         shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                         playKept = ::playKept,
                         saveKept = ::saveKept,
+                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
+                        warmCamera = messaging::warmCamera,
                         pressTalk = { chat -> pressOrUnlock(chat) },
                         releaseTalk = { messaging.releaseTalk(true) },
                         quickTalkShown = { chat ->
@@ -594,6 +599,9 @@ fun HomeApp(
                         // From its chat: back to it; otherwise the chat opens.
                         openChat = { if (stack.getOrNull(stack.size - 2) == "chat/$chat") pop() else push("chat/$chat") },
                         call = { video -> call(chat, video) },
+                        pushVideo = messagingState.talkSettings.pushVideo,
+                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
+                        warmCamera = messaging::warmCamera,
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -774,6 +782,9 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 modifier = Modifier.weight(1f),
                 warmMicrophone = actions.warmMicrophone,
                 call = actions.call,
+                pushVideo = chats.talkSettings.pushVideo,
+                setPushVideo = actions.setPushVideo,
+                warmCamera = actions.warmCamera,
             )
             }
         } else Column(

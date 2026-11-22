@@ -49,7 +49,7 @@ object TalkPlaying {
             shown = playing.chat to playing.from
             lastClip = playing.clip
             post(app, playing.chat, playing.from, playing.playedMs, live = true)
-            if (TalkBubble.allowed(app)) TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true)
+            if (TalkBubble.allowed(app)) TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video)
         } else {
             val (chat, from) = shown ?: return
             shown = null

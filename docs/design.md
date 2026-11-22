@@ -482,6 +482,19 @@ to talk): a pager of the contacts and groups marked Quick talk, each with the ho
 keeps the order (a new mark goes last), skips chats that can't talk now, and picks the start page. Pressing on a page
 is `Talk.press` in that chat, as in Talk mode.
 
+## Push-to-video (1.4.4)
+
+2026-11-22 (hen): a press can send the camera with the voice (a Talk screen's Video, off by default). It goes in the
+same burst, through the same encrypted clip path (live, woken, from the history), so the server doesn't change: the
+"clip start" says `video`, and every packet is tagged (`TalkVideo`): the Opus packets as before, and the camera's
+frames in pieces of at most 3 KB, a segment cut early so it stays under the server's 16 KB. The camera is the front
+one into a hardware encoder (`AndroidTalkVideoCapture`), 640×480, 15 fps, 350 kbit/s (a minute fits the 4 MB clip),
+frames as captured with their rotation. One format per burst: H.265 only when Settings › Calls › Video is H.265,
+this phone has the encoder and every other phone in the chat said it decodes H.265 (`ContentCodec.caps`, on every
+message, end to end); otherwise VP8. The listener splits the packets, plays the voice (without catch-up, so the
+pictures keep up) and draws each frame when the voice gets there (`AndroidTalkVideoOut`), on the Talk screen or in
+the reply bubble (its own Video switch, off by default).
+
 ## App updates (1.2.0)
 
 The release app updates itself from this repo's GitHub releases (2026-11-22, hen), and the **server** tells it when:

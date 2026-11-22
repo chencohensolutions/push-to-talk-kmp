@@ -161,6 +161,9 @@ internal class Talk(
     /** Push-to-video: the camera, whether a press sends it (the Talk screen's Video), and where bursts' video shows. */
     var videoCapture: TalkVideoCapture? = null
     var sendVideo: () -> Boolean = { false }
+
+    /** The chat whose Talk screen keeps the camera warm (push-to-video); null: none. */
+    var videoChat: String? = null
     var videoOut: TalkVideoOut? = null
 
     private val _state = MutableStateFlow(TalkUiState())

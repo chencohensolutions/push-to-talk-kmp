@@ -73,3 +73,8 @@ The talk button grows (up to 1.25 times) and glows with the voice: the one playi
 
 - **Chat, Voice call, Video call** (2026-11-22, hen): three round buttons under the name: the conversation (back to it
   when the Talk screen came from it), and a voice or video call there.
+
+- **Video** (push-to-video, 2026-11-22, hen; off by default): the switch beside the button, "Video off" / "Video on"
+  (asks for the camera the first time). On, a small preview of this phone's front camera shows under it and the camera
+  stays open while the screen shows, so a press sends the camera with the voice at once. Someone's video burst plays
+  above the button, upright, in step with their voice.

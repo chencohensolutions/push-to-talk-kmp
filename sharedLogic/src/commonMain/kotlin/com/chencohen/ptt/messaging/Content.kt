@@ -37,6 +37,8 @@ internal data class Content(
     @ProtoNumber(11) val call: CallContent? = null,
     /** On a copy for the sender's own other devices: the user the message went to. */
     @ProtoNumber(15) val destination: String = "",
+    /** What the sending phone can play (ContentCodec.CAPS_*), on every message, end to end; 0: not said. */
+    @ProtoNumber(16) val caps: Int = 0,
 )
 
 /**
@@ -247,9 +249,27 @@ internal object GroupStateCodec {
 internal object ContentCodec {
     const val BLOCK = 160
 
+    /** Said: the caps below are this phone's (a phone that doesn't say is taken to play nothing extra). */
+    const val CAPS_SAID = 0x80
+    /** It decodes H.265, so push-to-video may send it H.265 (2026-11-22). */
+    const val CAPS_H265 = 1
+
+    /** This phone's caps, sent with everything it sends (the platform sets them). */
+    var myCaps = CAPS_SAID
+
+    /** The caps each user's phones last said; a user's several phones: the last one heard. */
+    private val heard = mutableMapOf<String, Int>()
+
+    fun note(user: String, content: Content) {
+        if (content.caps and CAPS_SAID != 0) heard[user] = content.caps
+    }
+
+    /** Whether [user]'s phone said it decodes H.265 (unknown: no). */
+    fun decodesH265(user: String): Boolean = (heard[user] ?: 0) and CAPS_H265 != 0
+
     /** [content] encoded and padded: a 0x80 byte after it, then zeros to a multiple of [BLOCK] (Signal's padding). */
     fun encode(content: Content): ByteArray {
-        val bytes = ProtoBuf.encodeToByteArray(Content.serializer(), content)
+        val bytes = ProtoBuf.encodeToByteArray(Content.serializer(), content.copy(caps = myCaps))
         val padded = ByteArray(((bytes.size + 1 + BLOCK - 1) / BLOCK) * BLOCK)
         bytes.copyInto(padded)
         padded[bytes.size] = 0x80.toByte()
