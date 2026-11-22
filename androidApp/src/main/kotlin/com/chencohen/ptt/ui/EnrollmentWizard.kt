@@ -511,6 +511,7 @@ private fun ColumnScope.FailedStep(state: EnrollmentState, step: EnrollmentStep.
 private fun errorMessage(error: EnrollmentError): String = when (error) {
     EnrollmentError.MissingServerAddress -> stringResource(R.string.enroll_error_missing_address)
     EnrollmentError.MissingCode -> stringResource(R.string.enroll_error_missing_code)
+    EnrollmentError.ContactCode -> stringResource(R.string.enroll_error_contact_code)
     EnrollmentError.InvalidCode -> stringResource(R.string.enroll_error_invalid_code)
     EnrollmentError.RateLimited -> stringResource(R.string.enroll_error_rate_limited)
     EnrollmentError.RequestRejected -> stringResource(R.string.enroll_error_request_rejected)
