@@ -218,6 +218,24 @@ suspend fun talkBack(context: Context, chat: String?, down: Boolean, send: Boole
     }
 }
 
+/**
+ * Talk from the car (Android Auto): [capture] (the car's microphone) for this burst in [chat]; [down] false ends it
+ * ([send] false drops it) and puts the phone's microphone back.
+ */
+suspend fun carTalk(context: Context, chat: String?, capture: com.chencohen.ptt.talk.TalkCapture?, down: Boolean, send: Boolean = true) {
+    val messaging = hub(context)
+    if (down) kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.wake() }
+    withContext(messagingWork) {
+        if (down) {
+            messaging.talk.captureOverride = capture
+            chat?.let { messaging.talk.press(it) }
+        } else {
+            messaging.talk.release(send)
+            messaging.talk.captureOverride = null
+        }
+    }
+}
+
 /** Stop from the playing notification: what plays, and what waits. */
 suspend fun stopTalkPlayback(context: Context) {
     val messaging = hub(context)

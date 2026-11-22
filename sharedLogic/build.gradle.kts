@@ -58,6 +58,8 @@ kotlin {
             implementation(libs.androidx.sqlite)
             // The live talk path (talk/LiveKitTransport.kt) and calls: LiveKit's client over the server's /rtc.
             api(libs.livekit.android)
+            // Silero VAD for hands-free bursts in the car (talk/SileroSpeechDetector.kt).
+            implementation(libs.onnxruntime.android)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)

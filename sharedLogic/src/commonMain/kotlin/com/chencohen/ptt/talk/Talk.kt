@@ -147,6 +147,9 @@ internal class Talk(
     private val awake: () -> Boolean,
 ) {
     var capture: TalkCapture? = null
+
+    /** A capture for the next bursts instead of the phone's (Android Auto's car microphone); null: the usual. */
+    var captureOverride: TalkCapture? = null
     var player: TalkPlayer? = null
     var host: TalkHost? = null
 
@@ -199,7 +202,7 @@ internal class Talk(
     private fun begin(chat: String, voiceOnly: Boolean) {
         if (outgoing != null) return
         // In the conversation's room, the room's microphone feeds the clip too.
-        val mic = (if (voiceOnly) null else live?.captureFor(chat)) ?: capture ?: return refuse(chat, OwnTalk.MIC)
+        val mic = captureOverride ?: (if (voiceOnly) null else live?.captureFor(chat)) ?: capture ?: return refuse(chat, OwnTalk.MIC)
         val out = Outgoing(chat, voiceOnly)
         out.mic = mic
         stopPlaying()
