@@ -315,7 +315,11 @@ what was shown (the server sends HIGH only to phones that registered notificatio
 [talk.md](screens/talk.md).
 
 - **A burst** (`Talk.press` / `release`). The microphone opens on the press (`TalkCapture`: 20 ms Opus packets,
-  24 kbit/s mono 48 kHz, `AndroidTalkCapture` on MediaCodec's Opus with the echo canceller and noise suppressor) and
+  24 kbit/s mono 48 kHz, `AndroidTalkCapture` on MediaCodec's Opus with the echo canceller, noise suppressor and
+  automatic gain control; while the button is held, `SpeakerphoneMic` gives the microphone the speakerphone's tuning
+  so a voice at arm's length is heard: communication mode with the built-in speaker as the communication device,
+  only for the press, then back to the normal mode so playback stays media; not with a headset or during a phone
+  call; logcat `TalkCapture` logs the first second's level) and
   `TalkStart` (a new 32-hex burst id, the conversation) goes on `/ws`. What is recorded before the answer is kept
   and sent first, so nothing of the start is lost. **GRANTED**: the burst is kept in the chat (`Clip`, kind BURST),
   its key goes in an encrypted "clip start" message (`Content.clip`, `ClipContent`, with PUSH_TALK), and each 200 ms
@@ -349,12 +353,16 @@ what was shown (the server sends HIGH only to phones that registered notificatio
   `Blob-Offset`) and its key in a `ClipContent` (kind VOICE, PUSH_MESSAGE). The outbox sends them as it sends texts.
   Voice messages and bursts get delivered receipts like texts, and notifications ("Voice message").
 - **Woken by `talk`** (`TalkMessagingService`): the wake-up runs on in the app's scope; when a burst should play
-  aloud, `AndroidTalkHost` registers a **talk session** with Telecom (Core-Telecom `CallsManager.addCall`, an
-  incoming audio call the app answers itself, "Talk · Family"), and `TalkSessionService` runs it as a phone-call
-  foreground service with a call-style notification and Leave. Telecom starts a call on the earpiece, so the session
-  moves itself to the loudspeaker (`requestEndpointChange`) unless a headset or Bluetooth device is the route
-  (2026-11-22, hen: bursts in the background played at phone-call volume); the session ends 20 s after the last burst (a reply
-  can follow), and `Messaging.wake` keeps `/ws` until then (at most 2 minutes). If Telecom refuses it (the plan's R1
+  aloud, `AndroidTalkHost` starts `TalkPlaybackService` (`TalkPlayback`), a **media-playback foreground service**
+  that the high-priority `talk` push may start from the background, with an ongoing notification "Talk · Family" and
+  Leave, and takes transient audio focus (others may duck). The burst plays as media (`AndroidTalkPlayer`,
+  USAGE_MEDIA): on the loudspeaker (or the headset or Bluetooth device in use) at media volume, like a walkie-talkie
+  (2026-11-22, hen: in a Telecom call session it played as call audio, and Android muted the media track during the
+  call). It ends 20 s after the last burst (a reply can follow), and `Messaging.wake` keeps `/ws` until then (at most
+  2 minutes). Only if Android refuses that service (no foreground-service exemption) or the focus (a phone call is
+  on) does the burst play in a **talk session** with Telecom instead (Core-Telecom `CallsManager.addCall`, an incoming
+  audio call the app answers itself, run by `TalkSessionService` as a phone-call service, moved to the loudspeaker
+  with `requestEndpointChange`); logcat's `TalkPlayback` line says which path ran. If neither starts (the plan's R1
   fallback) the talk notification shows instead. R1 itself (a Pixel and a Samsung asleep for 30 minutes) is still to
   be run on the phones.
 - **Stay connected** (`StayConnectedService`, Settings › Talk): a foreground service of types microphone and media
@@ -391,7 +399,8 @@ through ptt-server's `/rtc` (mTLS, like `/ws`), and `serverInfo.liveTalk` says w
 - **The microphone** is published only for a burst and unpublished (stopped) after it, so the microphone indicator
   shows only while talking (R3). While in the room the clip records from that same microphone (the track's sink,
   encoded to Opus by `SampleCapture`), so it isn't opened twice. The talker's phone publishes at the press, without
-  waiting for the grant; Busy stops it like the clip.
+  waiting for the grant; Busy stops it like the clip. LiveKit's track has WebRTC's echo canceller, noise suppressor
+  and gain control, and the press takes the speakerphone tuning (`SpeakerphoneMic`) like the clip path.
 - **Hearing.** A listener in the room waits up to 400 ms at STARTED for the talker's live audio to decrypt
   (`hearsLive`); if it does, the burst's clip is kept but not played (and acked). Otherwise the clip plays and that
   talker's live track for this burst is silenced, so the two never play over each other.
