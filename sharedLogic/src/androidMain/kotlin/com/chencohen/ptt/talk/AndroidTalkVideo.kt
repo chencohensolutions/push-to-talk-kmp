@@ -59,6 +59,26 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
         handler?.post { configure() }
     }
 
+    /**
+     * [surface] goes away: the camera stops drawing into it if it is the preview (a newer one is left as it is), then
+     * [released] runs, on the camera's thread, once it is safe to release.
+     */
+    fun clearPreview(surface: Surface, released: () -> Unit) {
+        val current = synchronized(lock) {
+            (preview === surface).also { if (it) preview = null }
+        }
+        val h = handler
+        if (h == null) {
+            released()
+            return
+        }
+        h.post {
+            if (current) configure()
+            // The old session lets go of its surfaces as it closes.
+            h.postDelayed(released, 300)
+        }
+    }
+
     @SuppressLint("MissingPermission")
     override fun warm() {
         synchronized(lock) {
@@ -242,9 +262,13 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
         runCatching { device.close() }
     }
 
+    /** Counts the sessions asked for: only the newest one runs (a rotation can ask twice in a row). */
+    private var sessions = 0
+
     private fun configure() {
         val device = camera ?: return
         val enc = encoderSurface ?: return
+        val asked = ++sessions
         runCatching { session?.close() }
         session = null
         val targets = listOfNotNull(enc, preview)
@@ -263,7 +287,7 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
                     object : CameraCaptureSession.StateCallback() {
                         override fun onConfigured(s: CameraCaptureSession) {
                             // The camera may have closed meanwhile (the screen left, or Video turned off).
-                            if (camera !== device) {
+                            if (camera !== device || asked != sessions) {
                                 runCatching { s.close() }
                                 return
                             }
@@ -279,7 +303,14 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
                             }
                         }
 
-                        override fun onConfigureFailed(s: CameraCaptureSession) { Log.w(TAG, "camera session failed") }
+                        override fun onConfigureFailed(s: CameraCaptureSession) {
+                            Log.w(TAG, "camera session failed")
+                            // A preview that went meanwhile: go on without it, so the camera keeps sending.
+                            if (asked == sessions && camera === device && preview != null) {
+                                synchronized(lock) { preview = null }
+                                configure()
+                            }
+                        }
                     },
                 ),
             )

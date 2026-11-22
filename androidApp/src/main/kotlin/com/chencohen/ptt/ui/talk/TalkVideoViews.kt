@@ -116,9 +116,16 @@ internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignmen
 
                         override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
                         override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
-                            capture.setPreview(null)
-                            surface?.release()
-                            return true
+                            // Let go only once the camera stopped drawing into it, and only if it is still the
+                            // preview: on a rotation the new view's surface can come before the old one goes.
+                            val gone = surface
+                            surface = null
+                            if (gone == null) return true
+                            capture.clearPreview(gone) {
+                                gone.release()
+                                texture.release()
+                            }
+                            return false
                         }
 
                         override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}

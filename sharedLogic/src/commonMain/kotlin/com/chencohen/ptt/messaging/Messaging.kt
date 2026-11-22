@@ -299,7 +299,11 @@ internal class Messaging(
     init {
         if (LIVE_TALK_AUDIO) talk.live = live
         talk.sendVideo = { talkSettings().pushVideo }
-        scope.launchCollect(calls.state) { c -> _state.update { it.copy(call = c) } }
+        scope.launchCollect(calls.state) { c ->
+            val was = _state.value.call != null
+            _state.update { it.copy(call = c) }
+            if (was != (c != null)) applyWarmCamera()
+        }
         scope.launchCollect(live.state) { l -> _state.update { it.copy(live = l) } }
         _state.update { it.copy(talkSettings = talkSettings()) }
         scope.launchCollect(socket.state) { socket -> _state.update { it.copy(socket = socket) } }
@@ -519,6 +523,35 @@ internal class Messaging(
 
     private fun updatePresence(p: UserPresence) {
         _state.update { it.copy(presence = it.presence + (p.user to p)) }
+    }
+
+    // --- Push-to-video's camera --------------------------------------------------------------------------------
+
+    /** The chat whose Talk screen wants the camera warm (push-to-video on); null: none. */
+    private var warmWanted: String? = null
+
+    /**
+     * Keeps push-to-video's camera open for [chat]'s Talk screen (null: lets it go). Never during a call: the call's
+     * camera is the same one, and opening it for the Talk screen under the call (it opened again when a rotation laid
+     * the screen out anew) took it from the call, whose video stopped until its camera was turned off and on
+     * (2026-11-22, hen). It warms again once the call ends, if the screen still wants it.
+     */
+    fun warmCamera(chat: String?) {
+        warmWanted = chat
+        applyWarmCamera()
+    }
+
+    private fun applyWarmCamera() {
+        val camera = talk.videoCapture ?: return
+        val chat = warmWanted?.takeIf { _state.value.call == null && talk.sendVideo() }
+        if (chat != null) {
+            if (talk.videoChat != chat) camera.cool()
+            talk.videoChat = chat
+            camera.warm()
+        } else {
+            talk.videoChat = null
+            camera.cool()
+        }
     }
 
     // --- Your devices (docs/screens/devices.md) ----------------------------------------------------------------
