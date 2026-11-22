@@ -81,7 +81,7 @@ internal fun clipLength(ms: Long): String {
  * teal ring while live, a faded ring and a muted circle while someone else talks.
  */
 @Composable
-internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Unit, release: () -> Unit, modifier: Modifier = Modifier, diameter: Dp = 220.dp) {
+internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Unit, release: () -> Unit, modifier: Modifier = Modifier, diameter: Dp = 220.dp, video: Boolean = false) {
     val label = stringResource(R.string.talk_button)
     val level = rememberVoiceLevel(live || someoneTalking)
     val glow = if (live) LibraryColors.Accent else LibraryColors.Inverse
@@ -115,7 +115,8 @@ internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Uni
         contentAlignment = Alignment.Center,
     ) {
         // The icon only (2026-11-22, hen); the label is for TalkBack.
-        Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp))
+        // A camera when the press sends video too (Voice | Video above it).
+        Icon(if (video) LibraryIcons.Video else LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp))
     }
 }
 
@@ -320,7 +321,8 @@ internal fun TalkModeScreen(
                 )
             }
             },
-            circle = { size -> TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release, diameter = size) },
+            circle = { size -> TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release, diameter = size, video = pushVideo) },
+            switch = { VoiceVideoSwitch(pushVideo, setPushVideo) },
             actions = { TalkChatActions(openChat, call, pushVideo = pushVideo, setPushVideo = setPushVideo, peerHere = peerHere) },
         )
         val upright = androidx.compose.ui.platform.LocalConfiguration.current.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -540,8 +542,8 @@ internal fun TalkChatActions(
     /** The other user has their Talk screen or bubble for this chat open now ("here"). */
     peerHere: Boolean = false,
 ) {
+    // Actions only, as on a contact's page; Voice | Video sits above the big button (2026-11-22, hen).
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-        PushVideoSwitch(pushVideo, setPushVideo)
         TalkChatAction(LibraryIcons.Chat, stringResource(R.string.talk_action_chat), onClick = openChat)
         TalkChatAction(LibraryIcons.Call, stringResource(R.string.call_voice)) { call(false) }
         // Glows when they are "here" (their Talk screen or bubble open): a video call they'll see at once.

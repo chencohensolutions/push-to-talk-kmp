@@ -135,10 +135,13 @@
     <string name="contact_rename_none">השם שהם בחרו</string>
     <string name="contact_rename_save">שמירה</string>
     <string name="contact_rename_cancel">ביטול</string>
+    <string name="talk_mode_voice">קול</string>
+    <string name="talk_mode_video">וידאו</string>
     <string name="talk_video_on">וידאו פועל</string>
     <string name="talk_video_off">וידאו כבוי</string>
     <string name="bubble_video">וידאו</string>
     <string name="talk_action_chat">צ׳אט</string>
+    <string name="calls_saving_section">שמירה</string>
     <string name="calls_ring_title">צלצול</string>
     <string name="calls_ring_soft">צליל רך של Talk</string>
     <string name="calls_ring_soft_body">צליל פעמונים עדין ועולה.</string>

@@ -53,7 +53,8 @@ internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change
                 settings.video60 && can60,
             ) { on -> if (can60) change(settings.copy(video60 = on)) }
         }
-        // Saving calls has its own screen (2026-11-22, hen).
+        // Saving calls has its own screen (2026-11-22, hen), under a header of its own like the others.
+        SectionTitle(stringResource(R.string.calls_saving_section))
         SettingsCard {
             com.chencohen.ptt.ui.style.InfoRow(stringResource(R.string.calls_save_title), stringResource(savingWords(settings.saveCalls)), onClick = openSaving)
         }

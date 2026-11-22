@@ -136,10 +136,13 @@
     <string name="contact_rename_none">Their own name</string>
     <string name="contact_rename_save">Save</string>
     <string name="contact_rename_cancel">Cancel</string>
+    <string name="talk_mode_voice">Voice</string>
+    <string name="talk_mode_video">Video</string>
     <string name="talk_video_on">Video on</string>
     <string name="talk_video_off">Video off</string>
     <string name="bubble_video">Video</string>
     <string name="talk_action_chat">Chat</string>
+    <string name="calls_saving_section">Saving</string>
     <string name="calls_ring_title">Ringtone</string>
     <string name="calls_ring_soft">Talk soft chime</string>
     <string name="calls_ring_soft_body">A gentle rising chime.</string>

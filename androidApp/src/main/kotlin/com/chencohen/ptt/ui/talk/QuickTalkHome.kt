@@ -151,8 +151,10 @@ internal fun QuickTalkHome(
                             press = { microphone { press(page.chat) } },
                             release = release,
                             diameter = size,
+                            video = pushVideo,
                         )
                     },
+                    switch = { VoiceVideoSwitch(pushVideo, setPushVideo) },
                     actions = {
                         TalkChatActions(
                             openChat = { openChat(page.chat) }, call = { v -> call(page.chat, v) },
