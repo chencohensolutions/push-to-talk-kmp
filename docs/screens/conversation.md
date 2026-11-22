@@ -15,7 +15,7 @@ Signal's conversation in the library's look. How texts, receipts, typing and pre
   opens their page.
 - **Texts**, newest at the bottom: theirs in Raised bubbles on the left, ours in Ink on the right; under each the time,
   and for ours how far it got: "Waiting to send" (the outbox), "Sent", "Delivered", "Read", or "Not sent · tap to try
-  again" (orange; a tap retries).
+  again" (orange; a tap retries). At the bottom, a new message scrolls into view; scrolled up, the list stays put.
 - **Bursts and voice messages** are bubbles with a Play button, a bar and their length ([talk.md](talk.md)).
 - **The line:** "Message", up to 5 lines, and **Send** (ink) once there is text; while it is empty, the microphone
   instead: hold it to record a voice message ([talk.md](talk.md)). Typing is told to them while the line has text.

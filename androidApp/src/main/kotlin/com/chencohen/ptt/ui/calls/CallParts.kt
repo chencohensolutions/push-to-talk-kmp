@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -274,11 +275,11 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             // Side by side in landscape, one above the other in portrait.
             if (landscape) {
                 Row(Modifier.fillMaxSize()) {
-                    remote.forEach { (user, track) -> key(user, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxSize().told(user), fill = fill) } }
+                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxSize().told(user), fill = fill) } }
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    remote.forEach { (user, track) -> key(user, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxWidth().told(user), fill = fill) } }
+                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxWidth().told(user), fill = fill) } }
                 }
             }
         }
@@ -371,7 +372,7 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
                     val shape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
                     val preview = if (shape >= 1f) Modifier.size(width = 160.dp, height = (160 / shape).dp) else Modifier.size(width = (160 * shape).dp, height = 160.dp)
                     Box(preview) {
-                        VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = false)
+                        key(own.sid ?: own.name) { VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = false) }
                         CropOutlines(shape, call.viewers.filterValues { it.fill }, nameOf, showNames = call.viewers.size > 1)
                     }
                 }
