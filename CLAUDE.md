@@ -63,6 +63,7 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
 ```sh
 ./gradlew :sharedLogic:testAndroidHostTest   # shared tests on the JVM
 ./gradlew :androidApp:assembleDebug
+./gradlew :androidApp:assembleRelease          # signed with ~/.talk-release/keystore.properties when it's there
 ./gradlew :sharedLogic:syncServerSchema      # copy the GraphQL schema and ptt.proto from ../push-to-talk-server-go
 ```
 
