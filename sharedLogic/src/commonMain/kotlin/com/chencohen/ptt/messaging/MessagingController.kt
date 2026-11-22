@@ -150,6 +150,34 @@ class MessagingController internal constructor(
         }
     }
 
+    /** This user's phones (Settings › Your devices); null with the error's message when they couldn't be read. */
+    fun loadDevices(done: (List<OwnDevice>?, String?) -> Unit) {
+        scope.launch {
+            val result = try {
+                withContext(work) { messaging.myDevices() } to null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null to e.describe()
+            }
+            done(result.first, result.second)
+        }
+    }
+
+    /** Revokes another phone of this user; [done] gets null when it is, else why not. */
+    fun revokeDevice(deviceNumber: Int, done: (String?) -> Unit) {
+        scope.launch {
+            val error = try {
+                if (withContext(work) { messaging.revokeDevice(deviceNumber) }) null else "This phone can't revoke itself"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                e.describe()
+            }
+            done(error)
+        }
+    }
+
     /**
      * A new Link a phone code (docs/screens/link-phone.md); null with the error's message when it couldn't be made.
      * [MessagingState.linkedDevice] says when a phone was linked with it.

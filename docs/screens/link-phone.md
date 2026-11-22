@@ -1,7 +1,7 @@
 # Link a phone
 
-`ui/settings/LinkPhoneScreen.kt`, `MessagingController.makeLinkCode`; opened from [Settings](settings.md), Linked
-devices. A QR code that the user's new phone scans when it registers: it joins this account and gets the keys and
+`ui/settings/LinkPhoneScreen.kt`, `MessagingController.makeLinkCode`; opened from [Your devices](devices.md), Link a
+phone. A QR code that the user's new phone scans when it registers: it joins this account and gets the keys and
 contacts from this phone, sealed end to end. How it works is in [design.md](../design.md), "Linking a phone".
 
 - **Loading** while the code is made (a new one each time the page opens).

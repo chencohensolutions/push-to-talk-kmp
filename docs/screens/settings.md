@@ -8,8 +8,8 @@ and each time the connection's state changes.
 
 - **This phone:** the device name, with "account · device N" under it ("Not registered" before enrolling). The device
   number comes from the server (`me`, `serverInfo.deviceNumber`).
-- **Linked devices:** "Link a phone: your new phone joins this account with your contacts." Opens
-  [Link a phone](link-phone.md).
+- **Your devices:** "Your phones on this account: when each was last on, remove one, or link a new one." Opens
+  [Your devices](devices.md).
 - **Register again** (red): "Enroll this phone again with a new code, at this server or another." Opens the
   [enrollment wizard](enrollment.md). A new enrollment replaces the identity and forgets what was kept of the old
   server.

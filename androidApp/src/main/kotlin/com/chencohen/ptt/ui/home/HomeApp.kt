@@ -69,6 +69,8 @@ import com.chencohen.ptt.ui.contacts.InviteScreen
 import com.chencohen.ptt.ui.contacts.ConversationActions
 import com.chencohen.ptt.ui.contacts.ConversationHeader
 import com.chencohen.ptt.ui.contacts.ConversationScreen
+import com.chencohen.ptt.ui.settings.DevicesScreen
+import com.chencohen.ptt.ui.settings.DevicesView
 import com.chencohen.ptt.ui.settings.LinkPhoneScreen
 import com.chencohen.ptt.ui.settings.LinkPhoneView
 import com.chencohen.ptt.ui.contacts.AddContactActions
@@ -313,7 +315,7 @@ fun HomeApp(
                         back = ::pop,
                         refresh = settings::refresh,
                         registerAgain = onRegisterAgain,
-                        linkPhone = { push("link") },
+                        linkPhone = { push("devices") },
                         openTalk = { push("talksettings") },
                         openCalls = { push("callsettings") },
                         updates = updates,
@@ -349,6 +351,36 @@ fun HomeApp(
                     back = ::pop,
                     change = { new -> onTalkSettings(new) },
                 )
+                name == "devices" -> {
+                    // Read each time the page opens; a removed phone leaves the list once the server says so.
+                    var view by remember { mutableStateOf<DevicesView>(DevicesView.Loading) }
+                    fun load() {
+                        messaging.loadDevices { devices, error ->
+                            view = devices?.let { DevicesView.Showing(it) } ?: DevicesView.Failed(error.orEmpty())
+                        }
+                    }
+                    LaunchedEffect(Unit) { load() }
+                    DevicesScreen(
+                        view = view,
+                        now = System.currentTimeMillis(),
+                        back = ::pop,
+                        again = {
+                            view = DevicesView.Loading
+                            load()
+                        },
+                        revoke = { device ->
+                            (view as? DevicesView.Showing)?.let { view = it.copy(revoking = device.deviceNumber) }
+                            messaging.revokeDevice(device.deviceNumber) { error ->
+                                messages.post(
+                                    if (error == null) resources.getString(R.string.devices_removed, device.name)
+                                    else resources.getString(R.string.devices_remove_failed, error),
+                                )
+                                load()
+                            }
+                        },
+                        linkPhone = { push("link") },
+                    )
+                }
                 name == "link" -> {
                     // A new code each time the page opens; the phone linked with it shows once its answer went out.
                     var view by remember { mutableStateOf<LinkPhoneView>(LinkPhoneView.Loading) }

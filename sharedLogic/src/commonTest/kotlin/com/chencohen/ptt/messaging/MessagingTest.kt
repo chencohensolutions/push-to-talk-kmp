@@ -363,6 +363,37 @@ class MessagingTest {
     }
 
     @Test
+    fun aPhoneSeesItsUsersPhonesAndRevokesAnother() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val (code, _) = hen.messaging.newLinkCode()
+        val second = Phone(server, "hen", 2, this, 3)
+        second.settings.pendingLink = code.format()
+        second.controller.start()
+        advanceUntilIdle()
+
+        // This phone first, then by number; Dana's phone isn't hen's.
+        val devices = hen.messaging.myDevices()
+        assertEquals(listOf(1, 2), devices.map { it.deviceNumber })
+        assertTrue(devices[0].current)
+        assertFalse(devices[1].current)
+
+        // Not itself; the other one, and then it gets nothing more.
+        assertFalse(hen.messaging.revokeDevice(1))
+        assertTrue(hen.messaging.revokeDevice(2))
+        assertTrue(DeviceAddress("hen", 2) in server.revoked)
+        assertEquals(listOf(1), hen.messaging.myDevices().map { it.deviceNumber })
+        dana.messaging.sendText("hen", "only the first")
+        advanceUntilIdle()
+        assertEquals("only the first", hen.state.lastMessages["dana"]?.body)
+        assertTrue(second.state.lastMessages["dana"]?.body != "only the first")
+
+        listOf(hen, dana, second).forEach { it.stop() }
+    }
+
+    @Test
     fun aLinkRequestWithoutTheCodesSecretGetsNothing() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)

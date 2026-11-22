@@ -68,6 +68,8 @@ internal class FakeServer {
 
     /** Link codes (createLinkCode) and whose they are. */
     val linkCodes = mutableMapOf<String, String>()
+    /** Devices revoked from another phone of their user (revokeMyDevice). */
+    val revoked = mutableSetOf<DeviceAddress>()
     val blocks = mutableSetOf<Pair<String, String>>()
     val queues = mutableMapOf<DeviceAddress, MutableList<Envelope>>()
     private val connections = mutableMapOf<DeviceAddress, Connection>()
@@ -173,6 +175,19 @@ internal class FakeServer {
         override suspend fun presence(users: List<String>): List<UserPresence> = users.filter { setOf(it, device.user) in pairs }.map { u ->
             val hidden = u in presenceHidden || device.user in presenceHidden
             UserPresence(u, !hidden && connections.keys.any { it.user == u }, null)
+        }
+
+        override suspend fun myDevices(): List<OwnDevice> = keys.keys.filter { it.user == device.user }.map {
+            OwnDevice(it.device, "Phone ${it.device}", 1_800_000_000_000, if (it in connections) 1_800_000_060_000 else null, it == device, "STRONGBOX")
+        }
+
+        override suspend fun revokeMyDevice(deviceNumber: Int): String {
+            if (deviceNumber == device.device) return "CURRENT_DEVICE"
+            val gone = DeviceAddress(device.user, deviceNumber)
+            if (keys.remove(gone) == null) return "NOT_FOUND"
+            queues.remove(gone)
+            revoked += gone
+            return "REVOKED"
         }
 
         override suspend fun createLinkCode(): Pair<String, String> {
