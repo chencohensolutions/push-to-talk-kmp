@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -129,13 +130,44 @@ internal fun ConversationScreen(
                 warning = true,
             )
         }
-        LazyColumn(
-            Modifier.weight(1f).fillMaxWidth(),
-            reverseLayout = true,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions, talk.playing, showAuthor = group != null) }
+        // The newest is item 0 (the list is upside down). At the bottom (or one item from it) a new message scrolls into
+        // view; scrolled up, a "New message" chip shows instead; what this phone sends always scrolls (2026-11-22, hen).
+        val list = androidx.compose.foundation.lazy.rememberLazyListState()
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        var unseen by androidx.compose.runtime.remember(user) { androidx.compose.runtime.mutableStateOf(false) }
+        val newest = messages.lastOrNull()
+        LaunchedEffect(newest?.id) {
+            if (newest == null) return@LaunchedEffect
+            if (newest.outgoing || list.firstVisibleItemIndex <= 1) {
+                list.animateScrollToItem(0)
+                unseen = false
+            } else {
+                unseen = true
+            }
+        }
+        val atBottom by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
+        LaunchedEffect(atBottom) { if (atBottom) unseen = false }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                state = list,
+                reverseLayout = true,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions, talk.playing, showAuthor = group != null) }
+            }
+            if (unseen) {
+                Text(
+                    stringResource(R.string.chat_new_message),
+                    color = LibraryColors.OnInverse,
+                    style = LibraryType.Small,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)
+                        .background(LibraryColors.Inverse, androidx.compose.foundation.shape.CircleShape)
+                        .clickable(role = Role.Button) { scope.launch { list.animateScrollToItem(0) } }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
         }
         when {
             group != null -> if (group.note != null) Note(group.note) else Composer(user, actions, talk)

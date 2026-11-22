@@ -117,6 +117,7 @@
     <string name="kept_failed">לא הצלחנו לפתוח את השיחה. נסו שוב מאוחר יותר.</string>
     <string name="kept_play">ניגון</string>
     <string name="kept_pause">השהיה</string>
+    <string name="chat_new_message">הודעה חדשה ↓</string>
     <string name="calls_folder_note">שמירה כקובץ בשיחה שהשרת שמר כותבת לשם קובץ וידאו אחד, עם התמונה והקול של כולם. כל תיקייה: בטלפון, בכרטיס SD או בכונן USB. הקובץ נשאר שם גם אחרי הסרת האפליקציה.</string>
     <string name="calls_folder_gone">%1$s (לא נמצאת עכשיו)</string>
     <string name="calls_folder_default">הורדות › Talk</string>

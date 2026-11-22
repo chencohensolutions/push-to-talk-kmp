@@ -118,6 +118,7 @@
     <string name="kept_failed">The call couldn\'t be opened. Try again later.</string>
     <string name="kept_play">Play</string>
     <string name="kept_pause">Pause</string>
+    <string name="chat_new_message">New message ↓</string>
     <string name="calls_folder_note">Save as file on a call the server kept writes one video file there, with everyone\'s picture and voice. Any folder: the phone, an SD card or a USB drive. It stays there after the app is removed.</string>
     <string name="calls_folder_gone">%1$s (not there now)</string>
     <string name="calls_folder_default">Downloads › Talk</string>
