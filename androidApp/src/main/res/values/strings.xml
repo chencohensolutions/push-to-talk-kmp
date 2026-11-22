@@ -500,4 +500,6 @@
     <string name="update_check_now">Check now</string>
     <string name="update_channel">App updates</string>
     <string name="update_notification_body">Tap to update. Android asks you to confirm.</string>
+    <string name="update_automatic">Install updates automatically</string>
+    <string name="update_automatic_body">When nothing is going on: no call or talk, the app closed. Off: a notification, and you tap to update.</string>
 </resources>

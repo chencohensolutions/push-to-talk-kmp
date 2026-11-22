@@ -49,4 +49,17 @@ class AppUpdateTest {
         assertFalse(AppUpdate.notify(offer, "1.3.0"))
         assertFalse(AppUpdate.notify(null, null))
     }
+
+    @Test
+    fun installsOnlyWhenNothingIsGoingOn() {
+        val quiet = com.chencohen.ptt.messaging.MessagingState()
+        assertTrue(AppUpdate.quiet(quiet))
+        val t = com.chencohen.ptt.talk.TalkUiState()
+        assertFalse(AppUpdate.quiet(quiet.copy(talk = t.copy(own = com.chencohen.ptt.talk.OwnTalk("dana", "c1", com.chencohen.ptt.talk.TalkPhase.TALKING, 0)))))
+        assertFalse(AppUpdate.quiet(quiet.copy(talk = t.copy(playing = com.chencohen.ptt.talk.NowPlaying("dana", "c1", "dana", live = true)))))
+        assertFalse(AppUpdate.quiet(quiet.copy(talk = t.copy(queued = listOf("c2")))))
+        assertFalse(AppUpdate.quiet(quiet.copy(talk = t.copy(talkers = mapOf("dana" to com.chencohen.ptt.talk.Talker("dana", 1, "c1", 0))))))
+        assertFalse(AppUpdate.quiet(quiet.copy(live = com.chencohen.ptt.talk.LiveState(room = "dana"))))
+        assertFalse(AppUpdate.quiet(quiet.copy(live = com.chencohen.ptt.talk.LiveState(joining = true))))
+    }
 }

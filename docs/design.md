@@ -468,14 +468,23 @@ SHA-256) and whether a push notifies (`notify`: once per version). `AppUpdates` 
 - **When it looks:** on an `app_update` push (`TalkMessagingService`), each time the app comes to the screen
   (`MainActivity.onStart`), and on Settings › App updates › **Check now**: the server's `appRelease` query (version,
   APK address, size, SHA-256, notes), compared with the app's own version.
-- **Offer:** after a push, a notification "Talk 1.3.0 is available", "Tap to update. Android asks you to confirm."
-  (once per version, its own channel, App updates); a home card on Talk and Chats with **Update**; Settings says where
-  it stands (up to date and when it looked, downloading with a percentage, installing, failed with why).
+- **Automatic** (Settings › App updates › Install updates automatically, on by default; 2026-11-22, hen: updates with no
+  intervention): after a push, or when the app opens and the server has a newer release, `UpdateWorker` (WorkManager:
+  network, battery not low) downloads and installs it in the background. It installs only when nothing is going on
+  (`AppUpdate.quiet`: no call, no talk playing, queued or held, no live room) and the app isn't on screen, and tries
+  again every few minutes otherwise; installing restarts the app. The session asks for no confirmation
+  (`USER_ACTION_NOT_REQUIRED`, and update ownership on Android 14+), which Android grants once Talk installed the
+  version on the phone itself (installer of record): the first update of a phone installed by hand needs one
+  confirmation, later ones none. When Android still wants the user, its screen isn't popped from the background: the
+  notification "Talk 1.3.0 is available. Tap to update." opens it. Install unknown apps off: the notification too,
+  once per version. Off: a notification once per version, and the update starts on its tap.
+- **Offer:** a home card on Talk and Chats with **Update**; Settings says where it stands (up to date and when it
+  looked, downloading with a percentage, installing, failed with why).
 - **Update** (the card, the notification's tap, or Settings): with Install unknown apps off for Talk, Android's page
   for it opens first (then Update again). The APK is downloaded to the cache, its SHA-256 checked against the
   server's, and it must be this package, a higher version code, and signed with the same key. Then PackageInstaller
-  installs it, asking Android not to need the user's confirmation (Android 12+, `USER_ACTION_NOT_REQUIRED`); when
-  Android still asks, its confirm screen shows. The app restarts on the new version with its data and enrollment.
+  installs it; when Android asks, its confirm screen shows. The app restarts on the new version with its data and
+  enrollment.
 - **Debug builds** don't update (another key): Settings says "This is a test build", and a push shows nothing.
 
 ## Next

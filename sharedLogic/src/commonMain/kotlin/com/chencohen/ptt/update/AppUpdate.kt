@@ -49,6 +49,14 @@ object AppUpdate {
     /** Whether an `app_update` push shows a notification: an offer not notified before ([notified], its version). */
     fun notify(offer: AppRelease?, notified: String?): Boolean = offer != null && offer.version != notified
 
+    /**
+     * Whether an update may install now without cutting anything off: no call, nothing played or queued, no burst of
+     * this phone's or anyone's, no live room. Installing restarts the app.
+     */
+    fun quiet(state: com.chencohen.ptt.messaging.MessagingState): Boolean =
+        state.call == null && state.talk.own == null && state.talk.playing == null && state.talk.queued.isEmpty() &&
+            state.talk.talkers.isEmpty() && state.live.room == null && !state.live.joining
+
     private fun parts(version: String): List<Int>? {
         val core = version.substringBefore('-').substringBefore('+')
         val numbers = core.split('.').map { it.toIntOrNull() ?: return null }

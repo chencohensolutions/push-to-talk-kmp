@@ -57,6 +57,8 @@ object AppUpdates {
     private const val PREFS = "app_updates"
     private const val KEY_LAST_CHECK = "last_check"
     private const val KEY_NOTIFIED = "notified_version"
+    private const val KEY_AUTO = "install_automatically"
+    private const val WORK = "app_update"
     private const val ACTION_INSTALLED = "com.chencohen.ptt.UPDATE_INSTALLED"
     const val ACTION_UPDATE = "com.chencohen.ptt.UPDATE"
     private const val CHANNEL = "app_updates"
@@ -64,6 +66,90 @@ object AppUpdates {
 
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Latest(0))
     val state: StateFlow<UpdateState> = _state.asStateFlow()
+
+    private val _automatic = MutableStateFlow(true)
+    /** Settings › App updates › Install updates automatically (on unless turned off). */
+    val automatic: StateFlow<Boolean> = _automatic.asStateFlow()
+
+    /** The install session now in flight was started by UpdateWorker, with nobody looking: never pop Android's screen. */
+    @Volatile
+    private var unattended = false
+
+    fun loadAutomatic(context: Context) {
+        _automatic.value = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_AUTO, true)
+    }
+
+    fun setAutomatic(app: TalkApp, on: Boolean) {
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_AUTO, on).apply()
+        _automatic.value = on
+        if (on) (_state.value as? UpdateState.Available)?.let { schedule(app) } else androidx.work.WorkManager.getInstance(app).cancelUniqueWork(WORK)
+    }
+
+    /**
+     * Updates with nobody's help (2026-11-22, hen): UpdateWorker downloads and installs in the background once the
+     * network is there and nothing is going on (AppUpdate.quiet, the app not on screen), and tries again later
+     * otherwise.
+     */
+    fun schedule(app: TalkApp) {
+        if (debuggable(app) || !_automatic.value) return
+        val request = androidx.work.OneTimeWorkRequestBuilder<UpdateWorker>()
+            .setConstraints(
+                androidx.work.Constraints.Builder()
+                    .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                    .setRequiresBatteryNotLow(true)
+                    .build(),
+            )
+            .setBackoffCriteria(androidx.work.BackoffPolicy.LINEAR, 2, java.util.concurrent.TimeUnit.MINUTES)
+            .build()
+        androidx.work.WorkManager.getInstance(app).enqueueUniqueWork(WORK, androidx.work.ExistingWorkPolicy.KEEP, request)
+        Log.i(TAG, "automatic update scheduled")
+    }
+
+    /** UpdateWorker's run: false to try again later. */
+    internal suspend fun installUnattended(app: TalkApp): Boolean {
+        if (debuggable(app) || !_automatic.value) return true
+        val offer = AppUpdate.offer(appRelease(app), currentVersion(app)) ?: return true
+        if (!app.packageManager.canRequestPackageInstalls()) {
+            // Install unknown apps is off: only the user can turn it on. Tell them once.
+            notifyOnce(app, offer)
+            return true
+        }
+        if (busy()) return false
+        if (onScreen() || !talkQuiet(app)) {
+            Log.i(TAG, "automatic update waits: the app is in use")
+            return false
+        }
+        _state.value = UpdateState.Downloading(offer, 0)
+        val file = try {
+            withContext(Dispatchers.IO) { download(app, offer) }
+        } catch (e: Exception) {
+            _state.value = UpdateState.Available(offer)
+            throw e
+        }
+        if (onScreen() || !talkQuiet(app)) {
+            _state.value = UpdateState.Available(offer)
+            return false
+        }
+        _state.value = UpdateState.Installing(offer)
+        unattended = true
+        withContext(Dispatchers.IO) { install(app, file) }
+        Log.i(TAG, "automatic update to ${offer.version} committed")
+        return true
+    }
+
+    private fun onScreen(): Boolean {
+        val info = android.app.ActivityManager.RunningAppProcessInfo()
+        android.app.ActivityManager.getMyMemoryState(info)
+        return info.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+    }
+
+    private fun notifyOnce(app: TalkApp, offer: AppRelease) {
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (AppUpdate.notify(offer, prefs.getString(KEY_NOTIFIED, null))) {
+            notify(app, offer)
+            prefs.edit().putString(KEY_NOTIFIED, offer.version).apply()
+        }
+    }
 
     fun currentVersion(context: Context): String = packageInfo(context).versionName.orEmpty()
 
@@ -75,9 +161,10 @@ object AppUpdates {
             _state.value = UpdateState.DebugBuild
             return
         }
+        loadAutomatic(app)
         val last = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_LAST_CHECK, 0)
         if (_state.value is UpdateState.Latest) _state.value = UpdateState.Latest(last)
-        check(app)
+        check(app) { offer -> if (offer != null) schedule(app) }
     }
 
     /** Check now (Settings), and when the app comes to the screen: the server's appRelease. */
@@ -107,18 +194,19 @@ object AppUpdates {
         }
     }
 
-    /** An `app_update` push: read the server's release and, once per version, show the notification. */
+    /**
+     * An `app_update` push: read the server's release; with Install updates automatically, UpdateWorker installs it,
+     * else (or when Android needs the user) a notification once per version.
+     */
     fun onPush(app: TalkApp) {
         if (debuggable(app)) {
             Log.i(TAG, "app_update push: a debug build doesn't update itself")
             return
         }
+        loadAutomatic(app)
         check(app) { offer ->
-            val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            if (AppUpdate.notify(offer, prefs.getString(KEY_NOTIFIED, null)) && offer != null) {
-                notify(app, offer)
-                prefs.edit().putString(KEY_NOTIFIED, offer.version).apply()
-            }
+            if (offer == null) return@check
+            if (_automatic.value) schedule(app) else notifyOnce(app, offer)
         }
     }
 
@@ -170,6 +258,7 @@ object AppUpdates {
             return
         }
         _state.value = UpdateState.Downloading(release, 0)
+        unattended = false
         app.scope.launch {
             try {
                 val file = withContext(Dispatchers.IO) { download(app, release) }
@@ -238,7 +327,12 @@ object AppUpdates {
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(app.packageName)
             setSize(file.length())
+            // No confirmation when Android allows it: Talk installed the version on the phone itself (installer of
+            // record), so later updates go through with nobody's help.
             if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+            if (Build.VERSION.SDK_INT >= 33) setPackageSource(PackageInstaller.PACKAGE_SOURCE_OTHER)
+            // Talk keeps owning its updates, so no other installer takes them over (Android 14+).
+            if (Build.VERSION.SDK_INT >= 34) setRequestUpdateOwnership(true)
         }
         val id = installer.createSession(params)
         installer.openSession(id).use { session ->
@@ -259,7 +353,15 @@ object AppUpdates {
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java) ?: return
-                context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                val release = (_state.value as? UpdateState.Installing)?.release
+                if (unattended && release != null) {
+                    // In the background Android's screen isn't popped: the notification opens it.
+                    Log.i(TAG, "Android wants the user to confirm the update: notification")
+                    _state.value = UpdateState.Available(release)
+                    notifyConfirm(context, release, confirm)
+                } else {
+                    context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
             }
             PackageInstaller.STATUS_SUCCESS -> Log.i(TAG, "updated")
             else -> {
@@ -273,6 +375,20 @@ object AppUpdates {
                 }
             }
         }
+    }
+
+    /** "Talk x is available. Tap to update." opening Android's own confirm screen for the session waiting on it. */
+    private fun notifyConfirm(context: Context, release: AppRelease, confirm: Intent) {
+        if (context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val open = PendingIntent.getActivity(context, NOTIFICATION_ID + 1, confirm, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification = NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.update_available, release.version))
+            .setContentText(context.getString(R.string.update_notification_body))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
     }
 
     private fun packageInfo(context: Context, flags: Int = 0): PackageInfo =
@@ -294,4 +410,18 @@ object AppUpdates {
 /** PackageInstaller's results for an update session (AppUpdates.install). */
 class UpdateInstallReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) = AppUpdates.installed(context, intent)
+}
+
+/** Installs an app update in the background when nothing is going on (AppUpdates.schedule). */
+class UpdateWorker(context: Context, params: androidx.work.WorkerParameters) : androidx.work.CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val app = applicationContext as TalkApp
+        AppUpdates.loadAutomatic(app)
+        return try {
+            if (AppUpdates.installUnattended(app)) Result.success() else Result.retry()
+        } catch (e: Exception) {
+            Log.w("AppUpdates", "automatic update", e)
+            if (runAttemptCount < 5) Result.retry() else Result.failure()
+        }
+    }
 }

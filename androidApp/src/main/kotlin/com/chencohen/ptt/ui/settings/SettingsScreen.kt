@@ -50,6 +50,9 @@ internal fun SettingsScreen(
     updates: com.chencohen.ptt.UpdateState = com.chencohen.ptt.UpdateState.Latest(0),
     checkUpdates: () -> Unit = {},
     update: (com.chencohen.ptt.update.AppRelease) -> Unit = {},
+    /** Install updates automatically (on by default). */
+    automaticUpdates: Boolean = true,
+    setAutomaticUpdates: (Boolean) -> Unit = {},
 ) {
     LaunchedEffect(Unit) { refresh() }
     SettingsScaffold(stringResource(R.string.settings_title), back) {
@@ -93,7 +96,7 @@ internal fun SettingsScreen(
         SettingsCard {
             InfoRow(stringResource(R.string.calls_save_title), stringResource(R.string.settings_calls_body), onClick = openCalls)
         }
-        UpdatesSection(updates, checkUpdates, update)
+        UpdatesSection(updates, checkUpdates, update, automaticUpdates, setAutomaticUpdates)
         ServerSection(state)
         AppVersionLine()
     }
@@ -101,7 +104,13 @@ internal fun SettingsScreen(
 
 /** App updates: the latest release or what is happening, Update, and Check now. */
 @Composable
-private fun UpdatesSection(updates: com.chencohen.ptt.UpdateState, check: () -> Unit, update: (com.chencohen.ptt.update.AppRelease) -> Unit) {
+private fun UpdatesSection(
+    updates: com.chencohen.ptt.UpdateState,
+    check: () -> Unit,
+    update: (com.chencohen.ptt.update.AppRelease) -> Unit,
+    automatic: Boolean,
+    setAutomatic: (Boolean) -> Unit,
+) {
     SectionTitle(stringResource(R.string.update_title))
     SettingsCard {
         when (updates) {
@@ -134,6 +143,8 @@ private fun UpdatesSection(updates: com.chencohen.ptt.UpdateState, check: () -> 
             com.chencohen.ptt.UpdateState.DebugBuild -> InfoRow(stringResource(R.string.update_debug), stringResource(R.string.update_debug_body))
         }
         if (updates !is com.chencohen.ptt.UpdateState.DebugBuild) {
+            RowDivider()
+            com.chencohen.ptt.ui.talk.SwitchRow(stringResource(R.string.update_automatic), stringResource(R.string.update_automatic_body), automatic, setAutomatic)
             RowDivider()
             InfoRow(stringResource(R.string.update_check_now), null, onClick = check)
         }
