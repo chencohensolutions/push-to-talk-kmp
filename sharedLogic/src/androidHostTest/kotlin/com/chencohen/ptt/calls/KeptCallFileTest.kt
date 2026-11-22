@@ -98,4 +98,48 @@ class KeptCallFileTest {
         }
         scratch.deleteRecursively()
     }
+
+    @Test
+    fun redAudioIsUnwrappedAfterDecrypting() {
+        val primary = byteArrayOf(0x78, 1, 2, 3, 4)
+        val older = byteArrayOf(0x78, 9, 9)
+        // One redundant block (type 111, offset 960, length 3), then the primary (type 111).
+        val red = byteArrayOf((0x80 or 111).toByte(), 0x0F, 0x00, 3, 111) + older + primary
+        assertContentEquals(primary, LiveKitFrames.redPrimary(red))
+        assertContentEquals(primary, LiveKitFrames.redPrimary(byteArrayOf(111) + primary), "RED without redundancy")
+        assertNull(LiveKitFrames.redPrimary(byteArrayOf((0x80 or 111).toByte(), 0, 0, 50, 111, 1)), "blocks longer than the packet")
+    }
+
+    @Test
+    fun aKeptCallWithRedAudioPlaysItsOpus() = runTest {
+        val manifest = Json.parseToJsonElement(resource("manifest.json").decodeToString()).jsonObject
+        val callKey = manifest["key"]!!.jsonPrimitive.content
+        val key = LiveKitFrames.key(callKey.encodeToByteArray())
+        // Hen's audio as the phones send it now: each Opus frame wrapped in RED with the one before, then encrypted whole.
+        val records = java.io.ByteArrayOutputStream()
+        val input = java.io.DataInputStream(resource("hen-audio.blob").inputStream())
+        var previous: ByteArray? = null
+        var n = 0
+        while (input.available() > 0) {
+            val length = input.readInt()
+            val us = input.readLong()
+            val flags = input.readUnsignedByte()
+            val frame = ByteArray(length - 9).also { input.readFully(it) }
+            val opus = LiveKitFrames.decrypt(key, frame, LiveKitFrames.OPUS)!!
+            val red = previous?.let { p -> byteArrayOf((0x80 or 111).toByte(), 0x03, (0xC0 or (p.size shr 8)).toByte(), p.size.toByte(), 111) + p + opus }
+                ?: (byteArrayOf(111) + opus)
+            val sealed = LiveKitFrames.encrypt(key, red, LiveKitFrames.RED, ByteArray(12) { (it + n).toByte() })
+            java.io.DataOutputStream(records).apply { writeInt(9 + sealed.size); writeLong(us); writeByte(flags); write(sealed) }
+            previous = opus
+            n++
+        }
+        val blob = records.toByteArray()
+        val tracks = listOf(KeptTrack("red", "hen.1", "audio", "audio/red", "2026-11-22T16:00:00Z", blob.size, true))
+        val out = java.io.ByteArrayOutputStream()
+        val made = KeptCallFile({ _, onBytes -> onBytes(blob) }, Files.createTempDirectory("kept").toFile()).make(callKey, tracks, { it }, out)
+        assertEquals(0, made.unreadable)
+        assertEquals(n, made.frames, "every RED packet gave its Opus frame")
+        assertEquals(KeptCallFile.Person("hen.1", "hen", null, 1), made.people.single())
+        File("build/kept-red.mkv").writeBytes(out.toByteArray())
+    }
 }

@@ -68,7 +68,13 @@ class LiveKitCallTransport(
         provider.setSharedKey(Base64.encodeToString(key, Base64.NO_WRAP), 0)
         val room = LiveKit.create(
             appContext,
-            RoomOptions(e2eeOptions = E2EEOptions(keyProvider = provider)),
+            RoomOptions(
+                e2eeOptions = E2EEOptions(keyProvider = provider),
+                // The camera's own 4:3 picture, uncropped (2026-11-22, hen): the phone that shows it fits or fills.
+                videoTrackCaptureDefaults = io.livekit.android.room.track.LocalVideoTrackOptions(
+                    captureParams = io.livekit.android.room.track.VideoPreset43.H720.capture,
+                ),
+            ),
             LiveKitOverrides(okHttpClient = okHttp(), eglBase = egl),
         )
         events = scope.launch { room.events.events.collect { onEvent(room, it) } }

@@ -37,13 +37,15 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
     suspend fun make(callKey: String, tracks: List<KeptTrack>, nameOf: (String) -> String, out: java.io.OutputStream, progress: (Float) -> Unit = {}): Made {
         val key = LiveKitFrames.key(callKey.encodeToByteArray())
         scratch.mkdirs()
-        val usable = tracks.filter { it.codec.equals(LiveKitFrames.OPUS, true) || it.codec.equals(LiveKitFrames.VP8, true) || it.codec.equals(LiveKitFrames.H264, true) }
+        val usable = tracks.filter { t -> listOf(LiveKitFrames.OPUS, LiveKitFrames.RED, LiveKitFrames.VP8, LiveKitFrames.H264).any { t.codec.equals(it, true) } }
+        // RED is Opus once unwrapped: one audio track per person either way.
+        fun codecOf(t: KeptTrack) = if (t.codec.equals(LiveKitFrames.RED, true)) LiveKitFrames.OPUS.lowercase() else t.codec.lowercase()
         val groups = linkedMapOf<Triple<String, String, String>, Group>()
         // People in the order they first appear; video before audio for each.
         val ordered = usable.sortedWith(compareBy({ it.identity }, { if (it.kind == "video") 0 else 1 }, { it.recordingStartedAt }))
         for (t in ordered) {
-            val k = Triple(t.identity, t.kind, t.codec.lowercase())
-            groups.getOrPut(k) { Group(t.identity, t.kind == "video", t.codec, File.createTempFile("kept-", ".frames", scratch)) }
+            val k = Triple(t.identity, t.kind, codecOf(t))
+            groups.getOrPut(k) { Group(t.identity, t.kind == "video", codecOf(t), File.createTempFile("kept-", ".frames", scratch)) }
         }
         val total = usable.sumOf { it.size.toLong() }.coerceAtLeast(1)
         var done = 0L
@@ -51,7 +53,8 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
         val writers = groups.values.associateWith { DataOutputStream(it.file.outputStream().buffered(1 shl 16)) }
         try {
             for (t in usable.sortedBy { it.recordingStartedAt }) {
-                val g = groups.getValue(Triple(t.identity, t.kind, t.codec.lowercase()))
+                val g = groups.getValue(Triple(t.identity, t.kind, codecOf(t)))
+                val red = t.codec.equals(LiveKitFrames.RED, true)
                 val w = writers.getValue(g)
                 val startUs = epochMicros(t.recordingStartedAt)
                 val raw = File.createTempFile("kept-", ".blob", scratch)
@@ -70,7 +73,7 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
                             val us = input.readLong()
                             val flags = input.readUnsignedByte()
                             val frame = ByteArray(length - 9).also { input.readFully(it) }
-                            val plain = LiveKitFrames.decrypt(key, frame, t.codec)
+                            val plain = LiveKitFrames.decrypt(key, frame, t.codec)?.let { if (red) LiveKitFrames.redPrimary(it) else it }
                             if (plain == null) {
                                 unreadable++
                                 g.unreadable++

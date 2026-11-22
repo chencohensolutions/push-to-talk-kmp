@@ -157,7 +157,31 @@ object LiveKitFrames {
         return out
     }
 
+    /**
+     * RED's primary block (RFC 2198): the phones send call audio as RED, Opus with copies of the frames before, and
+     * encrypt it whole, so the server keeps it whole (audio/red) and it is unwrapped here, after decrypting: 4-byte
+     * headers (F=1, type, offset, 10-bit length) for each redundant block, then 1 byte (F=0), then the blocks, the
+     * primary last. Null when it isn't well formed.
+     */
+    fun redPrimary(payload: ByteArray): ByteArray? {
+        var i = 0
+        var redundant = 0
+        while (true) {
+            if (i >= payload.size) return null
+            if (payload[i].toInt() and 0x80 == 0) {
+                i++
+                break
+            }
+            if (i + 4 > payload.size) return null
+            redundant += ((payload[i + 2].toInt() and 0x03) shl 8) or (payload[i + 3].toInt() and 0xff)
+            i += 4
+        }
+        if (i + redundant > payload.size) return null
+        return payload.copyOfRange(i + redundant, payload.size)
+    }
+
     const val VP8 = "video/VP8"
     const val H264 = "video/H264"
     const val OPUS = "audio/opus"
+    const val RED = "audio/red"
 }

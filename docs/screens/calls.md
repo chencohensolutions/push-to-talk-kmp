@@ -34,6 +34,13 @@ says "Calls need the microphone. Allow it in the app's settings."
   the call while the server keeps it, also for a recording someone else started (`stopRecordingCall`). The server
   also stops by itself when the recording phone leaves the call, when the room empties, or after 4 hours, so hanging
   up sends nothing. A server that doesn't keep calls (or an older one) is ignored: the phone's own saving goes on.
+- **Video as the camera sends it** (2026-11-22, hen): each phone sends its camera's own 4:3 picture, uncropped. The
+  phone showing it fills the screen with it (cropped, the default) or fits it whole: the **Fit** / **Fill** pill at the
+  top right, or a double tap on the video, switches, and it is kept for next time.
+- **Orientation** (2026-11-22, hen): the pill beside it cycles **Auto rotate** (the phone's sensor, even with
+  Android's auto-rotate off), **Portrait** and **Landscape**, kept for next time; back to the app's own when the call
+  screen goes. In landscape the others' videos sit side by side and this phone's own picture is wide; the camera's
+  picture is sent upright either way.
 - **Ended**: for two seconds, "Call ended", "Busy", "Declined", "No answer", "Couldn't connect" or "Answered on another
   phone", then the screen goes.
 
@@ -50,6 +57,8 @@ room's metadata said the server keeps it; the server never has it.
   (`KeptCallFile`, `Matroska`): a video and an audio track per person, named after them, lined up by when each keeping
   began. It is only in the app's cache while the player is open, and goes when it closes (2026-11-22, hen: saved
   calls live in the folder chosen, not in the app); the decrypted pieces go as soon as the file is made.
+- **Audio as RED:** the phones send call audio as RED (Opus with a copy of the frame before), encrypted whole, so the
+  server keeps it whole (`audio/red`) and the phone takes each packet's primary Opus frame after decrypting it.
 - **The player**: everyone's picture in a grid (one or two people one above the other, more two by two), each with
   their name, and an avatar for someone without video; every voice plays. One set of controls: play or pause, a slider
   to move through it, and the time.

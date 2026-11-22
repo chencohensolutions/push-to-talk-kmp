@@ -32,6 +32,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -232,9 +234,67 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
     Box(Modifier.fillMaxSize().background(Color(0xFF0F1413))) {
         val r = room
         val remote = if (r != null && call.phase == CallPhase.ACTIVE) remoteVideo(r, changes) else emptyList()
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
+        // The others' picture comes whole (the camera's own 4:3); this phone fills the screen with it (cropped) or fits
+        // it whole. A tap on the pill, or a double tap on the video, switches; kept for next time (2026-11-22, hen).
+        var fill by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("fill", true)) }
+        fun toggleFill() {
+            fill = !fill
+            prefs.edit().putBoolean("fill", fill).apply()
+        }
+        // The screen's orientation during a call: Auto (the phone's sensor), Portrait or Landscape; kept for next time.
+        var orientation by remember { androidx.compose.runtime.mutableIntStateOf(prefs.getInt("orientation", 0)) }
+        val activity = context as? android.app.Activity
+        androidx.compose.runtime.DisposableEffect(orientation) {
+            activity?.requestedOrientation = when (orientation) {
+                1 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                2 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            }
+            onDispose { activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+        }
+        val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         if (remote.isNotEmpty()) {
-            Column(Modifier.fillMaxSize()) {
-                remote.forEach { track -> VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth()) }
+            val tile = Modifier.pointerInput(Unit) { detectTapGestures(onDoubleTap = { toggleFill() }) }
+            // Side by side in landscape, one above the other in portrait.
+            if (landscape) {
+                Row(Modifier.fillMaxSize()) {
+                    remote.forEach { track -> VideoView(r!!, track, tile.weight(1f).fillMaxSize(), fill = fill) }
+                }
+            } else {
+                Column(Modifier.fillMaxSize()) {
+                    remote.forEach { track -> VideoView(r!!, track, tile.weight(1f).fillMaxWidth(), fill = fill) }
+                }
+            }
+        }
+        if (call.phase == CallPhase.ACTIVE && call.video) {
+            Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    stringResource(
+                        when (orientation) {
+                            1 -> R.string.call_orientation_portrait
+                            2 -> R.string.call_orientation_landscape
+                            else -> R.string.call_orientation_auto
+                        },
+                    ),
+                    color = Color.White, style = LibraryType.Small,
+                    modifier = Modifier.background(LibraryColors.PillScrim, CircleShape)
+                        .clickable(role = Role.Button) {
+                            orientation = (orientation + 1) % 3
+                            prefs.edit().putInt("orientation", orientation).apply()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+                if (remote.isNotEmpty()) {
+                    Text(
+                        stringResource(if (fill) R.string.call_video_fit else R.string.call_video_fill),
+                        color = Color.White, style = LibraryType.Small,
+                        modifier = Modifier.background(LibraryColors.PillScrim, CircleShape)
+                            .clickable(role = Role.Button) { toggleFill() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
             }
         }
         Column(
@@ -293,7 +353,7 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             val own = r?.let { ownVideo(it, changes) }
             if (own != null && call.camera) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    VideoView(r, own, Modifier.size(width = 108.dp, height = 160.dp), mirror = true)
+                    VideoView(r, own, if (landscape) Modifier.size(width = 160.dp, height = 108.dp) else Modifier.size(width = 108.dp, height = 160.dp), mirror = true, fill = false)
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -378,9 +438,12 @@ private fun ownVideo(room: Room, changes: Int): VideoTrack? =
 
 /** One video track drawn into a TextureViewRenderer, given back when it leaves the screen. */
 @Composable
-private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false) {
+private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false, fill: Boolean = true) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
+    androidx.compose.runtime.LaunchedEffect(renderer, fill) {
+        renderer.setScalingType(if (fill) livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL else livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+    }
     DisposableEffect(track) {
         track.addRenderer(renderer)
         onDispose {
