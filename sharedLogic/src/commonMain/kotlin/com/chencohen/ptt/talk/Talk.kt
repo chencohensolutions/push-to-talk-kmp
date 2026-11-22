@@ -203,6 +203,8 @@ internal class Talk(
         /** The camera goes too (push-to-video): every packet is tagged (TalkVideo). */
         var video = false
         var videoNumber = 0
+        /** The video's bytes so far: past [VIDEO_BUDGET] the burst goes on with the voice only. */
+        var videoBytes = 0L
         var pendingBytes = 0
         var pendingAudio = 0
     }
@@ -232,6 +234,11 @@ internal class Talk(
         val camera = videoCapture?.takeIf { !voiceOnly && sendVideo() }
         if (camera != null) {
             out.video = camera.start { frame ->
+                out.videoBytes += frame.data.size
+                if (out.videoBytes > VIDEO_BUDGET) {
+                    camera.stop()
+                    return@start
+                }
                 TalkVideo.pieces(out.videoNumber++ and 0xffff, frame).forEach { out.packets.trySend(Captured.Packet(it, audio = false)) }
             }
         }
@@ -809,8 +816,18 @@ internal class Talk(
     private fun newClipId(): String = random.nextBytes(16).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 
     companion object {
-        /** A segment's packets are cut before this many bytes when the camera's pieces fill it (the server takes 16 KB). */
-        const val SEGMENT_BYTES = 12_000
+        /**
+         * A segment's packets are cut before this many bytes when the camera's pieces fill it (the server takes 64 KiB
+         * since bf1b11e; a key frame can be 20 to 40 KB).
+         */
+        const val SEGMENT_BYTES = 48_000
+
+        /**
+         * Push-to-video's video in one burst, at most: the server keeps a clip up to 8 MiB, and the voice and the
+         * records' framing need some of it. At 30 fps and 700 kbit/s that is about 85 seconds; at 60 fps and 1 Mbit/s,
+         * about 60. Past it the burst goes on with the voice only.
+         */
+        const val VIDEO_BUDGET = 7_400_000L
 
         /** How long a press waits for the floor before it records a voice message instead. */
         const val GRANT_WAIT = 3_000L

@@ -44,32 +44,43 @@ import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryType
 
 /**
- * Push-to-video's switch on a Talk screen (2026-11-22, hen; off by default): "Video" sends the camera with the voice.
- * Turning it on asks for the camera first.
+ * Voice | Video above the big button (2026-11-22, hen; it was a camera among the call buttons, beside the video call):
+ * Video sends the camera with the voice (push-to-video, asking for the camera the first time).
  */
 @Composable
-internal fun PushVideoSwitch(on: Boolean, set: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+internal fun VoiceVideoSwitch(video: Boolean, set: (Boolean) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) set(true) }
-    val label = stringResource(if (on) R.string.talk_video_on else R.string.talk_video_off)
-    androidx.compose.foundation.layout.Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(52.dp).background(if (on) LibraryColors.Inverse else LibraryColors.Raised, CircleShape)
-                .clickable(role = Role.Switch, onClickLabel = label) {
-                    if (on) {
-                        set(false)
-                    } else if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                        set(true)
-                    } else {
-                        ask.launch(Manifest.permission.CAMERA)
-                    }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.material3.Icon(
-                if (on) com.chencohen.ptt.ui.style.LibraryIcons.Video else com.chencohen.ptt.ui.style.LibraryIcons.VideoOff, label,
-                tint = if (on) Color.White else LibraryColors.OnBackground, modifier = Modifier.size(24.dp),
-            )
+    fun choose(on: Boolean) {
+        when {
+            on == video -> {}
+            !on -> set(false)
+            context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED -> set(true)
+            else -> ask.launch(Manifest.permission.CAMERA)
+        }
+    }
+    androidx.compose.foundation.layout.Row(
+        modifier.background(LibraryColors.Raised, CircleShape).padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(
+            Triple(false, com.chencohen.ptt.ui.style.LibraryIcons.Mic, R.string.talk_mode_voice),
+            Triple(true, com.chencohen.ptt.ui.style.LibraryIcons.Video, R.string.talk_mode_video),
+        ).forEach { (on, icon, words) ->
+            val chosen = on == video
+            androidx.compose.foundation.layout.Row(
+                Modifier.background(if (chosen) LibraryColors.Inverse else Color.Transparent, CircleShape)
+                    .clickable(role = Role.Tab) { choose(on) }
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val ink = if (chosen) LibraryColors.OnInverse else LibraryColors.OnBackground
+                androidx.compose.material3.Icon(icon, null, tint = ink, modifier = Modifier.size(16.dp))
+                androidx.compose.material3.Text(
+                    stringResource(words), color = ink, style = com.chencohen.ptt.ui.style.LibraryType.Small,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
         }
     }
 }
@@ -155,17 +166,40 @@ internal fun FittedBox(shape: Float, modifier: Modifier = Modifier, alignment: A
 }
 
 /**
- * Above a Talk screen's button, centred: someone's video burst while it plays, else this phone's camera while Video
- * is on, else nothing.
+ * Above a Talk screen's button, centred: someone's video burst while it plays, and this phone's camera while Video is
+ * on. When their video comes, this phone's slides and shrinks into the top end corner over it, and grows back when it
+ * ends (2026-11-22, hen), in 280 ms; it is the same view throughout, so the camera isn't opened again.
  */
 @Composable
 internal fun TalkVideoBox(playingVideo: Boolean, pushVideo: Boolean, modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
-    when {
-        playingVideo -> TalkVideoView(modifier, alignment)
-        pushVideo -> PushVideoPreview(modifier, alignment)
-        else -> Box(modifier)
+    val small by androidx.compose.animation.core.animateFloatAsState(
+        if (playingVideo && pushVideo) 1f else 0f,
+        androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "own video",
+    )
+    BoxWithConstraints(modifier) {
+        if (playingVideo) TalkVideoView(Modifier.fillMaxSize(), alignment)
+        if (pushVideo) {
+            androidx.compose.runtime.key("own camera") {
+                // From where it sits alone (alignment, the whole box) to the top end corner at a third of the size.
+                val from = alignment as? androidx.compose.ui.BiasAlignment ?: androidx.compose.ui.BiasAlignment(0f, 0f)
+                val place = androidx.compose.ui.BiasAlignment(
+                    from.horizontalBias + (1f - from.horizontalBias) * small,
+                    from.verticalBias + (-1f - from.verticalBias) * small,
+                )
+                val share = 1f - (1f - SMALL_SHARE) * small
+                Box(
+                    Modifier.align(place).padding(all = (8 * small).dp).size(maxWidth * share, maxHeight * share),
+                ) {
+                    PushVideoPreview(Modifier.fillMaxSize(), if (small > 0.5f) Alignment.TopEnd else alignment)
+                }
+            }
+        }
     }
 }
+
+/** This phone's video beside someone's: this much of the box's width and height. */
+private const val SMALL_SHARE = 0.32f
 
 /**
  * A burst's video, as its sender's camera took it, turned upright and fitted in the space given; drawn by
@@ -218,11 +252,15 @@ internal fun androidx.compose.foundation.layout.ColumnScope.TalkStage(
     actions: @Composable () -> Unit,
     /** The chat's name (and what the floor is doing): on top upright, with the button on its side. */
     header: @Composable () -> Unit = {},
+    /** Voice | Video, just above the big button. */
+    switch: @Composable () -> Unit = {},
 ) {
     val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     if (!landscape) {
         header()
         TalkVideoBox(playingVideo, pushVideo, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp, vertical = 12.dp))
+        switch()
+        androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
         circle(220.dp)
         androidx.compose.foundation.layout.Spacer(Modifier.size(16.dp))
         actions()
@@ -246,11 +284,13 @@ internal fun androidx.compose.foundation.layout.ColumnScope.TalkStage(
             fun androidx.compose.foundation.layout.RowScope.controls() =
                 BoxWithConstraints(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
                     // The round button as big as fits under the name and above its round buttons, at most 220 dp.
-                    val size = minOf(220.dp, maxHeight - 76.dp - 72.dp, maxWidth * 0.8f).coerceAtLeast(88.dp)
+                    val size = minOf(220.dp, maxHeight - 76.dp - 72.dp - 48.dp, maxWidth * 0.8f).coerceAtLeast(88.dp)
                     androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides direction) {
                             header()
                             androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                            switch()
+                            androidx.compose.foundation.layout.Spacer(Modifier.size(10.dp))
                             circle(size)
                             androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
                             actions()

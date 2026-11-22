@@ -179,6 +179,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_SOFT_MESSAGE) != "false"
         set(value) = store.putString(KEY_SOFT_MESSAGE, value.toString())
 
+    /** Settings › Calls › Advanced › 60 fps video: off unless turned on. */
+    var video60: Boolean
+        get() = store.getString(KEY_VIDEO_60) == "true"
+        set(value) = store.putString(KEY_VIDEO_60, value.toString())
+
     /** This user's email, shared with their paired contacts (Settings › Contacts › Your email); null: none. */
     var myEmail: String?
         get() = store.getString(KEY_MY_EMAIL)
@@ -203,6 +208,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
         private const val KEY_SOFT_RING = "call_soft_ring"
         private const val KEY_SOFT_MESSAGE = "message_soft_sound"
+        private const val KEY_VIDEO_60 = "video_60fps"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"
         private const val KEY_STAY_CONNECTED = "talk_stay_connected"

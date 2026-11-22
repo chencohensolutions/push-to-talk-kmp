@@ -28,12 +28,20 @@ import java.util.concurrent.Executor
 
 /**
  * Push-to-video's camera on Android (TalkVideo): the front camera into a hardware encoder, H.265 when the phone has
- * one and Settings › Calls › Video is H.265, else VP8, 640×480 at 15 fps and 350 kbit/s (a minute fits the server's 4 MB
- * clip), a key frame every second. While warm (a Talk screen with Video on shows) the camera and encoder run and
+ * one and Settings › Calls › Video is H.265, else VP8, 640×480 at 30 fps and 700 kbit/s (2026-11-22, hen: "not 15"),
+ * or 60 fps and 1 Mbit/s with Settings › Calls › 60 fps video where the camera can; a key frame every second. The
+ * burst's video stops at Talk.VIDEO_BUDGET (the server's 8 MiB clip): about 85 s at 30 fps, 60 s at 60. While warm (a Talk screen with Video on shows) the camera and encoder run and
  * the preview shows; a press asks for a key frame and sends from it. The frames go as the camera captures them, with
  * the rotation to show them upright (hen: the picture isn't changed). Not warm, a press sends no video.
  */
-class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Boolean) : TalkVideoCapture {
+class AndroidTalkVideoCapture(
+    context: Context,
+    private val wantH265: () -> Boolean,
+    private val want60: () -> Boolean = { false },
+) : TalkVideoCapture {
+    /** This warm-up's frame rate and bit rate: 60 fps only when chosen and the camera can. */
+    private var fps = FPS
+    private var bitrate = BITRATE
     private val app = context.applicationContext
     private val lock = Any()
     private var thread: HandlerThread? = null
@@ -124,6 +132,9 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
             ?: manager.cameraIdList.firstOrNull() ?: return
         sensor = manager.getCameraCharacteristics(id).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 270
         try {
+            val sixty = want60() && supports60(app)
+            fps = if (sixty) FPS_60 else FPS
+            bitrate = if (sixty) BITRATE_60 else BITRATE
             if (encoder == null) startEncoder()
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
@@ -172,8 +183,8 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
         }
         val format = MediaFormat.createVideoFormat(mime, WIDTH, HEIGHT).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, BITRATE)
-            setInteger(MediaFormat.KEY_FRAME_RATE, FPS)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             if (c != TalkVideo.VP8) setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
         }
@@ -295,7 +306,7 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
                             try {
                                 val request = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                                     targets.forEach { addTarget(it) }
-                                    set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(FPS, FPS))
+                                    set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(fps, fps))
                                 }
                                 s.setRepeatingRequest(request.build(), null, handler)
                             } catch (e: Exception) {
@@ -342,8 +353,22 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
         const val TAG = "TalkVideo"
         const val WIDTH = 640
         const val HEIGHT = 480
-        const val FPS = 15
-        const val BITRATE = 350_000
+        const val FPS = 30
+        const val BITRATE = 700_000
+        const val FPS_60 = 60
+        const val BITRATE_60 = 1_000_000
+
+        /** Whether the front camera runs at a steady 60 fps at 640×480 (Settings › Calls › 60 fps video). */
+        fun supports60(context: Context): Boolean = runCatching {
+            val manager = context.getSystemService(CameraManager::class.java)
+            val id = manager.cameraIdList.firstOrNull { manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT }
+                ?: return false
+            val c = manager.getCameraCharacteristics(id)
+            val ranges = c.get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
+            val map = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return false
+            val frame = map.getOutputMinFrameDuration(android.graphics.SurfaceTexture::class.java, android.util.Size(WIDTH, HEIGHT))
+            ranges.any { it.lower == 60 && it.upper == 60 } && frame in 1..16_700_000L
+        }.getOrDefault(false)
 
         fun hasEncoder(mime: String): Boolean = runCatching {
             MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->

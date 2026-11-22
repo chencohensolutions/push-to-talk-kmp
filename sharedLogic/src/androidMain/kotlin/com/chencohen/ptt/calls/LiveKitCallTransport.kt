@@ -37,6 +37,8 @@ class LiveKitCallTransport(
     context: Context,
     /** "vp8" or "h265" (Settings › Calls › Video); with H.265, VP8 goes too for phones that can't decode it. */
     private val videoCodec: () -> String = { "vp8" },
+    /** Settings › Calls › 60 fps video (off by default; 2026-11-22, hen): used only where the camera can. */
+    private val want60: () -> Boolean = { false },
     private val okHttp: () -> OkHttpClient,
 ) : CallTransport {
     private val appContext = context.applicationContext
@@ -68,22 +70,30 @@ class LiveKitCallTransport(
         LiveKit.init(appContext)
         val provider = BaseKeyProvider(enableSharedKey = true, discardFrameWhenCryptorNotReady = true)
         provider.setSharedKey(Base64.encodeToString(key, Base64.NO_WRAP), 0)
+        val sixty = video && want60() && supports60(appContext)
+        Log.i(TAG, "call video: ${videoCodec()}, ${if (sixty) 60 else 30} fps")
+        val encoding = if (sixty) io.livekit.android.room.track.VideoEncoding(SIXTY_BITRATE, 60) else null
         val room = LiveKit.create(
             appContext,
             RoomOptions(
                 e2eeOptions = E2EEOptions(keyProvider = provider),
                 // The camera's own 4:3 picture, uncropped (2026-11-22, hen): the phone that shows it fits or fills.
                 videoTrackCaptureDefaults = io.livekit.android.room.track.LocalVideoTrackOptions(
-                    captureParams = io.livekit.android.room.track.VideoPreset43.H720.capture,
+                    captureParams = if (sixty) {
+                        io.livekit.android.room.track.VideoCaptureParameter(960, 720, 60)
+                    } else {
+                        io.livekit.android.room.track.VideoPreset43.H720.capture
+                    },
                 ),
                 videoTrackPublishDefaults = videoCodec().let { codec ->
                     if (codec == "h265") {
                         io.livekit.android.room.participant.VideoTrackPublishDefaults(
+                            videoEncoding = encoding,
                             videoCodec = "h265",
-                            backupCodec = io.livekit.android.room.participant.BackupVideoCodec(codec = "vp8"),
+                            backupCodec = io.livekit.android.room.participant.BackupVideoCodec(codec = "vp8", encoding = encoding),
                         )
                     } else {
-                        io.livekit.android.room.participant.VideoTrackPublishDefaults()
+                        io.livekit.android.room.participant.VideoTrackPublishDefaults(videoEncoding = encoding)
                     }
                 },
             ),
@@ -308,5 +318,21 @@ class LiveKitCallTransport(
         const val TAG = "LiveKitCall"
 
         private const val CAMERA_STALL_MS = 2_500L
+
+        /** The top layer's bit rate at 60 fps (30 fps uses LiveKit's 4:3 720p preset). */
+        private const val SIXTY_BITRATE = 2_500_000
+
+        /** Whether the front camera runs at a steady 60 fps at the call's 960×720. */
+        fun supports60(context: Context): Boolean = runCatching {
+            val manager = context.getSystemService(android.hardware.camera2.CameraManager::class.java)
+            val front = android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT
+            val id = manager.cameraIdList.firstOrNull { manager.getCameraCharacteristics(it).get(android.hardware.camera2.CameraCharacteristics.LENS_FACING) == front }
+                ?: return false
+            val c = manager.getCameraCharacteristics(id)
+            val ranges = c.get(android.hardware.camera2.CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES).orEmpty()
+            val map = c.get(android.hardware.camera2.CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return false
+            val frame = map.getOutputMinFrameDuration(android.graphics.SurfaceTexture::class.java, android.util.Size(960, 720))
+            ranges.any { it.upper == 60 } && frame in 1..16_700_000L
+        }.getOrDefault(false)
     }
 }

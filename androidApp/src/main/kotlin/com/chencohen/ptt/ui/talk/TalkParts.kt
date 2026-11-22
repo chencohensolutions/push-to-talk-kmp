@@ -81,7 +81,7 @@ internal fun clipLength(ms: Long): String {
  * teal ring while live, a faded ring and a muted circle while someone else talks.
  */
 @Composable
-internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Unit, release: () -> Unit, modifier: Modifier = Modifier, diameter: Dp = 220.dp) {
+internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Unit, release: () -> Unit, modifier: Modifier = Modifier, diameter: Dp = 220.dp, video: Boolean = false) {
     val label = stringResource(R.string.talk_button)
     val level = rememberVoiceLevel(live || someoneTalking)
     val glow = if (live) LibraryColors.Accent else LibraryColors.Inverse
@@ -115,7 +115,8 @@ internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Uni
         contentAlignment = Alignment.Center,
     ) {
         // The icon only (2026-11-22, hen); the label is for TalkBack.
-        Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp))
+        // A camera when the press sends video too (Voice | Video above it).
+        Icon(if (video) LibraryIcons.Video else LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp))
     }
 }
 
@@ -279,23 +280,14 @@ internal fun TalkModeScreen(
     val own = talk.own?.takeIf { it.chat == chat }
     val live = own?.phase == TalkPhase.TALKING
     val someone = talk.talkers[chat]?.takeIf { it.user != me }
-    var pulled by remember { mutableFloatStateOf(0f) }
-    val density = LocalDensity.current
+    // A screen, not a sheet (2026-11-22, hen): a back arrow at the start, mirrored in Hebrew, as the system back.
     Column(
-        Modifier.fillMaxSize().background(LibraryColors.Background).statusBarsPadding().navigationBarsPadding()
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragEnd = {
-                        if (pulled > with(density) { 120.dp.toPx() }) close()
-                        pulled = 0f
-                    },
-                ) { _, dy -> pulled = (pulled + dy).coerceAtLeast(0f) }
-            },
+        Modifier.fillMaxSize().background(LibraryColors.Background).statusBarsPadding().navigationBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(48.dp).clickable(role = Role.Button, onClick = close), contentAlignment = Alignment.Center) {
-                Icon(LibraryIcons.ChevronDown, stringResource(R.string.talk_close), tint = LibraryColors.OnBackground)
+                Icon(LibraryIcons.Back, stringResource(R.string.talk_close), tint = LibraryColors.OnBackground)
             }
             Text(title, color = LibraryColors.OnBackground, style = LibraryType.PageTitle)
             HereDot(peerHere)
@@ -329,12 +321,29 @@ internal fun TalkModeScreen(
                 )
             }
             },
-            circle = { size -> TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release, diameter = size) },
+            circle = { size -> TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release, diameter = size, video = pushVideo) },
+            switch = { VoiceVideoSwitch(pushVideo, setPushVideo) },
             actions = { TalkChatActions(openChat, call, pushVideo = pushVideo, setPushVideo = setPushVideo, peerHere = peerHere) },
         )
         val upright = androidx.compose.ui.platform.LocalConfiguration.current.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        // Recent talk folds away, folded unless opened (2026-11-22, hen); the button stays where it is.
+        var recentOpen by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
         if (bursts.isNotEmpty() && upright) {
-            Text(stringResource(R.string.talk_last), color = LibraryColors.Muted, style = LibraryType.SectionLabel, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+            val shown = bursts.takeLast(10)
+            Row(
+                Modifier.fillMaxWidth().clickable(role = Role.Button) { recentOpen = !recentOpen }.padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(R.string.talk_last_count, shown.size), color = LibraryColors.Muted, style = LibraryType.SectionLabel, modifier = Modifier.weight(1f))
+                Icon(
+                    LibraryIcons.ChevronDown,
+                    stringResource(if (recentOpen) R.string.talk_last_hide else R.string.talk_last_show),
+                    tint = LibraryColors.Muted,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = if (recentOpen) 180f else 0f },
+                )
+            }
+        }
+        if (bursts.isNotEmpty() && upright && recentOpen) {
             LazyColumn(
                 Modifier.fillMaxWidth().height(200.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -533,8 +542,8 @@ internal fun TalkChatActions(
     /** The other user has their Talk screen or bubble for this chat open now ("here"). */
     peerHere: Boolean = false,
 ) {
+    // Actions only, as on a contact's page; Voice | Video sits above the big button (2026-11-22, hen).
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-        PushVideoSwitch(pushVideo, setPushVideo)
         TalkChatAction(LibraryIcons.Chat, stringResource(R.string.talk_action_chat), onClick = openChat)
         TalkChatAction(LibraryIcons.Call, stringResource(R.string.call_voice)) { call(false) }
         // Glows when they are "here" (their Talk screen or bubble open): a video call they'll see at once.

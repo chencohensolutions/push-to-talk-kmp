@@ -8,7 +8,8 @@
 `TalkModeScreen`, opened by the **Talk button** (a walkie-talkie) at the right of a [conversation](conversation.md)'s
 header, or by a talk notification's **Reply**. A full-screen walkie-talkie:
 
-- On top: a chevron down (back to the chat) and the conversation's name. Swiping down anywhere also goes back.
+- On top: a back arrow at the start (mirrored in Hebrew; the same as the system back) and the conversation's name. It
+  is a screen, not a sheet (2026-11-22, hen): no swipe down.
 - The line under it says what the floor is doing: "Hold the button to talk" (muted); "Connecting…" while the
   server's answer is coming; "Live" (teal) while the floor is this phone's; "Dana is talking" (teal) while someone
   else holds it; "Dana is talking. Try when they let go." when a press found the floor busy; "Not connected: it goes
@@ -23,7 +24,7 @@ header, or by a talk notification's **Reply**. A full-screen walkie-talkie:
   sent, only the last 300 ms are kept, and a press sends those first, so it transmits at once without cutting the
   first syllable. It closes when the screen leaves, turns off or the app goes to the background. While it is held the microphone works like a speakerphone's
   (it hears a voice at arm's length), unless a headset is connected.
-- **Last talk**: the last ten bursts and voice messages of the conversation, newest first: Play (or Pause while it
+- **Recent talk (N)**: a row with a chevron, folded by default (2026-11-22, hen); a tap opens it to show the last ten bursts and voice messages of the conversation, newest first: Play (or Pause while it
   plays), who ("You" for ours), length and time.
 
 The first press asks for the microphone; if it is refused, the message bar says "Talk needs the microphone. Allow it
@@ -74,7 +75,12 @@ The talk button grows (up to 1.25 times) and glows with the voice: the one playi
 - **Chat, Voice call, Video call** (2026-11-22, hen): three round buttons under the name: the conversation (back to it
   when the Talk screen came from it), and a voice or video call there.
 
-- **Video** (push-to-video, 2026-11-22, hen; off by default): the first of the round buttons under the big button,
-  "Video off" / "Video on" (asks for the camera the first time), then Chat, Voice call, Video call. Centred above the
+- **Voice | Video** (push-to-video, 2026-11-22, hen; Voice by default): a small switch just above the big button
+  (it was a camera among the round buttons, beside the video call, and looked like it). Video asks for the camera the
+  first time; the big button then shows a camera instead of the microphone. Under the button: Chat, Voice call, Video
+  call. Centred above the
   big button: this phone's front camera while Video is on (the camera stays open while the screen shows, so a press
   sends it with the voice at once), or someone's video burst while it plays, upright, in step with their voice.
+  When their video comes while Video is on, this phone's camera slides and shrinks into the top end corner over it
+  (a third of the box, 280 ms), and grows back to its place when it ends (2026-11-22, hen); it is the same view
+  throughout, so the camera isn't opened again.

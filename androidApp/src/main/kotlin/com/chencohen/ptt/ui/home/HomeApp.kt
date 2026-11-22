@@ -352,6 +352,12 @@ fun HomeApp(
                     settings = messagingState.talkSettings,
                     back = ::pop,
                     change = { new -> onTalkSettings(new) },
+                    openSaving = { push("savingcalls") },
+                )
+                name == "savingcalls" -> com.chencohen.ptt.ui.settings.SavingCallsScreen(
+                    settings = messagingState.talkSettings,
+                    back = ::pop,
+                    change = { new -> onTalkSettings(new) },
                 )
                 name == "devices" -> {
                     // Read each time the page opens; a removed phone leaves the list once the server says so.

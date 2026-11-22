@@ -30,6 +30,9 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
   `res/raw/message_soft.ogg`, made by `tools/ringtone/make_message.py`, on the `messages_soft` channel) or **Phone's
   sound** (the first `messages` channel, "Messages (phone's sound)"). Each is its own channel because a channel's sound
   can't change once made; Android's own settings for each still apply.
+- **Call settings** ("Ringtone, video quality, saving calls"; 2026-11-22, hen: not only recording): Ringtone,
+  Video, Advanced, then a **Saving calls** row (showing Off, Ask each time or Always) that opens its own screen
+  (`SavingCallsScreen`): Off, Ask, Always, with the note on who keeps a saved call, then Save calls to.
 - **Calls › Ringtone** (2026-11-22, hen): **Talk soft chime** (the default: a rising pentatonic chime in a 4-second
   loop, `res/raw/ring_soft.ogg`, made by `tools/ringtone/make_ring.py`) or **Phone's ringtone**. `CallRinger` loops it
   on the ringer's stream until the call is answered, declined or 45 seconds pass; silent in Do Not Disturb and silent
@@ -37,6 +40,11 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
 - **Calls › Video** (2026-11-22, hen): **H.265 (smaller, sharper)**, the default where the phone has a hardware H.265
   encoder (2026-11-22, hen; a phone without one sends VP8), or **Standard (VP8)**. With H.265 the phone also sends VP8 (LiveKit's backup codec), so a phone
   that can't decode H.265 still sees it. Calls stay encrypted end to end; it applies from the next call.
+- **Calls › Advanced › 60 fps video** (off by default; 2026-11-22, hen): calls capture 960×720 at 60 fps with a
+  2.5 Mbit/s top layer (30 fps: LiveKit's 4:3 720p preset), and push-to-video 640×480 at 60 fps and 1 Mbit/s (30 fps:
+  700 kbit/s; it was 15 fps and 350 kbit/s). Only where the front camera runs a steady 60 fps at that size; elsewhere
+  the row says so and stays off. A push-to-video burst sends at most `Talk.VIDEO_BUDGET` (7.4 MB, under the server's
+  8 MiB clip) of video, about 85 s at 30 fps and 60 s at 60, then goes on with the voice only.
 - **Calls › Save calls to** (2026-11-22, hen): **Choose a folder** opens Android's folder picker (the phone, an SD
   card or a USB drive), kept with a lasting permission; under it, the folder's name, or Downloads › Talk.
   **Use Downloads instead** goes back. Save as file on a kept call writes there.

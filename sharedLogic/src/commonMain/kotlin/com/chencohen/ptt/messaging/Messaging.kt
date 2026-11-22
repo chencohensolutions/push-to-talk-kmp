@@ -105,6 +105,8 @@ data class TalkSettings(
     val softRing: Boolean = true,
     /** Settings › Notifications › Message sound: Talk's soft chime (the default; 2026-11-22, hen), or the phone's sound. */
     val softMessage: Boolean = true,
+    /** Settings › Calls › Advanced › 60 fps video (off by default; 2026-11-22, hen): calls and push-to-video. */
+    val video60: Boolean = false,
 )
 
 /**
@@ -389,6 +391,7 @@ internal class Messaging(
         unmuteForTalk = settings.unmuteForTalk,
         softRing = settings.softRing,
         softMessage = settings.softMessage,
+        video60 = settings.video60,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -410,6 +413,7 @@ internal class Messaging(
         settings.unmuteForTalk = talk.unmuteForTalk
         settings.softRing = talk.softRing
         settings.softMessage = talk.softMessage
+        settings.video60 = talk.video60
         _state.update { it.copy(talkSettings = talk) }
     }
 

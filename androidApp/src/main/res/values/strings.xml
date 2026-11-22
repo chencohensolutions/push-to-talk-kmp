@@ -95,8 +95,9 @@
     <string name="calls_empty">No calls yet. Calls you make and get show here.</string>
     <!-- Phase 6: calls. -->
     <string name="settings_calls_title">Calls</string>
-    <string name="settings_calls_body">Save calls on this phone</string>
-    <string name="calls_save_title">Save calls</string>
+    <string name="settings_calls_row">Call settings</string>
+    <string name="settings_calls_body">Ringtone, video quality, saving calls</string>
+    <string name="calls_save_title">Saving calls</string>
     <string name="calls_save_off">Off</string>
     <string name="calls_save_off_body">Calls aren\'t saved</string>
     <string name="calls_save_ask">Ask each time</string>
@@ -135,15 +136,22 @@
     <string name="contact_rename_none">Their own name</string>
     <string name="contact_rename_save">Save</string>
     <string name="contact_rename_cancel">Cancel</string>
+    <string name="talk_mode_voice">Voice</string>
+    <string name="talk_mode_video">Video</string>
     <string name="talk_video_on">Video on</string>
     <string name="talk_video_off">Video off</string>
     <string name="bubble_video">Video</string>
     <string name="talk_action_chat">Chat</string>
+    <string name="calls_saving_section">Saving</string>
     <string name="calls_ring_title">Ringtone</string>
     <string name="calls_ring_soft">Talk soft chime</string>
     <string name="calls_ring_soft_body">A gentle rising chime.</string>
     <string name="calls_ring_phone">Phone\'s ringtone</string>
     <string name="calls_ring_phone_body">The ringtone set in Android\'s sound settings.</string>
+    <string name="calls_advanced_title">Advanced</string>
+    <string name="calls_video_60">60 fps video</string>
+    <string name="calls_video_60_body">Smoother motion in video calls and push-to-video, using more data and battery. Push-to-video then sends about 60 seconds of video per burst (85 at 30 fps); after that it goes on with your voice only.</string>
+    <string name="calls_video_60_unsupported">This phone\'s front camera can\'t record 60 fps, so video stays at 30 fps.</string>
     <string name="calls_video_title">Video</string>
     <string name="calls_video_vp8">Standard (VP8)</string>
     <string name="calls_video_vp8_body">Works with every phone.</string>
@@ -533,6 +541,9 @@
     <string name="talk_default_none">No conversation</string>
     <string name="talk_hold">Hold the button to talk</string>
     <string name="talk_last">Last talk</string>
+    <string name="talk_last_count">Recent talk (%1$d)</string>
+    <string name="talk_last_show">Show recent talk</string>
+    <string name="talk_last_hide">Hide recent talk</string>
     <string name="talk_live">Live</string>
     <string name="talk_mic_denied">Talk needs the microphone. Allow it in the app’s settings.</string>
     <string name="talk_no_mic">The microphone isn’t free</string>

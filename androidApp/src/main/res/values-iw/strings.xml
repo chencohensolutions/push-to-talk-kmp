@@ -94,7 +94,8 @@
     <string name="calls_empty">אין עדיין שיחות. שיחות יוצאות ונכנסות יופיעו כאן.</string>
     <!-- Phase 6: calls. -->
     <string name="settings_calls_title">שיחות</string>
-    <string name="settings_calls_body">שמירת שיחות בטלפון הזה</string>
+    <string name="settings_calls_row">הגדרות שיחות</string>
+    <string name="settings_calls_body">צלצול, איכות וידאו, שמירת שיחות</string>
     <string name="calls_save_title">שמירת שיחות</string>
     <string name="calls_save_off">כבוי</string>
     <string name="calls_save_off_body">שיחות לא נשמרות</string>
@@ -134,15 +135,22 @@
     <string name="contact_rename_none">השם שהם בחרו</string>
     <string name="contact_rename_save">שמירה</string>
     <string name="contact_rename_cancel">ביטול</string>
+    <string name="talk_mode_voice">קול</string>
+    <string name="talk_mode_video">וידאו</string>
     <string name="talk_video_on">וידאו פועל</string>
     <string name="talk_video_off">וידאו כבוי</string>
     <string name="bubble_video">וידאו</string>
     <string name="talk_action_chat">צ׳אט</string>
+    <string name="calls_saving_section">שמירה</string>
     <string name="calls_ring_title">צלצול</string>
     <string name="calls_ring_soft">צליל רך של Talk</string>
     <string name="calls_ring_soft_body">צליל פעמונים עדין ועולה.</string>
     <string name="calls_ring_phone">הצלצול של הטלפון</string>
     <string name="calls_ring_phone_body">הצלצול שנבחר בהגדרות הצליל של Android.</string>
+    <string name="calls_advanced_title">מתקדם</string>
+    <string name="calls_video_60">וידאו ב־60 פריימים לשנייה</string>
+    <string name="calls_video_60_body">תנועה חלקה יותר בשיחות וידאו ובדיבור עם וידאו, על חשבון יותר נתונים וסוללה. בדיבור עם וידאו נשלחות כך כ־60 שניות וידאו בכל לחיצה (85 ב־30 פריימים); אחרי זה ממשיך רק הקול.</string>
+    <string name="calls_video_60_unsupported">המצלמה הקדמית של הטלפון הזה לא מצלמת ב־60 פריימים לשנייה, אז הווידאו נשאר ב־30.</string>
     <string name="calls_video_title">וידאו</string>
     <string name="calls_video_vp8">רגיל (VP8)</string>
     <string name="calls_video_vp8_body">עובד בכל טלפון.</string>
@@ -536,6 +544,9 @@
     <string name="talk_default_none">אף שיחה</string>
     <string name="talk_hold">להחזיק את הכפתור כדי לדבר</string>
     <string name="talk_last">דיבור אחרון</string>
+    <string name="talk_last_count">דיבור אחרון (%1$d)</string>
+    <string name="talk_last_show">להציג את הדיבור האחרון</string>
+    <string name="talk_last_hide">להסתיר את הדיבור האחרון</string>
     <string name="talk_live">בשידור</string>
     <string name="talk_mic_denied">הדיבור צריך את המיקרופון. אפשר להתיר אותו בהגדרות היישום.</string>
     <string name="talk_no_mic">המיקרופון תפוס</string>

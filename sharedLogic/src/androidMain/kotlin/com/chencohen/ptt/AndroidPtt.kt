@@ -134,9 +134,11 @@ private fun hub(context: Context): Messaging {
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
         // Push-to-video: this phone's camera, and where bursts' video shows; and what it can play, said to the others.
-        it.talk.videoCapture = com.chencohen.ptt.talk.AndroidTalkVideoCapture(context) {
-            com.chencohen.ptt.talk.AndroidTalkVideoCapture.hasEncoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC) && it.videoH265For(it.talk.videoChat)
-        }.also { capture -> talkVideoCapture = capture }
+        it.talk.videoCapture = com.chencohen.ptt.talk.AndroidTalkVideoCapture(
+            context,
+            wantH265 = { com.chencohen.ptt.talk.AndroidTalkVideoCapture.hasEncoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC) && it.videoH265For(it.talk.videoChat) },
+            want60 = { settings.video60 },
+        ).also { capture -> talkVideoCapture = capture }
         it.talk.videoOut = com.chencohen.ptt.talk.AndroidTalkVideoOut
         com.chencohen.ptt.messaging.ContentCodec.myCaps = com.chencohen.ptt.messaging.ContentCodec.CAPS_SAID or
             (if (hasDecoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC)) com.chencohen.ptt.messaging.ContentCodec.CAPS_H265 else 0)
@@ -144,6 +146,7 @@ private fun hub(context: Context): Messaging {
             context,
             // H.265 unless VP8 was chosen (the default since 2026-11-22, hen), where the phone has an encoder for it.
             videoCodec = { if (settings.callVideo != com.chencohen.ptt.calls.CallVideo.VP8.name && com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder()) "h265" else "vp8" },
+            want60 = { settings.video60 },
         ) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
         hub = it
     }
