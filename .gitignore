@@ -10,3 +10,8 @@ local.properties
 captures
 .externalNativeBuild
 .cxx
+
+# The release signing key and its passwords (see androidApp/build.gradle.kts).
+keystore.properties
+*.jks
+*.keystore

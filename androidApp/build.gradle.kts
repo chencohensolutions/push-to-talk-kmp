@@ -1,4 +1,5 @@
 import groovy.json.JsonSlurper
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -50,7 +51,7 @@ android {
         applicationId = "com.chencohen.ptt"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionName = findProperty("versionName") as String? ?: "0.1"
+        versionName = findProperty("versionName") as String? ?: "1.0.0"
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Firebase's settings from google-services.json, as the resources its own plugin would make (google_app_id
@@ -71,8 +72,22 @@ android {
             excludes += "**/libsignal_jni_testing.so"
         }
     }
+    // The release key, from a keystore.properties outside git (storeFile, storePassword, keyAlias, keyPassword):
+    // -PreleaseKeystore=<file>, else keystore.properties here, else ~/.talk-release/keystore.properties; or the
+    // TALK_KEYSTORE, TALK_KEYSTORE_PASSWORD, TALK_KEY_ALIAS and TALK_KEY_PASSWORD environment variables. Without
+    // one, the release build is unsigned (CI still builds it).
+    val releaseKey = releaseKeystore()
+    signingConfigs {
+        if (releaseKey != null) create("release") {
+            storeFile = file(releaseKey.getValue("storeFile"))
+            storePassword = releaseKey.getValue("storePassword")
+            keyAlias = releaseKey.getValue("keyAlias")
+            keyPassword = releaseKey.getValue("keyPassword")
+        }
+    }
     buildTypes {
         release {
+            if (releaseKey != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -110,4 +125,24 @@ fun googleServices(json: File, packageName: String): List<Pair<String, String>> 
         "project_id" to (project["project_id"] as String),
         "google_storage_bucket" to (project["storage_bucket"] as String? ?: ""),
     )
+}
+
+/** The release key's settings, or null when this machine has none (see signingConfigs). */
+fun releaseKeystore(): Map<String, String>? {
+    System.getenv("TALK_KEYSTORE")?.let { store ->
+        return mapOf(
+            "storeFile" to store,
+            "storePassword" to System.getenv("TALK_KEYSTORE_PASSWORD"),
+            "keyAlias" to (System.getenv("TALK_KEY_ALIAS") ?: "talk"),
+            "keyPassword" to (System.getenv("TALK_KEY_PASSWORD") ?: System.getenv("TALK_KEYSTORE_PASSWORD")),
+        )
+    }
+    val candidates = listOfNotNull(
+        (findProperty("releaseKeystore") as String?)?.let(::file),
+        rootProject.file("keystore.properties"),
+        File(System.getProperty("user.home"), ".talk-release/keystore.properties"),
+    )
+    val found = candidates.firstOrNull { it.isFile } ?: return null
+    val props = Properties().apply { found.inputStream().use(::load) }
+    return props.stringPropertyNames().associateWith { props.getProperty(it) }
 }

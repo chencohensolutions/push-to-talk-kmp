@@ -24,7 +24,14 @@ What comes next is in the plan: https://claude.ai/artifact/CPewKaHcVw4FeLyKthu2C
 ```sh
 ./gradlew :sharedLogic:testAndroidHostTest   # shared tests on the JVM
 ./gradlew :androidApp:assembleDebug          # the debug APK
+./gradlew :androidApp:assembleRelease        # the release APK (R8), signed when the release key is there
 ```
+
+The release key is a keystore outside git, named by a `keystore.properties` (`storeFile`, `storePassword`,
+`keyAlias`, `keyPassword`): `-PreleaseKeystore=<file>`, `keystore.properties` here (gitignored) or
+`~/.talk-release/keystore.properties`, or the `TALK_KEYSTORE*` environment variables. Every update must be signed with
+the same key, so it is backed up. Without one the release APK is unsigned. Releases are on GitHub
+(`v1.0.0`, `talk-1.0.0.apk`); `-PversionName` and `-PversionCode` set the version.
 
 JDK 21 and the Android SDK (compileSdk 37). GitHub Actions runs both on every push
 ([.github/workflows/build.yml](.github/workflows/build.yml)).
