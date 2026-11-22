@@ -27,6 +27,7 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
         var firstUs = Long.MAX_VALUE
         var lastUs = Long.MIN_VALUE
         var seenKey = false
+        var unreadable = 0
     }
 
     /**
@@ -72,6 +73,7 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
                             val plain = LiveKitFrames.decrypt(key, frame, t.codec)
                             if (plain == null) {
                                 unreadable++
+                                g.unreadable++
                                 continue
                             }
                             var keyFrame = !g.video || (flags and 1) != 0
@@ -102,6 +104,9 @@ class KeptCallFile(private val read: suspend (blob: String, onBytes: suspend (By
             }
         } finally {
             writers.values.forEach { runCatching { it.close() } }
+        }
+        groups.values.forEach { g ->
+            runCatching { android.util.Log.i("KeptCall", "${g.identity} ${g.codec}: ${g.frames} frames, ${g.unreadable} didn't open") }
         }
         val kept = groups.values.filter { it.frames > 0 && (!it.video || it.codec.equals(LiveKitFrames.VP8, true) || it.avcC != null) }
         try {
