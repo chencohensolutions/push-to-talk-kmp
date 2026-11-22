@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -457,22 +458,47 @@ private fun remoteVideo(room: Room, changes: Int): List<Pair<String, VideoTrack>
 private fun ownVideo(room: Room, changes: Int): VideoTrack? =
     room.localParticipant.getTrackPublication(Track.Source.CAMERA)?.takeIf { !it.muted }?.track as? VideoTrack
 
-/** One video track drawn into a TextureViewRenderer, given back when it leaves the screen. */
+/**
+ * One video track drawn into a TextureViewRenderer, given back when it leaves the screen. [fill] crops the picture to
+ * the space given; otherwise it is shown whole, as big as fits, with bars. The renderer always crops to its own view's
+ * shape (its scaling type only sizes the view, which Compose fixes), so Fit shapes the view to the picture
+ * (2026-11-22, hen: "fit and crop is not working": both cropped).
+ */
 @Composable
 private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false, fill: Boolean = true) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
+    // The picture's shape as shown (its rotation applied), from the frames themselves.
+    var aspect by remember(track) { androidx.compose.runtime.mutableFloatStateOf(0f) }
     androidx.compose.runtime.LaunchedEffect(renderer, fill) {
         renderer.setScalingType(if (fill) livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL else livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
     }
     DisposableEffect(track) {
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val sizes = object : livekit.org.webrtc.VideoSink {
+            private var last = ""
+            override fun onFrame(frame: livekit.org.webrtc.VideoFrame) {
+                val w = frame.rotatedWidth
+                val h = frame.rotatedHeight
+                val now = "${frame.buffer.width}x${frame.buffer.height} r${frame.rotation}"
+                if (h <= 0 || now == last) return
+                last = now
+                android.util.Log.i("CallVideo", "${if (mirror) "own" else "received"} video $now, shown ${w}x$h")
+                main.post { aspect = w.toFloat() / h }
+            }
+        }
         track.addRenderer(renderer)
+        track.addRenderer(sizes)
         onDispose {
+            track.removeRenderer(sizes)
             track.removeRenderer(renderer)
             renderer.release()
         }
     }
-    AndroidView(factory = { renderer }, modifier = modifier)
+    Box(modifier, contentAlignment = Alignment.Center) {
+        val shaped = if (!fill && aspect > 0f) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize()
+        AndroidView(factory = { renderer }, modifier = shaped)
+    }
 }
 
 /**
