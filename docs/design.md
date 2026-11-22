@@ -456,6 +456,16 @@ The server's side is its docs/messaging.md, "Calls": `callToken(call, peer | gro
   `files/calls/`; a voice call saves the audio only. It leaves the app only through Share (a FileProvider for that
   folder alone).
 
+- **Kept calls** (2026-11-22, hen: the server keeps a call only while someone records it; [calls.md](screens/calls.md),
+  "Playing a kept call"): Save also asks the server to keep the call (`recordCall`; Stop is `stopRecordingCall`, for
+  anyone in it), and the Recording badge also reads the LiveKit room's metadata. `Calls` keeps the call's key on the
+  entry (`CallEntry.keptKey`) once the server kept it. **`calls/LiveKitFrames.kt`** undoes LiveKit's frame encryption
+  (PBKDF2-SHA256 of the key's base64 with salt "LKFrameEncryptionKey", 100 000 rounds, AES-128-GCM; the clear header
+  as authenticated data; H.264 unescaped first), **`calls/KeptCallFile.kt`** downloads and decrypts each track blob
+  and **`calls/Matroska.kt`** writes one file without re-encoding. The player is one ExoPlayer per person over that
+  file. `tools/keptcall` makes the test fixture with Go's own crypto, so the decryption is checked against another
+  implementation.
+
 Not done yet from the plan's 6: R4 (HEVC; calls and saving use H.264 and LiveKit's default codec now); the 720p cap
 set explicitly; the tests on phones (a call ringing a sleeping phone, three on 4G, a saved call played from Share).
 

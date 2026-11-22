@@ -256,6 +256,7 @@ internal object LibraryIcons {
     val Crop = icon("Crop", false, "M6 2v14a2 2 0 0 0 2 2h14", "M18 22V8a2 2 0 0 0-2-2H2")
     val ChevronRight = icon("ChevronRight", false, "M9 6l6 6-6 6", mirrored = true)
     val ChevronDown = icon("ChevronDown", false, "M6 9l6 6 6-6")
+    val Download = icon("Download", false, "M12 3v12", "M7 10l5 5 5-5", "M5 21h14")
     val Share = icon(
         "Share", false, "M18 2a3 3 0 1 0 0.01 0", "M6 9a3 3 0 1 0 0.01 0", "M18 16a3 3 0 1 0 0.01 0", "M8.6 13.5l6.8 4", "M15.4 6.5l-6.8 4",
     )

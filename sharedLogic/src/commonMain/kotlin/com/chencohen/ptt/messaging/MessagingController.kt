@@ -221,6 +221,12 @@ class MessagingController internal constructor(
 
     fun setCallCamera(on: Boolean) = onWork { messaging.calls.setCamera(on) }
 
+    /** A kept call's tracks (callRecording); only the server is asked, so it runs off Messaging's own thread. */
+    suspend fun keptCall(message: TextMessage): KeptCall = messaging.keptCall(message)
+
+    /** Reads a kept call's track from the server. */
+    suspend fun readBlob(id: String, onBytes: suspend (ByteArray) -> Unit) = messaging.readBlob(id, onBytes)
+
     fun switchCallCamera() = onWork { messaging.calls.switchCamera() }
 
     /** Saving this call starts or stops (Save calls, or the call screen's Save). */

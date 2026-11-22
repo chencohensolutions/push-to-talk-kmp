@@ -21,3 +21,11 @@ mutation RecordCall($call: ID!, $peer: String, $group: ID) {
 mutation StopRecordingCall($call: ID!, $peer: String, $group: ID) {
   stopRecordingCall(call: $call, peer: $peer, group: $group) { recording by }
 }
+
+# A kept call's tracks, for playing it (docs/screens/calls.md, "Playing a kept call").
+query CallRecording($call: ID!, $peer: String, $group: ID) {
+  callRecording(call: $call, peer: $peer, group: $group) {
+    recording
+    tracks { blob identity kind codec startedAt recordingStartedAt size complete }
+  }
+}

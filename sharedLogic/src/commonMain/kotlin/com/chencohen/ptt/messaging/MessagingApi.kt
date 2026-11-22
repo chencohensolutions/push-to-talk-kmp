@@ -167,7 +167,27 @@ internal interface MessagingApi {
 
     /** recordCall / stopRecordingCall: the server keeps [call] from now, or stops; whether it keeps it now. */
     suspend fun recordCall(call: String, peer: String?, group: String?, on: Boolean): Boolean = false
+
+    /** callRecording: the kept call's tracks this user may read (none when it wasn't kept or they weren't in it). */
+    suspend fun callRecording(call: String, peer: String?, group: String?): KeptCall = KeptCall(false, emptyList())
 }
+
+/** A call the server kept (callRecording): whether it is kept now, and each participant's audio and video. */
+data class KeptCall(val recording: Boolean, val tracks: List<KeptTrack>)
+
+/**
+ * One participant's stream in a kept call: read with GET /blob/[blob]; its records' times count from
+ * [recordingStartedAt] (RFC 3339).
+ */
+data class KeptTrack(
+    val blob: String,
+    val identity: String,
+    val kind: String,
+    val codec: String,
+    val recordingStartedAt: String,
+    val size: Int,
+    val complete: Boolean,
+)
 
 /** A contact online now, or when last connected ([lastSeen], milliseconds; null when unknown or hidden). */
 data class UserPresence(val user: String, val online: Boolean, val lastSeen: Long?)
@@ -263,6 +283,12 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
     override suspend fun callToken(call: String, peer: String?, group: String?): LiveToken =
         run { it.mutation(com.chencohen.ptt.graphql.CallTokenMutation(call, Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group))).execute() }
             .callToken.let { LiveToken(it.token, it.room, it.identity, it.path, it.expiresAt.toString()) }
+
+    override suspend fun callRecording(call: String, peer: String?, group: String?): KeptCall =
+        run { it.query(com.chencohen.ptt.graphql.CallRecordingQuery(call, Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group))).execute() }
+            .callRecording.let { r ->
+                KeptCall(r.recording, r.tracks.map { KeptTrack(it.blob, it.identity, it.kind, it.codec, it.recordingStartedAt.toString(), it.size, it.complete) })
+            }
 
     override suspend fun recordCall(call: String, peer: String?, group: String?, on: Boolean): Boolean =
         if (on) {

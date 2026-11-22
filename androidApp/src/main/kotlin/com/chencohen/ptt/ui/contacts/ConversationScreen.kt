@@ -79,6 +79,8 @@ class ConversationActions(
     val call: (video: Boolean) -> Unit = {},
     /** Share a saved call (Save calls). */
     val shareCall: (String) -> Unit = {},
+    /** A call the server kept: play it. */
+    val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
 )
 
 /** What the header says under the name: typing, online, last seen, or nothing known. */
@@ -246,7 +248,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 Text(message.author!!, color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
             }
             if (message.call != null) {
-                com.chencohen.ptt.ui.calls.CallEntryContent(message, onInverse = mine, share = actions.shareCall) { actions.call(message.call!!.video) }
+                com.chencohen.ptt.ui.calls.CallEntryContent(message, onInverse = mine, share = actions.shareCall, playKept = actions.playKept) { actions.call(message.call!!.video) }
             } else if (message.clip != null) {
                 ClipContent(message, playing, actions.playClip, actions.stopClip, onInverse = mine)
             } else {

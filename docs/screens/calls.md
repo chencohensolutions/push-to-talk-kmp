@@ -37,6 +37,28 @@ says "Calls need the microphone. Allow it in the app's settings."
 - **Ended**: for two seconds, "Call ended", "Busy", "Declined", "No answer", "Couldn't connect" or "Answered on another
   phone", then the screen goes.
 
+
+## Playing a kept call
+
+A call the server kept (someone recorded it) has **On the server · Play** under its line in the chat, and **Play** and
+**Save as file** buttons on its row in the Calls tab. The call's key stays on its entry (`CallEntry.keptKey`) once the
+room's metadata said the server keeps it; the server never has it.
+
+- **Getting it**: "Getting the call from your server and opening it on this phone…" with a progress bar. The phone
+  asks `callRecording` for the tracks it may read, downloads each one (`GET /blob/<id>`), decrypts the frames with the
+  call's key (LiveKit's frame encryption, `LiveKitFrames`), and writes one Matroska file without re-encoding
+  (`KeptCallFile`, `Matroska`): a video and an audio track per person, named after them, lined up by when each keeping
+  began. It stays in the app's `files/calls/` as `kept-<call>.mkv`, and is opened from there next time once the server
+  had finished keeping it.
+- **The player**: everyone's picture in a grid (one or two people one above the other, more two by two), each with
+  their name, and an avatar for someone without video; every voice plays. One set of controls: play or pause, a slider
+  to move through it, and the time.
+- **Save as file** (in the player's top bar, or on the call's row, which opens the player and saves once it's ready):
+  copies the file into the phone's Downloads, `Download/Talk/<chat> <date>.mkv`, then "Saved in Downloads › Talk"
+  with **Share**. **Share** in the top bar shares the app's own copy.
+- Nothing kept that this user may open: "Your server has nothing of this call you can open." A failure: "The call
+  couldn't be opened. Try again later."
+
 ## Ringing outside the app
 
 Each call is a Telecom call (Core-Telecom): an incoming one rings like a phone call, with a full-screen notification

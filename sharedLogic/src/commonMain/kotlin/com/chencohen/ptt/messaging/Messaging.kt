@@ -190,12 +190,23 @@ internal class Messaging(
     /** Stay connected's service runs: bursts play without the app on screen. */
     var stayConnected = false
 
+    private val blobs: BlobApi = blobApi ?: object : BlobApi {
+        override suspend fun read(id: String, onBytes: suspend (ByteArray) -> Unit) = throw BlobException(0, "No server")
+        override suspend fun put(id: String, peer: String?, group: String?, bytes: ByteArray) = throw BlobException(0, "No server")
+    }
+
+    /** The tracks the server kept of the call [message] (its id is the call's), that this user may read. */
+    suspend fun keptCall(message: TextMessage): KeptCall {
+        val group = Group.idOf(message.user)
+        return api.callRecording(message.id, if (group == null) message.user else null, group)
+    }
+
+    /** Reads blob [id] (a kept call's track) from the server, as it arrives. */
+    suspend fun readBlob(id: String, onBytes: suspend (ByteArray) -> Unit) = blobs.read(id, onBytes)
+
     val talk: Talk = Talk(
         scope = scope, store = store, clips = clipFiles,
-        blobs = blobApi ?: object : BlobApi {
-            override suspend fun read(id: String, onBytes: suspend (ByteArray) -> Unit) = throw BlobException(0, "No server")
-            override suspend fun put(id: String, peer: String?, group: String?, bytes: ByteArray) = throw BlobException(0, "No server")
-        },
+        blobs = blobs,
         sendFrame = socket::sendFrame,
         connected = { socket.state.value is SocketState.Live || socket.state.value is SocketState.Syncing },
         sendContent = { chat, content, pushKind ->

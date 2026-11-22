@@ -111,6 +111,17 @@
     <string name="call_save_not_now">Not now</string>
     <string name="call_share">Share call</string>
     <string name="call_share_saved">Saved · Share</string>
+    <string name="kept_open">On the server · Play</string>
+    <string name="kept_back">Back</string>
+    <string name="kept_getting">Getting the call from your server and opening it on this phone…</string>
+    <string name="kept_nothing">Your server has nothing of this call you can open.</string>
+    <string name="kept_failed">The call couldn\'t be opened. Try again later.</string>
+    <string name="kept_play">Play</string>
+    <string name="kept_pause">Pause</string>
+    <string name="kept_save">Save as file</string>
+    <string name="kept_saving">Saving…</string>
+    <string name="kept_saved">Saved in Downloads › Talk</string>
+    <string name="kept_save_failed">The file couldn\'t be saved</string>
     <string name="call_voice">Voice call</string>
     <string name="call_video">Video call</string>
     <string name="call_kind_voice">Voice call</string>

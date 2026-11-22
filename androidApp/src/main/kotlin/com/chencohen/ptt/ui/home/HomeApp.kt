@@ -1,5 +1,6 @@
 package com.chencohen.ptt.ui.home
 
+import kotlinx.coroutines.launch
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -129,6 +130,10 @@ class HomeActions(
     val chatName: (String) -> String = { it },
     /** Share a saved call's file. */
     val shareCall: (String) -> Unit = {},
+    /** A call the server kept: play it. */
+    val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
+    /** A call the server kept: save it as one file in Downloads. */
+    val saveKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** The Talk tab: hold to talk in a Quick talk chat, and let go. */
     val pressTalk: (String) -> Unit = {},
     val releaseTalk: () -> Unit = {},
@@ -182,6 +187,17 @@ fun HomeApp(
         saved = ""
     }
     var tab by rememberSaveable { mutableStateOf(HomeTab.TALK) }
+    // A kept call being played (its page is "kept/<call>").
+    val keptCalls = remember { mutableMapOf<String, com.chencohen.ptt.messaging.TextMessage>() }
+    val keptSaveAsked = remember { mutableSetOf<String>() }
+    fun playKept(message: com.chencohen.ptt.messaging.TextMessage) {
+        keptCalls[message.id] = message
+        push("kept/${message.id}")
+    }
+    fun saveKept(message: com.chencohen.ptt.messaging.TextMessage) {
+        keptSaveAsked += message.id
+        playKept(message)
+    }
     val messages = remember { Messages() }
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -258,6 +274,8 @@ fun HomeApp(
                         call = ::call,
                         chatName = chatName,
                         shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
+                        playKept = ::playKept,
+                        saveKept = ::saveKept,
                         pressTalk = { chat -> pressOrUnlock(chat) },
                         releaseTalk = { messaging.releaseTalk(true) },
                         quickTalkShown = { chat ->
@@ -550,6 +568,7 @@ fun HomeApp(
                             micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                             call = { video -> call(user, video) },
                             shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
+                            playKept = ::playKept,
                         ),
                         talk = messagingState.talk,
                         talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
@@ -613,6 +632,56 @@ fun HomeApp(
                         notifyOnly = user in messagingState.talkSettings.notifyOnly,
                         quickTalk = user in messagingState.talkSettings.quickTalk,
                     )
+                }
+                name.startsWith("kept/") && pageUser != null && keptCalls[pageUser] != null -> {
+                    val message = keptCalls.getValue(pageUser)
+                    var progress by remember(pageUser) { mutableStateOf(0f) }
+                    var load by remember(pageUser) { mutableStateOf<com.chencohen.ptt.ui.calls.KeptLoad?>(null) }
+                    var saving by remember(pageUser) { mutableStateOf(false) }
+                    val keptScope = androidx.compose.runtime.rememberCoroutineScope()
+                    LaunchedEffect(pageUser) {
+                        load = com.chencohen.ptt.ui.calls.loadKeptCall(context, message, messaging::keptCall, messaging::readBlob, nameOf) { progress = it }
+                    }
+                    com.chencohen.ptt.ui.calls.KeptCallScreen(
+                        title = chatName(message.user),
+                        load = load ?: com.chencohen.ptt.ui.calls.KeptLoad.Getting(progress),
+                        back = ::pop,
+                        share = { com.chencohen.ptt.ui.calls.shareCall(context, com.chencohen.ptt.ui.calls.keptName(message.id)) },
+                        save = {
+                            val ready = load as? com.chencohen.ptt.ui.calls.KeptLoad.Ready
+                            if (ready != null && !saving) {
+                                saving = true
+                                keptScope.launch {
+                                    val uri = com.chencohen.ptt.ui.calls.saveKeptCallToDownloads(context, ready.file, chatName(message.user), message.at)
+                                    saving = false
+                                    if (uri != null) {
+                                        messages.post(resources.getString(R.string.kept_saved), resources.getString(R.string.call_share)) {
+                                            com.chencohen.ptt.ui.calls.shareKeptCall(context, uri)
+                                        }
+                                    } else {
+                                        messages.post(resources.getString(R.string.kept_save_failed))
+                                    }
+                                }
+                            }
+                        },
+                        saving = saving,
+                    )
+                    // From the call log's Save: once it's ready, save it.
+                    LaunchedEffect(load) {
+                        if (load is com.chencohen.ptt.ui.calls.KeptLoad.Ready && keptSaveAsked.remove(pageUser)) {
+                            saving = true
+                            val ready = load as com.chencohen.ptt.ui.calls.KeptLoad.Ready
+                            val uri = com.chencohen.ptt.ui.calls.saveKeptCallToDownloads(context, ready.file, chatName(message.user), message.at)
+                            saving = false
+                            if (uri != null) {
+                                messages.post(resources.getString(R.string.kept_saved), resources.getString(R.string.call_share)) {
+                                    com.chencohen.ptt.ui.calls.shareKeptCall(context, uri)
+                                }
+                            } else {
+                                messages.post(resources.getString(R.string.kept_save_failed))
+                            }
+                        }
+                    }
                 }
                 name.startsWith("safety/") && pageUser != null -> {
                     val user = pageUser
@@ -799,7 +868,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                         Spacer(Modifier.height(96.dp))
                         EmptyTab(LibraryIcons.Call, stringResource(R.string.calls_empty))
                     } else {
-                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact, actions.shareCall)
+                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact, actions.shareCall, actions.playKept, actions.saveKept)
                     }
                 }
             }

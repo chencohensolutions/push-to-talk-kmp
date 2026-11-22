@@ -104,6 +104,11 @@ data class CallEntry(
     val durationMs: Long = 0,
     /** Saved on this phone (Save calls): the file's name in the app's calls folder. */
     val savedAs: String? = null,
+    /**
+     * The server kept this call (someone recorded it): the call's key, base64, which only the phones have, to download
+     * and decrypt it later (docs/screens/calls.md, "Playing a kept call"). Null when the server never kept it.
+     */
+    val keptKey: String? = null,
 )
 
 /** What a clip is: a burst said with the Talk button, or a voice message recorded in the composer. */

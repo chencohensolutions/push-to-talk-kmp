@@ -167,6 +167,9 @@ internal class Calls(
     private var savedAs: String? = null
     private var askedToSave = false
 
+    /** The call's key while the server kept the call at some point: it goes on the call's entry, for playing it later. */
+    private var keptKey: ByteArray? = null
+
     private val current: CallUi? get() = _state.value?.takeIf { it.phase != CallPhase.ENDED }
 
     /** Calls [chat]: false when a call is already on. */
@@ -178,6 +181,7 @@ internal class Calls(
         key = callKey
         joined = false
         askedToSave = false
+        keptKey = null
         savedAs = null
         val call = CallUi(id, chat, self, incoming = false, video = video, phase = CallPhase.CALLING, startedAt = now())
         show(call)
@@ -283,6 +287,7 @@ internal class Calls(
                         key = call.key
                         joined = false
                         askedToSave = false
+                        keptKey = null
                         savedAs = null
                         show(ringing)
                         host?.ring(ringing)
@@ -367,8 +372,9 @@ internal class Calls(
         val ended = call.copy(phase = CallPhase.ENDED, outcome = outcome, saving = false, askToSave = false)
         _state.value = ended
         host?.ended(ended)
-        record(call, outcome, savedAs)
+        record(call, outcome, savedAs, keptKey)
         savedAs = null
+        keptKey = null
         if (outcome == CallOutcome.MISSED) host?.missed(call.chat, call.caller, call.video)
         clearing = scope.launch {
             delay(SHOW_ENDED)
@@ -376,14 +382,14 @@ internal class Calls(
         }
     }
 
-    private fun record(call: CallUi, outcome: CallOutcome, saved: String? = null) {
+    private fun record(call: CallUi, outcome: CallOutcome, saved: String? = null, kept: ByteArray? = null) {
         val duration = if (call.connectedAt > 0) now() - call.connectedAt else 0
         val missed = outcome == CallOutcome.MISSED
         putEntry(
             TextMessage(
                 id = call.id, user = call.chat, outgoing = !call.incoming, body = "", at = call.startedAt,
                 read = !missed, author = call.caller.takeIf { Group.idOf(call.chat) != null },
-                call = CallEntry(call.video, outcome, duration, savedAs = saved),
+                call = CallEntry(call.video, outcome, duration, savedAs = saved, keptKey = kept?.let { kotlin.io.encoding.Base64.encode(it) }),
             ),
         )
     }
@@ -414,7 +420,10 @@ internal class Calls(
         }
 
         override fun serverRecording(by: String?) {
-            scope.launch { _state.update { it?.copy(serverRecordingBy = by?.substringBeforeLast('.')) } }
+            scope.launch {
+                if (by != null && current != null) keptKey = key
+                _state.update { it?.copy(serverRecordingBy = by?.substringBeforeLast('.')) }
+            }
         }
 
         override fun disconnected() {

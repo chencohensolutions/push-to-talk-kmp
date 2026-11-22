@@ -29,6 +29,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.core.telecom)
     implementation(libs.androidx.work.runtime)
+    implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.car.app)
     implementation(libs.androidx.car.app.projected)
     // libsignal needs it (its AAR asks for core library desugaring).
