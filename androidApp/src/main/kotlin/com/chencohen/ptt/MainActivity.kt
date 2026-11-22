@@ -39,6 +39,10 @@ class MainActivity : ComponentActivity() {
     /** A talk notification's Play: the clip to play. */
     private var openedClip by mutableStateOf<String?>(null)
 
+    /** Opened over the lock screen for a burst (Open Talk when someone talks to me), and not touched since. */
+    private var wokeForTalk by mutableStateOf(false)
+    private var touched = false
+
     /** A volume key held down for talk, not yet let go. */
     private var volumeTalk = false
     private var volumeDownAt = 0L
@@ -68,6 +72,7 @@ class MainActivity : ComponentActivity() {
                         notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                 }
+                LaunchedEffect(wokeForTalk) { if (wokeForTalk) backAfterWake() }
                 // A call rings or runs: the app shows over the lock screen and wakes the screen for it.
                 val ringing by viewModel.messaging.state.collectAsStateWithLifecycle()
                 val callOn = ringing.call != null
@@ -112,7 +117,6 @@ class MainActivity : ComponentActivity() {
                         onTalkSettings = { new ->
                             viewModel.messaging.setTalkSettings(new)
                             StayConnectedService.set(this@MainActivity, new.stayConnected)
-                            TalkReadyService.set(this@MainActivity, new.fullVolumeBackground)
                         },
                         openedClip = openedClip,
                     )
@@ -136,7 +140,7 @@ class MainActivity : ComponentActivity() {
             // Stay connected after a restart: nothing may start at boot, so it resumes when the app is opened.
             if (viewModel.messaging.talkSettings.stayConnected && !StayConnectedService.running) StayConnectedService.set(this, true)
             // "Talk is ready": started from the screen, so woken bursts may play as media (Android 17).
-            TalkReadyService.set(this, viewModel.messaging.talkSettings.fullVolumeBackground)
+            TalkReadyService.set(this, true)
         }
     }
 
@@ -187,6 +191,38 @@ class MainActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        touched = true
+    }
+
+    /**
+     * After the burst (and any queued) and 3 quiet seconds, untouched and still locked: off the lock screen and closed,
+     * so the phone is back on the lock screen and Android turns the screen off after its short lock-screen timeout.
+     */
+    private suspend fun backAfterWake() {
+        var quietSince = 0L
+        while (wokeForTalk) {
+            kotlinx.coroutines.delay(500)
+            val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
+            if (touched || !locked) {
+                // Touched or unlocked: it stays as the user left it.
+                wokeForTalk = false
+                break
+            }
+            val busy = viewModel.messaging.state.value.talk.let { it.playing != null || it.queued.isNotEmpty() || it.talkers.isNotEmpty() }
+            val now = System.currentTimeMillis()
+            if (busy) quietSince = 0L else if (quietSince == 0L) quietSince = now
+            if (quietSince != 0L && now - quietSince > 3_000) {
+                wokeForTalk = false
+                setTurnScreenOn(false)
+                setShowWhenLocked(false)
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                finish()
+            }
+        }
+    }
+
     override fun onStop() {
         viewModel.messaging.stop()
         viewModel.connection.stop()
@@ -217,6 +253,13 @@ class MainActivity : ComponentActivity() {
         // A talk notification: Play plays the burst in its chat; Reply opens Talk mode there.
         if (intent?.action == TalkNotifications.ACTION_PLAY || intent?.action == TalkNotifications.ACTION_TALK) {
             val chat = intent.getStringExtra(Notifications.EXTRA_USER) ?: return
+            if (intent.getBooleanExtra(EXTRA_WAKE, false)) {
+                // The screen on, over the lock screen, for this burst only.
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+                wokeForTalk = true
+                touched = false
+            }
             openedChat = if (intent.action == TalkNotifications.ACTION_TALK) "$chat\ntalk/$chat" else chat
             if (intent.action == TalkNotifications.ACTION_PLAY) openedClip = intent.getStringExtra(TalkNotifications.EXTRA_CLIP)
             return
@@ -243,6 +286,11 @@ class MainActivity : ComponentActivity() {
         val link = parseEnrollmentLink(data) ?: return
         viewModel.enrollment.openLink(link)
         linkOpened = true
+    }
+
+    companion object {
+        /** A talk notification's full-screen intent: show over the lock screen and turn the screen on. */
+        const val EXTRA_WAKE = "wake"
     }
 }
 

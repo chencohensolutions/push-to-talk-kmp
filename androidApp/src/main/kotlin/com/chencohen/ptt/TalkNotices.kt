@@ -29,6 +29,8 @@ object TalkPlaying {
     private const val TAG = "TalkPlaying"
 
     private var watching: Job? = null
+    /** The clip the screen was woken for, once each. */
+    private var wokeFor: String? = null
     private var shown: Pair<String, String>? = null
     private var lastClip: String? = null
 
@@ -43,12 +45,14 @@ object TalkPlaying {
     private suspend fun update(app: TalkApp, talk: TalkUiState) {
         val playing = talk.playing
         if (playing != null) {
+            if (shown == null) TalkWidgets.show(app, playing.chat, com.chencohen.ptt.talk.TalkWidgetView.Incoming(playing.from))
             shown = playing.chat to playing.from
             lastClip = playing.clip
             post(app, playing.chat, playing.from, playing.playedMs, live = true)
         } else {
             val (chat, from) = shown ?: return
             shown = null
+            TalkWidgets.show(app, chat, com.chencohen.ptt.talk.TalkWidgetView.Idle)
             TalkReply.open(chat)
             post(app, chat, from, 0, live = false)
         }
@@ -77,6 +81,12 @@ object TalkPlaying {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .addAction(talkBackAction(app, chat))
+        if (live && lastClip != wokeFor && wakes(app, chat)) {
+            wokeFor = lastClip
+            // Screen off or locked: Android opens it (the Talk screen over the lock screen); in use: a heads-up only.
+            builder.setFullScreenIntent(wakeTalk(app, chat), true)
+            Log.i(TAG, "opening the Talk screen for $chat")
+        }
         if (live) {
             builder.setOngoing(true)
                 .addAction(0, app.getString(R.string.playing_stop), receiver(app, TalkActionReceiver.ACTION_STOP, chat))
@@ -89,6 +99,28 @@ object TalkPlaying {
     }
 
     fun cancel(context: Context) = NotificationManagerCompat.from(context).cancel(ID)
+
+    /**
+     * Open Talk when someone talks to me (Settings › Talk, off by default): only with the screen off, when Android
+     * allows full-screen intents, Do Not Disturb is off, and the chat isn't muted.
+     */
+    private fun wakes(app: TalkApp, chat: String): Boolean {
+        if (!messagingState(app).value.talkSettings.openOnTalk) return false
+        // Only when the screen was off: in use (even on the lock screen) the heads-up is enough (hen, 17:07).
+        if (app.getSystemService(android.os.PowerManager::class.java).isInteractive) return false
+        val nm = app.getSystemService(android.app.NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) return false
+        if (nm.currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL) return false
+        return !muted(app, chat)
+    }
+
+    private fun wakeTalk(context: Context, chat: String) = PendingIntent.getActivity(
+        context, chat.hashCode() + 2,
+        Intent(context, MainActivity::class.java).setAction(TalkNotifications.ACTION_TALK).putExtra(Notifications.EXTRA_USER, chat)
+            .putExtra(MainActivity.EXTRA_WAKE, true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
 
     /** Talk back: tap to talk to [chat] (TalkReadyService records), needs the phone unlocked. */
     fun talkBackAction(context: Context, chat: String): NotificationCompat.Action {

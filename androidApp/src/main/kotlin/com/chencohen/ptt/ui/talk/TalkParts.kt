@@ -41,6 +41,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -81,9 +83,30 @@ internal fun clipLength(ms: Long): String {
 @Composable
 internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Unit, release: () -> Unit, modifier: Modifier = Modifier) {
     val label = stringResource(R.string.talk_button)
+    val level = rememberVoiceLevel(live || someoneTalking)
+    val glow = if (live) LibraryColors.Accent else LibraryColors.Inverse
     Box(
         modifier
             .size(220.dp)
+            // Grows (up to 1.25) and glows with the voice: the one playing, or the microphone's while talking.
+            .graphicsLayer {
+                val scale = 1f + 0.25f * level.value
+                scaleX = scale
+                scaleY = scale
+            }
+            .drawBehind {
+                val l = level.value
+                if (l > 0.01f) {
+                    drawCircle(
+                        brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                            listOf(glow.copy(alpha = 0.45f * l), androidx.compose.ui.graphics.Color.Transparent),
+                            center = center,
+                            radius = size.minDimension / 2 * (1f + 0.35f * l),
+                        ),
+                        radius = size.minDimension / 2 * (1f + 0.35f * l),
+                    )
+                }
+            }
             .border(if (live || someoneTalking) 8.dp else 0.dp, if (live) LibraryColors.Accent else LibraryColors.Accent.copy(alpha = 0.5f), CircleShape)
             .padding(if (live || someoneTalking) 12.dp else 0.dp)
             .background(if (someoneTalking && !live) LibraryColors.Muted.copy(alpha = 0.4f) else LibraryColors.Inverse, CircleShape)
@@ -124,6 +147,31 @@ internal fun WarmMicrophone(warm: (Boolean) -> Unit) {
             current(false)
         }
     }
+}
+
+/**
+ * The voice level for the talk button, smoothed every frame (VoiceLevel: 60 ms up, 200 ms down) from the player's
+ * and the microphone's (TalkAudio), while [active]; 0 otherwise. Reads two volatile floats a frame, allocates nothing.
+ */
+@Composable
+internal fun rememberVoiceLevel(active: Boolean): androidx.compose.runtime.State<Float> {
+    val level = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(active) {
+        var last = 0L
+        while (true) {
+            androidx.compose.runtime.withFrameNanos { now ->
+                val dt = if (last == 0L) 16f else (now - last) / 1_000_000f
+                last = now
+                val target = if (active) maxOf(com.chencohen.ptt.talk.TalkAudio.playLevel, com.chencohen.ptt.talk.TalkAudio.micLevel) else 0f
+                level.floatValue = com.chencohen.ptt.talk.VoiceLevel.smooth(level.floatValue, target, dt)
+            }
+            if (!active && level.floatValue < 0.001f) {
+                level.floatValue = 0f
+                break
+            }
+        }
+    }
+    return level
 }
 
 /** A debug build shows the catch-up readout (how far behind live a burst plays). */

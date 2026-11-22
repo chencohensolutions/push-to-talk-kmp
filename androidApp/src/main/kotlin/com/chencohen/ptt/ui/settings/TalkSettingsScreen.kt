@@ -39,9 +39,19 @@ internal fun TalkSettingsScreen(
             }
         }
         SectionTitle(stringResource(R.string.talk_background_title))
+        val context = androidx.compose.ui.platform.LocalContext.current
         SettingsCard {
-            SwitchRow(stringResource(R.string.talk_full_volume), stringResource(R.string.talk_full_volume_body), settings.fullVolumeBackground) {
-                change(settings.copy(fullVolumeBackground = it))
+            SwitchRow(stringResource(R.string.talk_open_on_talk), stringResource(R.string.talk_open_on_talk_body), settings.openOnTalk) { on ->
+                change(settings.copy(openOnTalk = on))
+                // Turning it on asks Android for full-screen notifications when it needs to (Android 14+).
+                val nm = context.getSystemService(android.app.NotificationManager::class.java)
+                if (on && android.os.Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) {
+                    runCatching {
+                        context.startActivity(
+                            android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, android.net.Uri.parse("package:${context.packageName}")),
+                        )
+                    }
+                }
             }
             RowDivider()
             SwitchRow(stringResource(R.string.talk_stay_connected), stringResource(R.string.talk_stay_connected_body), settings.stayConnected) {

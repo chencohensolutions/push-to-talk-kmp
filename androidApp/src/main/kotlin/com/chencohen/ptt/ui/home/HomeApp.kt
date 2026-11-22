@@ -193,6 +193,18 @@ fun HomeApp(
             onChatTaken()
         }
     }
+    // Open Talk when someone talks to me, with the app in front: someone's burst switches to that Talk screen.
+    val incoming = messagingState.talk.playing?.takeIf { it.live && it.from != state.device?.user }
+    LaunchedEffect(incoming?.clip) {
+        val chat = incoming?.chat ?: return@LaunchedEffect
+        if (messagingState.talkSettings.openOnTalk && stack.lastOrNull() != "talk/$chat") saved = "chat/$chat\ntalk/$chat"
+    }
+    // Over the lock screen a press asks to unlock first (then hold again to talk).
+    fun pressOrUnlock(chat: String) {
+        val activity = context as? android.app.Activity
+        val keyguard = context.getSystemService(android.app.KeyguardManager::class.java)
+        if (activity != null && keyguard.isKeyguardLocked) keyguard.requestDismissKeyguard(activity, null) else messaging.pressTalk(chat)
+    }
     // A talk notification's Play: the burst plays from the chat's history.
     LaunchedEffect(openedClip) { if (openedClip != null) messaging.playClip(openedClip) }
     // An invite link: Add contact asks "Pair with them?".
@@ -246,7 +258,7 @@ fun HomeApp(
                         call = ::call,
                         chatName = chatName,
                         shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
-                        pressTalk = { chat -> messaging.pressTalk(chat) },
+                        pressTalk = { chat -> pressOrUnlock(chat) },
                         releaseTalk = { messaging.releaseTalk(true) },
                         quickTalkShown = { chat ->
                             val talk = messaging.state.value.talkSettings
@@ -554,7 +566,7 @@ fun HomeApp(
                         liveRoom = messagingState.live,
                         bursts = messagingState.conversations[chat].orEmpty().filter { it.clip != null },
                         nameOf = nameOf,
-                        press = { messaging.pressTalk(chat) },
+                        press = { pressOrUnlock(chat) },
                         release = { messaging.releaseTalk(true) },
                         play = { id -> if (messagingState.talk.playing?.clip == id) messaging.stopPlaying() else messaging.playClip(id) },
                         close = ::pop,

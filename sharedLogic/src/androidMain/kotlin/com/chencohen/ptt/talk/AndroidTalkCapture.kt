@@ -174,6 +174,7 @@ class AndroidTalkCapture(private val speakerphone: SpeakerphoneMic? = null) : Ta
     }
 
     private fun encode(sink: Sink, frame: ShortArray, count: Int) {
+        TalkAudio.micLevel = VoiceLevel.fromRms(VoiceLevel.rms(frame, count))
         if (sink.levelSamples < TalkAudioFormat.SAMPLE_RATE) {
             for (i in 0 until count) sink.levelSum += frame[i].toDouble() * frame[i]
             sink.levelSamples += count
@@ -193,6 +194,7 @@ class AndroidTalkCapture(private val speakerphone: SpeakerphoneMic? = null) : Ta
             Log.w(TAG, "finishing the clip", e)
         } finally {
             sink.encoder.release()
+            TalkAudio.micLevel = 0f
             m.sink = null
             sink.done.countDown()
         }

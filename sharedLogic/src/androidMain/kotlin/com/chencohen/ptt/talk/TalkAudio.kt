@@ -10,6 +10,13 @@ object TalkAudio {
     @Volatile
     var inCallSession: Boolean = false
 
+    /** The voice playing now and the microphone's, 0 to 1 (VoiceLevel.fromRms), for the talk button; 0 when quiet. */
+    @Volatile
+    var playLevel: Float = 0f
+
+    @Volatile
+    var micLevel: Float = 0f
+
     /** For the player's diagnostics (debug test of background playback). */
     @Volatile
     var appContext: android.content.Context? = null

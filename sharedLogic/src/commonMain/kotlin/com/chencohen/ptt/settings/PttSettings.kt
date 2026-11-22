@@ -122,10 +122,10 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_QUICK_TALK_PAGE)?.takeIf { it.isNotEmpty() }
         set(value) = store.putString(KEY_QUICK_TALK_PAGE, value)
 
-    /** Settings › Talk › Play talk at full volume in the background (on unless turned off). */
-    var fullVolumeBackground: Boolean
-        get() = store.getString(KEY_FULL_VOLUME) != "false"
-        set(value) = store.putString(KEY_FULL_VOLUME, value.toString())
+    /** Settings › Talk › Open Talk when someone talks to me (off unless turned on). */
+    var openOnTalk: Boolean
+        get() = store.getString(KEY_OPEN_ON_TALK) == "true"
+        set(value) = store.putString(KEY_OPEN_ON_TALK, value.toString())
 
     var pendingLink: String?
         get() = store.getString(KEY_PENDING_LINK)
@@ -135,7 +135,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_PENDING_INVITE_PAIR = "pending_invite_pair"
         private const val KEY_PENDING_LINK = "pending_link"
         private const val KEY_QUICK_TALK = "talk_quick_chats"
-        private const val KEY_FULL_VOLUME = "talk_full_volume_background"
+        private const val KEY_OPEN_ON_TALK = "talk_open_on_talk"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"
         private const val KEY_STAY_CONNECTED = "talk_stay_connected"

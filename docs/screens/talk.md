@@ -52,8 +52,21 @@ check.
 ## Notifications
 
 "Dana is talking" (or "Dana is talking in Family"), "Tap Play to hear it", with **Play** (opens the chat and plays
-the burst) and **Reply** (opens Talk mode there), on the Talk channel. With Play talk at full volume in the background on (the default), a silent "Talk is ready"
+the burst) and **Reply** (opens Talk mode there), on the Talk channel. A silent "Talk is ready"
 notification (its own channel, least important, **Stop**) stays while the app isn't connected, and woken bursts play
 out loud through it at media volume. Without it, a woken burst plays in a talk session, and Android shows its
 call-style notification "Talk · Family" with **Leave**, gone 20 s after the last burst. Stay connected has its own ongoing
 notification, "Talk is connected", with **Turn off**.
+
+## Opened when someone talks
+
+Settings › Talk › **Open Talk when someone talks to me** (off by default; turning it on asks Android for full-screen
+notifications on Android 14+). When a burst wakes the phone with the screen **off**, the "Talk playing" notification's
+full-screen intent turns the screen on with that conversation's Talk screen over the lock screen; it plays there, and
+a press asks to unlock first. With the screen on (another app, or just the lock screen) only the heads-up notification
+shows. With Talk in front, someone's burst switches to their Talk screen. Never in Do Not Disturb or for a muted chat.
+If nobody touched or unlocked the phone, 3 s after the bursts end the screen leaves the lock screen and closes; Android
+then turns the screen off after its own short lock-screen timeout (a few seconds).
+
+The talk button grows (up to 1.25 times) and glows with the voice: the one playing, or the microphone's while talking
+(`VoiceLevel`: -50 to -10 dBFS, 60 ms up and 200 ms down, read once a frame).

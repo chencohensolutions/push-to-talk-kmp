@@ -62,8 +62,3 @@ install updates" when Android's Install unknown apps is off; "Update failed: <wh
 notification, and you tap to update."), and **Check now** (asks the server, which watches the releases). A debug build says "This is a test build" and has no Check now. How updates work: [design.md](../design.md),
 "App updates".
 
-## Talk › In the background
-
-**Play talk at full volume in the background** (a switch, on): "Keeps a silent “Talk is ready” notification, without
-a connection. Off: talk plays like a phone call, quieter." Above Stay connected. See [design.md](../design.md),
-"Woken by talk".
