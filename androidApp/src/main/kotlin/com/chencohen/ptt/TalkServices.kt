@@ -21,11 +21,14 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.telecom.CallAttributesCompat
+import androidx.core.telecom.CallControlScope
+import androidx.core.telecom.CallEndpointCompat
 import androidx.core.telecom.CallsManager
 import com.chencohen.ptt.talk.TalkHost
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -98,6 +101,7 @@ object TalkSession {
                     launch {
                         // Answered by the app itself: a talk session isn't a call the user picks up.
                         answer(CallAttributesCompat.CALL_TYPE_AUDIO_CALL)
+                        launch { toLoudspeaker() }
                         active = true
                         TalkSessionService.start(app, name)
                         ready.complete(true)
@@ -114,6 +118,21 @@ object TalkSession {
             }
         }
         return withTimeoutOrNull(4_000) { ready.await() } ?: false.also { leave() }
+    }
+
+    /**
+     * A walkie-talkie is heard on the loudspeaker. Telecom starts an audio call on the earpiece, at the earpiece's
+     * call volume, so a burst played in the background sounded like a phone call (2026-11-22, hen). Move the session
+     * to the speaker unless a headset or Bluetooth device is the route; the volume buttons then set the speaker's
+     * call volume while the session lasts.
+     */
+    private suspend fun CallControlScope.toLoudspeaker() {
+        val current = runCatching { currentCallEndpoint.first() }.getOrNull() ?: return
+        if (current.type != CallEndpointCompat.TYPE_EARPIECE) return
+        val speaker = runCatching { availableEndpoints.first() }.getOrNull()
+            ?.firstOrNull { it.type == CallEndpointCompat.TYPE_SPEAKER } ?: return
+        val result = requestEndpointChange(speaker)
+        Log.i(TAG, "talk session to the loudspeaker: $result")
     }
 
     /** Nothing plays: the session ends after the reply time unless another burst comes. */
