@@ -57,6 +57,7 @@ Under the cards, the app's version ("Talk 0.1").
 
 Above Your server: where the app's update stands ("Talk is up to date", "Checked at 15:40"; "Checking for an
 update…"; "Talk 1.2.0 is available", tap to update; "Downloading Talk 1.2.0… 40%"; "Installing…"; "Allow Talk to
-install updates" when Android's Install unknown apps is off; "Update failed: <why>", tap to try again), and **Check
-now** (asks the server, which watches the releases). A debug build says "This is a test build" and has no Check now. How updates work: [design.md](../design.md),
+install updates" when Android's Install unknown apps is off; "Update failed: <why>", tap to try again),
+**Install updates automatically** (a switch, on: "When nothing is going on: no call or talk, the app closed. Off: a
+notification, and you tap to update."), and **Check now** (asks the server, which watches the releases). A debug build says "This is a test build" and has no Check now. How updates work: [design.md](../design.md),
 "App updates".

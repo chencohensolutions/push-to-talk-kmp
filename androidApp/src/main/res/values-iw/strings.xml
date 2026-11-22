@@ -504,4 +504,6 @@
     <string name="update_check_now">לבדוק עכשיו</string>
     <string name="update_channel">עדכוני האפליקציה</string>
     <string name="update_notification_body">הקשה לעדכון. אנדרואיד יבקש אישור.</string>
+    <string name="update_automatic">להתקין עדכונים אוטומטית</string>
+    <string name="update_automatic_body">כשאין פעילות: אין שיחה או דיבור, והאפליקציה סגורה. כבוי: מגיעה התראה, ומקישים כדי לעדכן.</string>
 </resources>

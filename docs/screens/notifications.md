@@ -15,6 +15,8 @@ woken by the server's push and reads the texts from its queue; nothing of a text
 
 ## App updates
 
-When the server pushes `app_update` and its release is newer than the app (release builds only), "Talk 1.3.0 is
-available", "Tap to update. Android asks you to confirm.", on the App updates channel, once per version. A tap opens
-the app and starts the update ([design.md](../design.md), "App updates").
+When the server pushes `app_update` and its release is newer than the app (release builds only): with Install updates
+automatically (the default) the update installs by itself when nothing is going on, and this notification shows only
+when Android wants the user to confirm (a tap opens Android's screen) or Install unknown apps is off. Otherwise, once
+per version, "Talk 1.3.0 is available", "Tap to update. Android asks you to confirm.", on the App updates channel; a
+tap opens the app and starts the update ([design.md](../design.md), "App updates").

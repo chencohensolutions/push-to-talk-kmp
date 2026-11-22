@@ -167,6 +167,7 @@ fun HomeApp(
     val state by connection.state.collectAsStateWithLifecycle()
     val messagingState by messaging.state.collectAsStateWithLifecycle()
     val updates by com.chencohen.ptt.AppUpdates.state.collectAsStateWithLifecycle()
+    val automaticUpdates by com.chencohen.ptt.AppUpdates.automatic.collectAsStateWithLifecycle()
     val app = LocalContext.current.applicationContext as com.chencohen.ptt.TalkApp
     var saved by rememberSaveable { mutableStateOf("") }
     val stack = pages(saved)
@@ -268,6 +269,8 @@ fun HomeApp(
                         updates = updates,
                         checkUpdates = { com.chencohen.ptt.AppUpdates.check(app) },
                         update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
+                        automaticUpdates = automaticUpdates,
+                        setAutomaticUpdates = { on -> com.chencohen.ptt.AppUpdates.setAutomatic(app, on) },
                         presenceVisible = presenceVisible,
                         setPresenceVisible = { visible ->
                             presenceVisible = null

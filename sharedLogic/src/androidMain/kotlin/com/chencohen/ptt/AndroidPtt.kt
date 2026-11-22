@@ -247,3 +247,6 @@ suspend fun appRelease(context: Context): com.chencohen.ptt.update.AppRelease? {
     val r = response.data?.appRelease ?: return null
     return com.chencohen.ptt.update.AppRelease(r.version, r.apkUrl, r.size.toLong(), r.sha256, r.notes.orEmpty())
 }
+
+/** Nothing is going on that an app update would cut off: no call, talk or live room (AppUpdate.quiet). */
+fun talkQuiet(context: Context): Boolean = com.chencohen.ptt.update.AppUpdate.quiet(hub(context).state.value)
