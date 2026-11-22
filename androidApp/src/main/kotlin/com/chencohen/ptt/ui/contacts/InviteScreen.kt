@@ -1,5 +1,7 @@
 package com.chencohen.ptt.ui.contacts
 
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -72,6 +74,7 @@ internal fun InviteScreen(state: PairingState, actions: InviteActions) {
                     isError = state.inviteError != null,
                     singleLine = true,
                     enabled = !state.inviteLoading,
+                    textStyle = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false, imeAction = ImeAction.Done),
                     modifier = Modifier.fillMaxWidth(),
                 )

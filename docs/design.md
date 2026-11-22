@@ -10,7 +10,8 @@ https://claude.ai/artifact/CPewKaHcVw4FeLyKthu2Cm; this page only keeps what the
   applicationId, `com.chencohen.ptt`, stay when the app gets its own name.
 - **iOS is stubbed.** `sharedLogic` keeps its iOS targets, so common code stays Swift-friendly, but `iosMain` has only
   the actuals common code expects (`resolveIpv4`). There is no `iosApp` until phase 6.
-- **Strings are English only** for now (`values/strings.xml`), with curly apostrophes.
+- **Strings are in English and Hebrew** (`values/strings.xml`, `values-iw/strings.xml`), screens right to left in
+  Hebrew ([screens/style.md](screens/style.md), "Hebrew and right to left").
 - **The GraphQL schema** (`sharedLogic/src/commonMain/graphql/*.graphqls`) and **the /ws frames**
   (`sharedLogic/src/commonMain/proto/ptt.proto`) are the server's, copied by `./gradlew :sharedLogic:syncServerSchema`
   (`-PpttServerDir=…` when the server isn't in `../push-to-talk-server-go`). Commit what it copies.

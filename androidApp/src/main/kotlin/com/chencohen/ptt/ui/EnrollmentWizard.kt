@@ -1,5 +1,7 @@
 package com.chencohen.ptt.ui
 
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.text.style.TextDirection
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
@@ -210,6 +212,7 @@ private fun ColumnScope.EnterCodeStep(state: EnrollmentState, step: EnrollmentSt
             isError = step.error == EnrollmentError.MissingServerAddress,
             singleLine = true,
             enabled = !step.checking,
+            textStyle = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         )
@@ -222,7 +225,7 @@ private fun ColumnScope.EnterCodeStep(state: EnrollmentState, step: EnrollmentSt
             isError = codeError != null,
             singleLine = true,
             enabled = !step.checking,
-            textStyle = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace, letterSpacing = 3.sp),
+            textStyle = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace, letterSpacing = 3.sp, textDirection = TextDirection.Ltr),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Characters,
                 autoCorrectEnabled = false,
@@ -331,7 +334,7 @@ private fun ColumnScope.InviteCodeStep(state: EnrollmentState, step: EnrollmentS
             isError = field == InviteField.CODE,
             singleLine = true,
             enabled = !step.checking,
-            textStyle = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace, letterSpacing = 6.sp),
+            textStyle = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace, letterSpacing = 6.sp, textDirection = TextDirection.Ltr),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
         )
@@ -349,6 +352,7 @@ private fun ColumnScope.InviteCodeStep(state: EnrollmentState, step: EnrollmentS
             isError = field == InviteField.EMAIL,
             singleLine = true,
             enabled = !step.checking && bound == null,
+            textStyle = LocalTextStyle.current.copy(textDirection = TextDirection.Ltr),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false, imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )

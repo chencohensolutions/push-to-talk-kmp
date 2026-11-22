@@ -99,5 +99,22 @@ to `LocalMessages`. A plain note goes after 6 s; one with an action stays until 
 - **This phone**, not "this device", in the app's own strings; enrollment and Settings' device rows keep
   "device", the server's word.
 - **Register again** is the one name for enrolling anew, on home's card and in Settings.
-- Curly apostrophes (’) in `values/strings.xml`. English only for now ([design.md](../design.md)).
+- Curly apostrophes (’) in `values/strings.xml`.
 - Screens, flows and gestures follow Signal's messenger pattern; no Signal name, icon or artwork.
+
+## Hebrew and right to left
+
+- English (`values/`) and Hebrew (`values-iw/`, Android's folder name for Hebrew; it also serves `he`). Every string
+  added in English gets its Hebrew in the same commit. `res/xml/locales_config.xml` lists both, so Settings > Apps >
+  Talk > Language picks one apart from the phone's language.
+- Native Hebrew words, no loanwords (שרת, קוד רישום, תעודה, מספר ביטחון, צ׳אט). Buttons and steps in the infinitive
+  (להתחיל, סריקת קוד QR, שליחה) and other text phrased so it addresses nobody as a man or a woman (״אין לך חיבור״,
+  not ״אתה לא מחובר״). Gershayim and geresh are the Hebrew marks (צ׳אט, דק׳), not quotes.
+- Plurals give `one`, `two` and `other` (and `many` as `other`): ״חבר אחד״, ״שני חברים״, ״%d חברים״.
+- Screens are right to left as they are (`android:supportsRtl`): padding, alignment and shapes use start and end,
+  never left and right. Back and the row chevron are mirrored (`mirrored = true` in `LibraryIcons`); icons whose
+  meaning doesn't flip (the pencil, QR, search) aren't. As in Hebrew messengers, your own bubbles sit at the end, which
+  is the left.
+- What is read left to right stays so: the server address, the enrollment and invite codes and email fields
+  (`TextDirection.Ltr`), the safety number's groups (laid out left to right), and IDs and versions inside a
+  Hebrew sentence, wrapped in FSI/PDI marks (U+2068, U+2069) so their dashes and brackets don't move.

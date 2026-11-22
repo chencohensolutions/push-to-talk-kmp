@@ -1,6 +1,9 @@
 package com.chencohen.ptt.ui.contacts
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -81,10 +84,13 @@ private fun Digits(groups: List<String>) {
         Modifier.padding(top = 24.dp).semantics { contentDescription = spoken },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        groups.chunked(4).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                row.forEach { group ->
-                    Text(group, color = LibraryColors.OnBackground, fontFamily = FontFamily.Monospace, fontSize = 20.sp, letterSpacing = 1.sp)
+        // Numbers read left to right in Hebrew too: the groups keep their order on a right-to-left screen.
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            groups.chunked(4).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    row.forEach { group ->
+                        Text(group, color = LibraryColors.OnBackground, fontFamily = FontFamily.Monospace, fontSize = 20.sp, letterSpacing = 1.sp)
+                    }
                 }
             }
         }
