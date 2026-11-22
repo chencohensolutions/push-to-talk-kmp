@@ -275,7 +275,7 @@
     <string name="chats_link_here_action">Scan the code</string>
     <string name="chats_link_wrong_code">That isn\'t a Link a phone code of this account.</string>
     <string name="chats_linking_title">Finishing linking</string>
-    <string name="chats_linking_body">Open Talk on your other phone (phone %1$d) and keep it connected: it sends this phone your keys and contacts.</string>
+    <string name="chats_linking_body">Open Talk on your other phone and keep it connected: it sends this phone your keys and contacts.</string>
     <string name="chats_keys_failed">Your keys couldn’t be sent to the server: %1$s</string>
     <string name="chats_waiting">Waiting for them to confirm</string>
     <string name="chats_blocked">Blocked</string>

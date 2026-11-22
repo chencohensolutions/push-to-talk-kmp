@@ -867,7 +867,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                     (chats.keys as? KeysState.Linking)?.let { linking ->
                         HomeCard(
                             title = stringResource(R.string.chats_linking_title),
-                            body = stringResource(R.string.chats_linking_body, linking.device),
+                            body = stringResource(R.string.chats_linking_body),
                             action = "",
                             onAction = {},
                         )

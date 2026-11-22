@@ -274,7 +274,7 @@
     <string name="chats_link_here_action">סריקת הקוד</string>
     <string name="chats_link_wrong_code">זה לא קוד קישור טלפון של החשבון הזה.</string>
     <string name="chats_linking_title">משלים את הקישור</string>
-    <string name="chats_linking_body">לפתוח את Talk בטלפון השני (טלפון %1$d) ולהשאיר אותו מחובר: הוא שולח לטלפון הזה את המפתחות ואת אנשי הקשר שלך.</string>
+    <string name="chats_linking_body">לפתוח את Talk בטלפון השני ולהשאיר אותו מחובר: הוא שולח לטלפון הזה את המפתחות ואת אנשי הקשר שלך.</string>
     <string name="chats_keys_failed">לא ניתן לשלוח את המפתחות שלך לשרת: %1$s</string>
     <string name="chats_waiting">מחכה לאישור שלהם</string>
     <string name="chats_blocked">חסום</string>
