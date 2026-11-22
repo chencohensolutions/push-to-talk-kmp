@@ -49,7 +49,7 @@ check.
 ## Notifications
 
 "Dana is talking" (or "Dana is talking in Family"), "Tap Play to hear it", with **Play** (opens the chat and plays
-the burst) and **Reply** (opens Talk mode there), on the Talk channel. While woken bursts play (in the background, as media on the
-loudspeaker), an ongoing notification "Talk · Family" with **Leave** shows; it goes 20 s after the last burst. When
-Android refuses that and they play in a Telecom talk session instead, it is a call-style notification. Stay connected has its own ongoing
+the burst) and **Reply** (opens Talk mode there), on the Talk channel. While a woken burst plays in the background, in a talk session (on the
+loudspeaker, at the in-call volume), Android shows its ongoing call-style notification "Talk · Family" with
+**Leave**; it goes 20 s after the last burst. Stay connected has its own ongoing
 notification, "Talk is connected", with **Turn off**.

@@ -82,11 +82,7 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
-        <!-- Talk: woken bursts played as media, the Telecom talk session's service (its fallback), and Stay connected's. -->
-        <service
-            android:name=".TalkPlaybackService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+        <!-- Talk: the Telecom talk session's service, and Stay connected's. -->
         <service
             android:name=".TalkSessionService"
             android:exported="false"
