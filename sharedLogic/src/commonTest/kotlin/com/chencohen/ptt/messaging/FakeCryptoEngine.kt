@@ -1,0 +1,220 @@
+package com.chencohen.ptt.messaging
+
+import com.chencohen.ptt.crypto.Ciphertext
+import com.chencohen.ptt.crypto.CryptoEngine
+import com.chencohen.ptt.crypto.Decrypted
+import com.chencohen.ptt.crypto.DeviceAddress
+import com.chencohen.ptt.crypto.InvalidKeysException
+import com.chencohen.ptt.crypto.PrekeyBundle
+import com.chencohen.ptt.crypto.PublicPrekey
+import com.chencohen.ptt.crypto.SafetyNumber
+import com.chencohen.ptt.crypto.SignedPublicPrekey
+import com.chencohen.ptt.crypto.UndecryptableException
+import com.chencohen.ptt.crypto.UntrustedIdentityException
+import com.chencohen.ptt.crypto.nextKeyId
+import com.chencohen.ptt.relay.EnvelopeType
+import kotlin.random.Random
+import okio.ByteString
+import okio.ByteString.Companion.toByteString
+
+/**
+ * A stand-in for libsignal in the shared tests: no real cryptography. A "signature" is the identity key itself, so
+ * a bundle signed by another key is refused as libsignal would; a "ciphertext" is the sender's identity key and the
+ * plaintext, so the receiver learns the key its session came on. The first message of a session is a prekey
+ * message. Trust works as the Android engine's: a user's key is trusted when none is kept yet or it is the kept one.
+ */
+class FakeCryptoEngine(private val random: Random = Random(1)) : CryptoEngine {
+    private var identity: ByteArray? = null
+    private var registration = 0
+    private val trusted = mutableMapOf<String, ByteArray>()
+    private val sessions = mutableMapOf<DeviceAddress, Int>()
+    private val sentFirst = mutableSetOf<DeviceAddress>()
+    val signedPrekeys = mutableMapOf<Int, Long>()
+    val kyberPrekeys = mutableMapOf<Int, Boolean>()
+    val prekeys = mutableSetOf<Int>()
+
+    override fun identityKey(): ByteArray? = identity?.copyOf()
+
+    override fun createIdentity(): ByteArray {
+        identity = byteArrayOf(0x05) + random.nextBytes(32)
+        registration = random.nextInt(1, 16381)
+        return identity!!.copyOf()
+    }
+
+    override fun exportIdentity(): ByteArray? = identity?.let { byteArrayOf(0x7f) + it }
+
+    override fun importIdentity(pair: ByteArray): ByteArray {
+        if (pair.size != 34 || pair[0] != 0x7f.toByte()) throw InvalidKeysException("not a pair")
+        identity = pair.copyOfRange(1, 34)
+        registration = random.nextInt(1, 16381)
+        sessions.clear()
+        sentFirst.clear()
+        signedPrekeys.clear()
+        kyberPrekeys.clear()
+        prekeys.clear()
+        return identity!!.copyOf()
+    }
+
+    // Not X25519: the public key shows the private one, and the "shared secret" is a hash of both public keys. Enough
+    // for both sides to agree, and for a wrong key to give another secret.
+    override fun newAgreementKey(): Pair<ByteArray, ByteArray> {
+        val private = random.nextBytes(32)
+        return private to byteArrayOf(0x05) + private
+    }
+
+    override fun agree(private: ByteArray, public: ByteArray): ByteArray {
+        if (public.size != 33 || public[0] != 0x05.toByte()) throw InvalidKeysException("not a key")
+        val keys = listOf(byteArrayOf(0x05) + private, public).map { it.toByteString() }.sorted()
+        return (keys[0] + keys[1]).sha256().toByteArray()
+    }
+
+    override fun registrationId(): Int = registration
+
+    override fun generateSignedPrekey(keyId: Int, nowMillis: Long): SignedPublicPrekey {
+        signedPrekeys[keyId] = nowMillis
+        return SignedPublicPrekey(keyId, byteArrayOf(0x05) + random.nextBytes(32), identity!!.copyOf())
+    }
+
+    override fun generateKyberPrekey(keyId: Int, lastResort: Boolean, nowMillis: Long): SignedPublicPrekey {
+        kyberPrekeys[keyId] = lastResort
+        return SignedPublicPrekey(keyId, byteArrayOf(0x08) + random.nextBytes(1568), identity!!.copyOf())
+    }
+
+    override fun generatePrekeys(firstId: Int, count: Int): List<PublicPrekey> {
+        var id = firstId
+        return List(count) {
+            prekeys += id
+            PublicPrekey(id, byteArrayOf(0x05) + random.nextBytes(32)).also { id = nextKeyId(id) }
+        }
+    }
+
+    override fun removeSignedPrekeys(keep: Int, beforeMillis: Long) {
+        signedPrekeys.entries.removeAll { it.key != keep && it.value < beforeMillis }
+    }
+
+    override fun trustIdentity(user: String, identityKey: ByteArray) {
+        trusted[user] = identityKey.copyOf()
+    }
+
+    override fun trustedIdentity(user: String): ByteArray? = trusted[user]?.copyOf()
+
+    override fun forget(user: String) {
+        trusted.remove(user)
+        sessions.keys.removeAll { it.user == user }
+        sentFirst.removeAll { it.user == user }
+    }
+
+    override fun startSession(address: DeviceAddress, identityKey: ByteArray, bundle: PrekeyBundle) {
+        val kept = trusted[address.user]
+        if (kept != null && !kept.contentEquals(identityKey)) throw UntrustedIdentityException(address.user)
+        if (!bundle.signedPrekey.signature.contentEquals(identityKey) || !bundle.kyberPrekey.signature.contentEquals(identityKey)) {
+            throw InvalidKeysException("bad signature")
+        }
+        trusted[address.user] = identityKey.copyOf()
+        sessions[address] = bundle.registrationId
+        sentFirst.remove(address)
+    }
+
+    override fun hasSession(address: DeviceAddress): Boolean = address in sessions
+
+    override fun sessionDevices(user: String): List<Int> = sessions.keys.filter { it.user == user }.map { it.device }.sorted()
+
+    override fun remoteRegistrationId(address: DeviceAddress): Int? = sessions[address]
+
+    override fun deleteSession(address: DeviceAddress) {
+        sessions.remove(address)
+        sentFirst.remove(address)
+    }
+
+    override fun encrypt(address: DeviceAddress, plaintext: ByteArray): Ciphertext {
+        if (address !in sessions) throw UndecryptableException("no session with $address")
+        val type = if (sentFirst.add(address)) EnvelopeType.PREKEY_MESSAGE else EnvelopeType.MESSAGE
+        return Ciphertext(type, identity!! + plaintext)
+    }
+
+    override fun decrypt(address: DeviceAddress, type: Int, bytes: ByteArray): Decrypted {
+        if (bytes.size < 33) throw UndecryptableException("too short")
+        val key = bytes.copyOf(33)
+        val kept = trusted[address.user]
+        if (kept != null && !kept.contentEquals(key)) throw UntrustedIdentityException(address.user)
+        if (type == EnvelopeType.PREKEY_MESSAGE) {
+            trusted[address.user] = key
+            sessions.getOrPut(address) { 0 }
+            sentFirst += address
+        } else if (address !in sessions) {
+            throw UndecryptableException("no session with $address")
+        }
+        return Decrypted(bytes.copyOfRange(33, bytes.size), key)
+    }
+
+    override fun safetyNumber(myUser: String, theirUser: String, theirIdentityKey: ByteArray): SafetyNumber {
+        val parts = listOf(myUser to identity!!, theirUser to theirIdentityKey).sortedBy { it.first }
+        val seed = parts.fold(17L) { acc, (user, key) -> key.fold(acc * 31 + user.hashCode()) { a, b -> a * 131 + b } }
+        val digits = Random(seed).let { r -> (1..60).joinToString("") { r.nextInt(10).toString() } }
+        return SafetyNumber(digits, digits.encodeToByteArray())
+    }
+
+    override fun matchesScanned(myUser: String, theirUser: String, theirIdentityKey: ByteArray, scanned: ByteArray): Boolean =
+        safetyNumber(myUser, theirUser, theirIdentityKey).scannable.contentEquals(scanned)
+
+    // Sender keys: a distribution is "SKD", the distribution id and a secret; a group message carries the secret's
+    // hash, so only a device that took the distribution opens it.
+    private val ownSenderKeys = mutableMapOf<String, ByteArray>()
+    private val senderKeys = mutableMapOf<Pair<DeviceAddress, String>, ByteArray>()
+
+    /** The devices whose sender key for a distribution id this engine took. */
+    val takenSenderKeys: Set<Pair<DeviceAddress, String>> get() = senderKeys.keys
+
+    override fun senderKeyDistribution(distributionId: String): ByteArray {
+        val secret = ownSenderKeys.getOrPut(distributionId) { random.nextBytes(16) }
+        return "SKD|$distributionId|".encodeToByteArray() + secret
+    }
+
+    private fun parse(bytes: ByteArray, tag: String): Pair<String, ByteArray>? {
+        val head = "$tag|".encodeToByteArray()
+        if (bytes.size < head.size + 37 || !bytes.copyOf(head.size).contentEquals(head)) return null
+        val id = bytes.copyOfRange(head.size, head.size + 36).decodeToString()
+        return id to bytes.copyOfRange(head.size + 37, bytes.size)
+    }
+
+    override fun takeSenderKey(sender: DeviceAddress, distribution: ByteArray) {
+        val (id, secret) = parse(distribution, "SKD") ?: throw InvalidKeysException("not a sender key")
+        senderKeys[sender to id] = secret
+    }
+
+    override fun distributionIdOf(distribution: ByteArray): String? = parse(distribution, "SKD")?.first
+
+    override fun groupEncrypt(distributionId: String, plaintext: ByteArray): ByteArray {
+        val secret = ownSenderKeys[distributionId] ?: throw UndecryptableException("no sender key")
+        return "SKM|$distributionId|".encodeToByteArray() + secret.toByteString().sha256().toByteArray() + plaintext
+    }
+
+    override fun groupDecrypt(sender: DeviceAddress, bytes: ByteArray): ByteArray {
+        val (id, rest) = parse(bytes, "SKM") ?: throw UndecryptableException("not a group message")
+        val secret = senderKeys[sender to id] ?: throw UndecryptableException("no sender key from $sender")
+        if (rest.size < 32 || !rest.copyOf(32).contentEquals(secret.toByteString().sha256().toByteArray())) throw UndecryptableException("another key")
+        return rest.copyOfRange(32, rest.size)
+    }
+
+    override fun groupMessageDistributionId(bytes: ByteArray): String? = parse(bytes, "SKM")?.first
+
+    override fun sign(data: ByteArray): ByteArray = (identity!! + data).toByteString().sha256().toByteArray()
+
+    override fun verify(identityKey: ByteArray, data: ByteArray, signature: ByteArray): Boolean =
+        (identityKey + data).toByteString().sha256().toByteArray().contentEquals(signature)
+
+    override fun wipe() {
+        ownSenderKeys.clear()
+        senderKeys.clear()
+        identity = null
+        registration = 0
+        trusted.clear()
+        sessions.clear()
+        sentFirst.clear()
+        signedPrekeys.clear()
+        kyberPrekeys.clear()
+        prekeys.clear()
+    }
+}
+
+private operator fun ByteString.plus(other: ByteString): ByteString = (toByteArray() + other.toByteArray()).toByteString()

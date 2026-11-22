@@ -1,0 +1,19 @@
+# The connection check: the smallest query that needs this device's certificate (checkConnection).
+query Me {
+  me { user deviceNumber deviceName }
+}
+
+# Who the server is and where, kept after each connection (ServerHttp.refreshServerInfo).
+query ServerInfo {
+  serverInfo {
+    version
+    caCertificate
+    deviceNumber
+    discovery { fingerprint id key addresses }
+  }
+}
+
+# The server's CA on its own, asked at enrollment when enrollDevice didn't give it.
+query ServerCa {
+  serverInfo { caCertificate }
+}

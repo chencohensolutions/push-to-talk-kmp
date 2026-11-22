@@ -1,0 +1,1203 @@
+package com.chencohen.ptt.messaging
+
+import com.chencohen.ptt.crypto.CryptoEngine
+import com.chencohen.ptt.crypto.CryptoException
+import com.chencohen.ptt.crypto.DeviceAddress
+import com.chencohen.ptt.crypto.SafetyNumber
+import com.chencohen.ptt.discovery.KeptDiscovery
+import com.chencohen.ptt.network.describe
+import com.chencohen.ptt.relay.Envelope
+import com.chencohen.ptt.relay.EnvelopeType
+import com.chencohen.ptt.relay.FrameConnector
+import com.chencohen.ptt.relay.PushKind
+import com.chencohen.ptt.relay.RelaySocket
+import com.chencohen.ptt.relay.SocketState
+import com.chencohen.ptt.settings.EnrolledDevice
+import com.chencohen.ptt.settings.PttSettings
+import com.chencohen.ptt.talk.BlobApi
+import com.chencohen.ptt.talk.BlobException
+import com.chencohen.ptt.talk.CatchUpMode
+import com.chencohen.ptt.talk.ClipFiles
+import com.chencohen.ptt.talk.MemoryClipFiles
+import com.chencohen.ptt.talk.Talk
+import com.chencohen.ptt.talk.TalkPrefs
+import com.chencohen.ptt.talk.TalkUiState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlin.io.encoding.Base64
+import kotlin.random.Random
+import kotlin.time.Duration.Companion.days
+
+/** What the messaging screens render: the keys, the connection, the contacts, the pair requests, the last texts. */
+data class MessagingState(
+    val keys: KeysState = KeysState.Unknown,
+    val socket: SocketState = SocketState.Stopped,
+    /** Paired contacts and the ones waiting to confirm, by name. */
+    val contacts: List<Contact> = emptyList(),
+    /** Pair requests waiting for the user, oldest first. */
+    val requests: List<PairRequest> = emptyList(),
+    /** The last text of each contact, by user (phase 2's test of the transport). */
+    val lastMessages: Map<String, TextMessage> = emptyMap(),
+    /** The device number of the last phone this one linked (it sent it the identity key); null when none yet. */
+    val linkedDevice: Int? = null,
+    /** Contacts online now, or when last seen, by user (presence; only contacts who show theirs). */
+    val presence: Map<String, UserPresence> = emptyMap(),
+    /** Contacts typing to this user now: until when, milliseconds since 1970. */
+    val typing: Map<String, Long> = emptyMap(),
+    /** How many texts from each contact aren't read yet. */
+    val unread: Map<String, Int> = emptyMap(),
+    /** Each conversation's texts, oldest first, by user (a group's by [Group.chat]). */
+    val conversations: Map<String, List<TextMessage>> = emptyMap(),
+    /** The groups this user is in, invited to, or was in (gone), oldest first. */
+    val groups: List<Group> = emptyList(),
+    /** Push-to-talk: who talks where, this phone's own talking, what plays. */
+    val talk: TalkUiState = TalkUiState(),
+    val talkSettings: TalkSettings = TalkSettings(),
+    /** The live path: the room this phone is in, the last press-to-hear. */
+    val live: com.chencohen.ptt.talk.LiveState = com.chencohen.ptt.talk.LiveState(),
+    /** The call on this phone (phase 6); null when none. */
+    val call: com.chencohen.ptt.calls.CallUi? = null,
+)
+
+/** Settings › Talk, and each chat's When I'm away. */
+data class TalkSettings(
+    val catchUp: CatchUpMode = CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP,
+    val stayConnected: Boolean = false,
+    /** The conversation hardware buttons talk in; null: none. */
+    val defaultChat: String? = null,
+    val hardwareButtons: Boolean = false,
+    /** Chats set to Notify only. */
+    val notifyOnly: Set<String> = emptySet(),
+    /** Settings › Calls › Save calls (phase 6). */
+    val saveCalls: com.chencohen.ptt.calls.SaveCalls = com.chencohen.ptt.calls.SaveCalls.OFF,
+)
+
+/**
+ * What the app shows outside its screens (Android's notifications): a text came in, or a conversation was read
+ * (here or on another phone of the user), so its notification goes.
+ */
+interface MessageNotifier {
+    fun incoming(contact: Contact, unread: List<TextMessage>)
+
+    fun read(user: String)
+
+    /** A group message came in; [unread] are the group chat's unread ones. */
+    fun incomingGroup(group: Group, unread: List<TextMessage>) {}
+}
+
+/**
+ * The phone's side of keys, pairing and messages (docs/design.md, phase 2), under [MessagingController] and
+ * [PairingController]. Everything runs on [scope], whose dispatcher runs one thing at a time: the crypto engine and the
+ * store aren't thread-safe.
+ */
+internal class Messaging(
+    private val settings: PttSettings,
+    private val engine: CryptoEngine,
+    val store: MessagingStore,
+    private val api: MessagingApi,
+    connector: FrameConnector,
+    private val scope: CoroutineScope,
+    private val now: () -> Long,
+    private val random: Random = Random.Default,
+    private val onRevoked: () -> Unit = {},
+    clipFiles: ClipFiles = MemoryClipFiles(),
+    blobApi: BlobApi? = null,
+) {
+    /** Android's notifications; set by the app. */
+    var notifier: MessageNotifier? = null
+
+    /** The app is on screen ([start] to [stop]): a background wake-up then leaves the socket alone. */
+    private var foreground = false
+
+    /** The conversation on screen, whose texts are read as they come in; null when none is. */
+    var openChat: String? = null
+    private val _state = MutableStateFlow(MessagingState())
+    val state: StateFlow<MessagingState> = _state.asStateFlow()
+
+    private val keys = KeyUploader(engine, api, store, now)
+
+    val socket: RelaySocket = RelaySocket(
+        scope = scope,
+        connector = connector,
+        url = { wsUrl(settings.serverUrl) },
+        onEnvelope = ::receive,
+        // A phone waiting to be linked has no keys to check: uploading would make an identity of its own.
+        beforeConnect = {
+            if (store.linkJoin == null && engine.identityKey() != null) {
+                deviceKey()?.let { keys.check(it) }?.let { count -> _state.update { it.copy(keys = KeysState.Ready(count)) } }
+            }
+        },
+        onRevoked = onRevoked,
+        onPresence = { p -> updatePresence(UserPresence(p.user, p.online, p.lastSeen.takeIf { it > 0 })) },
+        onTalk = { talk.onFrame(it) },
+        onLive = {
+            scope.launch {
+                // The groups first: a message waiting for a group needs its devices and readers.
+                groups.refresh()
+                flushOutbox()
+                sendPendingReads()
+            }
+            scope.launch { refreshPresence() }
+            // Not awaited either: the request's SendResult comes through the same read loop.
+            if (store.linkJoin != null) scope.launch { sendLinkRequest() }
+            refreshContacts()
+            // Not awaited here: the pair request's SendResult comes through the very read loop onLive runs in.
+            scope.launch { pairPendingInvite() }
+        },
+    )
+
+    private val sender: Sender = Sender(engine, api, socket::send, { settings.device })
+
+    val groups: Groups = Groups(
+        engine = engine, store = store, api = api, sender = sender, send = socket::send, scope = scope, now = now, random = random,
+        me = ::device, publish = ::publish,
+        onText = { group, message ->
+            val read = message.outgoing || (openChat == group.chat && foreground)
+            store.putMessage(message.copy(read = read))
+            _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty())) }
+            if (!read) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
+        },
+        onClip = { group, author, clip, at ->
+            val mine = author == device()?.user
+            val fresh = store.message(clip.id) == null
+            talk.receiveClip(group.chat, author, clip, at, outgoingCopy = mine)
+            if (fresh && !mine) {
+                if (openChat == group.chat && foreground) store.message(clip.id)?.let { store.putMessage(it.copy(read = true)) }
+                else if (clip.kind == ClipContent.VOICE) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
+            }
+        },
+        onTalkKey = { identity, key -> live.takeKey(identity, key) },
+        onCall = { group, author, call, at -> calls.receive(group.chat, author, call, at, ownCopy = author == device()?.user) },
+        onTyping = { group, author, typing ->
+            val key = typingKey(group.chat, author)
+            _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key) }
+        },
+    )
+
+    /** Stay connected's service runs: bursts play without the app on screen. */
+    var stayConnected = false
+
+    val talk: Talk = Talk(
+        scope = scope, store = store, clips = clipFiles,
+        blobs = blobApi ?: object : BlobApi {
+            override suspend fun read(id: String, onBytes: suspend (ByteArray) -> Unit) = throw BlobException(0, "No server")
+            override suspend fun put(id: String, peer: String?, group: String?, bytes: ByteArray) = throw BlobException(0, "No server")
+        },
+        sendFrame = socket::sendFrame,
+        connected = { socket.state.value is SocketState.Live || socket.state.value is SocketState.Syncing },
+        sendContent = { chat, content, pushKind ->
+            val group = Group.idOf(chat)
+            if (group != null) groups.send(group, content, pushKind) else sender.send(chat, content, pushKind = pushKind)
+        },
+        me = ::device, now = now, random = random,
+        prefs = object : TalkPrefs {
+            override val catchUp: CatchUpMode
+                get() = settings.catchUp?.let { name -> CatchUpMode.entries.firstOrNull { it.name == name } } ?: CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP
+
+            override fun notifyOnly(chat: String): Boolean = chat in settings.notifyOnlyChats
+        },
+        publish = ::publish,
+        awake = { foreground || stayConnected },
+    )
+
+    val live: com.chencohen.ptt.talk.LiveTalk = com.chencohen.ptt.talk.LiveTalk(
+        scope = scope,
+        tokens = { peer, group -> api.talkToken(peer, group) },
+        available = { api.liveTalk() },
+        serverUrl = { settings.serverUrl },
+        sendContent = { chat, content, pushKind ->
+            val group = Group.idOf(chat)
+            if (group != null) groups.send(group, content, pushKind) else sender.send(chat, content, pushKind = pushKind)
+        },
+        now = now, random = random,
+    )
+
+    val calls: com.chencohen.ptt.calls.Calls = com.chencohen.ptt.calls.Calls(
+        scope = scope,
+        me = { device()?.user },
+        tokens = { call, peer, group -> api.callToken(call, peer, group) },
+        serverUrl = { settings.serverUrl },
+        sendContent = { chat, content, pushKind ->
+            val group = Group.idOf(chat)
+            if (group != null) groups.send(group, content, pushKind) else sender.send(chat, content, pushKind = pushKind)
+        },
+        putEntry = { entry ->
+            store.putMessage(entry)
+            publish()
+        },
+        entry = { id -> store.message(id) },
+        saveCalls = { talkSettings().saveCalls },
+        onCall = {
+            talk.release(send = true)
+            live.leaveNow()
+        },
+        now = now, random = random,
+    )
+
+    init {
+        talk.live = live
+        scope.launchCollect(calls.state) { c -> _state.update { it.copy(call = c) } }
+        scope.launchCollect(live.state) { l -> _state.update { it.copy(live = l) } }
+        _state.update { it.copy(talkSettings = talkSettings()) }
+        scope.launchCollect(socket.state) { socket -> _state.update { it.copy(socket = socket) } }
+        scope.launchCollect(talk.state) { talk -> _state.update { it.copy(talk = talk) } }
+    }
+
+    private fun device(): EnrolledDevice? = settings.device?.takeIf { it.deviceNumber > 0 }
+
+    /** This device as the server knows it; null before enrolling. */
+    fun self(): EnrolledDevice? = device()
+
+    /** The server part of this phone's codes (PairCode.server). */
+    fun serverPart(): String? = PairCode.serverOf(settings.serverFingerprint)
+
+    private fun deviceKey(): String? = device()?.let { "${it.user}/${it.deviceNumber}" }
+
+    /** The app came to the front: keys, /ws, and the push registration. */
+    suspend fun start() {
+        foreground = true
+        open()
+    }
+
+    /** The app went to the back. */
+    fun stop() {
+        foreground = false
+        if (!stayConnected && !talk.busy) socket.stop()
+    }
+
+    /**
+     * A push woke the phone (FCM's onMessageReceived): opens /ws if the app isn't on screen, takes the queue (texts,
+     * receipts, notifications through [notifier]), sends what the outbox holds, and closes again. Returns once done,
+     * or after [limit] milliseconds.
+     */
+    suspend fun wake(limit: Long = 20_000) {
+        if (foreground || device() == null) return
+        open()
+        kotlinx.coroutines.withTimeoutOrNull(limit) {
+            socket.state.first { it is SocketState.Live || it is SocketState.Revoked || it is SocketState.Replaced }
+            // The receipts and the outbox go out after the queue: give them a moment.
+            kotlinx.coroutines.delay(1_500)
+        }
+        // A burst that plays (or is about to), and the reply time after it: the connection stays for them.
+        kotlinx.coroutines.withTimeoutOrNull(TALK_WAKE_LIMIT) {
+            var heard = false
+            var quietSince = now()
+            while (true) {
+                if (talk.busy) {
+                    heard = true
+                    quietSince = now()
+                } else if (!heard || now() - quietSince >= TALK_REPLY_WAIT) {
+                    break
+                }
+                kotlinx.coroutines.delay(500)
+            }
+        }
+        if (!foreground && !stayConnected) socket.stop()
+    }
+
+    fun talkSettings(): TalkSettings = TalkSettings(
+        catchUp = settings.catchUp?.let { name -> CatchUpMode.entries.firstOrNull { it.name == name } } ?: CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP,
+        stayConnected = settings.stayConnected,
+        defaultChat = settings.defaultTalkChat,
+        hardwareButtons = settings.hardwareButtons,
+        notifyOnly = settings.notifyOnlyChats,
+        saveCalls = settings.saveCalls?.let { name -> com.chencohen.ptt.calls.SaveCalls.entries.firstOrNull { it.name == name } } ?: com.chencohen.ptt.calls.SaveCalls.OFF,
+    )
+
+    fun setTalkSettings(talk: TalkSettings) {
+        settings.catchUp = talk.catchUp.name
+        settings.stayConnected = talk.stayConnected
+        settings.defaultTalkChat = talk.defaultChat
+        settings.hardwareButtons = talk.hardwareButtons
+        settings.notifyOnlyChats = talk.notifyOnly
+        settings.saveCalls = talk.saveCalls.name
+        _state.update { it.copy(talkSettings = talk) }
+    }
+
+    /** Stay connected's service started ([on]) or stopped: /ws stays open in the background while it runs. */
+    suspend fun keepConnected(on: Boolean) {
+        stayConnected = on
+        if (on) open() else if (!foreground) socket.stop()
+    }
+
+    /** Uploads the keys if needed and opens /ws. */
+    private suspend fun open() {
+        val self = device() ?: return
+        claim(self)
+        takePendingLink(self)
+        publish()
+        store.linkJoin?.let { join ->
+            // Enrolled by a Link a phone code: no keys of its own until that phone sends the identity key.
+            if (engine.identityKey() == null) {
+                _state.update { it.copy(keys = KeysState.Linking(join.user, join.device)) }
+                socket.start()
+                return
+            }
+            store.linkJoin = null
+        }
+        _state.update { it.copy(keys = if (it.keys is KeysState.Ready) it.keys else KeysState.Uploading) }
+        val result = try {
+            keys.ensure(deviceKey()!!)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            KeysState.Failed(e.describe())
+        }
+        _state.update { it.copy(keys = result) }
+        // Without keys nobody can open a session with this phone, but what is queued for it can still be read.
+        if (result !is KeysState.OtherIdentity) socket.start()
+    }
+
+    /** Stops for good (the app's process ends). */
+    fun close() {
+        socket.stop()
+        scope.cancel()
+    }
+
+    /**
+     * The store belongs to one user on one server: enrolled as another (Register again), everything of the old one
+     * (keys, sessions, contacts, messages) is forgotten.
+     */
+    private fun claim(self: EnrolledDevice) {
+        val owner = "${settings.serverFingerprint.orEmpty()}/${self.user}"
+        val meta = store.meta
+        if (meta.owner == owner) return
+        if (meta.owner != null) {
+            engine.wipe()
+            store.store.clearAll()
+        }
+        store.meta = Meta(owner = owner)
+    }
+
+    /** Starts over with a new identity key (every other phone of the user revoked), then uploads the keys. */
+    suspend fun replaceIdentityKey() {
+        val self = device() ?: return
+        val identity = engine.createIdentity()
+        store.meta = store.meta.copy(uploadedFor = null)
+        api.replaceIdentityKey(identity)
+        // Every session was opened with the old identity: they start again (the contacts' trusted keys stay).
+        for (contact in store.contacts()) {
+            engine.forget(contact.user)
+            engine.trustIdentity(contact.user, Base64.decode(contact.identityKey))
+        }
+        val result = keys.ensure("${self.user}/${self.deviceNumber}")
+        _state.update { it.copy(keys = result) }
+        socket.start()
+    }
+
+    // --- Push and presence --------------------------------------------------------------------------------------
+
+    /**
+     * Tells the server this phone's FCM [token] (null: none) and whether it shows notifications, when that changed
+     * since it was last told (registerPush). Network errors are thrown; the app tries again at the next start.
+     */
+    suspend fun registerPush(token: String?, notificationsEnabled: Boolean) {
+        val key = deviceKey() ?: return
+        if (token != null) settings.pushToken = token
+        val wanted = "$key|${token ?: settings.pushToken.orEmpty()}|$notificationsEnabled"
+        if (settings.pushRegistered == wanted) return
+        api.registerPush(token ?: settings.pushToken, notificationsEnabled)
+        settings.pushRegistered = wanted
+    }
+
+    /** Whether this user shows contacts when they're online, as last set here. */
+    val presenceVisible: Boolean get() = settings.presenceVisible
+
+    suspend fun setPresenceVisible(visible: Boolean): Boolean {
+        val shown = api.setPresenceVisible(visible)
+        settings.presenceVisible = shown
+        refreshPresence()
+        return shown
+    }
+
+    /** Asks the server who of the contacts is online (a phone that was offline missed the Presence frames). */
+    suspend fun refreshPresence() {
+        val users = store.contacts().filter { it.paired }.map { it.user }
+        if (users.isEmpty()) return
+        val answer = try {
+            api.presence(users)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return
+        }
+        _state.update { it.copy(presence = answer.associateBy { p -> p.user }) }
+    }
+
+    private fun updatePresence(p: UserPresence) {
+        _state.update { it.copy(presence = it.presence + (p.user to p)) }
+    }
+
+    // --- Linking a phone ------------------------------------------------------------------------------------------
+
+    /**
+     * A new Link a phone code (docs/design.md, "Linking a phone"): an enrollment code for this user from the server,
+     * where the server is, and a secret and an X25519 key kept to answer the new phone's request once.
+     */
+    suspend fun newLinkCode(): Pair<LinkCode, Long> {
+        val self = device() ?: throw IllegalStateException("This phone isn't registered")
+        if (engine.exportIdentity() == null) throw IllegalStateException("No identity key yet")
+        val discovery = settings.serverDiscovery ?: throw IllegalStateException("The server hasn't said who it is yet")
+        val (code, expiresAt) = api.createLinkCode()
+        val secret = random.nextBytes(LinkCode.SECRET_BYTES)
+        val (private, public) = engine.newAgreementKey()
+        val expires = parseTime(expiresAt) ?: (now() + 10 * 60_000)
+        store.linkOffers().filter { now() > it.expiresAt + LINK_GRACE }.forEach(store::removeLinkOffer)
+        store.putLinkOffer(LinkOffer(PairCode.base64Url.encode(secret), Base64.encode(private), Base64.encode(public), expires))
+        val link = LinkCode(
+            code = code,
+            server = KeptDiscovery.originOf(settings.serverUrl),
+            fingerprint = discovery.fingerprint,
+            key = discovery.key,
+            addresses = discovery.candidates(),
+            user = self.user,
+            device = self.deviceNumber,
+            secret = secret,
+        )
+        return link to expires
+    }
+
+    /**
+     * A phone enrolled already, whose account's key is on another phone (KeysState.OtherIdentity), scanned that phone's
+     * Link a phone code: it asks for the key as if it had enrolled with the code. False for a code it can't use (another
+     * account, or itself).
+     */
+    suspend fun linkWithScanned(text: String): Boolean {
+        val self = device() ?: return false
+        val code = LinkCode.find(text) ?: return false
+        if (code.user != self.user || code.device == self.deviceNumber || code.fingerprint != settings.serverFingerprint) return false
+        store.linkJoin = null
+        // Its own key (unused: the server holds another) goes; the one from the other phone takes its place.
+        if (engine.identityKey() != null) engine.wipe()
+        settings.pendingLink = code.format()
+        socket.stop()
+        start()
+        return true
+    }
+
+    /** The Link a phone code this phone enrolled with (settings.pendingLink) becomes a [LinkJoin] with its own key. */
+    private fun takePendingLink(self: EnrolledDevice) {
+        val text = settings.pendingLink ?: return
+        settings.pendingLink = null
+        val code = LinkCode.parse(text) ?: return
+        if (code.user != self.user || code.device == self.deviceNumber || engine.identityKey() != null) return
+        if (code.fingerprint != settings.serverFingerprint) return
+        val (private, public) = engine.newAgreementKey()
+        store.linkJoin = LinkJoin(code.user, code.device, PairCode.base64Url.encode(code.secret), Base64.encode(private), Base64.encode(public), now())
+    }
+
+    /** The new phone's side: asks the phone that showed the code for the identity key, proving it saw the code. */
+    private suspend fun sendLinkRequest() {
+        val self = device() ?: return
+        val join = store.linkJoin ?: return
+        val public = Base64.decode(join.publicKey)
+        val mac = LinkCrypto.requestMac(PairCode.base64Url.decode(join.secret), public, self.user, self.deviceNumber)
+        try {
+            sendProvisioning(join.device, Provisioning(request = LinkRequest(public, mac)))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Asked again on the next connection.
+        }
+    }
+
+    private suspend fun sendProvisioning(device: Int, content: Provisioning) {
+        val self = device() ?: return
+        val result = socket.send(
+            com.chencohen.ptt.relay.Send(
+                envelopes = listOf(Envelope(recipientUser = self.user, recipientDevice = device, type = EnvelopeType.PROVISIONING, ciphertext = LinkCrypto.encode(content))),
+            )
+        )
+        if (result.status != com.chencohen.ptt.relay.SendStatus.ACCEPTED) throw SendRefusedException(result.status, result.detail)
+    }
+
+    /** A PROVISIONING envelope, from another phone of this user only: a request to answer, or the answer awaited. */
+    private fun receiveProvisioning(envelope: Envelope) {
+        val self = device() ?: return
+        if (envelope.senderUser != self.user || envelope.senderDevice == self.deviceNumber) return
+        val content = LinkCrypto.decode(envelope.ciphertext) ?: return
+        content.request?.let { answerLinkRequest(self, envelope.senderDevice, it) }
+        content.answer?.let { takeLinkAnswer(envelope.senderDevice, it) }
+    }
+
+    /**
+     * The phone that showed the code: when the request's MAC is one of its codes' (whoever sent it saw the screen), it
+     * seals the identity key pair and the contacts to the new phone's key and sends them. Each code answers once.
+     */
+    private fun answerLinkRequest(self: EnrolledDevice, from: Int, request: LinkRequest) {
+        val pair = engine.exportIdentity() ?: return
+        val offer = store.linkOffers().firstOrNull { offer ->
+            now() <= offer.expiresAt + LINK_GRACE &&
+                LinkCrypto.macMatches(LinkCrypto.requestMac(PairCode.base64Url.decode(offer.secret), request.publicKey, self.user, from), request.mac)
+        } ?: return
+        store.removeLinkOffer(offer)
+        val key = try {
+            LinkCrypto.sealKey(engine.agree(Base64.decode(offer.privateKey), request.publicKey), PairCode.base64Url.decode(offer.secret))
+        } catch (_: CryptoException) {
+            return
+        }
+        val contacts = store.contacts().filter { it.paired }.map {
+            LinkedContact(it.user, Base64.decode(it.identityKey), it.verified, it.displayName.orEmpty())
+        }
+        val nonce = random.nextBytes(com.chencohen.ptt.discovery.Seal.NONCE_SIZE)
+        val answer = LinkAnswer(Base64.decode(offer.publicKey), nonce, LinkCrypto.seal(key, nonce, LinkData(pair, contacts)))
+        scope.launch {
+            try {
+                sendProvisioning(from, Provisioning(answer = answer))
+                _state.update { it.copy(linkedDevice = from) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // The code is used up: the new phone shows a new one's QR code again.
+            }
+        }
+    }
+
+    /** The new phone: the answer opens with this linking's key, so it is the identity key; then the keys go up. */
+    private fun takeLinkAnswer(from: Int, answer: LinkAnswer) {
+        val join = store.linkJoin ?: return
+        if (from != join.device) return
+        val data = try {
+            val key = LinkCrypto.sealKey(engine.agree(Base64.decode(join.privateKey), answer.publicKey), PairCode.base64Url.decode(join.secret))
+            LinkCrypto.open(key, answer.nonce, answer.sealed)
+        } catch (_: CryptoException) {
+            null
+        } ?: return
+        try {
+            engine.importIdentity(data.identityKeyPair)
+        } catch (_: CryptoException) {
+            return
+        }
+        for (linked in data.contacts) {
+            val identity = linked.identityKey
+            engine.trustIdentity(linked.user, identity)
+            val old = store.contact(linked.user)
+            store.putContact(
+                Contact(
+                    user = linked.user, identityKey = Base64.encode(identity), paired = true, since = old?.since,
+                    verified = linked.verified, displayName = linked.displayName.ifEmpty { null } ?: old?.displayName,
+                    addedAt = old?.addedAt ?: now(),
+                )
+            )
+        }
+        store.linkJoin = null
+        store.meta = store.meta.copy(uploadedFor = null)
+        publish()
+        scope.launch {
+            val result = try {
+                keys.ensure(deviceKey()!!)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                KeysState.Failed(e.describe())
+            }
+            _state.update { it.copy(keys = result) }
+            refreshContacts()
+        }
+    }
+
+    // --- Your own phones ----------------------------------------------------------------------------------------
+
+    /**
+     * Tells this user's other phones what this one now knows of [user] (paired, its key, verified), so a contact
+     * paired or verified on one phone is the same on all of them. Nothing to do without other phones.
+     */
+    private fun syncContact(user: String) {
+        val contact = store.contact(user)?.takeIf { it.paired } ?: return
+        val self = device() ?: return
+        scope.launch {
+            try {
+                sender.send(self.user, Content(contact = ContactSyncContent(contact.user, Base64.decode(contact.identityKey), contact.verified, contact.displayName.orEmpty())))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // No other phone with keys, or not reachable now: the next change or the server's contact list catches up.
+            }
+        }
+    }
+
+    /** What another phone of this user said of a contact: its key and verified flag win over the server's list. */
+    private fun takeContactSync(sync: ContactSyncContent) {
+        if (sync.user.isEmpty() || sync.identityKey.size != 33) return
+        val key = Base64.encode(sync.identityKey)
+        val old = store.contact(sync.user)
+        if (old == null || old.identityKey != key) {
+            engine.forget(sync.user)
+            engine.trustIdentity(sync.user, sync.identityKey)
+        }
+        store.putContact(
+            (old ?: Contact(user = sync.user, identityKey = key, paired = true, addedAt = now())).copy(
+                identityKey = key,
+                paired = true,
+                verified = sync.verified,
+                changedKey = old?.changedKey?.takeIf { it != key },
+                displayName = sync.displayName.ifEmpty { null } ?: old?.displayName,
+            )
+        )
+    }
+
+    // --- Pairing -------------------------------------------------------------------------------------------------
+
+    /** A new Add contact code for this phone: a pairing token and a secret kept to recognise the pair request. */
+    suspend fun newPairCode(): Pair<PairCode, Long> {
+        val self = device() ?: throw IllegalStateException("This phone isn't registered")
+        val identity = engine.identityKey() ?: throw IllegalStateException("No identity key yet")
+        val (token, expiresAt) = api.pairingToken()
+        val secret = random.nextBytes(PairCode.SECRET_BYTES)
+        val expires = parseTime(expiresAt) ?: (now() + 10 * 60_000)
+        store.putInvite(Invite(PairCode.base64Url.encode(secret), token, expires, now()))
+        dropOldInvites()
+        return PairCode(self.user, identity, token, secret, PairCode.serverOf(settings.serverFingerprint)) to expires
+    }
+
+    /** Old secrets go after the week a pairing may wait on the server. */
+    private fun dropOldInvites() {
+        store.invites().filter { now() > it.keptUntil() }.forEach(store::removeInvite)
+    }
+
+    /**
+     * A new Invite a friend link from this phone (for [email] when not null): the server's invite code, where the
+     * server is, and this phone's pairing part, with a secret kept to recognise the friend's pair request. Gives the
+     * link, when it expires, and the invite's passcode, which goes beside the link (not in it).
+     */
+    suspend fun newInvite(email: String?): NewInvite {
+        val self = device() ?: throw IllegalStateException("This phone isn't registered")
+        val identity = engine.identityKey() ?: throw IllegalStateException("No identity key yet")
+        val discovery = settings.serverDiscovery ?: throw IllegalStateException("The server hasn't said who it is yet")
+        val wanted = email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        val created = api.createInvite(wanted)
+        val code = created.code
+        val secret = random.nextBytes(PairCode.SECRET_BYTES)
+        val expires = parseTime(created.expiresAt) ?: (now() + 7.days.inWholeMilliseconds)
+        store.putInvite(Invite(PairCode.base64Url.encode(secret), code, expires, now(), viaLink = true))
+        dropOldInvites()
+        val link = InviteLink(
+            code = code,
+            server = KeptDiscovery.originOf(settings.serverUrl),
+            fingerprint = discovery.fingerprint,
+            key = discovery.key,
+            addresses = discovery.candidates(),
+            inviter = self.user,
+            identityKey = identity,
+            secret = secret,
+            email = wanted,
+            passcode = null,
+        )
+        return NewInvite(link, expires, created.passcode)
+    }
+
+    /** Redeems [link] on this enrolled phone and pairs with the inviter. True when the pair is made. */
+    suspend fun acceptInvite(link: InviteLink): Boolean {
+        val pairing = api.acceptInvite(link.code)
+        val token = pairing.token ?: throw ApiException(ApiCodes.RATE_LIMITED, "The server couldn't make a pairing token")
+        return pairWith(link.pairCode(token), verified = false)
+    }
+
+    /**
+     * After enrolling with an invite link: pairs with the inviter (settings.pendingInvitePair) once the socket is live,
+     * and forgets it when that worked or can't work any more. Not verified: the link may have been forwarded.
+     */
+    private suspend fun pairPendingInvite() {
+        val text = settings.pendingInvitePair ?: return
+        val code = (PairCode.parse(text) as? PairCodeParse.Code)?.code
+        if (code == null || device() == null) {
+            settings.pendingInvitePair = null
+            return
+        }
+        if (_state.value.keys !is KeysState.Ready) return
+        try {
+            pairWith(code, verified = false)
+            settings.pendingInvitePair = null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Kept for the next connection when the server or the socket wasn't there; else it can't work any more.
+            if (e.toPairingError() != PairingError.UNREACHABLE) settings.pendingInvitePair = null
+        }
+    }
+
+    /**
+     * Pairs with whoever showed [code]: trusts the identity key from it, sends the pair request (with the code's
+     * secret) to their devices through the server, and confirms. True when the pair is made, false while they haven't
+     * confirmed.
+     */
+    suspend fun pairWith(code: PairCode, verified: Boolean): Boolean {
+        val self = device() ?: throw IllegalStateException("This phone isn't registered")
+        val identity = engine.identityKey() ?: throw IllegalStateException("No identity key yet")
+        // A new start: the key from the code replaces whatever was trusted for them.
+        engine.forget(code.user)
+        engine.trustIdentity(code.user, code.identityKey)
+        val key = Base64.encode(code.identityKey)
+        val old = store.contact(code.user)
+        store.putContact(
+            Contact(
+                user = code.user,
+                identityKey = key,
+                paired = old?.paired == true && old.identityKey == key,
+                since = old?.since,
+                // Their code scanned in person; a link (an invite) may have been forwarded.
+                verified = verified || (old?.verified == true && old.identityKey == key),
+                addedAt = old?.addedAt ?: now(),
+            )
+        )
+        publish()
+        try {
+            sender.send(code.user, Content(pairRequest = PairRequestContent(code.secret, self.user, identity)), code.token)
+        } catch (e: Exception) {
+            // Nothing reached them: back to what was there before.
+            engine.forget(code.user)
+            if (old == null) {
+                store.removeContact(code.user)
+            } else {
+                store.putContact(old)
+                engine.trustIdentity(old.user, Base64.decode(old.identityKey))
+            }
+            publish()
+            throw e
+        }
+        val paired = api.confirmPair(code.user)
+        if (paired) markPaired(code.user)
+        return paired
+    }
+
+    /** Confirms [user]'s pair request. True when the pair is made. */
+    suspend fun accept(user: String): Boolean {
+        val request = store.requests().firstOrNull { it.user == user } ?: return false
+        val paired = api.confirmPair(user)
+        val old = store.contact(user)
+        store.putContact(
+            Contact(
+                user = user,
+                identityKey = request.identityKey,
+                paired = paired,
+                since = old?.since,
+                // The request carried the secret of this phone's code: whoever sent it saw the screen. An invite
+                // link's secret may have been forwarded, so that one isn't verified.
+                verified = !request.viaLink || (old?.verified == true && old.identityKey == request.identityKey),
+                addedAt = old?.addedAt ?: now(),
+            )
+        )
+        store.removeRequest(user)
+        publish()
+        if (paired) {
+            refreshContacts()
+            syncContact(user)
+        }
+        return paired
+    }
+
+    fun decline(user: String) {
+        store.removeRequest(user)
+        if (store.contact(user) == null && !groups.knows(user)) engine.forget(user)
+        publish()
+    }
+
+    private fun markPaired(user: String) {
+        store.contact(user)?.let { store.putContact(it.copy(paired = true)) }
+        publish()
+        syncContact(user)
+    }
+
+    // --- Contacts ------------------------------------------------------------------------------------------------
+
+    /**
+     * Brings the contacts in line with the server's `contacts`: who is paired, blocked, since when, with how many
+     * devices, and whether the server lists another identity key than the one trusted.
+     */
+    suspend fun refreshContacts() {
+        if (device() == null) return
+        val answer = try {
+            api.contacts()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return
+        }
+        val listed = answer.contacts.associateBy { it.user }
+        for (contact in store.contacts()) {
+            val server = listed[contact.user]
+            if (server == null) {
+                // Unpaired by the other side (or removed); one still waiting stays for the week a pairing may wait.
+                if (contact.paired || now() - contact.addedAt > 7.days.inWholeMilliseconds) forgetContact(contact.user)
+                continue
+            }
+            val serverKey = server.identityKey?.let(Base64::encode)
+            store.putContact(
+                contact.copy(
+                    displayName = server.displayName ?: contact.displayName,
+                    paired = true,
+                    since = server.since,
+                    blocked = server.blocked,
+                    devices = server.devices.size,
+                    changedKey = serverKey?.takeIf { it != contact.identityKey } ?: contact.changedKey?.takeIf { serverKey == null },
+                )
+            )
+        }
+        // Paired elsewhere (or this phone's store is new): trusted from the server until the safety number is compared.
+        for (server in answer.contacts) {
+            if (store.contact(server.user) != null) continue
+            val key = server.identityKey ?: continue
+            engine.trustIdentity(server.user, key)
+            store.putContact(
+                Contact(
+                    user = server.user, displayName = server.displayName, identityKey = Base64.encode(key), paired = true, since = server.since,
+                    blocked = server.blocked, devices = server.devices.size, verified = false, addedAt = now(),
+                )
+            )
+        }
+        publish()
+    }
+
+    suspend fun unpair(user: String) {
+        api.unpair(user)
+        forgetContact(user)
+        publish()
+    }
+
+    suspend fun setBlocked(user: String, blocked: Boolean) {
+        if (blocked) api.block(user) else api.unblock(user)
+        store.contact(user)?.let { store.putContact(it.copy(blocked = blocked)) }
+        publish()
+    }
+
+    /** Trusts the new identity key the server announced for [user]; the safety number must be compared again. */
+    fun acceptKeyChange(user: String) {
+        val contact = store.contact(user) ?: return
+        val key = contact.changedKey ?: return
+        engine.forget(user)
+        engine.trustIdentity(user, Base64.decode(key))
+        store.putContact(contact.copy(identityKey = key, changedKey = null, verified = false))
+        publish()
+        syncContact(user)
+    }
+
+    fun safetyNumber(user: String): SafetyNumber? {
+        val self = device() ?: return null
+        val contact = store.contact(user) ?: return null
+        return engine.safetyNumber(self.user, user, Base64.decode(contact.identityKey))
+    }
+
+    /** Compares their safety number code with ours; marks the contact verified when they match. */
+    fun verifyScanned(user: String, scanned: ByteArray): Boolean {
+        val self = device() ?: return false
+        val contact = store.contact(user) ?: return false
+        val matches = try {
+            engine.matchesScanned(self.user, user, Base64.decode(contact.identityKey), scanned)
+        } catch (_: Exception) {
+            false
+        }
+        if (matches) setVerified(user, true)
+        return matches
+    }
+
+    fun setVerified(user: String, verified: Boolean) {
+        store.contact(user)?.let { store.putContact(it.copy(verified = verified)) }
+        publish()
+        syncContact(user)
+    }
+
+    private fun forgetContact(user: String) {
+        store.removeContact(user)
+        store.removeRequest(user)
+        store.removeMessagesOf(user)
+        engine.forget(user)
+        // Still in a group with them: the key the owner named stays trusted, for the sender keys.
+        store.groups().firstNotNullOfOrNull { g -> g.member(user)?.takeIf { !g.gone } }?.let { engine.trustIdentity(user, Base64.decode(it.identityKey)) }
+    }
+
+    // --- Messages ------------------------------------------------------------------------------------------------
+
+    /**
+     * Sends [body] to [user], encrypted end to end. It is kept first ([MessageStatus.PENDING]): when the phone isn't
+     * connected it waits in the outbox and goes when it is ([flushOutbox]).
+     */
+    suspend fun sendText(user: String, body: String): TextMessage {
+        val message = TextMessage(newId(), user, outgoing = true, body = body, at = now(), status = MessageStatus.PENDING)
+        store.putMessage(message)
+        publish()
+        return deliver(message)
+    }
+
+    /** Sends one kept text; answers it with its new status. */
+    private suspend fun deliver(message: TextMessage): TextMessage {
+        if (message.clip != null) {
+            talk.deliverVoice(message.id)
+            return store.message(message.id) ?: message
+        }
+        val status = try {
+            val text = Content(text = TextContent(message.body, message.at, message.id))
+            val group = Group.idOf(message.user)
+            if (group != null) groups.send(group, text, PushKind.MESSAGE) else sender.send(message.user, text, pushKind = PushKind.MESSAGE)
+            MessageStatus.SENT
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: com.chencohen.ptt.relay.SocketUnavailableException) {
+            MessageStatus.PENDING
+        } catch (e: GroupUnavailableException) {
+            MessageStatus.FAILED
+        } catch (e: SendRefusedException) {
+            if (e.status == com.chencohen.ptt.relay.SendStatus.NOT_MEMBER || e.toPairingError() != PairingError.UNREACHABLE) MessageStatus.FAILED else MessageStatus.PENDING
+        } catch (e: Exception) {
+            // Refused (blocked, unpaired), or no session can be made (their key changed): not tried again by itself.
+            if (e.toPairingError() == PairingError.UNREACHABLE) MessageStatus.PENDING else MessageStatus.FAILED
+        }
+        // A receipt may have come first.
+        val now = store.message(message.id) ?: message
+        val updated = now.copy(status = if (now.status.ordinal > status.ordinal && status != MessageStatus.FAILED) now.status else status)
+        store.putMessage(updated)
+        publish()
+        return updated
+    }
+
+    /** Sends what waits in the outbox, oldest first; once connected. */
+    suspend fun flushOutbox() {
+        for (message in store.messages().filter { it.outgoing && it.status == MessageStatus.PENDING }) {
+            if (deliver(message).status == MessageStatus.PENDING) return
+        }
+    }
+
+    /** Tries a text that failed again (the user's Retry). */
+    suspend fun retry(id: String) {
+        val message = store.message(id)?.takeIf { it.outgoing && it.status == MessageStatus.FAILED } ?: return
+        deliver(message.copy(status = MessageStatus.PENDING))
+    }
+
+    /**
+     * The conversation with [user] is on screen: its texts are read. A read receipt goes to them (and, as a copy, to
+     * this user's other phones, which take their notifications down).
+     */
+    suspend fun markRead(user: String) {
+        val unread = store.messagesWith(user).filter { !it.outgoing && !it.read }
+        if (unread.isEmpty()) return
+        unread.forEach { store.putMessage(it.copy(read = true)) }
+        publish()
+        notifier?.read(user)
+        // Groups have no receipts yet.
+        if (Group.idOf(user) != null) return
+        sendReceipt(user, read = true, unread.map { it.id })
+    }
+
+    /** Read receipts that couldn't go yet (not connected), by user; sent once connected. */
+    private val pendingReads = mutableMapOf<String, MutableSet<String>>()
+
+    private suspend fun sendReceipt(user: String, read: Boolean, ids: List<String>) {
+        try {
+            sender.send(user, Content(receipt = ReceiptContent(read, ids)), pushKind = PushKind.SYNC)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: com.chencohen.ptt.relay.SocketUnavailableException) {
+            // A read receipt waits for the connection (a notification's Mark as read); a delivered one is moot by then.
+            if (read) pendingReads.getOrPut(user) { mutableSetOf() } += ids
+        } catch (_: Exception) {
+            // Refused: they see "sent" instead of "delivered" or "read".
+        }
+    }
+
+    private suspend fun sendPendingReads() {
+        val waiting = pendingReads.toMap()
+        pendingReads.clear()
+        waiting.forEach { (user, ids) -> sendReceipt(user, read = true, ids.toList()) }
+    }
+
+    /** This user is typing to [user] (or stopped): sent with no wake-up, and only when connected. */
+    suspend fun sendTyping(user: String, typing: Boolean) {
+        if (socket.state.value !is SocketState.Live) return
+        Group.idOf(user)?.let { id ->
+            try {
+                groups.send(id, Content(typing = TypingContent(typing)), PushKind.NONE)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+            return
+        }
+        val contact = store.contact(user)?.takeIf { it.paired && !it.blocked } ?: return
+        try {
+            sender.send(contact.user, Content(typing = TypingContent(typing)), pushKind = PushKind.NONE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun newId(): String = random.nextBytes(12).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+
+    /** One envelope from /ws; true once it is handled (stored, or dropped for good), so it is acknowledged. */
+    suspend fun receive(envelope: Envelope): Boolean {
+        when (envelope.type) {
+            EnvelopeType.PREKEY_MESSAGE, EnvelopeType.MESSAGE -> receiveMessage(envelope)
+            EnvelopeType.IDENTITY_KEY_CHANGED -> {
+                val contact = store.contact(envelope.senderUser)
+                val key = Base64.encode(envelope.ciphertext)
+                if (contact != null && key != contact.identityKey) {
+                    store.putContact(contact.copy(changedKey = key, verified = false))
+                }
+            }
+            EnvelopeType.PAIRED -> {
+                markPaired(envelope.senderUser)
+                refreshContacts()
+            }
+            EnvelopeType.PROVISIONING -> receiveProvisioning(envelope)
+            EnvelopeType.SENDER_KEY_MESSAGE -> groups.receiveMessage(envelope)
+            // Not awaited: refreshing may send the owner's changes, whose SendResults come through this read loop.
+            EnvelopeType.GROUP_CHANGED -> scope.launch { groups.refresh() }
+            else -> Unit
+        }
+        publish()
+        return true
+    }
+
+    private fun receiveMessage(envelope: Envelope) {
+        val self = device() ?: return
+        val from = DeviceAddress(envelope.senderUser, envelope.senderDevice)
+        val decrypted = try {
+            engine.decrypt(from, envelope.type, envelope.ciphertext)
+        } catch (_: CryptoException) {
+            // Can't be opened now or ever (corrupt, replayed, an untrusted key): dropped, so it isn't sent again.
+            return
+        }
+        val content = ContentCodec.decode(decrypted.plaintext) ?: return
+        content.groupChange?.let { return groups.receiveChange(envelope.senderUser, it) }
+        content.senderKey?.let { return groups.receiveSenderKey(from, decrypted.senderIdentityKey, it) }
+        if (envelope.senderUser == self.user) {
+            content.contact?.let { return takeContactSync(it) }
+            // A copy of what another phone of this user sent.
+            val to = content.destination.takeIf { it.isNotEmpty() } ?: return
+            content.text?.let { text ->
+                val id = text.id.ifEmpty { envelope.id }
+                if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt))
+            }
+            content.clip?.let { talk.receiveClip(to, self.user, it, envelope.serverTimestamp, outgoingCopy = true) }
+            content.talkKey?.let { live.takeKey("${self.user}.${envelope.senderDevice}", it) }
+            content.call?.let { calls.receive(to, self.user, it, envelope.serverTimestamp, ownCopy = true) }
+            // Read on another phone of this user: read here too, and its notification goes.
+            content.receipt?.takeIf { it.read }?.let { receipt ->
+                receipt.ids.mapNotNull(store::message).filter { !it.outgoing && !it.read }.forEach { store.putMessage(it.copy(read = true)) }
+                notifier?.read(to)
+            }
+            return
+        }
+        content.pairRequest?.let { return pairRequest(envelope.senderUser, it, decrypted.senderIdentityKey) }
+        val contact = store.contact(envelope.senderUser)?.takeIf { it.paired && !it.blocked } ?: return
+        content.text?.let { text ->
+            val id = text.id.ifEmpty { envelope.id }
+            if (store.message(id) != null) return
+            val read = openChat == contact.user && foreground
+            store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read))
+            _state.update { it.copy(typing = it.typing - contact.user) }
+            scope.launch {
+                sendReceipt(contact.user, read = false, listOf(id))
+                if (read) sendReceipt(contact.user, read = true, listOf(id))
+            }
+            if (!read) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
+        }
+        content.talkKey?.let { live.takeKey("${contact.user}.${envelope.senderDevice}", it) }
+        content.call?.let { calls.receive(contact.user, contact.user, it, envelope.serverTimestamp, ownCopy = false) }
+        content.clip?.let { clip ->
+            val fresh = store.message(clip.id) == null
+            talk.receiveClip(contact.user, contact.user, clip, envelope.serverTimestamp, outgoingCopy = false)
+            if (fresh) {
+                scope.launch { sendReceipt(contact.user, read = false, listOf(clip.id)) }
+                val read = openChat == contact.user && foreground
+                if (read) store.message(clip.id)?.let { store.putMessage(it.copy(read = true)) }
+                else if (clip.kind == ClipContent.VOICE) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
+            }
+        }
+        content.receipt?.let { receipt ->
+            val status = if (receipt.read) MessageStatus.READ else MessageStatus.DELIVERED
+            for (id in receipt.ids) {
+                val message = store.message(id)?.takeIf { it.outgoing && it.user == contact.user } ?: continue
+                if (message.status.ordinal < status.ordinal || message.status == MessageStatus.PENDING) store.putMessage(message.copy(status = status))
+            }
+        }
+        content.typing?.let { typing ->
+            _state.update {
+                it.copy(typing = if (typing.typing) it.typing + (contact.user to now() + TYPING_FOR) else it.typing - contact.user)
+            }
+        }
+    }
+
+    /**
+     * A pair request: kept for the user to confirm when it carries the secret of one of this phone's codes, names its
+     * sender, and holds the identity key its session was opened with. Anything else is dropped.
+     */
+    private fun pairRequest(sender: String, request: PairRequestContent, sessionKey: ByteArray) {
+        val secret = PairCode.base64Url.encode(request.secret)
+        val invite = store.invites().firstOrNull { it.secret == secret && now() <= it.keptUntil() }
+        if (invite == null || request.user != sender || !request.identityKey.contentEquals(sessionKey)) {
+            if (store.contact(sender) == null && !groups.knows(sender)) engine.forget(sender)
+            return
+        }
+        store.removeInvite(invite)
+        engine.trustIdentity(sender, sessionKey)
+        store.putRequest(PairRequest(sender, Base64.encode(sessionKey), now(), viaLink = invite.viaLink))
+        // Inviting them was the decision: an invite's request is confirmed without asking again.
+        if (invite.viaLink) {
+            scope.launch {
+                try {
+                    accept(sender)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Left as a request: the user confirms it by hand.
+                }
+            }
+        }
+    }
+
+    /** Publishes what the store holds now. */
+    fun publish() {
+        val messages = store.messages()
+        _state.update { state ->
+            state.copy(
+                contacts = store.contacts().sortedBy { it.user.lowercase() },
+                requests = store.requests().sortedBy { it.receivedAt },
+                lastMessages = messages.groupBy { it.user }.mapValues { (_, list) -> list.last() },
+                conversations = messages.groupBy { it.user },
+                unread = messages.filter { !it.outgoing && !it.read }.groupingBy { it.user }.eachCount(),
+                groups = store.groups().sortedBy { it.createdAt },
+            )
+        }
+    }
+
+    companion object {
+        /** A woken phone stays connected this long after the last burst it played, so a reply can follow. */
+        const val TALK_REPLY_WAIT = 20_000L
+
+        /** The longest a talk wake-up keeps the connection. */
+        const val TALK_WAKE_LIMIT = 120_000L
+
+        /** How long "typing…" shows after the last typing message, unless a text or a stop comes first. */
+        const val TYPING_FOR = 8_000L
+
+        /** The key in [MessagingState.typing] of [author] typing in a group's chat. */
+        fun typingKey(chat: String, author: String): String = "$chat/$author"
+
+        /** How long past its end a Link a phone code still answers: the new phone may connect a while after enrolling. */
+        private const val LINK_GRACE = 60 * 60_000L
+
+        /** `wss://host:port/ws` for the GraphQL endpoint `https://host:port/query`; null before enrolling. */
+        fun wsUrl(serverUrl: String): String? {
+            if (!serverUrl.startsWith("https://")) return null
+            val origin = serverUrl.removePrefix("https://").substringBefore('/')
+            return "wss://$origin/ws"
+        }
+    }
+}
+
+/** [Messaging.newInvite]'s answer. */
+internal class NewInvite(val link: InviteLink, val expiresAt: Long, val passcode: String)
+
+@OptIn(kotlin.time.ExperimentalTime::class)
+private fun parseTime(rfc3339: String): Long? = runCatching { kotlin.time.Instant.parse(rfc3339).toEpochMilliseconds() }.getOrNull()
+
+private fun <T> CoroutineScope.launchCollect(flow: StateFlow<T>, block: (T) -> Unit) {
+    launch { flow.collect { block(it) } }
+}

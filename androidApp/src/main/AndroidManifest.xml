@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 17+: the server is often on the local network; without this, connections to it time out. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <!-- Phase 3: notifications for texts that come in. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Phase 5a: talk and voice messages. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Stay connected (Settings › Talk): a foreground service started from the screen. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- A woken burst plays in a Telecom talk session (Core-Telecom), a phone-call service. -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <!-- Phase 6: video calls, a ringing call on the lock screen, the running call's service. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- No backup and no phone-to-phone transfer: a copied app would think it is enrolled without its key, which
+         can't leave the phone's secure hardware (res/xml/data_extraction_rules.xml). -->
+    <application
+        android:name=".TalkApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Talk">
+        <!-- singleTask: an enrollment link opened from the camera comes to the running app (onNewIntent). -->
+        <activity
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:name=".MainActivity"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- ptt://enroll?code=…&server=…: the QR code `ptt-server enroll-code` prints. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="ptt" android:host="enroll" />
+            </intent-filter>
+            <!-- ptt://invite?…: an Invite a friend link (enrolls with its code and pairs with the inviter). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="ptt" android:host="invite" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="ptt" android:host="link" />
+            </intent-filter>
+        </activity>
+            <!-- The server's pushes (FCM): a wake-up, then the phone takes its queue. -->
+        <service
+            android:name=".TalkMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- Talk: the Telecom talk session's service, and Stay connected's. -->
+        <service
+            android:name=".TalkSessionService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall" />
+        <service
+            android:name=".StayConnectedService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|mediaPlayback" />
+        <!-- A running call (phase 6), and Decline and Hang up from its notifications. -->
+        <service
+            android:name=".CallService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone|camera" />
+        <receiver
+            android:name=".CallActionReceiver"
+            android:exported="false" />
+        <!-- Share for a saved call: only the app's calls folder (res/xml/call_files.xml). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.calls"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/call_files" />
+        </provider>
+        <!-- Reply and Mark as read from a notification. -->
+        <receiver
+            android:name=".NotificationActions"
+            android:exported="false" />
+        <!-- Firebase's own data collection off: it is used only to wake the phone. -->
+        <meta-data
+            android:name="firebase_analytics_collection_deactivated"
+            android:value="true" />
+    </application>
+
+</manifest>

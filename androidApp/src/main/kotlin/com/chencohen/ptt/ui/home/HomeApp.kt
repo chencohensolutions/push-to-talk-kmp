@@ -1,0 +1,850 @@
+package com.chencohen.ptt.ui.home
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.chencohen.ptt.R
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import com.chencohen.ptt.messaging.Contact
+import com.chencohen.ptt.messaging.ContactResult
+import com.chencohen.ptt.messaging.KeysState
+import com.chencohen.ptt.messaging.MessagingController
+import com.chencohen.ptt.messaging.MessagingState
+import com.chencohen.ptt.messaging.PairRequest
+import com.chencohen.ptt.messaging.PairingController
+import com.chencohen.ptt.messaging.TextMessage
+import com.chencohen.ptt.messaging.Group
+import com.chencohen.ptt.ui.contacts.GroupChat
+import com.chencohen.ptt.ui.groups.AddMembersScreen
+import com.chencohen.ptt.ui.groups.GroupActions
+import com.chencohen.ptt.ui.groups.GroupRow
+import com.chencohen.ptt.ui.groups.GroupScreen
+import com.chencohen.ptt.ui.groups.NewGroupScreen
+import com.chencohen.ptt.ui.groups.groupName
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import com.chencohen.ptt.ui.contacts.InviteActions
+import com.chencohen.ptt.ui.contacts.InviteScreen
+import com.chencohen.ptt.ui.contacts.ConversationActions
+import com.chencohen.ptt.ui.contacts.ConversationHeader
+import com.chencohen.ptt.ui.contacts.ConversationScreen
+import com.chencohen.ptt.ui.settings.LinkPhoneScreen
+import com.chencohen.ptt.ui.settings.LinkPhoneView
+import com.chencohen.ptt.ui.contacts.AddContactActions
+import com.chencohen.ptt.ui.contacts.AddContactScreen
+import com.chencohen.ptt.ui.contacts.ContactActions
+import com.chencohen.ptt.ui.contacts.ContactRow
+import com.chencohen.ptt.ui.contacts.ContactScreen
+import com.chencohen.ptt.ui.contacts.NewChatScreen
+import com.chencohen.ptt.ui.contacts.SafetyNumberActions
+import com.chencohen.ptt.ui.contacts.SafetyNumberLoad
+import com.chencohen.ptt.ui.contacts.SafetyNumberScreen
+import com.chencohen.ptt.ui.scanQrCode
+import com.chencohen.ptt.ui.style.PageNote
+import com.chencohen.ptt.connection.ConnectionController
+import com.chencohen.ptt.connection.ServerHealth
+import com.chencohen.ptt.settings.SettingsController
+import com.chencohen.ptt.ui.TalkTheme
+import com.chencohen.ptt.ui.settings.SettingsScreen
+import com.chencohen.ptt.ui.style.EmptyState
+import com.chencohen.ptt.ui.style.HomeCard
+import com.chencohen.ptt.ui.style.LibraryColors
+import com.chencohen.ptt.ui.style.LibraryIcons
+import com.chencohen.ptt.ui.style.LibraryType
+import com.chencohen.ptt.ui.style.LocalMessages
+import com.chencohen.ptt.ui.style.MessageHost
+import com.chencohen.ptt.ui.style.Messages
+import com.chencohen.ptt.ui.style.OfflinePill
+import com.chencohen.ptt.ui.style.SegmentedBar
+import com.chencohen.ptt.ui.style.barsRoom
+import com.chencohen.ptt.ui.style.navigationBarRoom
+import com.chencohen.ptt.ui.style.statusBarRoom
+
+/** The home tabs, Signal's two (docs/screens/chats.md). */
+enum class HomeTab { CHATS, CALLS }
+
+/** What the home screens render: the server's health, who this is (the profile circle's letter), and messaging's. */
+data class HomeState(val health: ServerHealth, val user: String?, val messaging: MessagingState = MessagingState())
+
+class HomeActions(
+    val openSettings: () -> Unit = {},
+    val registerAgain: () -> Unit = {},
+    val newChat: () -> Unit = {},
+    val reviewRequest: (String) -> Unit = {},
+    val openContact: (String) -> Unit = {},
+    /** A group invitation's card: the group's page, to accept or decline. */
+    val openGroup: (String) -> Unit = {},
+    val replaceIdentityKey: () -> Unit = {},
+    /** Scan the other phone's Link a phone code (KeysState.OtherIdentity). */
+    val linkHere: () -> Unit = {},
+    /** The Calls tab: call [chat] again (phase 6). */
+    val call: (chat: String, video: Boolean) -> Unit = { _, _ -> },
+    /** A chat's name: a contact's, or a group's. */
+    val chatName: (String) -> String = { it },
+    /** Share a saved call's file. */
+    val shareCall: (String) -> Unit = {},
+)
+
+/**
+ * Where home is: the pages over it, last on top. Kept as one string ("settings", "new", "add", "review/<user>",
+ * "contact/<user>", "safety/<user>", one per line) so it survives a rotation; user names have no line breaks.
+ */
+private fun pages(saved: String): List<String> = saved.split('\n').filter { it.isNotEmpty() }
+
+/** Home and the pages over it: Settings, New chat, Add contact, a contact and their safety number. */
+@Composable
+fun HomeApp(
+    connection: ConnectionController,
+    settings: SettingsController,
+    messaging: MessagingController,
+    pairing: PairingController,
+    onRegisterAgain: () -> Unit,
+    /** An invite link opened on this enrolled phone (MainActivity), until Add contact took it. */
+    openedInvite: String? = null,
+    onInviteTaken: () -> Unit = {},
+    /** A conversation a notification opened (MainActivity), until home showed it. */
+    openedChat: String? = null,
+    onChatTaken: () -> Unit = {},
+    /** Settings › Talk changed: kept, and Stay connected's service started or stopped (MainActivity). */
+    onTalkSettings: (com.chencohen.ptt.messaging.TalkSettings) -> Unit = { messaging.setTalkSettings(it) },
+    /** A talk notification's Play: the clip to play once home shows its chat. */
+    openedClip: String? = null,
+) {
+    val state by connection.state.collectAsStateWithLifecycle()
+    val messagingState by messaging.state.collectAsStateWithLifecycle()
+    var saved by rememberSaveable { mutableStateOf("") }
+    val stack = pages(saved)
+    fun push(page: String) {
+        saved = (stack + page).joinToString("\n")
+    }
+    fun pop() {
+        saved = stack.dropLast(1).joinToString("\n")
+    }
+    fun home() {
+        saved = ""
+    }
+    var tab by rememberSaveable { mutableStateOf(HomeTab.CHATS) }
+    val messages = remember { Messages() }
+    val context = LocalContext.current
+    val resources = LocalResources.current
+    BackHandler(enabled = stack.isNotEmpty()) { pop() }
+    // A notification tapped: its conversation, over home.
+    LaunchedEffect(openedChat) {
+        if (openedChat != null) {
+            saved = "chat/$openedChat"
+            onChatTaken()
+        }
+    }
+    // A talk notification's Play: the burst plays from the chat's history.
+    LaunchedEffect(openedClip) { if (openedClip != null) messaging.playClip(openedClip) }
+    // An invite link: Add contact asks "Pair with them?".
+    LaunchedEffect(openedInvite) {
+        if (openedInvite != null && stack.lastOrNull() != "join") push("join")
+    }
+    // A contact's name as the user sees it: the name they gave, or their user name.
+    fun setNotifyOnly(chat: String, on: Boolean) {
+        val talk = messagingState.talkSettings
+        messaging.setTalkSettings(talk.copy(notifyOnly = if (on) talk.notifyOnly + chat else talk.notifyOnly - chat))
+    }
+    val nameOf: (String) -> String = { u -> messagingState.contacts.firstOrNull { it.user == u }?.displayName?.takeIf { it.isNotBlank() } ?: u }
+    val unnamedGroup = stringResource(R.string.group_unnamed)
+    val chatName: (String) -> String = { chat ->
+        Group.idOf(chat)?.let { id -> messagingState.groups.firstOrNull { it.id == id }?.name?.ifBlank { unnamedGroup } ?: unnamedGroup } ?: nameOf(chat)
+    }
+    // Calls (phase 6): the microphone, and the camera for video, are asked for first.
+    val callPermissions = com.chencohen.ptt.ui.calls.rememberCallPermissions { messages.post(resources.getString(R.string.call_mic_denied)) }
+    fun call(chat: String, video: Boolean) = callPermissions(video) { v -> messaging.startCall(chat, v) }
+    CompositionLocalProvider(LocalMessages provides messages) {
+        Box(Modifier.fillMaxSize()) {
+            val page = stack.lastOrNull()
+            val name = page.orEmpty()
+            val pageUser = page?.substringAfter('/', "")?.takeIf { it.isNotEmpty() }
+            when {
+                page == null -> HomeScreen(
+                    state = HomeState(state.health, state.device?.user, messagingState),
+                    tab = tab,
+                    selectTab = { tab = it },
+                    actions = HomeActions(
+                        openSettings = { push("settings") },
+                        registerAgain = onRegisterAgain,
+                        newChat = { push("new") },
+                        reviewRequest = { push("review/$it") },
+                        openContact = { push("chat/$it") },
+                        openGroup = { push("group/$it") },
+                        replaceIdentityKey = {
+                            messaging.replaceIdentityKey { result ->
+                                if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
+                            }
+                        },
+                        linkHere = {
+                            scanQrCode(context, { text ->
+                                messaging.linkWithScanned(text) { ok -> if (!ok) messages.post(resources.getString(R.string.chats_link_wrong_code)) }
+                            }) { messages.post(resources.getString(R.string.add_scan_failed)) }
+                        },
+                        call = ::call,
+                        chatName = chatName,
+                        shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
+                    ),
+                )
+                name == "settings" -> {
+                    var presenceVisible by remember { mutableStateOf<Boolean?>(messaging.presenceVisible) }
+                    val settingsState by settings.state.collectAsStateWithLifecycle()
+                    SettingsScreen(
+                        state = settingsState,
+                        back = ::pop,
+                        refresh = settings::refresh,
+                        registerAgain = onRegisterAgain,
+                        linkPhone = { push("link") },
+                        openTalk = { push("talksettings") },
+                        openCalls = { push("callsettings") },
+                        presenceVisible = presenceVisible,
+                        setPresenceVisible = { visible ->
+                            presenceVisible = null
+                            messaging.setPresenceVisible(visible) { shown ->
+                                presenceVisible = shown ?: messaging.presenceVisible
+                                if (shown == null) messages.post(resources.getString(R.string.settings_presence_failed))
+                            }
+                        },
+                    )
+                }
+                name == "talksettings" -> {
+                    val chats = messagingState.contacts.filter { it.paired && !it.blocked }.map { it.user to nameOf(it.user) } +
+                        messagingState.groups.filter { !it.gone && it.isReader(state.device?.user.orEmpty()) }.map { it.chat to groupName(it) }
+                    com.chencohen.ptt.ui.settings.TalkSettingsScreen(
+                        settings = messagingState.talkSettings,
+                        chats = chats,
+                        back = ::pop,
+                        change = { new -> onTalkSettings(new) },
+                    )
+                }
+                name == "callsettings" -> com.chencohen.ptt.ui.settings.CallSettingsScreen(
+                    settings = messagingState.talkSettings,
+                    back = ::pop,
+                    change = { new -> onTalkSettings(new) },
+                )
+                name == "link" -> {
+                    // A new code each time the page opens; the phone linked with it shows once its answer went out.
+                    var view by remember { mutableStateOf<LinkPhoneView>(LinkPhoneView.Loading) }
+                    val linkedBefore = remember { messagingState.linkedDevice }
+                    fun make() {
+                        view = LinkPhoneView.Loading
+                        messaging.makeLinkCode { code, error ->
+                            view = code?.let { LinkPhoneView.Showing(it) } ?: LinkPhoneView.Failed(error.orEmpty())
+                        }
+                    }
+                    LaunchedEffect(Unit) { make() }
+                    LaunchedEffect(messagingState.linkedDevice) {
+                        val device = messagingState.linkedDevice
+                        if (device != null && device != linkedBefore) view = LinkPhoneView.Linked(device)
+                    }
+                    LinkPhoneScreen(view, back = ::pop, again = ::make)
+                }
+                name == "new" -> NewChatScreen(
+                    contacts = messagingState.contacts,
+                    back = ::pop,
+                    addContact = { push("add") },
+                    openContact = { push("chat/$it") },
+                    newGroup = { push("newgroup") },
+                )
+                name == "newgroup" -> {
+                    var busy by remember { mutableStateOf(false) }
+                    NewGroupScreen(
+                        contacts = messagingState.contacts,
+                        back = ::pop,
+                        busy = busy,
+                        create = { groupName, picture, members ->
+                            busy = true
+                            messaging.createGroup(groupName, picture, members) { chat, error ->
+                                busy = false
+                                if (chat != null) saved = "chat/$chat" else messages.post(resources.getString(R.string.contact_failed, error.orEmpty()))
+                            }
+                        },
+                    )
+                }
+                name.startsWith("groupadd/") && pageUser != null -> {
+                    val group = messagingState.groups.firstOrNull { it.id == pageUser }
+                    var busy by remember { mutableStateOf(false) }
+                    AddMembersScreen(
+                        contacts = messagingState.contacts,
+                        inGroup = group?.let { g -> (g.members + g.invited).map { it.user }.toSet() }.orEmpty(),
+                        back = ::pop,
+                        busy = busy,
+                        add = { users ->
+                            busy = true
+                            messaging.inviteToGroup(pageUser, users) { result ->
+                                busy = false
+                                when (result) {
+                                    ContactResult.Done -> pop()
+                                    is ContactResult.Failed -> messages.post(resources.getString(R.string.contact_failed, result.message))
+                                }
+                            }
+                        },
+                    )
+                }
+                name.startsWith("group/") && pageUser != null -> {
+                    val id = pageUser
+                    val group = messagingState.groups.firstOrNull { it.id == id }
+                    LaunchedEffect(id) { messaging.refreshGroups() }
+                    fun report(result: ContactResult, then: () -> Unit = {}) {
+                        when (result) {
+                            ContactResult.Done -> then()
+                            is ContactResult.Failed -> messages.post(resources.getString(R.string.contact_failed, result.message))
+                        }
+                    }
+                    GroupScreen(
+                        me = state.device?.user.orEmpty(),
+                        group = group,
+                        contacts = messagingState.contacts,
+                        actions = GroupActions(
+                            back = ::pop,
+                            accept = { messaging.acceptGroup(id) { report(it) { saved = "chat/${Group.chatOf(id)}" } } },
+                            decline = { messaging.leaveGroup(id) { report(it, ::home) } },
+                            rename = { newName, picture -> messaging.renameGroup(id, newName, picture) { report(it) } },
+                            addMembers = { push("groupadd/$id") },
+                            remove = { user ->
+                                messages.post(resources.getString(R.string.group_remove_confirm, user), resources.getString(R.string.group_remove)) {
+                                    messaging.removeFromGroup(id, user) { report(it) }
+                                }
+                            },
+                            openMember = { user ->
+                                if (messagingState.contacts.any { it.user == user }) push("contact/$user") else push("add")
+                            },
+                            leave = {
+                                messages.post(resources.getString(R.string.group_leave_confirm), resources.getString(R.string.group_leave)) {
+                                    messaging.leaveGroup(id) { report(it) }
+                                }
+                            },
+                            delete = {
+                                messages.post(resources.getString(R.string.group_delete_confirm), resources.getString(R.string.group_delete)) {
+                                    messaging.deleteGroup(id) { report(it, ::home) }
+                                }
+                            },
+                            setNotifyOnly = { on -> setNotifyOnly(Group.chatOf(id), on) },
+                        ),
+                        notifyOnly = Group.chatOf(id) in messagingState.talkSettings.notifyOnly,
+                    )
+                }
+                name == "invite" -> {
+                    val pairingState by pairing.state.collectAsStateWithLifecycle()
+                    DisposableEffect(page) { onDispose { pairing.clearInvite() } }
+                    InviteScreen(
+                        state = pairingState,
+                        actions = InviteActions(
+                            back = ::pop,
+                            make = pairing::makeInvite,
+                            // The invite's message (sharedLogic InviteMessage): the steps, the link and its code. This
+                            // phone sends it; the server sends no mail.
+                            share = { invite ->
+                                val message = invite.message(inviteDate(invite.expiresAt))
+                                val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                                    .putExtra(Intent.EXTRA_SUBJECT, message.subject)
+                                    .putExtra(Intent.EXTRA_TEXT, message.body)
+                                context.startActivity(Intent.createChooser(send, resources.getString(R.string.invite_share)))
+                            },
+                            email = { invite ->
+                                val to = invite.email.orEmpty()
+                                val message = invite.message(inviteDate(invite.expiresAt))
+                                // ACTION_SENDTO with mailto: only mail apps answer it, and the user's own app sends it
+                                // from their address. The URI carries To, subject and body; the extras too, for apps
+                                // that read only those.
+                                val mail = Intent(Intent.ACTION_SENDTO, android.net.Uri.parse(message.mailto(to)))
+                                    .putExtra(Intent.EXTRA_EMAIL, arrayOf(to))
+                                    .putExtra(Intent.EXTRA_SUBJECT, message.subject)
+                                    .putExtra(Intent.EXTRA_TEXT, message.body)
+                                try {
+                                    context.startActivity(mail)
+                                } catch (_: android.content.ActivityNotFoundException) {
+                                    messages.post(resources.getString(R.string.invite_no_mail_app))
+                                }
+                            },
+                            copy = { invite ->
+                                val message = invite.message(inviteDate(invite.expiresAt))
+                                val clipboard = context.getSystemService(ClipboardManager::class.java)
+                                clipboard?.setPrimaryClip(ClipData.newPlainText(message.subject, message.body))
+                                messages.post(resources.getString(R.string.invite_copied))
+                            },
+                            another = pairing::clearInvite,
+                        ),
+                    )
+                }
+                name == "add" || name == "join" || name.startsWith("review/") -> {
+                    val pairingState by pairing.state.collectAsStateWithLifecycle()
+                    DisposableEffect(page) {
+                        pairing.open()
+                        if (pageUser != null) pairing.review(pageUser)
+                        if (name == "join") {
+                            openedInvite?.let(pairing::openInvite)
+                            onInviteTaken()
+                        }
+                        onDispose { pairing.leave() }
+                    }
+                    AddContactScreen(
+                        state = pairingState,
+                        user = state.device?.user,
+                        actions = AddContactActions(
+                            back = ::pop,
+                            retryCode = pairing::open,
+                            scan = { scanQrCode(context, pairing::scanned) { messages.post(resources.getString(R.string.add_scan_failed)) } },
+                            invite = { push("invite") },
+                            pair = pairing::pair,
+                            accept = pairing::accept,
+                            decline = {
+                                pairing.decline()
+                                pop()
+                            },
+                            backToCode = pairing::back,
+                            done = ::home,
+                        ),
+                    )
+                }
+                name.startsWith("chat/") && pageUser != null -> {
+                    val user = pageUser
+                    // On screen: what comes in is read at once; gone, notifications again.
+                    DisposableEffect(user) {
+                        messaging.openChat(user)
+                        messaging.refreshPresence()
+                        onDispose { messaging.openChat(null) }
+                    }
+                    LaunchedEffect(messagingState.unread[user]) { if ((messagingState.unread[user] ?: 0) > 0) messaging.openChat(user) }
+                    // "typing…" ends by itself when its time is up.
+                    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+                    val group = Group.idOf(user)?.let { id -> messagingState.groups.firstOrNull { it.id == id } }
+                    val groupTyping = messagingState.typing.filterKeys { it.startsWith("$user/") }
+                    val typingUntil = if (Group.idOf(user) != null) groupTyping.values.maxOrNull() else messagingState.typing[user]
+                    LaunchedEffect(typingUntil) {
+                        now = System.currentTimeMillis()
+                        if (typingUntil != null && typingUntil > now) {
+                            kotlinx.coroutines.delay(typingUntil - now)
+                            now = System.currentTimeMillis()
+                        }
+                    }
+                    ConversationScreen(
+                        user = user,
+                        contact = messagingState.contacts.firstOrNull { it.user == user },
+                        messages = messagingState.conversations[user].orEmpty(),
+                        header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
+                        group = Group.idOf(user)?.let { id ->
+                            val me = state.device?.user.orEmpty()
+                            val typers = groupTyping.filterValues { it > now }.keys.map { it.substringAfter('/') }
+                            GroupChat(
+                                name = group?.let { groupName(it) } ?: resources.getString(R.string.group_unnamed),
+                                picture = group?.picture,
+                                line = when {
+                                    typers.isNotEmpty() -> resources.getString(R.string.group_typing, typers.joinToString(", "))
+                                    else -> resources.getQuantityString(R.plurals.group_members, group?.readers?.size ?: 0, group?.readers?.size ?: 0)
+                                },
+                                note = when {
+                                    group == null -> resources.getString(R.string.group_missing)
+                                    group.gone -> resources.getString(R.string.group_gone)
+                                    group.isInvitation(me) -> resources.getString(R.string.group_invitation_note)
+                                    !group.isReader(me) -> resources.getString(R.string.group_waiting_owner)
+                                    else -> null
+                                },
+                            )
+                        },
+                        actions = ConversationActions(
+                            back = ::pop,
+                            openContact = { Group.idOf(user)?.let { push("group/$it") } ?: push("contact/$user") },
+                            send = { body ->
+                                messaging.sendText(user, body) { result ->
+                                    if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
+                                }
+                            },
+                            retry = messaging::retry,
+                            typing = { messaging.typing(user, it) },
+                            openTalk = { push("talk/$user") },
+                            playClip = messaging::playClip,
+                            stopClip = messaging::stopPlaying,
+                            startVoice = { messaging.startVoice(user) },
+                            finishVoice = { messaging.releaseTalk(it) },
+                            micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
+                            call = { video -> call(user, video) },
+                            shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
+                        ),
+                        talk = messagingState.talk,
+                        talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
+                    )
+                }
+                name.startsWith("talk/") && pageUser != null -> {
+                    val chat = name.removePrefix("talk/")
+                    val group = Group.idOf(chat)?.let { id -> messagingState.groups.firstOrNull { it.id == id } }
+                    com.chencohen.ptt.ui.talk.TalkModeScreen(
+                        chat = chat,
+                        title = group?.let { groupName(it) } ?: nameOf(chat),
+                        me = state.device?.user.orEmpty(),
+                        talk = messagingState.talk,
+                        liveRoom = messagingState.live,
+                        bursts = messagingState.conversations[chat].orEmpty().filter { it.clip != null },
+                        nameOf = nameOf,
+                        press = { messaging.pressTalk(chat) },
+                        release = { messaging.releaseTalk(true) },
+                        play = { id -> if (messagingState.talk.playing?.clip == id) messaging.stopPlaying() else messaging.playClip(id) },
+                        close = ::pop,
+                        micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
+                    )
+                }
+                name.startsWith("contact/") && pageUser != null -> {
+                    val user = pageUser
+                    ContactScreen(
+                        user = user,
+                        contact = messagingState.contacts.firstOrNull { it.user == user },
+                        actions = ContactActions(
+                            back = ::pop,
+                            acceptKeyChange = { messaging.acceptKeyChange(user) },
+                            openSafetyNumber = { push("safety/$user") },
+                            setBlocked = { blocked ->
+                                messaging.setBlocked(user, blocked) { result ->
+                                    messages.post(
+                                        when (result) {
+                                            ContactResult.Done -> resources.getString(if (blocked) R.string.contact_done_blocked else R.string.contact_done_unblocked, user)
+                                            is ContactResult.Failed -> resources.getString(R.string.contact_failed, result.message)
+                                        },
+                                    )
+                                }
+                            },
+                            // Removing is asked for in the message bar, Journal's way instead of a dialog.
+                            unpair = {
+                                messages.post(resources.getString(R.string.contact_unpair_confirm, user), resources.getString(R.string.contact_unpair_action)) {
+                                    messaging.unpair(user) { result ->
+                                        when (result) {
+                                            ContactResult.Done -> {
+                                                messages.post(resources.getString(R.string.contact_done_unpaired, user))
+                                                home()
+                                            }
+                                            is ContactResult.Failed -> messages.post(resources.getString(R.string.contact_failed, result.message))
+                                        }
+                                    }
+                                }
+                            },
+                            setNotifyOnly = { on -> setNotifyOnly(user, on) },
+                        ),
+                        notifyOnly = user in messagingState.talkSettings.notifyOnly,
+                    )
+                }
+                name.startsWith("safety/") && pageUser != null -> {
+                    val user = pageUser
+                    val contact = messagingState.contacts.firstOrNull { it.user == user }
+                    var load by remember(user) { mutableStateOf<SafetyNumberLoad>(SafetyNumberLoad.Loading) }
+                    LaunchedEffect(user, contact?.identityKey) {
+                        messaging.safetyNumber(user) { number -> load = number?.let { SafetyNumberLoad.Shown(it) } ?: SafetyNumberLoad.Missing }
+                    }
+                    SafetyNumberScreen(
+                        user = user,
+                        load = load,
+                        verified = contact?.verified == true,
+                        actions = SafetyNumberActions(
+                            back = ::pop,
+                            scan = {
+                                scanQrCode(
+                                    context,
+                                    { text ->
+                                        messaging.verifyScanned(user, text) { same ->
+                                            messages.post(resources.getString(if (same) R.string.safety_match else R.string.safety_mismatch, user))
+                                        }
+                                    },
+                                    { messages.post(resources.getString(R.string.add_scan_failed)) },
+                                )
+                            },
+                            setVerified = { messaging.setVerified(user, it) },
+                        ),
+                    )
+                }
+                else -> LaunchedEffect(page) { home() }
+            }
+            MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarRoom().imePadding().padding(bottom = if (page == null) 88.dp else 16.dp))
+            // A call, over everything (phase 6).
+            messagingState.call?.let { current ->
+                BackHandler {}
+                com.chencohen.ptt.ui.calls.CallScreen(
+                    call = current,
+                    title = chatName(current.chat),
+                    nameOf = nameOf,
+                    transport = remember { runCatching { com.chencohen.ptt.callTransport(context) }.getOrNull() },
+                    actions = com.chencohen.ptt.ui.calls.CallActions(
+                        accept = {
+                            callPermissions(current.video) { video ->
+                                if (current.video && !video) messaging.setCallCamera(false)
+                                messaging.acceptCall()
+                            }
+                        },
+                        decline = messaging::declineCall,
+                        hangUp = messaging::hangUp,
+                        setMicrophone = messaging::setCallMicrophone,
+                        setCamera = { on -> if (on) callPermissions(true) { if (it) messaging.setCallCamera(true) } else messaging.setCallCamera(false) },
+                        switchCamera = messaging::switchCallCamera,
+                        setSaving = messaging::setCallSaving,
+                        dismissAsk = messaging::dismissSaveAsk,
+                    ),
+                    canSave = messagingState.talkSettings.saveCalls != com.chencohen.ptt.calls.SaveCalls.OFF,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Chats or Calls: the top bar (the profile circle that opens Settings, the tab's title, Offline while the server
+ * can't be reached), the cards (Register again, a pair request, another phone holding the keys), the tab's list, the
+ * pencil, and the tabs at the bottom.
+ */
+@Composable
+internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> Unit, actions: HomeActions) {
+    val insets = barsRoom()
+    val chats = state.messaging
+    Box(Modifier.fillMaxSize().background(LibraryColors.Background)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(top = insets.calculateTopPadding() + 72.dp, bottom = insets.calculateBottomPadding() + 96.dp),
+        ) {
+            if (state.health == ServerHealth.REJECTED) {
+                HomeCard(
+                    title = stringResource(R.string.home_rejected_title),
+                    body = stringResource(R.string.home_rejected_body),
+                    action = stringResource(R.string.home_rejected_action),
+                    onAction = actions.registerAgain,
+                    warning = true,
+                )
+            }
+            when (tab) {
+                HomeTab.CHATS -> {
+                    (chats.keys as? KeysState.Linking)?.let { linking ->
+                        HomeCard(
+                            title = stringResource(R.string.chats_linking_title),
+                            body = stringResource(R.string.chats_linking_body, linking.device),
+                            action = "",
+                            onAction = {},
+                        )
+                    }
+                    if (chats.keys is KeysState.OtherIdentity) {
+                        HomeCard(
+                            title = stringResource(R.string.chats_link_here_title),
+                            body = stringResource(R.string.chats_link_here_body),
+                            action = stringResource(R.string.chats_link_here_action),
+                            onAction = actions.linkHere,
+                        )
+                        HomeCard(
+                            title = stringResource(R.string.chats_other_identity_title),
+                            body = stringResource(R.string.chats_other_identity_body),
+                            action = stringResource(R.string.chats_other_identity_action),
+                            onAction = actions.replaceIdentityKey,
+                            warning = true,
+                        )
+                    }
+                    (chats.keys as? KeysState.Failed)?.let { PageNote(stringResource(R.string.chats_keys_failed, it.message), top = 4, bottom = 4) }
+                    chats.groups.filter { it.isInvitation(state.user.orEmpty()) }.forEach { group ->
+                        HomeCard(
+                            title = stringResource(R.string.chats_group_invite_title, group.owner, groupName(group)),
+                            body = stringResource(R.string.chats_group_invite_body),
+                            action = stringResource(R.string.chats_group_invite_action),
+                            onAction = { actions.openGroup(group.id) },
+                        )
+                    }
+                    chats.requests.forEach { request ->
+                        HomeCard(
+                            title = stringResource(R.string.chats_request_title, request.user),
+                            body = stringResource(R.string.chats_request_body),
+                            action = stringResource(R.string.chats_request_action),
+                            onAction = { actions.reviewRequest(request.user) },
+                        )
+                    }
+                    val groups = chats.groups.filter { !it.isInvitation(state.user.orEmpty()) }
+                    if (chats.contacts.isEmpty() && groups.isEmpty()) {
+                        Spacer(Modifier.height(96.dp))
+                        EmptyTab(LibraryIcons.Chat, stringResource(R.string.chats_empty))
+                    } else {
+                        // The latest text first, then the newest contacts and groups; a group's row by its chat key.
+                        val rows = chats.contacts.map { it.user to (chats.lastMessages[it.user]?.at ?: 0L) to it.addedAt } +
+                            groups.map { it.chat to (chats.lastMessages[it.chat]?.at ?: 0L) to it.createdAt }
+                        rows.sortedWith(compareByDescending<Pair<Pair<String, Long>, Long>> { it.first.second }.thenByDescending { it.second }).forEach { row ->
+                            val key = row.first.first
+                            val group = groups.firstOrNull { it.chat == key }
+                            if (group != null) {
+                                GroupRow(group, chats.lastMessages[key], chats.unread[key] ?: 0) { actions.openContact(key) }
+                            } else {
+                                chats.contacts.firstOrNull { it.user == key }?.let { contact ->
+                                    ContactRow(contact, chats.lastMessages[key], chats.unread[key] ?: 0) { actions.openContact(key) }
+                                }
+                            }
+                        }
+                    }
+                }
+                HomeTab.CALLS -> {
+                    val calls = chats.conversations.values.flatten().filter { it.call != null }.sortedByDescending { it.at }
+                    if (calls.isEmpty()) {
+                        Spacer(Modifier.height(96.dp))
+                        EmptyTab(LibraryIcons.Call, stringResource(R.string.calls_empty))
+                    } else {
+                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact, actions.shareCall)
+                    }
+                }
+            }
+        }
+        TopBar(state, tab, actions.openSettings, Modifier.align(Alignment.TopCenter))
+        if (tab == HomeTab.CHATS) {
+            NewChatButton(actions.newChat, Modifier.align(Alignment.BottomEnd).navigationBarRoom().padding(end = 20.dp, bottom = 84.dp))
+        }
+        SegmentedBar(
+            options = listOf(HomeTab.CHATS to stringResource(R.string.chats_title), HomeTab.CALLS to stringResource(R.string.calls_title)),
+            selected = tab,
+            onSelect = selectTab,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarRoom().padding(bottom = 16.dp),
+        )
+    }
+}
+
+@Composable
+private fun TopBar(state: HomeState, tab: HomeTab, openSettings: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .background(LibraryColors.TopFade)
+            .statusBarRoom()
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ProfileCircle(state.user, openSettings)
+        Spacer(Modifier.width(14.dp))
+        Text(
+            stringResource(if (tab == HomeTab.CHATS) R.string.chats_title else R.string.calls_title),
+            color = LibraryColors.OnBackground,
+            style = LibraryType.ScreenTitle,
+            modifier = Modifier.weight(1f).semantics { heading() },
+        )
+        if (state.health == ServerHealth.OFFLINE) OfflinePill()
+    }
+}
+
+/** The user's first letter in an ink circle (no pictures yet); opens Settings. */
+@Composable
+private fun ProfileCircle(user: String?, onClick: () -> Unit) {
+    val label = stringResource(R.string.chats_profile)
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(LibraryColors.Inverse)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        val letter = user?.firstOrNull()?.uppercaseChar()
+        if (letter != null) {
+            Text(letter.toString(), color = LibraryColors.OnInverse, style = LibraryType.RowTitle, fontWeight = FontWeight.Bold)
+        } else {
+            Icon(LibraryIcons.Person, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(22.dp))
+        }
+    }
+}
+
+/** The pencil for a new chat, in ink: the screen's one main action. */
+@Composable
+private fun NewChatButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val label = stringResource(R.string.chats_new)
+    Box(
+        modifier
+            .size(56.dp)
+            .shadow(8.dp, CircleShape)
+            .clip(CircleShape)
+            .background(LibraryColors.Inverse)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(LibraryIcons.Edit, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(24.dp))
+    }
+}
+
+@Composable
+private fun EmptyTab(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(72.dp).background(LibraryColors.Raised, CircleShape), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = LibraryColors.Muted, modifier = Modifier.size(32.dp))
+        }
+        EmptyState(text)
+    }
+}
+
+@Preview
+@Composable
+private fun ChatsEmptyPreview() {
+    TalkTheme { HomeScreen(HomeState(ServerHealth.OK, "hen"), HomeTab.CHATS, {}, HomeActions()) }
+}
+
+@Preview
+@Composable
+private fun ChatsOfflinePreview() {
+    TalkTheme { HomeScreen(HomeState(ServerHealth.OFFLINE, "hen"), HomeTab.CHATS, {}, HomeActions()) }
+}
+
+@Preview
+@Composable
+private fun ChatsRejectedPreview() {
+    TalkTheme { HomeScreen(HomeState(ServerHealth.REJECTED, null), HomeTab.CALLS, {}, HomeActions()) }
+}
+
+@Preview
+@Composable
+private fun ChatsListPreview() {
+    TalkTheme {
+        HomeScreen(
+            HomeState(
+                ServerHealth.OK,
+                "hen",
+                MessagingState(
+                    contacts = listOf(Contact("dana", "", paired = true, addedAt = 2), Contact("avi", "", paired = false, addedAt = 1)),
+                    requests = listOf(PairRequest("noa", "", 0)),
+                    lastMessages = mapOf("dana" to TextMessage("1", "dana", outgoing = true, body = "Testing the way there", at = 5)),
+                ),
+            ),
+            HomeTab.CHATS,
+            {},
+            HomeActions(),
+        )
+    }
+}
+
+/** An invite's last day, as the phone writes a date ("Nov 29, 2026"). */
+private fun inviteDate(millis: Long): String =
+    java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(millis))
