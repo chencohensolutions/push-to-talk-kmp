@@ -1,0 +1,37 @@
+{
+  "key": "AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09o=",
+  "tracks": [
+    {
+      "Blob": "hen-video",
+      "Identity": "hen.1",
+      "Kind": "video",
+      "Codec": "video/VP8",
+      "RecordingStartedAt": "2026-11-22T16:00:00Z",
+      "Size": 26394
+    },
+    {
+      "Blob": "hen-audio",
+      "Identity": "hen.1",
+      "Kind": "audio",
+      "Codec": "audio/opus",
+      "RecordingStartedAt": "2026-11-22T16:00:00Z",
+      "Size": 12441
+    },
+    {
+      "Blob": "sharon-video",
+      "Identity": "sharon.2",
+      "Kind": "video",
+      "Codec": "video/VP8",
+      "RecordingStartedAt": "2026-11-22T16:00:00.500Z",
+      "Size": 27075
+    },
+    {
+      "Blob": "sharon-audio",
+      "Identity": "sharon.2",
+      "Kind": "audio",
+      "Codec": "audio/opus",
+      "RecordingStartedAt": "2026-11-22T16:00:00.500Z",
+      "Size": 13001
+    }
+  ]
+}

@@ -79,6 +79,7 @@ class LiveKitCallTransport(
             if (video) room.localParticipant.setCameraEnabled(true)
             front = true
             others(room)
+            metadata(room)
             true
         } catch (e: CancellationException) {
             throw e
@@ -191,6 +192,7 @@ class LiveKitCallTransport(
     private fun onEvent(room: Room, event: RoomEvent) {
         when (event) {
             is RoomEvent.ParticipantConnected, is RoomEvent.ParticipantDisconnected -> others(room)
+            is RoomEvent.RoomMetadataChanged -> metadata(room)
             is RoomEvent.Disconnected -> {
                 if (_room.value === room) listener?.disconnected()
             }
@@ -207,6 +209,11 @@ class LiveKitCallTransport(
 
     private fun others(room: Room) {
         listener?.others(room.remoteParticipants.values.mapNotNull { it.identity?.value })
+    }
+
+    /** {"recording":true,"by":"user.device","startedAt":…} while the server keeps the call; {"recording":false} after. */
+    private fun metadata(room: Room) {
+        listener?.serverRecording(RoomMetadata.recorderOf(room.metadata))
     }
 
     private companion object {

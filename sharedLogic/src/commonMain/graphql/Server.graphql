@@ -13,6 +13,11 @@ query ServerInfo {
   }
 }
 
+# Whether the server keeps calls while someone records, asked on its own: an older server doesn't know the field.
+query KeepsCalls {
+  serverInfo { keepsCalls }
+}
+
 # The server's CA on its own, asked at enrollment when enrollDevice didn't give it.
 query ServerCa {
   serverInfo { caCertificate }

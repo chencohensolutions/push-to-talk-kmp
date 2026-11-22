@@ -79,7 +79,7 @@ fun shareCall(context: android.content.Context, name: String) {
     val file = java.io.File(java.io.File(context.filesDir, "calls"), name)
     if (!file.exists()) return
     val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".calls", file)
-    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("video/mp4")
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType(if (name.endsWith(".mkv")) "video/x-matroska" else "video/mp4")
         .putExtra(android.content.Intent.EXTRA_STREAM, uri)
         .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
     context.startActivity(android.content.Intent.createChooser(send, context.getString(R.string.call_share)))
@@ -131,7 +131,7 @@ fun callLine(message: TextMessage): String {
 
 /** A call's entry in the chat: its icon and line; missed in red. */
 @Composable
-fun CallEntryContent(message: TextMessage, onInverse: Boolean, share: (String) -> Unit = {}, callBack: () -> Unit) {
+fun CallEntryContent(message: TextMessage, onInverse: Boolean, share: (String) -> Unit = {}, playKept: (TextMessage) -> Unit = {}, callBack: () -> Unit) {
     val call = message.call ?: return
     val missed = call.outcome == CallOutcome.MISSED
     Row(Modifier.clickable(role = Role.Button, onClick = callBack).padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -155,6 +155,14 @@ fun CallEntryContent(message: TextMessage, onInverse: Boolean, share: (String) -
             modifier = Modifier.clickable(role = Role.Button) { share(file) }.padding(vertical = 4.dp),
         )
     }
+    if (call.keptKey != null) {
+        Text(
+            stringResource(R.string.kept_open),
+            color = if (onInverse) LibraryColors.OnInverse else LibraryColors.Accent,
+            style = LibraryType.Caption,
+            modifier = Modifier.clickable(role = Role.Button) { playKept(message) }.padding(vertical = 4.dp),
+        )
+    }
 }
 
 /** The Calls tab: every call, newest first; a row calls back the same way. */
@@ -165,6 +173,8 @@ fun CallsList(
     callBack: (chat: String, video: Boolean) -> Unit,
     open: (String) -> Unit,
     share: (String) -> Unit = {},
+    playKept: (TextMessage) -> Unit = {},
+    saveKept: (TextMessage) -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth()) {
         calls.forEach { message ->
@@ -183,6 +193,16 @@ fun CallsList(
                         "${stringResource(if (message.outgoing) R.string.call_outgoing else R.string.call_incoming)} · ${callLine(message)} · $time",
                         color = LibraryColors.Muted, style = LibraryType.Caption,
                     )
+                }
+                if (call.keptKey != null) {
+                    val saveLabel = stringResource(R.string.kept_save)
+                    Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = saveLabel) { saveKept(message) }, contentAlignment = Alignment.Center) {
+                        Icon(LibraryIcons.Download, saveLabel, tint = LibraryColors.OnBackground)
+                    }
+                    val playLabel = stringResource(R.string.kept_open)
+                    Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = playLabel) { playKept(message) }, contentAlignment = Alignment.Center) {
+                        Icon(LibraryIcons.Play, playLabel, tint = LibraryColors.OnBackground)
+                    }
                 }
                 call.savedAs?.let { file ->
                     val shareLabel = stringResource(R.string.call_share)
@@ -226,10 +246,11 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             Spacer(Modifier.height(16.dp))
             Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
             Text(statusLine(call, nameOf), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
-            if (call.recordingBy.isNotEmpty()) {
+            val recorders = call.recordingBy + listOfNotNull(call.serverRecordingBy)
+            if (recorders.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    stringResource(R.string.call_recording, call.recordingBy.joinToString { nameOf(it) }),
+                    stringResource(R.string.call_recording, recorders.joinToString { nameOf(it) }),
                     color = Color.White, style = LibraryType.Small,
                     modifier = Modifier.background(LibraryColors.Error, CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
                 )
@@ -256,13 +277,15 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
                 }
             }
             Spacer(Modifier.weight(1f))
-            if (canSave && call.phase == CallPhase.ACTIVE) {
+            // Stop shows for anyone while the server keeps the call; Record only where it can be saved.
+            val stoppable = call.saving || call.serverRecordingBy != null
+            if ((canSave || stoppable) && call.phase == CallPhase.ACTIVE) {
                 Text(
-                    stringResource(if (call.saving) R.string.call_save_stop else R.string.call_save),
+                    stringResource(if (stoppable) R.string.call_save_stop else R.string.call_save),
                     color = Color.White, style = LibraryType.Small,
                     modifier = Modifier
-                        .background(if (call.saving) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
-                        .clickable(role = Role.Button) { actions.setSaving(!call.saving) }
+                        .background(if (stoppable) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
+                        .clickable(role = Role.Button) { actions.setSaving(!stoppable) }
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                 )
                 Spacer(Modifier.height(16.dp))

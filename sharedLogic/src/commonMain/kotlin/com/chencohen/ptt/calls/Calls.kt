@@ -58,6 +58,10 @@ data class CallUi(
     val others: List<String> = emptyList(),
     /** Users saving the call (the Recording badge); this phone's own user too while it saves. */
     val recordingBy: Set<String> = emptySet(),
+    /** The user whose device has the server keeping the call now (the room's metadata); null: not kept. */
+    val serverRecordingBy: String? = null,
+    /** The server can keep calls (serverInfo.keepsCalls): Record shows even with Save calls off. */
+    val serverKeeps: Boolean = false,
     val microphone: Boolean = true,
     val camera: Boolean = video,
     /** Set once [phase] is ENDED. */
@@ -97,6 +101,9 @@ interface CallTransportListener {
 
     /** The room was lost. */
     fun disconnected()
+
+    /** The room's metadata: the device ("user.device") the server keeps the call for, or null when it doesn't. */
+    fun serverRecording(by: String?) {}
 }
 
 /** The platform's part: ringing, the ongoing call session, missed-call notifications. */
@@ -133,6 +140,13 @@ internal class Calls(
     /** A call takes the audio: the talk room is left while it runs. */
     private val onCall: () -> Unit,
     private val saveCalls: () -> SaveCalls = { SaveCalls.OFF },
+    /**
+     * The server keeps the call, encrypted end to end, from this user's Record ([on]: recordCall) until anyone's Stop
+     * (stopRecordingCall), or until the recording device leaves (2026-11-22, hen: only when someone records).
+     * Failures don't stop the phone's own saving.
+     */
+    private val keepOnServer: suspend (call: String, peer: String?, group: String?, on: Boolean) -> Unit = { _, _, _, _ -> },
+    private val serverKeepsCalls: () -> Boolean = { false },
     private val now: () -> Long,
     private val random: Random,
 ) {
@@ -153,6 +167,9 @@ internal class Calls(
     private var savedAs: String? = null
     private var askedToSave = false
 
+    /** The call's key while the server kept the call at some point: it goes on the call's entry, for playing it later. */
+    private var keptKey: ByteArray? = null
+
     private val current: CallUi? get() = _state.value?.takeIf { it.phase != CallPhase.ENDED }
 
     /** Calls [chat]: false when a call is already on. */
@@ -164,6 +181,7 @@ internal class Calls(
         key = callKey
         joined = false
         askedToSave = false
+        keptKey = null
         savedAs = null
         val call = CallUi(id, chat, self, incoming = false, video = video, phase = CallPhase.CALLING, startedAt = now())
         show(call)
@@ -225,6 +243,11 @@ internal class Calls(
     fun setRecording(on: Boolean) {
         val call = current?.takeIf { it.phase == CallPhase.ACTIVE } ?: return
         val self = me() ?: return
+        if (!on && !call.saving && call.serverRecordingBy != null) {
+            // Someone else has the server keeping it: anyone in the call may stop that.
+            scope.launch { keepOnServer(call, false) }
+            return
+        }
         if (on == call.saving) return
         if (on) {
             if (transport?.startRecording() != true) return
@@ -233,6 +256,12 @@ internal class Calls(
         }
         _state.update { it?.copy(saving = on, askToSave = false, recordingBy = if (on) it.recordingBy + self else it.recordingBy - self) }
         scope.launch { send(call.chat, CallContent(CallContent.RECORDING, call.id, recording = on), PushKind.NONE) }
+        scope.launch { keepOnServer(call, on) }
+    }
+
+    private suspend fun keepOnServer(call: CallUi, on: Boolean) {
+        val group = com.chencohen.ptt.messaging.Group.idOf(call.chat)
+        runCatching { keepOnServer(call.id, if (group == null) call.chat else null, group, on) }
     }
 
     /** "Save this call?" answered Not now. */
@@ -258,6 +287,7 @@ internal class Calls(
                         key = call.key
                         joined = false
                         askedToSave = false
+                        keptKey = null
                         savedAs = null
                         show(ringing)
                         host?.ring(ringing)
@@ -342,8 +372,9 @@ internal class Calls(
         val ended = call.copy(phase = CallPhase.ENDED, outcome = outcome, saving = false, askToSave = false)
         _state.value = ended
         host?.ended(ended)
-        record(call, outcome, savedAs)
+        record(call, outcome, savedAs, keptKey)
         savedAs = null
+        keptKey = null
         if (outcome == CallOutcome.MISSED) host?.missed(call.chat, call.caller, call.video)
         clearing = scope.launch {
             delay(SHOW_ENDED)
@@ -351,14 +382,14 @@ internal class Calls(
         }
     }
 
-    private fun record(call: CallUi, outcome: CallOutcome, saved: String? = null) {
+    private fun record(call: CallUi, outcome: CallOutcome, saved: String? = null, kept: ByteArray? = null) {
         val duration = if (call.connectedAt > 0) now() - call.connectedAt else 0
         val missed = outcome == CallOutcome.MISSED
         putEntry(
             TextMessage(
                 id = call.id, user = call.chat, outgoing = !call.incoming, body = "", at = call.startedAt,
                 read = !missed, author = call.caller.takeIf { Group.idOf(call.chat) != null },
-                call = CallEntry(call.video, outcome, duration, savedAs = saved),
+                call = CallEntry(call.video, outcome, duration, savedAs = saved, keptKey = kept?.let { kotlin.io.encoding.Base64.encode(it) }),
             ),
         )
     }
@@ -373,7 +404,7 @@ internal class Calls(
                     val first = call.phase != CallPhase.ACTIVE && !askedToSave
                     val mode = saveCalls()
                     _state.value = call.copy(
-                        phase = CallPhase.ACTIVE, others = users,
+                        phase = CallPhase.ACTIVE, others = users, serverKeeps = serverKeepsCalls(),
                         connectedAt = call.connectedAt.takeIf { it > 0 } ?: now(),
                         askToSave = call.askToSave || (first && mode == SaveCalls.ASK),
                     )
@@ -385,6 +416,13 @@ internal class Calls(
                     // Everyone else left: over for this phone too.
                     end(CallOutcome.ANSWERED, tell = Group.idOf(call.chat) == null)
                 }
+            }
+        }
+
+        override fun serverRecording(by: String?) {
+            scope.launch {
+                if (by != null && current != null) keptKey = key
+                _state.update { it?.copy(serverRecordingBy = by?.substringBeforeLast('.')) }
             }
         }
 

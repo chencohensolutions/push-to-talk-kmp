@@ -102,7 +102,7 @@
     <string name="calls_save_ask_body">כששיחה מתחילה, נשאל אם לשמור אותה</string>
     <string name="calls_save_always">תמיד</string>
     <string name="calls_save_always_body">כל שיחה נשמרת מתחילתה</string>
-    <string name="calls_save_note">שיחה שנשמרה נשארת בטלפון הזה, באחסון של האפליקציה, ויוצאת ממנו רק דרך שיתוף. כל מי שבשיחה רואה תג הקלטה אדום כל עוד היא נשמרת.</string>
+    <string name="calls_save_note">שיחה שנשמרה נשארת בטלפון הזה (ויוצאת ממנו רק דרך שיתוף), והשרת שלכם שומר אותה גם, מוצפנת כך שרק מי שהיה בשיחה יכול לפתוח אותה, ורק כל עוד מישהו מקליט. כל מי שבשיחה רואה תג הקלטה אדום כל עוד היא נשמרת.</string>
     <string name="call_save">שמירה</string>
     <string name="call_save_stop">הפסקת השמירה</string>
     <string name="call_save_ask">לשמור את השיחה?</string>
@@ -110,6 +110,17 @@
     <string name="call_save_not_now">לא עכשיו</string>
     <string name="call_share">שיתוף השיחה</string>
     <string name="call_share_saved">נשמרה · שיתוף</string>
+    <string name="kept_open">בשרת · ניגון</string>
+    <string name="kept_back">חזרה</string>
+    <string name="kept_getting">מביאים את השיחה מהשרת שלכם ופותחים אותה בטלפון הזה…</string>
+    <string name="kept_nothing">אין בשרת שלכם משהו מהשיחה הזו שאפשר לפתוח.</string>
+    <string name="kept_failed">לא הצלחנו לפתוח את השיחה. נסו שוב מאוחר יותר.</string>
+    <string name="kept_play">ניגון</string>
+    <string name="kept_pause">השהיה</string>
+    <string name="kept_save">שמירה כקובץ</string>
+    <string name="kept_saving">שומרים…</string>
+    <string name="kept_saved">נשמר בהורדות › Talk</string>
+    <string name="kept_save_failed">לא הצלחנו לשמור את הקובץ</string>
     <string name="call_voice">שיחה קולית</string>
     <string name="call_video">שיחת וידאו</string>
     <string name="call_kind_voice">שיחה קולית</string>

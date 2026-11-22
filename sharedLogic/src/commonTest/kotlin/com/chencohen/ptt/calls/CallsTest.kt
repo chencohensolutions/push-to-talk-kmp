@@ -60,6 +60,7 @@ class CallsTest {
         val sent = mutableListOf<Triple<String, CallContent, Int>>()
         val entries = mutableMapOf<String, TextMessage>()
         val tokenAsks = mutableListOf<Triple<String, String?, String?>>()
+        val keeps = mutableListOf<Pair<String?, Boolean>>()
         var leftTalk = 0
         val calls = Calls(
             scope = scope.backgroundScope,
@@ -74,6 +75,7 @@ class CallsTest {
             entry = { entries[it] },
             onCall = { leftTalk++ },
             saveCalls = { save },
+            keepOnServer = { _, peer, group, on -> keeps += (peer ?: "g:$group") to on },
             now = { scope.testScheduler.currentTime + 1_000_000 },
             random = Random(2),
         ).also {
@@ -262,5 +264,56 @@ class CallsTest {
         runCurrent()
         assertEquals(setOf("sharon", "hen"), s.calls.state.value!!.recordingBy)
         assertTrue(s.sent.last().second.recording)
+    }
+
+    /** 2026-11-22 (hen): the server keeps a call only while someone records it: Save asks, Stop and the end stop. */
+    @Test
+    fun recordingAsksTheServerToKeepTheCallUntilItStops() = runTest {
+        val s = Setup(this)
+        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
+        s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1"))
+        runCurrent()
+        assertEquals(emptyList(), s.keeps, "nothing kept before anyone records")
+        s.calls.setRecording(true)
+        runCurrent()
+        assertEquals(listOf<Pair<String?, Boolean>>("sharon" to true), s.keeps)
+        s.calls.setRecording(false)
+        runCurrent()
+        assertEquals("sharon" to false, s.keeps.last())
+        // Hanging up while it records leaves the stop to the server (the recording device left the room).
+        s.calls.setRecording(true)
+        runCurrent()
+        val asked = s.keeps.size
+        s.calls.hangUp()
+        runCurrent()
+        assertEquals(asked, s.keeps.size)
+    }
+
+    @Test
+    fun theServersRecordingShowsAndAnyoneInTheCallCanStopIt() = runTest {
+        val s = Setup(this)
+        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
+        s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1"))
+        s.transport.listener!!.serverRecording("sharon.1")
+        runCurrent()
+        assertEquals("sharon", s.calls.state.value!!.serverRecordingBy)
+        s.calls.setRecording(false)
+        runCurrent()
+        assertEquals(listOf<Pair<String?, Boolean>>("sharon" to false), s.keeps, "Stop works for a recording sharon started")
+        s.transport.listener!!.serverRecording(null)
+        runCurrent()
+        assertEquals(null, s.calls.state.value!!.serverRecordingBy)
+    }
+
+    @Test
+    fun roomMetadataNamesTheRecordingDevice() {
+        assertEquals("sharon.1", RoomMetadata.recorderOf("""{"recording":true,"by":"sharon.1","startedAt":"2026-11-22T16:00:00Z"}"""))
+        assertEquals(null, RoomMetadata.recorderOf("""{"recording":false}"""))
+        assertEquals(null, RoomMetadata.recorderOf(""))
+        assertEquals(null, RoomMetadata.recorderOf("not json"))
     }
 }
