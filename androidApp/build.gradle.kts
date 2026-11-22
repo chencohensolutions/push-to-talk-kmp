@@ -150,3 +150,11 @@ fun releaseKeystore(): Map<String, String>? {
     val props = Properties().apply { found.inputStream().use(::load) }
     return props.stringPropertyNames().associateWith { props.getProperty(it) }
 }
+
+// Release builds go to phones only: the face detector's emulator (x86_64) library, 9.7 MB, stays out of them
+// (Follow my face then just doesn't frame on an x86_64 release install). Debug builds keep it for the emulators.
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.excludes.add("lib/x86_64/libface_detector_v2_jni.so")
+    }
+}

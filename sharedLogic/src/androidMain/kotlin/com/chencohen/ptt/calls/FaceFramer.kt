@@ -111,7 +111,8 @@ class FaceFramer : VideoProcessor {
                 val faces = com.google.android.gms.tasks.Tasks.await(detector.process(InputImage.fromByteArray(nv21, sw, sh, rotation, InputImage.IMAGE_FORMAT_NV21)))
                 val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                 if (face != null) aim(face.boundingBox, sw, sh, rotation)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Also a missing detector library (a release build on an x86_64 emulator): no framing, the call goes on.
                 Log.w(TAG, "face detection", e)
             } finally {
                 busy.set(false)
