@@ -58,6 +58,8 @@ private class FakeCapture : TalkCapture {
 private class FakePlayer : TalkPlayer {
     val played = mutableListOf<List<ByteArray>>()
     val live = mutableListOf<Boolean>()
+    /** How each clip ended: "finish" (played out) or "stop" (cut). */
+    val ends = mutableListOf<String>()
     override fun open(live: Boolean, catchUp: CatchUpMode, onProgress: (Long, Long) -> Unit, onDone: () -> Unit): Playback {
         val clip = mutableListOf<ByteArray>()
         played += clip
@@ -67,8 +69,15 @@ private class FakePlayer : TalkPlayer {
                 clip += packets
             }
 
-            override fun finish() = onDone()
-            override fun stop() = onDone()
+            override fun finish() {
+                ends += "finish"
+                onDone()
+            }
+
+            override fun stop() {
+                ends += "stop"
+                onDone()
+            }
         }
     }
 }
@@ -172,6 +181,31 @@ class TalkTest {
         assertTrue(said.outgoing)
         assertEquals(500L, said.clip?.durationMs)
         assertNotNull(hen.files.read(id))
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun theWholeBurstPlaysFromTheFirstWordToTheLast() = runTest {
+        val (_, hen, dana) = paired()
+        // Spoken at once with the press, before the server gives the floor: kept, and sent once it does.
+        hen.work.launch {
+            hen.talk.press("dana")
+            hen.mic.say(0, 7)
+        }
+        advanceUntilIdle()
+        hen.mic.say(7, 18)
+        advanceUntilIdle()
+        // The last words, then the button comes up at once.
+        hen.work.launch {
+            hen.mic.say(25, 3)
+            hen.talk.release()
+        }
+        advanceUntilIdle()
+        val heard = dana.speaker.played.single()
+        assertEquals(28, heard.size, "every packet from the press to the release plays")
+        heard.forEachIndexed { i, p -> assertContentEquals(packets(0, 28)[i], p) }
+        assertEquals(listOf("finish"), dana.speaker.ends, "the end of a burst plays out, it isn't cut")
         hen.stop()
         dana.stop()
     }

@@ -266,7 +266,7 @@ internal class Messaging(
     )
 
     init {
-        talk.live = live
+        if (LIVE_TALK_AUDIO) talk.live = live
         scope.launchCollect(calls.state) { c -> _state.update { it.copy(call = c) } }
         scope.launchCollect(live.state) { l -> _state.update { it.copy(live = l) } }
         _state.update { it.copy(talkSettings = talkSettings()) }
@@ -1233,3 +1233,13 @@ private fun parseTime(rfc3339: String): Long? = runCatching { kotlin.time.Instan
 private fun <T> CoroutineScope.launchCollect(flow: StateFlow<T>, block: (T) -> Unit) {
     launch { flow.collect { block(it) } }
 }
+
+/**
+ * Talk audio through LiveKit rooms (phase 5b), off since 1.4.0 (2026-11-22, hen: bursts started late and ended early).
+ * In a room a press published a new microphone track, which took a moment to start, so the first words were lost,
+ * and the release took it down at once, so the listener lost the end still on its way; the listener, hearing it
+ * live, didn't play the clip. Now every burst goes by the clip path: the app's own microphone, kept open on the Talk
+ * screens with the last 300 ms before the press, recorded from the press and sent once the floor is granted, and
+ * the listener plays all of it to the end.
+ */
+internal const val LIVE_TALK_AUDIO = false

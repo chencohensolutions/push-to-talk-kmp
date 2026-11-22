@@ -32,6 +32,7 @@ class AndroidTalkCapture(private val speakerphone: SpeakerphoneMic? = null) : Ta
         val done = CountDownLatch(1)
         var levelSamples = 0
         var levelSum = 0.0
+        val pressedAt = android.os.SystemClock.elapsedRealtime()
     }
 
     private class Mic(val record: AudioRecord, val effects: List<AudioEffect>) {
@@ -154,6 +155,8 @@ class AndroidTalkCapture(private val speakerphone: SpeakerphoneMic? = null) : Ta
                 }
                 if (!sink.flushed) {
                     sink.flushed = true
+                    // Press to first sample: with the microphone warm, the ring is from before the press.
+                    Log.i(TAG, "press to first sample ${android.os.SystemClock.elapsedRealtime() - sink.pressedAt} ms, ${m.ring.size * TalkAudioFormat.FRAME_MS} ms from before the press")
                     m.ring.forEach { encode(sink, it, it.size) }
                     m.ring.clear()
                 }
