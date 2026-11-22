@@ -537,6 +537,9 @@
     <string name="talk_default_none">No conversation</string>
     <string name="talk_hold">Hold the button to talk</string>
     <string name="talk_last">Last talk</string>
+    <string name="talk_last_count">Recent talk (%1$d)</string>
+    <string name="talk_last_show">Show recent talk</string>
+    <string name="talk_last_hide">Hide recent talk</string>
     <string name="talk_live">Live</string>
     <string name="talk_mic_denied">Talk needs the microphone. Allow it in the app’s settings.</string>
     <string name="talk_no_mic">The microphone isn’t free</string>

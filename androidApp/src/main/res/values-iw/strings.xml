@@ -540,6 +540,9 @@
     <string name="talk_default_none">אף שיחה</string>
     <string name="talk_hold">להחזיק את הכפתור כדי לדבר</string>
     <string name="talk_last">דיבור אחרון</string>
+    <string name="talk_last_count">דיבור אחרון (%1$d)</string>
+    <string name="talk_last_show">להציג את הדיבור האחרון</string>
+    <string name="talk_last_hide">להסתיר את הדיבור האחרון</string>
     <string name="talk_live">בשידור</string>
     <string name="talk_mic_denied">הדיבור צריך את המיקרופון. אפשר להתיר אותו בהגדרות היישום.</string>
     <string name="talk_no_mic">המיקרופון תפוס</string>

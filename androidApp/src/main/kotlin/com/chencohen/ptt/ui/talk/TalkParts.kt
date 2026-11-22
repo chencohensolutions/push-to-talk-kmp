@@ -279,23 +279,14 @@ internal fun TalkModeScreen(
     val own = talk.own?.takeIf { it.chat == chat }
     val live = own?.phase == TalkPhase.TALKING
     val someone = talk.talkers[chat]?.takeIf { it.user != me }
-    var pulled by remember { mutableFloatStateOf(0f) }
-    val density = LocalDensity.current
+    // A screen, not a sheet (2026-11-22, hen): a back arrow at the start, mirrored in Hebrew, as the system back.
     Column(
-        Modifier.fillMaxSize().background(LibraryColors.Background).statusBarsPadding().navigationBarsPadding()
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragEnd = {
-                        if (pulled > with(density) { 120.dp.toPx() }) close()
-                        pulled = 0f
-                    },
-                ) { _, dy -> pulled = (pulled + dy).coerceAtLeast(0f) }
-            },
+        Modifier.fillMaxSize().background(LibraryColors.Background).statusBarsPadding().navigationBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(48.dp).clickable(role = Role.Button, onClick = close), contentAlignment = Alignment.Center) {
-                Icon(LibraryIcons.ChevronDown, stringResource(R.string.talk_close), tint = LibraryColors.OnBackground)
+                Icon(LibraryIcons.Back, stringResource(R.string.talk_close), tint = LibraryColors.OnBackground)
             }
             Text(title, color = LibraryColors.OnBackground, style = LibraryType.PageTitle)
             HereDot(peerHere)
@@ -333,8 +324,24 @@ internal fun TalkModeScreen(
             actions = { TalkChatActions(openChat, call, pushVideo = pushVideo, setPushVideo = setPushVideo, peerHere = peerHere) },
         )
         val upright = androidx.compose.ui.platform.LocalConfiguration.current.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        // Recent talk folds away, folded unless opened (2026-11-22, hen); the button stays where it is.
+        var recentOpen by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
         if (bursts.isNotEmpty() && upright) {
-            Text(stringResource(R.string.talk_last), color = LibraryColors.Muted, style = LibraryType.SectionLabel, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+            val shown = bursts.takeLast(10)
+            Row(
+                Modifier.fillMaxWidth().clickable(role = Role.Button) { recentOpen = !recentOpen }.padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(R.string.talk_last_count, shown.size), color = LibraryColors.Muted, style = LibraryType.SectionLabel, modifier = Modifier.weight(1f))
+                Icon(
+                    LibraryIcons.ChevronDown,
+                    stringResource(if (recentOpen) R.string.talk_last_hide else R.string.talk_last_show),
+                    tint = LibraryColors.Muted,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = if (recentOpen) 180f else 0f },
+                )
+            }
+        }
+        if (bursts.isNotEmpty() && upright && recentOpen) {
             LazyColumn(
                 Modifier.fillMaxWidth().height(200.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
