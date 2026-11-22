@@ -612,6 +612,10 @@
     <string name="bubble_send">שליחה</string>
     <string name="bubble_talk_hint">להחזיק כדי לענות, לשחרר כדי לשלוח</string>
     <string name="bubble_close">סגירה</string>
+    <string name="overlay_ask_title">להציג את Talk מעל אפליקציות אחרות?</string>
+    <string name="overlay_ask_body">כשהטלפון בשימוש, החלון הצף מראה מי מדבר אליכם עם כפתור "לדבר", ו־Talk יכול להדליק את המסך כשמדברים אליכם. Android מבקש לאשר פעם אחת ש־Talk יוצג מעל אפליקציות אחרות.</string>
+    <string name="overlay_ask_allow">לאשר</string>
+    <string name="overlay_ask_later">לא עכשיו</string>
     <string name="talk_unmute">הפעלת השמע כשמדברים אליי</string>
     <string name="talk_unmute_body">כשמישהו מדבר אליכם ועוצמת המדיה כבויה, היא עולה ל־60% בזמן שהוא מדבר, ואחר כך נכבית שוב. לא במצב נא לא להפריע.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>

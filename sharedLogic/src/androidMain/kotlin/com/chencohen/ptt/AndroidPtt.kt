@@ -142,7 +142,8 @@ private fun hub(context: Context): Messaging {
             (if (hasDecoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC)) com.chencohen.ptt.messaging.ContentCodec.CAPS_H265 else 0)
         it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(
             context,
-            videoCodec = { if (settings.callVideo == com.chencohen.ptt.calls.CallVideo.H265.name && com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder()) "h265" else "vp8" },
+            // H.265 unless VP8 was chosen (the default since 2026-11-22, hen), where the phone has an encoder for it.
+            videoCodec = { if (settings.callVideo != com.chencohen.ptt.calls.CallVideo.VP8.name && com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder()) "h265" else "vp8" },
         ) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
         hub = it
     }

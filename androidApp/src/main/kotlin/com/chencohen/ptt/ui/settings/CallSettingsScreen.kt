@@ -42,7 +42,7 @@ internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change
         val hevc = androidx.compose.runtime.remember { com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder() }
         SectionTitle(stringResource(R.string.calls_video_title))
         SettingsCard {
-            ChoiceRow(stringResource(R.string.calls_video_vp8), stringResource(R.string.calls_video_vp8_body), settings.callVideo == com.chencohen.ptt.calls.CallVideo.VP8) {
+            ChoiceRow(stringResource(R.string.calls_video_vp8), stringResource(R.string.calls_video_vp8_body), settings.callVideo == com.chencohen.ptt.calls.CallVideo.VP8 || !hevc) {
                 change(settings.copy(callVideo = com.chencohen.ptt.calls.CallVideo.VP8))
             }
             if (hevc) {

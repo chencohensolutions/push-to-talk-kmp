@@ -134,13 +134,26 @@ internal class PttSettings(private val store: KeyValueStore) {
 
     /** Settings › Talk › Reply bubble over other apps (off unless turned on). */
     var replyBubble: Boolean
-        get() = store.getString(KEY_REPLY_BUBBLE) == "true"
+        // On unless turned off (2026-11-22, hen: "floating window as default").
+        get() = defaultsV2().let { store.getString(KEY_REPLY_BUBBLE) != "false" }
         set(value) = store.putString(KEY_REPLY_BUBBLE, value.toString())
 
-    /** Settings › Calls › Video: CallVideo's name (VP8 unless chosen). */
+    /** Settings › Calls › Video: CallVideo's name; null (never chosen): H.265 where the phone has an encoder for it. */
     var callVideo: String?
-        get() = store.getString(KEY_CALL_VIDEO)
+        get() = defaultsV2().let { store.getString(KEY_CALL_VIDEO) }
         set(value) = store.putString(KEY_CALL_VIDEO, value)
+
+    /**
+     * Once, for phones from before the floating window and H.265 became the defaults (2026-11-22, hen): every setting
+     * used to be written whenever one changed, so a stored "off" or "VP8" there was most likely never chosen; they
+     * go back to unset. Since then only a setting that changes is written.
+     */
+    private fun defaultsV2() {
+        if (store.getString(KEY_DEFAULTS) == "2") return
+        if (store.getString(KEY_REPLY_BUBBLE) == "false") store.putString(KEY_REPLY_BUBBLE, null)
+        if (store.getString(KEY_CALL_VIDEO) == "VP8") store.putString(KEY_CALL_VIDEO, null)
+        store.putString(KEY_DEFAULTS, "2")
+    }
 
     /** Push-to-video (off unless turned on on a Talk screen), and the reply bubble showing video (on unless off). */
     var pushVideo: Boolean
@@ -182,6 +195,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_KEEPS_CALLS = "server_keeps_calls"
         private const val KEY_OPEN_ON_TALK = "talk_open_on_talk"
         private const val KEY_REPLY_BUBBLE = "talk_reply_bubble"
+        private const val KEY_DEFAULTS = "defaults_version"
         private const val KEY_CALL_VIDEO = "call_video"
         private const val KEY_MY_EMAIL = "my_email"
         private const val KEY_PUSH_VIDEO = "talk_push_video"

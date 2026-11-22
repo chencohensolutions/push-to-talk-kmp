@@ -89,12 +89,12 @@ data class TalkSettings(
      * Settings › Talk › Reply bubble over other apps (off by default): while the phone is in use, a burst shows a bar at
      * the bottom of the screen with the sender and a Talk button, for the burst and the reply window after it.
      */
-    val replyBubble: Boolean = false,
+    val replyBubble: Boolean = true,
     /**
      * Settings › Calls › Video: VP8 (standard) or H.265 (smaller and sharper; 2026-11-22, hen), offered only on a phone
      * with a hardware H.265 encoder. Phones that can't take H.265 get VP8 from the same sender (a backup codec).
      */
-    val callVideo: com.chencohen.ptt.calls.CallVideo = com.chencohen.ptt.calls.CallVideo.VP8,
+    val callVideo: com.chencohen.ptt.calls.CallVideo = com.chencohen.ptt.calls.CallVideo.H265,
     /** Push-to-video (2026-11-22, hen; off by default): a press on a Talk screen sends the camera too. */
     val pushVideo: Boolean = false,
     /** The reply bubble shows a burst's video (on by default; its Video switch turns it off). */
@@ -383,7 +383,7 @@ internal class Messaging(
         quickTalkPage = settings.quickTalkPage,
         openOnTalk = settings.openOnTalk,
         replyBubble = settings.replyBubble,
-        callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.VP8,
+        callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.H265,
         pushVideo = settings.pushVideo,
         bubbleVideo = settings.bubbleVideo,
         unmuteForTalk = settings.unmuteForTalk,
@@ -401,8 +401,10 @@ internal class Messaging(
         settings.quickTalkChats = talk.quickTalk
         settings.quickTalkPage = talk.quickTalkPage
         settings.openOnTalk = talk.openOnTalk
-        settings.replyBubble = talk.replyBubble
-        settings.callVideo = talk.callVideo.name
+        // Written only when changed, so one never chosen keeps following the default.
+        val before = _state.value.talkSettings
+        if (talk.replyBubble != before.replyBubble) settings.replyBubble = talk.replyBubble
+        if (talk.callVideo != before.callVideo) settings.callVideo = talk.callVideo.name
         settings.pushVideo = talk.pushVideo
         settings.bubbleVideo = talk.bubbleVideo
         settings.unmuteForTalk = talk.unmuteForTalk
