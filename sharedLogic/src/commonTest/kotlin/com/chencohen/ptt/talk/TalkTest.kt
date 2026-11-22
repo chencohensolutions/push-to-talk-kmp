@@ -54,10 +54,43 @@ private class FakeCapture : TalkCapture {
     fun say(from: Int, count: Int) = repeat(count) { i -> onPacket!!(byteArrayOf(7, ((from + i) and 0xff).toByte(), ((from + i) shr 8).toByte())) }
 }
 
+/** A camera the test films with: [film] gives encoded frames as if recorded. */
+private class FakeCamera : TalkVideoCapture {
+    var onFrame: ((TalkVideo.Frame) -> Unit)? = null
+    override fun start(onFrame: (TalkVideo.Frame) -> Unit): Boolean {
+        this.onFrame = onFrame
+        return true
+    }
+
+    override fun stop() {
+        onFrame = null
+    }
+
+    /** Frame [i]: [size] bytes, all [i]; a key frame every 15th. */
+    fun film(i: Int, size: Int) = onFrame!!(TalkVideo.Frame(i * 66L, i % 15 == 0, 90, ByteArray(size) { i.toByte() }, TalkVideo.H265))
+}
+
+/** A screen that keeps the pictures it was given. */
+private class FakeVideoOut : TalkVideoOut {
+    val frames = mutableListOf<TalkVideo.Frame>()
+    val begun = mutableListOf<String>()
+    override fun begin(clip: String) {
+        begun += clip
+    }
+
+    override fun frame(clip: String, frame: TalkVideo.Frame) {
+        frames += frame
+    }
+
+    override fun end(clip: String) {}
+}
+
 /** A loudspeaker that keeps what it played. */
 private class FakePlayer : TalkPlayer {
     val played = mutableListOf<List<ByteArray>>()
     val live = mutableListOf<Boolean>()
+    /** How each clip ended: "finish" (played out) or "stop" (cut). */
+    val ends = mutableListOf<String>()
     override fun open(live: Boolean, catchUp: CatchUpMode, onProgress: (Long, Long) -> Unit, onDone: () -> Unit): Playback {
         val clip = mutableListOf<ByteArray>()
         played += clip
@@ -67,8 +100,15 @@ private class FakePlayer : TalkPlayer {
                 clip += packets
             }
 
-            override fun finish() = onDone()
-            override fun stop() = onDone()
+            override fun finish() {
+                ends += "finish"
+                onDone()
+            }
+
+            override fun stop() {
+                ends += "stop"
+                onDone()
+            }
         }
     }
 }
@@ -108,11 +148,15 @@ private class TalkPhone(val server: FakeServer, val user: String, scope: TestSco
     val mic = FakeCapture()
     val speaker = FakePlayer()
     val host = FakeHost(allow = true)
+    val camera = FakeCamera()
+    val screen = FakeVideoOut()
 
     init {
         messaging.talk.capture = mic
         messaging.talk.player = speaker
         messaging.talk.host = host
+        messaging.talk.videoCapture = camera
+        messaging.talk.videoOut = screen
     }
 
     val talk get() = messaging.talk
@@ -172,6 +216,62 @@ class TalkTest {
         assertTrue(said.outgoing)
         assertEquals(500L, said.clip?.durationMs)
         assertNotNull(hen.files.read(id))
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun withVideoTheCameraGoesInTheBurstAndShowsBesideTheVoice() = runTest {
+        val (server, hen, dana) = paired()
+        hen.talk.sendVideo = { true }
+        hen.work.launch { hen.talk.press("dana") }
+        advanceUntilIdle()
+        // A big key frame (more than one segment's worth) and small ones, between the voice's packets.
+        hen.camera.film(0, 20_000)
+        hen.mic.say(0, 10)
+        for (i in 1..14) hen.camera.film(i, 1_500)
+        hen.mic.say(10, 15)
+        advanceUntilIdle()
+        hen.work.launch { hen.talk.release() }
+        advanceUntilIdle()
+
+        assertEquals(25, dana.speaker.played.single().size, "the voice plays whole")
+        dana.speaker.played.single().forEachIndexed { i, p -> assertContentEquals(packets(0, 25)[i], p) }
+        assertEquals(15, dana.screen.frames.size, "every picture comes")
+        assertEquals(20_000, dana.screen.frames[0].data.size)
+        assertTrue(dana.screen.frames[0].key)
+        assertEquals(90, dana.screen.frames[0].rotation)
+        assertEquals(TalkVideo.H265, dana.screen.frames[0].codec)
+        assertEquals((1..14).toList(), dana.screen.frames.drop(1).map { it.data[0].toInt() })
+        val heard = dana.chat("hen").single()
+        assertTrue(heard.clip!!.video)
+        assertEquals(500L, heard.clip?.durationMs, "the length counts the voice only")
+        assertTrue(server.segmentSizes.all { it < 16 * 1024 }, "every segment fits the server")
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun theWholeBurstPlaysFromTheFirstWordToTheLast() = runTest {
+        val (_, hen, dana) = paired()
+        // Spoken at once with the press, before the server gives the floor: kept, and sent once it does.
+        hen.work.launch {
+            hen.talk.press("dana")
+            hen.mic.say(0, 7)
+        }
+        advanceUntilIdle()
+        hen.mic.say(7, 18)
+        advanceUntilIdle()
+        // The last words, then the button comes up at once.
+        hen.work.launch {
+            hen.mic.say(25, 3)
+            hen.talk.release()
+        }
+        advanceUntilIdle()
+        val heard = dana.speaker.played.single()
+        assertEquals(28, heard.size, "every packet from the press to the release plays")
+        heard.forEachIndexed { i, p -> assertContentEquals(packets(0, 28)[i], p) }
+        assertEquals(listOf("finish"), dana.speaker.ends, "the end of a burst plays out, it isn't cut")
         hen.stop()
         dana.stop()
     }

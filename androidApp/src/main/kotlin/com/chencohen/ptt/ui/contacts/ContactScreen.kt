@@ -50,6 +50,8 @@ class ContactActions(
     val setNotifyOnly: (Boolean) -> Unit = {},
     /** Quick talk on or off: a page of the Talk tab (docs/screens/quick-talk.md). */
     val setQuickTalk: (Boolean) -> Unit = {},
+    /** Rename: this user's own name for them (blank: back to theirs). */
+    val rename: (String) -> Unit = {},
 )
 
 /**
@@ -65,7 +67,8 @@ internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActi
         }
         Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Avatar(contact.user, 80.dp)
-            Text(contact.user, color = LibraryColors.OnBackground, style = LibraryType.PageTitle, modifier = Modifier.padding(top = 12.dp))
+            Text(contact.name, color = LibraryColors.OnBackground, style = LibraryType.PageTitle, modifier = Modifier.padding(top = 12.dp))
+            if (contact.name != contact.user) Text(contact.user, color = LibraryColors.Muted, style = LibraryType.Body)
             Text(
                 when {
                     contact.blocked -> stringResource(R.string.contact_blocked, contact.user)
@@ -84,6 +87,30 @@ internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActi
                 action = stringResource(R.string.contact_key_changed_action),
                 onAction = actions.acceptKeyChange,
                 warning = true,
+            )
+        }
+        // Rename (2026-11-22, hen): this user's own name for them, on all of this user's phones.
+        var renaming by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+        SettingsCard {
+            InfoRow(stringResource(R.string.contact_rename), contact.nickname ?: stringResource(R.string.contact_rename_none), onClick = { renaming = true })
+        }
+        if (renaming) {
+            var text by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(contact.nickname ?: contact.displayName ?: "") }
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { renaming = false },
+                title = { Text(stringResource(R.string.contact_rename)) },
+                text = {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = text, onValueChange = { text = it.take(60) }, singleLine = true,
+                        placeholder = { Text(contact.user) },
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = { actions.rename(text); renaming = false }) { Text(stringResource(R.string.contact_rename_save)) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { renaming = false }) { Text(stringResource(R.string.contact_rename_cancel)) }
+                },
             )
         }
         SectionTitle(stringResource(R.string.contact_safety))

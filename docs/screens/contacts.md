@@ -41,3 +41,7 @@ in between. Compare it in person, or scan their code." Then their shared code (a
 
 Both phones show the same digits and code (libsignal's numeric fingerprint, version 2, the user names as the
 identifiers); the code is `ptt://safety?v=1&n=<base64url>`.
+
+- **Name** (Rename; 2026-11-22, hen): on a contact's page, under their picture, a row with this user's own name for
+  them ("Their own name" when none). A tap asks for it; empty goes back to theirs. It shows everywhere in the app
+  (chats, Talk, calls, notifications) and goes to this user's other phones with the contact (ContactSyncContent).

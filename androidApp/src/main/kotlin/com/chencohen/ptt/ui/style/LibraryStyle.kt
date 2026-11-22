@@ -61,10 +61,10 @@ internal class LibraryPalette(
 }
 
 /**
- * Talk's main color, a vibrant pink, the same in light and dark: white text on it reads (4.5:1), and it stands out
+ * Talk's main color, an orange-pink coral (2026-11-22, hen), the same in light and dark: white bold text on it reads (3.8:1), and it stands out
  * from both page colors.
  */
-internal val Pink = Color(0xFFE6007E)
+internal val Pink = Color(0xFFE9504F)
 
 internal val DarkLibraryPalette = LibraryPalette(
     Background = Color(0xFF0F1413),

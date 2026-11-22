@@ -466,6 +466,11 @@ The server's side is its docs/messaging.md, "Calls": `callToken(call, peer | gro
   file. `tools/keptcall` makes the test fixture with Go's own crypto, so the decryption is checked against another
   implementation.
 
+- **H.265 video** (2026-11-22, hen; Settings › Calls › Video): `LiveKitCallTransport` publishes the camera in H.265
+  with VP8 as LiveKit's backup codec when chosen and the phone has a hardware HEVC encoder (`hasHevcEncoder`). The
+  frame cryptor keeps the first slice segment's 2-byte NAL header clear and escapes the rest as for H.264
+  (`LiveKitFrames`); a kept call's H.265 track goes into the file as V_MPEGH/ISO/HEVC with its hvcC.
+
 Not done yet from the plan's 6: R4 (HEVC; calls and saving use H.264 and LiveKit's default codec now); the 720p cap
 set explicitly; the tests on phones (a call ringing a sleeping phone, three on 4G, a saved call played from Share).
 
@@ -476,6 +481,20 @@ to talk): a pager of the contacts and groups marked Quick talk, each with the ho
 `TalkSettings.quickTalk` (an ordered list in `PttSettings`, per phone), the last page `quickTalkPage`; `QuickTalk`
 keeps the order (a new mark goes last), skips chats that can't talk now, and picks the start page. Pressing on a page
 is `Talk.press` in that chat, as in Talk mode.
+
+## Push-to-video (1.4.4)
+
+2026-11-22 (hen): a press can send the camera with the voice (a Talk screen's Video, off by default). It goes in the
+same burst, through the same encrypted clip path (live, woken, from the history), so the server doesn't change: the
+"clip start" says `video`, and every packet is tagged (`TalkVideo`): the Opus packets as before, and the camera's
+frames in pieces of at most 3 KB, a segment cut early so it stays under the server's 16 KB. The camera is the front
+one into a hardware encoder (`AndroidTalkVideoCapture`), 640×480, 15 fps, 350 kbit/s (a minute fits the 4 MB clip),
+frames as captured with their rotation. One format per burst: H.265 only when Settings › Calls › Video is H.265,
+this phone has the encoder and every other phone in the chat said it decodes H.265 (`ContentCodec.caps`, on every
+message, end to end); otherwise VP8, or H.264 (which every phone decodes) where VP8 can't be set up (the S25 has
+only Android's software VP8, which refused the encoder's settings). The listener splits the packets, plays the voice (without catch-up, so the
+pictures keep up) and draws each frame when the voice gets there (`AndroidTalkVideoOut`), on the Talk screen or in
+the reply bubble (its own Video switch, off by default).
 
 ## App updates (1.2.0)
 

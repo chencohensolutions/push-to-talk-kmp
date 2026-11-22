@@ -132,6 +132,9 @@ class HomeActions(
     val shareCall: (String) -> Unit = {},
     /** A call the server kept: play it. */
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
+    /** Push-to-video switched on a Talk screen; the camera warm for a chat (null: none). */
+    val setPushVideo: (Boolean) -> Unit = {},
+    val warmCamera: (String?) -> Unit = {},
     /** A call the server kept: save it as one file in Downloads. */
     val saveKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** The Talk tab: hold to talk in a Quick talk chat, and let go. */
@@ -165,6 +168,9 @@ fun HomeApp(
     /** A conversation a notification opened (MainActivity), until home showed it. */
     openedChat: String? = null,
     onChatTaken: () -> Unit = {},
+    /** A call asked from Android Contacts (the user, video). */
+    openedCall: Pair<String, Boolean>? = null,
+    onCallTaken: () -> Unit = {},
     /** Settings › Talk changed: kept, and Stay connected's service started or stopped (MainActivity). */
     onTalkSettings: (com.chencohen.ptt.messaging.TalkSettings) -> Unit = { messaging.setTalkSettings(it) },
     /** A talk notification's Play: the clip to play once home shows its chat. */
@@ -236,7 +242,7 @@ fun HomeApp(
         val talk = messagingState.talkSettings
         messaging.setTalkSettings(talk.copy(quickTalk = com.chencohen.ptt.talk.QuickTalk.set(talk.quickTalk, chat, on)))
     }
-    val nameOf: (String) -> String = { u -> messagingState.contacts.firstOrNull { it.user == u }?.displayName?.takeIf { it.isNotBlank() } ?: u }
+    val nameOf: (String) -> String = { u -> messagingState.contacts.firstOrNull { it.user == u }?.name ?: u }
     val unnamedGroup = stringResource(R.string.group_unnamed)
     val chatName: (String) -> String = { chat ->
         Group.idOf(chat)?.let { id -> messagingState.groups.firstOrNull { it.id == id }?.name?.ifBlank { unnamedGroup } ?: unnamedGroup } ?: nameOf(chat)
@@ -244,6 +250,11 @@ fun HomeApp(
     // Calls (phase 6): the microphone, and the camera for video, are asked for first.
     val callPermissions = com.chencohen.ptt.ui.calls.rememberCallPermissions { messages.post(resources.getString(R.string.call_mic_denied)) }
     fun call(chat: String, video: Boolean) = callPermissions(video) { v -> messaging.startCall(chat, v) }
+    LaunchedEffect(openedCall) {
+        val (user, video) = openedCall ?: return@LaunchedEffect
+        onCallTaken()
+        call(user, video)
+    }
     CompositionLocalProvider(LocalMessages provides messages) {
         Box(Modifier.fillMaxSize()) {
             val page = stack.lastOrNull()
@@ -276,6 +287,8 @@ fun HomeApp(
                         shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                         playKept = ::playKept,
                         saveKept = ::saveKept,
+                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
+                        warmCamera = messaging::warmCamera,
                         pressTalk = { chat -> pressOrUnlock(chat) },
                         releaseTalk = { messaging.releaseTalk(true) },
                         quickTalkShown = { chat ->
@@ -303,6 +316,7 @@ fun HomeApp(
                         update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
                         automaticUpdates = automaticUpdates,
                         setAutomaticUpdates = { on -> com.chencohen.ptt.AppUpdates.setAutomatic(app, on) },
+                        contacts = messagingState.contacts,
                         presenceVisible = presenceVisible,
                         setPresenceVisible = { visible ->
                             presenceVisible = null
@@ -591,6 +605,12 @@ fun HomeApp(
                         close = ::pop,
                         micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                         warmMicrophone = messaging::warmMicrophone,
+                        // From its chat: back to it; otherwise the chat opens.
+                        openChat = { if (stack.getOrNull(stack.size - 2) == "chat/$chat") pop() else push("chat/$chat") },
+                        call = { video -> call(chat, video) },
+                        pushVideo = messagingState.talkSettings.pushVideo,
+                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
+                        warmCamera = messaging::warmCamera,
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -600,6 +620,7 @@ fun HomeApp(
                         contact = messagingState.contacts.firstOrNull { it.user == user },
                         actions = ContactActions(
                             back = ::pop,
+                            rename = { name -> messaging.renameContact(user, name) },
                             acceptKeyChange = { messaging.acceptKeyChange(user) },
                             openSafetyNumber = { push("safety/$user") },
                             setBlocked = { blocked ->
@@ -642,45 +663,34 @@ fun HomeApp(
                     LaunchedEffect(pageUser) {
                         load = com.chencohen.ptt.ui.calls.loadKeptCall(context, message, messaging::keptCall, messaging::readBlob, nameOf) { progress = it }
                     }
+                    suspend fun saveNow(ready: com.chencohen.ptt.ui.calls.KeptLoad.Ready) {
+                        saving = true
+                        val result = com.chencohen.ptt.ui.calls.saveKeptCall(context, ready.file, chatName(message.user), message.at)
+                        saving = false
+                        when (result) {
+                            is com.chencohen.ptt.ui.calls.KeptSave.Saved -> messages.post(resources.getString(R.string.kept_saved, result.where), resources.getString(R.string.call_share)) {
+                                com.chencohen.ptt.ui.calls.shareKeptCall(context, result.uri)
+                            }
+                            is com.chencohen.ptt.ui.calls.KeptSave.FolderGone -> messages.post(resources.getString(R.string.kept_folder_gone, result.folder), resources.getString(R.string.calls_folder_pick)) {
+                                push("callsettings")
+                            }
+                            com.chencohen.ptt.ui.calls.KeptSave.Failed -> messages.post(resources.getString(R.string.kept_save_failed))
+                        }
+                    }
                     com.chencohen.ptt.ui.calls.KeptCallScreen(
                         title = chatName(message.user),
                         load = load ?: com.chencohen.ptt.ui.calls.KeptLoad.Getting(progress),
                         back = ::pop,
-                        share = { com.chencohen.ptt.ui.calls.shareCall(context, com.chencohen.ptt.ui.calls.keptName(message.id)) },
                         save = {
                             val ready = load as? com.chencohen.ptt.ui.calls.KeptLoad.Ready
-                            if (ready != null && !saving) {
-                                saving = true
-                                keptScope.launch {
-                                    val uri = com.chencohen.ptt.ui.calls.saveKeptCallToDownloads(context, ready.file, chatName(message.user), message.at)
-                                    saving = false
-                                    if (uri != null) {
-                                        messages.post(resources.getString(R.string.kept_saved), resources.getString(R.string.call_share)) {
-                                            com.chencohen.ptt.ui.calls.shareKeptCall(context, uri)
-                                        }
-                                    } else {
-                                        messages.post(resources.getString(R.string.kept_save_failed))
-                                    }
-                                }
-                            }
+                            if (ready != null && !saving) keptScope.launch { saveNow(ready) }
                         },
                         saving = saving,
                     )
                     // From the call log's Save: once it's ready, save it.
                     LaunchedEffect(load) {
-                        if (load is com.chencohen.ptt.ui.calls.KeptLoad.Ready && keptSaveAsked.remove(pageUser)) {
-                            saving = true
-                            val ready = load as com.chencohen.ptt.ui.calls.KeptLoad.Ready
-                            val uri = com.chencohen.ptt.ui.calls.saveKeptCallToDownloads(context, ready.file, chatName(message.user), message.at)
-                            saving = false
-                            if (uri != null) {
-                                messages.post(resources.getString(R.string.kept_saved), resources.getString(R.string.call_share)) {
-                                    com.chencohen.ptt.ui.calls.shareKeptCall(context, uri)
-                                }
-                            } else {
-                                messages.post(resources.getString(R.string.kept_save_failed))
-                            }
-                        }
+                        val ready = load as? com.chencohen.ptt.ui.calls.KeptLoad.Ready
+                        if (ready != null && keptSaveAsked.remove(pageUser)) saveNow(ready)
                     }
                 }
                 name.startsWith("safety/") && pageUser != null -> {
@@ -736,6 +746,7 @@ fun HomeApp(
                         switchCamera = messaging::switchCallCamera,
                         setSaving = messaging::setCallSaving,
                         dismissAsk = messaging::dismissSaveAsk,
+                        setView = messaging::setCallView,
                     ),
                     canSave = current.serverKeeps || messagingState.talkSettings.saveCalls != com.chencohen.ptt.calls.SaveCalls.OFF,
                 )
@@ -757,14 +768,16 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
         if (tab == HomeTab.TALK) {
             val me = state.user.orEmpty()
             val unnamed = stringResource(R.string.group_unnamed)
-            val contactNames = chats.contacts.filter { it.paired && !it.blocked }.associate { c -> c.user to (c.displayName?.takeIf { it.isNotBlank() } ?: c.user) }
+            val contactNames = chats.contacts.filter { it.paired && !it.blocked }.associate { c -> c.user to c.name }
             val groups = chats.groups.filter { !it.gone && it.isReader(me) }.associateBy { it.chat }
             val quick = chats.talkSettings.quickTalk
             val pages = com.chencohen.ptt.talk.QuickTalk.pages(quick, contactNames.keys + groups.keys).map { chat ->
                 groups[chat]?.let { g -> com.chencohen.ptt.ui.talk.QuickTalkPage(chat, g.name.ifBlank { unnamed }, g.picture) }
                     ?: com.chencohen.ptt.ui.talk.QuickTalkPage(chat, contactNames.getValue(chat))
             }
-            Column(Modifier.fillMaxSize().padding(top = insets.calculateTopPadding() + 64.dp, bottom = insets.calculateBottomPadding() + 80.dp)) {
+            // No top bar on Talk (2026-11-22, hen): the profile circle sits small in the corner instead.
+            val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            Column(Modifier.fillMaxSize().padding(top = insets.calculateTopPadding() + 8.dp, bottom = insets.calculateBottomPadding() + if (landscape) 60.dp else 80.dp)) {
             state.update?.let { release -> UpdateCard(release, actions.update) }
             com.chencohen.ptt.ui.talk.QuickTalkHome(
                 pages = pages,
@@ -780,6 +793,10 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 micDenied = actions.micDenied,
                 modifier = Modifier.weight(1f),
                 warmMicrophone = actions.warmMicrophone,
+                call = actions.call,
+                pushVideo = chats.talkSettings.pushVideo,
+                setPushVideo = actions.setPushVideo,
+                warmCamera = actions.warmCamera,
             )
             }
         } else Column(
@@ -873,7 +890,17 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 }
             }
         }
-        TopBar(state, tab, actions.openSettings, Modifier.align(Alignment.TopCenter))
+        if (tab == HomeTab.TALK) {
+            Row(Modifier.align(Alignment.TopStart).statusBarRoom().padding(start = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProfileCircle(state.user, actions.openSettings)
+                if (state.health == ServerHealth.OFFLINE) {
+                    Spacer(Modifier.width(8.dp))
+                    OfflinePill()
+                }
+            }
+        } else {
+            TopBar(state, tab, actions.openSettings, Modifier.align(Alignment.TopCenter))
+        }
         if (tab == HomeTab.CHATS) {
             NewChatButton(actions.newChat, Modifier.align(Alignment.BottomEnd).navigationBarRoom().padding(end = 20.dp, bottom = 84.dp))
         }
@@ -885,7 +912,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
             ),
             selected = tab,
             onSelect = selectTab,
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarRoom().padding(bottom = 16.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarRoom().padding(bottom = if (androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) 4.dp else 16.dp),
         )
     }
 }

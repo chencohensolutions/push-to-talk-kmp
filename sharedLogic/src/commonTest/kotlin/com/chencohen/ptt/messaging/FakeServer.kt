@@ -416,7 +416,11 @@ internal class FakeServer {
         }
     }
 
+    /** Each segment's ciphertext size, as the server would check it (16 KB). */
+    val segmentSizes = mutableListOf<Int>()
+
     private fun clipSegment(from: DeviceAddress, segment: ClipSegment) {
+        segmentSizes += segment.ciphertext.size
         val (pair, floor) = floors.entries.firstOrNull { it.value.id == segment.burstId && it.value.talker == from }?.toPair() ?: return
         clips.getValue(segment.burstId) += com.chencohen.ptt.talk.ClipRecords.record(segment.index, segment.last, segment.ciphertext)
         if (!dropForwarded) for (d in devicesOf(floor.peer) + devicesOf(from.user).filter { it != from }) frame(d, ClipSegmentFrame(segment))

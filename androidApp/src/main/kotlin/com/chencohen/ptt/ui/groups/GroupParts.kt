@@ -99,7 +99,7 @@ internal fun PickRow(contact: Contact, picked: Boolean, onToggle: () -> Unit) {
     ) {
         Avatar(contact.user, 40.dp)
         Spacer(Modifier.width(14.dp))
-        val title = contact.displayName?.takeIf { it.isNotBlank() }?.let { "$it · ${contact.user}" } ?: contact.user
+        val title = contact.name.takeIf { it != contact.user }?.let { "$it · ${contact.user}" } ?: contact.user
         Text(title, color = LibraryColors.OnBackground, style = LibraryType.RowTitle, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Checkbox(checked = picked, onCheckedChange = { onToggle() })
     }

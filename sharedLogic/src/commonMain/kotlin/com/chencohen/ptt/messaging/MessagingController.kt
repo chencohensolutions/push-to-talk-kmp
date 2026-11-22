@@ -66,6 +66,11 @@ class MessagingController internal constructor(
         scope.launch { withContext(work) { messaging.decline(user) } }
     }
 
+    /** Rename: this user's own name for [user] (blank: back to theirs). */
+    fun renameContact(user: String, name: String) {
+        scope.launch { withContext(work) { messaging.rename(user, name) } }
+    }
+
     fun unpair(user: String, done: (ContactResult) -> Unit) = act(done) { messaging.unpair(user) }
 
     fun setBlocked(user: String, blocked: Boolean, done: (ContactResult) -> Unit) = act(done) { messaging.setBlocked(user, blocked) }
@@ -108,7 +113,7 @@ class MessagingController internal constructor(
             withContext(work) {
                 messaging.openChat = user
                 // Its talk room is joined while it is on screen (phase 5b).
-                messaging.live.show(user)
+                if (LIVE_TALK_AUDIO) messaging.live.show(user)
                 if (user != null) messaging.markRead(user)
             }
         }
@@ -221,6 +226,9 @@ class MessagingController internal constructor(
 
     fun setCallCamera(on: Boolean) = onWork { messaging.calls.setCamera(on) }
 
+    /** The call screen shows [user]'s video cropped ([fill]) or whole, in a tile [aspect] wide for 1 high. */
+    fun setCallView(user: String, fill: Boolean, aspect: Float) = onWork { messaging.calls.setView(user, fill, aspect) }
+
     /** A kept call's tracks (callRecording); only the server is asked, so it runs off Messaging's own thread. */
     suspend fun keptCall(message: TextMessage): KeptCall = messaging.keptCall(message)
 
@@ -240,6 +248,26 @@ class MessagingController internal constructor(
 
     /** A Talk screen shown ([on]) or left: the microphone open ahead of a press, or closed. */
     fun warmMicrophone(on: Boolean) = onWork { messaging.talk.warmMicrophone(on) }
+
+    /**
+     * The Talk screen of [chat] shows (null: it left): with push-to-video on, the camera opens ahead of a press (in
+     * that chat's format), else it closes.
+     */
+    fun warmCamera(chat: String?) = onWork {
+        val talk = messaging.talk
+        val camera = talk.videoCapture ?: return@onWork
+        if (chat != null && talk.sendVideo()) {
+            if (talk.videoChat != chat) camera.cool()
+            talk.videoChat = chat
+            camera.warm()
+        } else {
+            talk.videoChat = null
+            camera.cool()
+        }
+    }
+
+    /** Push-to-video's codec for [chat] (H.265 only when chosen and every phone there plays it). */
+    fun videoH265For(chat: String?): Boolean = messaging.videoH265For(chat)
 
     /** The Talk button, or the composer's microphone, came up; [send] false cancels a voice message. */
     fun releaseTalk(send: Boolean) = onWork { messaging.talk.release(send) }

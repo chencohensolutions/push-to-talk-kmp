@@ -323,7 +323,7 @@ class TalkReadyService : Service() {
         const val ACTION_TALK_BACK = "com.chencohen.ptt.TALK_READY_TALK_BACK"
         const val ACTION_WIDGET = "com.chencohen.ptt.TALK_READY_WIDGET"
         const val ACTION_CANCEL_TALK = "com.chencohen.ptt.TALK_READY_CANCEL_TALK"
-        private const val ACTION_SEND = "com.chencohen.ptt.TALK_READY_SEND"
+        const val ACTION_SEND = "com.chencohen.ptt.TALK_READY_SEND"
         private const val ACTION_CANCEL = "com.chencohen.ptt.TALK_READY_CANCEL"
         const val EXTRA_CHAT = "chat"
 

@@ -136,6 +136,9 @@ private class TrackPlayback(
         // The track starts once START_SAMPLES are in it; a shorter clip is made that long with silence.
         frame.fill(0)
         while (samplesToTrack in 1 until START_SAMPLES) writeToTrack(frame, frame.size)
+        // Then a little silence: the head counts what the mixer took, and the speaker is still behind it, so the last
+        // word would be cut by releasing the track the moment the head gets there.
+        repeat(TAIL_FRAMES) { writeToTrack(frame, frame.size) }
         var lastHead = -1L
         var stalledSinceNs = System.nanoTime()
         while (!stopped) {
@@ -254,6 +257,9 @@ private class TrackPlayback(
         const val PRE_SKIP = 312
         const val TRACK_BUFFER_MS = 100
         const val START_SAMPLES = TalkAudioFormat.SAMPLES_PER_FRAME * 2
+
+        /** Silence after the last frame, 200 ms: the speaker's own delay after the mixer. */
+        const val TAIL_FRAMES = 10
         const val FRAME_POLL_MS = 10L
         const val PROGRESS_NS = 100_000_000L
         const val STALL_NS = 1_000_000_000L

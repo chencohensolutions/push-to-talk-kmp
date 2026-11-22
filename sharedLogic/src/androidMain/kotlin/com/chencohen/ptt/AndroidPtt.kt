@@ -83,6 +83,16 @@ private var secureStore: SqlCipherStore? = null
 /** The one hub of the process: the screens' controllers and the push service share it. */
 private var hub: Messaging? = null
 
+/** Push-to-video's camera, for the Talk screen's preview. */
+var talkVideoCapture: com.chencohen.ptt.talk.AndroidTalkVideoCapture? = null
+    private set
+
+private fun hasDecoder(mime: String): Boolean = runCatching {
+    android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+        !info.isEncoder && info.supportedTypes.any { it.equals(mime, ignoreCase = true) }
+    }
+}.getOrDefault(false)
+
 /** What a revoked device does: the screens' connection checks again, so home shows Register again. */
 @Volatile
 private var onRevokedNow: () -> Unit = {}
@@ -122,7 +132,17 @@ private fun hub(context: Context): Messaging {
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
-        it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
+        // Push-to-video: this phone's camera, and where bursts' video shows; and what it can play, said to the others.
+        it.talk.videoCapture = com.chencohen.ptt.talk.AndroidTalkVideoCapture(context) {
+            com.chencohen.ptt.talk.AndroidTalkVideoCapture.hasEncoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC) && it.videoH265For(it.talk.videoChat)
+        }.also { capture -> talkVideoCapture = capture }
+        it.talk.videoOut = com.chencohen.ptt.talk.AndroidTalkVideoOut
+        com.chencohen.ptt.messaging.ContentCodec.myCaps = com.chencohen.ptt.messaging.ContentCodec.CAPS_SAID or
+            (if (hasDecoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC)) com.chencohen.ptt.messaging.ContentCodec.CAPS_H265 else 0)
+        it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(
+            context,
+            videoCodec = { if (settings.callVideo == com.chencohen.ptt.calls.CallVideo.H265.name && com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder()) "h265" else "vp8" },
+        ) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
         hub = it
     }
 }
@@ -243,6 +263,9 @@ suspend fun stopTalkPlayback(context: Context) {
 }
 
 /** Messaging's state, for the background talk notifications. */
+/** Changes Talk's settings from outside the screens (the reply bubble's Video). */
+fun setTalkSettings(context: Context, talk: com.chencohen.ptt.messaging.TalkSettings) = hub(context).setTalkSettings(talk)
+
 fun messagingState(context: Context): kotlinx.coroutines.flow.StateFlow<com.chencohen.ptt.messaging.MessagingState> = hub(context).state
 
 /** A talk notification's Play: the burst from the chat's history. */
@@ -256,7 +279,7 @@ suspend fun chatName(context: Context, chat: String): String {
     val messaging = hub(context)
     return withContext(messagingWork) {
         com.chencohen.ptt.messaging.Group.idOf(chat)?.let { id -> messaging.store.group(id)?.name?.takeIf { it.isNotBlank() } }
-            ?: messaging.store.contact(chat)?.let { it.displayName ?: it.user } ?: chat
+            ?: messaging.store.contact(chat)?.name ?: chat
     }
 }
 
@@ -323,7 +346,7 @@ suspend fun talkWidgetChoices(context: Context): List<Pair<String, String>> {
     val me = settings(context).device?.user.orEmpty()
     return withContext(messagingWork) {
         val contacts = messaging.store.contacts().filter { it.paired && !it.blocked }
-            .map { it.user to (it.displayName?.takeIf { n -> n.isNotBlank() } ?: it.user) }
+            .map { it.user to it.name }
         val groups = messaging.store.groups().filter { !it.gone && it.isReader(me) }.map { it.chat to it.name.ifBlank { it.chat } }
         com.chencohen.ptt.talk.TalkWidgetChoices.order(contacts + groups, messaging.talkSettings().quickTalk)
     }

@@ -81,13 +81,13 @@ internal fun clipLength(ms: Long): String {
  * teal ring while live, a faded ring and a muted circle while someone else talks.
  */
 @Composable
-internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Unit, release: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Unit, release: () -> Unit, modifier: Modifier = Modifier, diameter: Dp = 220.dp) {
     val label = stringResource(R.string.talk_button)
     val level = rememberVoiceLevel(live || someoneTalking)
     val glow = if (live) LibraryColors.Accent else LibraryColors.Inverse
     Box(
         modifier
-            .size(220.dp)
+            .size(diameter)
             // Grows (up to 1.25) and glows with the voice: the one playing, or the microphone's while talking.
             .graphicsLayer {
                 val scale = 1f + 0.25f * level.value
@@ -114,10 +114,8 @@ internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Uni
             .holdToTalk(onPress = { press() }, onRelease = { release() }),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(56.dp))
-            Text(label, color = LibraryColors.OnInverse, style = LibraryType.RowTitle)
-        }
+        // The icon only (2026-11-22, hen); the label is for TalkBack.
+        Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp))
     }
 }
 
@@ -237,7 +235,8 @@ internal fun talkLine(chat: String, talk: TalkUiState, nameOf: (String) -> Strin
         }
         talker != null && talker.user == me -> stringResource(R.string.talk_other_phone)
         talker != null -> stringResource(R.string.talk_someone, nameOf(talker.user))
-        else -> stringResource(R.string.talk_hold)
+        // Nothing to say while nobody talks (2026-11-22, hen: no "Hold the button" text).
+        else -> ""
     }
 }
 
@@ -262,8 +261,16 @@ internal fun TalkModeScreen(
     micDenied: () -> Unit,
     /** The microphone kept open while this screen shows (MessagingController.warmMicrophone). */
     warmMicrophone: (Boolean) -> Unit = {},
+    /** The chat, and calling there. */
+    openChat: () -> Unit = {},
+    call: (video: Boolean) -> Unit = {},
+    /** Push-to-video: on (a press sends the camera too), switched here; the camera kept warm for this chat. */
+    pushVideo: Boolean = false,
+    setPushVideo: (Boolean) -> Unit = {},
+    warmCamera: (String?) -> Unit = {},
 ) {
     WarmMicrophone(warmMicrophone)
+    WarmCamera(chat, pushVideo, warmCamera)
     val microphone = rememberMicrophone(micDenied)
     val own = talk.own?.takeIf { it.chat == chat }
     val live = own?.phase == TalkPhase.TALKING
@@ -288,14 +295,6 @@ internal fun TalkModeScreen(
             }
             Text(title, color = LibraryColors.OnBackground, style = LibraryType.PageTitle, modifier = Modifier.weight(1f))
         }
-        Spacer(Modifier.height(24.dp))
-        Text(
-            talkLine(chat, talk, nameOf, me),
-            color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
-            style = LibraryType.RowTitle,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
         val playing = talk.playing?.takeIf { it.chat == chat && it.live }
         if (playing != null && isDebugBuild()) {
             Text(stringResource(R.string.talk_debug_behind, playing.behindMs), color = LibraryColors.Muted, style = LibraryType.Tiny)
@@ -307,10 +306,28 @@ internal fun TalkModeScreen(
                 color = LibraryColors.Muted, style = LibraryType.Tiny,
             )
         }
-        Spacer(Modifier.weight(1f))
-        TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release)
-        Spacer(Modifier.weight(1f))
-        if (bursts.isNotEmpty()) {
+        // Centred above the button: someone's video burst, or this phone's camera while Video is on.
+        val video = talk.playing?.takeIf { it.chat == chat && it.video } != null
+        TalkStage(
+            video, pushVideo,
+            header = {
+            val line = talkLine(chat, talk, nameOf, me)
+            if (line.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    line,
+                    color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
+                    style = LibraryType.RowTitle,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                )
+            }
+            },
+            circle = { size -> TalkCircle(live = live, someoneTalking = someone != null, press = { microphone(press) }, release = release, diameter = size) },
+            actions = { TalkChatActions(openChat, call, pushVideo = pushVideo, setPushVideo = setPushVideo) },
+        )
+        val upright = androidx.compose.ui.platform.LocalConfiguration.current.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        if (bursts.isNotEmpty() && upright) {
             Text(stringResource(R.string.talk_last), color = LibraryColors.Muted, style = LibraryType.SectionLabel, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp))
             LazyColumn(
                 Modifier.fillMaxWidth().height(200.dp),
@@ -493,5 +510,35 @@ internal fun SwitchRow(title: String, body: String?, on: Boolean, onChange: (Boo
             if (body != null) Text(body, color = LibraryColors.Muted, style = LibraryType.Caption)
         }
         androidx.compose.material3.Switch(checked = on, onCheckedChange = onChange, modifier = Modifier.padding(start = 12.dp))
+    }
+}
+
+/**
+ * Under a Talk screen's button (2026-11-22, hen): push-to-video's Video switch, the chat, a voice call, a video call.
+ */
+@Composable
+internal fun TalkChatActions(
+    openChat: () -> Unit,
+    call: (video: Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    pushVideo: Boolean = false,
+    setPushVideo: (Boolean) -> Unit = {},
+) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        PushVideoSwitch(pushVideo, setPushVideo)
+        TalkChatAction(LibraryIcons.Chat, stringResource(R.string.talk_action_chat), openChat)
+        TalkChatAction(LibraryIcons.Call, stringResource(R.string.call_voice)) { call(false) }
+        TalkChatAction(LibraryIcons.Video, stringResource(R.string.call_video)) { call(true) }
+    }
+}
+
+@Composable
+private fun TalkChatAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(52.dp).background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
+                .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(24.dp)) }
     }
 }

@@ -35,6 +35,8 @@ import okhttp3.OkHttpClient
  */
 class LiveKitCallTransport(
     context: Context,
+    /** "vp8" or "h265" (Settings › Calls › Video); with H.265, VP8 goes too for phones that can't decode it. */
+    private val videoCodec: () -> String = { "vp8" },
     private val okHttp: () -> OkHttpClient,
 ) : CallTransport {
     private val appContext = context.applicationContext
@@ -68,7 +70,23 @@ class LiveKitCallTransport(
         provider.setSharedKey(Base64.encodeToString(key, Base64.NO_WRAP), 0)
         val room = LiveKit.create(
             appContext,
-            RoomOptions(e2eeOptions = E2EEOptions(keyProvider = provider)),
+            RoomOptions(
+                e2eeOptions = E2EEOptions(keyProvider = provider),
+                // The camera's own 4:3 picture, uncropped (2026-11-22, hen): the phone that shows it fits or fills.
+                videoTrackCaptureDefaults = io.livekit.android.room.track.LocalVideoTrackOptions(
+                    captureParams = io.livekit.android.room.track.VideoPreset43.H720.capture,
+                ),
+                videoTrackPublishDefaults = videoCodec().let { codec ->
+                    if (codec == "h265") {
+                        io.livekit.android.room.participant.VideoTrackPublishDefaults(
+                            videoCodec = "h265",
+                            backupCodec = io.livekit.android.room.participant.BackupVideoCodec(codec = "vp8"),
+                        )
+                    } else {
+                        io.livekit.android.room.participant.VideoTrackPublishDefaults()
+                    }
+                },
+            ),
             LiveKitOverrides(okHttpClient = okHttp(), eglBase = egl),
         )
         events = scope.launch { room.events.events.collect { onEvent(room, it) } }
@@ -76,7 +94,10 @@ class LiveKitCallTransport(
             room.connect(url, token)
             _room.value = room
             room.localParticipant.setMicrophoneEnabled(true)
-            if (video) room.localParticipant.setCameraEnabled(true)
+            if (video) {
+                room.localParticipant.setCameraEnabled(true)
+                watchCamera(room)
+            }
             front = true
             others(room)
             metadata(room)
@@ -95,6 +116,7 @@ class LiveKitCallTransport(
 
     override fun leave() {
         stopRecording()
+        watched = null
         events?.cancel()
         events = null
         _room.value?.let { r ->
@@ -110,7 +132,31 @@ class LiveKitCallTransport(
 
     override suspend fun setCamera(on: Boolean) {
         _room.value?.localParticipant?.setCameraEnabled(on)
+        if (on) _room.value?.let { watchCamera(it) }
         _changes.update { it + 1 }
+    }
+
+    /**
+     * The camera's frames go out as captured with their rotation alongside (the picture isn't turned; hen, 19:42): each
+     * change of rotation or size is told (cameraFormat), for this phone's preview and the kept call's log.
+     */
+    private var watched: LocalVideoTrack? = null
+    private val cameraSink = object : livekit.org.webrtc.VideoSink {
+        private var last = Triple(-1, -1, -1)
+        override fun onFrame(frame: livekit.org.webrtc.VideoFrame) {
+            val now = Triple(frame.rotation, frame.buffer.width, frame.buffer.height)
+            if (now == last) return
+            last = now
+            listener?.cameraFormat(now.first, now.second, now.third)
+        }
+    }
+
+    private fun watchCamera(room: Room) {
+        val track = room.localParticipant.getTrackPublication(Track.Source.CAMERA)?.track as? LocalVideoTrack ?: return
+        if (watched === track) return
+        watched?.let { runCatching { it.removeRenderer(cameraSink) } }
+        watched = track
+        track.addRenderer(cameraSink)
     }
 
     override fun switchCamera() {
@@ -216,7 +262,14 @@ class LiveKitCallTransport(
         listener?.serverRecording(RoomMetadata.recorderOf(room.metadata))
     }
 
-    private companion object {
+    companion object {
+        /** A hardware H.265 encoder: only then is H.265 offered (software would heat the phone and drop frames). */
+        fun hasHevcEncoder(): Boolean = runCatching {
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+                info.isEncoder && info.isHardwareAccelerated && info.supportedTypes.any { it.equals("video/hevc", ignoreCase = true) }
+            }
+        }.getOrDefault(false)
+
         const val TAG = "LiveKitCall"
     }
 }

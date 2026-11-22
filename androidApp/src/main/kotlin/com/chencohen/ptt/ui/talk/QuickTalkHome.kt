@@ -65,6 +65,12 @@ internal fun QuickTalkHome(
     modifier: Modifier = Modifier,
     /** The microphone kept open while the Talk tab shows a page (MessagingController.warmMicrophone). */
     warmMicrophone: (Boolean) -> Unit = {},
+    /** A voice or video call in a page's chat. */
+    call: (chat: String, video: Boolean) -> Unit = { _, _ -> },
+    /** Push-to-video: on, switched here; the camera kept warm for the page shown. */
+    pushVideo: Boolean = false,
+    setPushVideo: (Boolean) -> Unit = {},
+    warmCamera: (String?) -> Unit = {},
 ) {
     if (pages.isEmpty()) {
         Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
@@ -93,40 +99,59 @@ internal fun QuickTalkHome(
             val live = own?.phase == TalkPhase.TALKING
             val someone = talk.talkers[page.chat]?.takeIf { it.user != me }
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(
-                    Modifier
-                        .padding(top = 8.dp, start = 24.dp, end = 24.dp)
-                        .clickable(role = Role.Button) { openChat(page.chat) }
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (Group.idOf(page.chat) != null) GroupAvatar(page.name, page.groupPicture, 48.dp) else Avatar(page.chat, 48.dp)
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        page.name,
-                        color = LibraryColors.OnBackground,
-                        style = LibraryType.PageTitle,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.semantics { heading() },
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    talkLine(page.chat, talk, nameOf, me),
-                    color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
-                    style = LibraryType.RowTitle,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 24.dp),
+                // The page on screen keeps the camera warm for its chat.
+                if (pager.currentPage == i) WarmCamera(page.chat, pushVideo, warmCamera)
+                // Centred above the button: someone's video burst, or this phone's camera while Video is on.
+                val video = talk.playing?.takeIf { it.chat == page.chat && it.video } != null
+                TalkStage(
+                    video, pushVideo && pager.currentPage == i,
+                    header = {
+                    Row(
+                        Modifier
+                            .padding(top = 8.dp, start = 24.dp, end = 24.dp)
+                            .clickable(role = Role.Button) { openChat(page.chat) }
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (Group.idOf(page.chat) != null) GroupAvatar(page.name, page.groupPicture, 48.dp) else Avatar(page.chat, 48.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            page.name,
+                            color = LibraryColors.OnBackground,
+                            style = LibraryType.PageTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.semantics { heading() },
+                        )
+                    }
+                    // Only while someone talks (no hint text otherwise).
+                    val line = talkLine(page.chat, talk, nameOf, me)
+                    if (line.isNotEmpty()) {
+                        Text(
+                            line,
+                            color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
+                            style = LibraryType.RowTitle,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp),
+                        )
+                    }
+                    },
+                    circle = { size ->
+                        TalkCircle(
+                            live = live,
+                            someoneTalking = someone != null,
+                            press = { microphone { press(page.chat) } },
+                            release = release,
+                            diameter = size,
+                        )
+                    },
+                    actions = {
+                        TalkChatActions(
+                            openChat = { openChat(page.chat) }, call = { v -> call(page.chat, v) },
+                            pushVideo = pushVideo, setPushVideo = setPushVideo,
+                        )
+                    },
                 )
-                Spacer(Modifier.weight(1f))
-                TalkCircle(
-                    live = live,
-                    someoneTalking = someone != null,
-                    press = { microphone { press(page.chat) } },
-                    release = release,
-                )
-                Spacer(Modifier.weight(1f))
             }
         }
         if (pages.size > 1) PageDots(pages.size, pager.currentPage, Modifier.align(Alignment.CenterHorizontally).padding(bottom = 12.dp))

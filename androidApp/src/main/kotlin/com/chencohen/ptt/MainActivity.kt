@@ -36,6 +36,9 @@ class MainActivity : ComponentActivity() {
     /** A conversation to open: a notification was tapped. */
     private var openedChat by mutableStateOf<String?>(null)
 
+    /** A call asked from Android Contacts: the user, and video. */
+    private var openedCall by mutableStateOf<Pair<String, Boolean>?>(null)
+
     /** A talk notification's Play: the clip to play. */
     private var openedClip by mutableStateOf<String?>(null)
 
@@ -114,6 +117,8 @@ class MainActivity : ComponentActivity() {
                         onInviteTaken = { openedInvite = null },
                         openedChat = openedChat,
                         onChatTaken = { openedChat = null },
+                        openedCall = openedCall,
+                        onCallTaken = { openedCall = null },
                         onTalkSettings = { new ->
                             viewModel.messaging.setTalkSettings(new)
                             StayConnectedService.set(this@MainActivity, new.stayConnected)
@@ -130,6 +135,8 @@ class MainActivity : ComponentActivity() {
     // background is a setting in phase 5 (FCM wakes the phone in phase 3).
     override fun onStart() {
         super.onStart()
+        // On screen: the reply bubble isn't needed.
+        TalkBubble.dismiss()
         // A newer release of the app, as the server read it from GitHub (docs/design.md, "App updates").
         AppUpdates.checkIfDue(application as TalkApp)
         if (viewModel.connection.currentState.enrolled) {
@@ -244,6 +251,14 @@ class MainActivity : ComponentActivity() {
         }
         if (intent?.action == AppUpdates.ACTION_UPDATE) {
             AppUpdates.updateFromNotification(application as TalkApp)
+            return
+        }
+        // A Talk contact's Message, Voice call or Video call in Android Contacts.
+        AndroidContacts.opened(this, intent)?.let { (user, kind) ->
+            when (kind) {
+                AndroidContacts.MESSAGE -> openedChat = user
+                else -> openedCall = user to (kind == AndroidContacts.VIDEO)
+            }
             return
         }
         if (intent?.action == Notifications.ACTION_OPEN) {

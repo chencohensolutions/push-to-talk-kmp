@@ -33,9 +33,18 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   and what waits) and **Mute <name> 1 h** (their bursts show the talk notification instead of playing, for an hour).
   A tap opens that conversation's Talk screen. When it ends, for a minute: "Talked just now" with **Talk back** and
   **Play again**.
-- **Talk back** (a tap, needs the phone unlocked): starts talking to that conversation at once (the microphone opens
-  from the notification tap; the floor as usual). The notification becomes "Talking to Dana 0:03", "Sent by itself after
-  a minute", with **Send** and **Cancel**; Send ends the burst; at 60 s it is sent. Without the microphone allowed, the
-  Talk screen opens instead.
+- **Talk back** (2026-11-22, hen: the Talk screen, not a voice message): opens that conversation's Talk screen, the
+  big hold-to-talk button with the microphone already open; over the lock screen Android asks to unlock first.
+- **Reply bubble** (Settings › Talk › Reply bubble over other apps, off by default; needs Android's "Display over
+  other apps", asked for when it's turned on): while the phone is in use and unlocked and the app isn't on screen, a
+  woken burst also shows a bar at the bottom of the screen, full width with a margin, above the navigation bar. It
+  slides up from the bottom edge: ✕ in its corner, the sender (and the group) and "Talking now" centred, and under
+  them a big round pink **Talk** button in the middle. Hold it to talk back and let go to send, or tap to start and
+  tap **Send**; "Talking 0:03 · let go or tap to send" while it records (Talk is ready's service records, as the
+  widget does). After the burst it says "Hold Talk to reply", "Sent" after sending. It stays until a touch outside it
+  (not while talking), ✕, or opening the app, and slides down off the screen (2026-11-22, hen 19:05). Without the
+  permission there is only the heads-up.
+- **Video in the reply bubble** (off by default): while a burst has video, a "Video off" / "Video on" switch shows on
+  the bar; on, the picture plays above the sender's name, in step with the voice.
 - **Reply window:** for 30 s after a woken burst, a headset's or Bluetooth talk button (held) talks back to its sender
   instead of Buttons talk in; while Talk is ready runs, those buttons work with the screen off.

@@ -34,6 +34,16 @@ says "Calls need the microphone. Allow it in the app's settings."
   the call while the server keeps it, also for a recording someone else started (`stopRecordingCall`). The server
   also stops by itself when the recording phone leaves the call, when the room empties, or after 4 hours, so hanging
   up sends nothing. A server that doesn't keep calls (or an older one) is ignored: the phone's own saving goes on.
+- **Video as the camera sends it** (2026-11-22, hen): each phone sends its camera's own 4:3 picture, uncropped. The
+  phone showing it fills the screen with it (cropped, the default) or fits it whole: the **Fit** / **Fill** pill at the
+  top right, or a double tap on the video, switches, and it is kept for next time.
+- **Your crop, on your preview** (2026-11-22, hen): each phone tells the others how it shows their video (VIEW in the
+  call's messages: Fill or Fit, and its tile's shape). Your own preview is your whole picture, in its own shape, with
+  a thin outline of the part each Fill viewer sees (their name on it when there are several); nothing for Fit.
+- **Orientation** (2026-11-22, hen): the pill beside it cycles **Auto rotate** (the phone's sensor, even with
+  Android's auto-rotate off), **Portrait** and **Landscape**, kept for next time; back to the app's own when the call
+  screen goes. In landscape the others' videos sit side by side and this phone's own picture is wide; the camera's
+  picture is sent upright either way.
 - **Ended**: for two seconds, "Call ended", "Busy", "Declined", "No answer", "Couldn't connect" or "Answered on another
   phone", then the screen goes.
 
@@ -48,14 +58,25 @@ room's metadata said the server keeps it; the server never has it.
   asks `callRecording` for the tracks it may read, downloads each one (`GET /blob/<id>`), decrypts the frames with the
   call's key (LiveKit's frame encryption, `LiveKitFrames`), and writes one Matroska file without re-encoding
   (`KeptCallFile`, `Matroska`): a video and an audio track per person, named after them, lined up by when each keeping
-  began. It stays in the app's `files/calls/` as `kept-<call>.mkv`, and is opened from there next time once the server
-  had finished keeping it.
-- **The player**: everyone's picture in a grid (one or two people one above the other, more two by two), each with
+  began. It is only in the app's cache while the player is open, and goes when it closes (2026-11-22, hen: saved
+  calls live in the folder chosen, not in the app); the decrypted pieces go as soon as the file is made.
+- **Audio as RED:** the phones send call audio as RED (Opus with a copy of the frame before), encrypted whole, so the
+  server keeps it whole (`audio/red`) and the phone takes each packet's primary Opus frame after decrypting it.
+- **Rotation and crops in a kept call** (2026-11-22, hen): the picture goes as the camera captures it, with its
+  rotation alongside, so while the server keeps a call each phone logs its camera's rotation and size, and how it
+  shows each video (Fill or Fit, the tile's shape), sealed with the call's key (`logCallEvent`, `CallEvent`): once
+  when keeping begins, then on every change. The file starts each video turned by its sender's first rotation
+  (Matroska's ProjectionPoseRoll, which ffmpeg, VLC and the app's player honour), and has the logs as a text track,
+  "Call events", one JSON line per event.
+- **The player**: turns each picture by its sender's rotation as it changes; **As seen** / **Whole** (when the call
+  has views logged) shows each picture cropped as the others saw it, or whole. Everyone's picture in a grid (one or two people one above the other, more two by two), each with
   their name, and an avatar for someone without video; every voice plays. One set of controls: play or pause, a slider
   to move through it, and the time.
 - **Save as file** (in the player's top bar, or on the call's row, which opens the player and saves once it's ready):
-  copies the file into the phone's Downloads, `Download/Talk/<chat> <date>.mkv`, then "Saved in Downloads › Talk"
-  with **Share**. **Share** in the top bar shares the app's own copy.
+  writes `<chat> <date>.mkv` into the folder chosen in Settings › Calls › Save calls to (any folder Android's picker
+  offers: the phone, an SD card, a USB drive), or into Downloads › Talk when none is chosen; then "Saved in <folder>"
+  with **Share**. The file stays there after the app is removed. A chosen folder that isn't there any more (a card
+  taken out): "The folder … isn't there", with **Choose a folder**.
 - Nothing kept that this user may open: "Your server has nothing of this call you can open." A failure: "The call
   couldn't be opened. Try again later."
 

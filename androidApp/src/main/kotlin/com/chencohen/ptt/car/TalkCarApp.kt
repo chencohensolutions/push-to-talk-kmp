@@ -56,7 +56,7 @@ class TalkCarAppService : CarAppService() {
 
 private fun pinkIcon(carContext: CarContext): CarIcon =
     CarIcon.Builder(IconCompat.createWithResource(carContext, R.drawable.ic_widget_mic))
-        .setTint(CarColor.createCustom(0xFFE6007E.toInt(), 0xFFE6007E.toInt()))
+        .setTint(CarColor.createCustom(0xFFE9504F.toInt(), 0xFFE9504F.toInt()))
         .build()
 
 /** Up to six conversations to talk to, with who talks in each. */

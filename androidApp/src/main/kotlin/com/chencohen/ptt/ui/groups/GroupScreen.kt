@@ -190,7 +190,7 @@ private fun MemberRow(me: String, user: String, group: Group, invited: Boolean, 
     ) {
         Avatar(user, 40.dp)
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(contact?.displayName?.takeIf { it.isNotBlank() }?.let { "$it · $user" } ?: user, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+            Text(contact?.name?.takeIf { it != user }?.let { "$it · $user" } ?: user, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
             Text(labels.joinToString(" · "), color = LibraryColors.Muted, style = LibraryType.Caption)
         }
         if (owner && user != me) {

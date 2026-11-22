@@ -20,7 +20,15 @@ class Matroska(private val tracks: List<Track>) {
         val height: Int = 0,
         val codecPrivate: ByteArray? = null,
         val default: Boolean = false,
-    )
+        /** Video: clockwise degrees to turn the picture upright (Matroska's Projection, which players honour). */
+        val rotation: Int = 0,
+        /** A text track (S_TEXT/UTF8). */
+        val text: Boolean = false,
+        /** Another codec id than [codecId] (H.265's), so callers can keep passing the H.264 one. */
+        val codecIdOverride: String? = null,
+    ) {
+        val id: String get() = codecIdOverride ?: codecId
+    }
 
     private class Cue(val timeMs: Long, val clusterAt: Long)
 
@@ -74,8 +82,8 @@ class Matroska(private val tracks: List<Track>) {
         clusterBlocks = 0
     }
 
-    /** Writes the whole file to [out] and deletes the scratch file. */
-    fun finish(out: File, durationMs: Long = lastMs + 20) {
+    /** Writes the whole file to [out] (and closes it), and deletes the scratch file. */
+    fun finish(out: OutputStream, durationMs: Long = lastMs + 20) {
         flushCluster()
         body.close()
         val info = element(
@@ -108,7 +116,7 @@ class Matroska(private val tracks: List<Track>) {
                 seek(ID_CUES, (seekHeadSize + info.size + tracksElement.size).toLong()),
         )
         val segmentSize = clustersAt + bodySize
-        out.outputStream().buffered(1 shl 16).use { o ->
+        out.buffered(1 shl 16).use { o ->
             o.write(ebmlHeader())
             o.write(idBytes(ID_SEGMENT))
             o.write(size8(segmentSize))
@@ -124,15 +132,22 @@ class Matroska(private val tracks: List<Track>) {
     private fun trackEntry(t: Track): ByteArray {
         var b = element(ID_TRACK_NUMBER, uint(t.number.toLong())) +
             element(ID_TRACK_UID, uint(t.number.toLong())) +
-            element(ID_TRACK_TYPE, uint(if (t.video) 1 else 2)) +
+            element(ID_TRACK_TYPE, uint(if (t.video) 1 else if (t.text) 0x11 else 2)) +
             element(ID_FLAG_LACING, uint(0)) +
             element(ID_FLAG_DEFAULT, uint(if (t.default) 1 else 0)) +
             element(ID_NAME, t.name.encodeToByteArray()) +
             element(ID_LANGUAGE, "und".encodeToByteArray()) +
-            element(ID_CODEC_ID, t.codecId.encodeToByteArray())
+            element(ID_CODEC_ID, t.id.encodeToByteArray())
         t.codecPrivate?.let { b += element(ID_CODEC_PRIVATE, it) }
-        b += if (t.video) {
-            element(ID_VIDEO, element(ID_PIXEL_WIDTH, uint(t.width.toLong())) + element(ID_PIXEL_HEIGHT, uint(t.height.toLong())))
+        b += if (t.text) {
+            ByteArray(0)
+        } else if (t.video) {
+            val projection = if (t.rotation % 360 != 0) {
+                element(ID_PROJECTION, element(ID_PROJECTION_TYPE, uint(0)) + element(ID_PROJECTION_POSE_ROLL, float32(ROLL_SIGN * t.rotation.toFloat())))
+            } else {
+                ByteArray(0)
+            }
+            element(ID_VIDEO, element(ID_PIXEL_WIDTH, uint(t.width.toLong())) + element(ID_PIXEL_HEIGHT, uint(t.height.toLong())) + projection)
         } else {
             element(ID_CODEC_DELAY, uint(0)) + element(ID_SEEK_PRE_ROLL, uint(80_000_000)) +
                 element(ID_AUDIO, element(ID_SAMPLING_FREQUENCY, float(48_000.0)) + element(ID_CHANNELS, uint(1)))
@@ -143,7 +158,7 @@ class Matroska(private val tracks: List<Track>) {
     private fun ebmlHeader() = element(
         ID_EBML,
         element(0x4286, uint(1)) + element(0x42F7, uint(1)) + element(0x42F2, uint(4)) + element(0x42F3, uint(8)) +
-            element(0x4282, "webm".takeIf { tracks.all { it.codecId != CODEC_AVC } } ?.encodeToByteArray() ?: "matroska".encodeToByteArray()) +
+            element(0x4282, "webm".takeIf { tracks.all { it.id == CODEC_VP8 || it.id == CODEC_OPUS } } ?.encodeToByteArray() ?: "matroska".encodeToByteArray()) +
             element(0x4287, uint(4)) + element(0x4285, uint(2)),
     )
 
@@ -151,6 +166,16 @@ class Matroska(private val tracks: List<Track>) {
         const val CODEC_VP8 = "V_VP8"
         const val CODEC_AVC = "V_MPEG4/ISO/AVC"
         const val CODEC_OPUS = "A_OPUS"
+        const val CODEC_TEXT = "S_TEXT/UTF8"
+        const val CODEC_HEVC = "V_MPEGH/ISO/HEVC"
+        const val ID_PROJECTION = 0x7670
+        const val ID_PROJECTION_TYPE = 0x7671
+        const val ID_PROJECTION_POSE_ROLL = 0x7675
+
+        /** Which way Matroska's roll turns: checked against ffprobe (tools/keptcall). */
+        const val ROLL_SIGN = -1f
+
+        fun float32(value: Float): ByteArray = ByteArray(4) { i -> (java.lang.Float.floatToIntBits(value) ushr (8 * (3 - i))).toByte() }
 
         const val ID_EBML = 0x1A45DFA3
         const val ID_SEGMENT = 0x18538067
@@ -291,6 +316,85 @@ class Matroska(private val tracks: List<Track>) {
             out.write(pps.size and 0xff)
             out.write(pps)
             return out.toByteArray()
+        }
+
+        /**
+         * hvcC from the VPS, SPS and PPS of an H.265 key frame (ISO/IEC 14496-15): the general profile, tier and level
+         * read from the SPS, 4:2:0 8-bit, 4-byte lengths. Null when they aren't there.
+         */
+        fun hvcC(frame: ByteArray): ByteArray? {
+            val units = nalUnits(frame)
+            fun ofType(t: Int) = units.firstOrNull { it.size > 2 && ((it[0].toInt() and 0x7E) shr 1) == t }
+            val vps = ofType(32) ?: return null
+            val sps = ofType(33) ?: return null
+            val pps = ofType(34) ?: return null
+            // After the 2-byte header: 1 byte of ids, then profile_tier_level's 12 bytes.
+            val ptl = LiveKitFrames.unescape(sps.copyOfRange(2, minOf(sps.size, 2 + 1 + 12 + 4)))
+            if (ptl.size < 13) return null
+            val out = ByteArrayOutputStream()
+            out.write(1)
+            out.write(ptl, 1, 12)
+            out.write(0xF0); out.write(0x00) // min_spatial_segmentation_idc
+            out.write(0xFC) // parallelismType
+            out.write(0xFD) // chroma_format_idc 4:2:0
+            out.write(0xF8) // bit depth luma 8
+            out.write(0xF8) // bit depth chroma 8
+            out.write(0); out.write(0) // avgFrameRate
+            out.write(0x0F) // constantFrameRate 0, numTemporalLayers 1, temporalIdNested 1, lengthSizeMinusOne 3
+            out.write(3)
+            for ((type, nal) in listOf(32 to vps, 33 to sps, 34 to pps)) {
+                out.write(0x80 or type)
+                out.write(0); out.write(1)
+                out.write(nal.size ushr 8); out.write(nal.size and 0xff)
+                out.write(nal)
+            }
+            return out.toByteArray()
+        }
+
+        /** The picture size in an H.265 key frame's SPS (pic_width/height_in_luma_samples); null without one. */
+        fun hevcSize(frame: ByteArray): Pair<Int, Int>? = runCatching {
+            val sps = nalUnits(frame).firstOrNull { it.size > 2 && ((it[0].toInt() and 0x7E) shr 1) == 33 } ?: return null
+            val r = Bits(LiveKitFrames.unescape(sps.copyOfRange(2, sps.size)))
+            r.bits(4)
+            val maxSubLayersMinus1 = r.bits(3)
+            r.bits(1)
+            r.skip(96) // general profile, tier, flags and level
+            val profilePresent = BooleanArray(maxSubLayersMinus1)
+            val levelPresent = BooleanArray(maxSubLayersMinus1)
+            for (i in 0 until maxSubLayersMinus1) {
+                profilePresent[i] = r.bits(1) == 1
+                levelPresent[i] = r.bits(1) == 1
+            }
+            if (maxSubLayersMinus1 > 0) for (i in maxSubLayersMinus1 until 8) r.skip(2)
+            for (i in 0 until maxSubLayersMinus1) {
+                if (profilePresent[i]) r.skip(88)
+                if (levelPresent[i]) r.skip(8)
+            }
+            r.ue() // sps_seq_parameter_set_id
+            if (r.ue() == 3) r.bits(1) // chroma_format_idc, separate_colour_plane_flag
+            r.ue() to r.ue()
+        }.getOrNull()
+
+        /** Bits of an RBSP, most significant first. */
+        private class Bits(val data: ByteArray) {
+            var at = 0
+            fun bits(n: Int): Int {
+                var v = 0
+                repeat(n) {
+                    val byte = data[at ushr 3].toInt()
+                    v = (v shl 1) or ((byte ushr (7 - (at and 7))) and 1)
+                    at++
+                }
+                return v
+            }
+            fun skip(n: Int) {
+                at += n
+            }
+            fun ue(): Int {
+                var zeros = 0
+                while (bits(1) == 0) zeros++
+                return (1 shl zeros) - 1 + bits(zeros)
+            }
         }
 
         /** Reads a file's EBML element at [at]: its id, data start and data size (for tests). */

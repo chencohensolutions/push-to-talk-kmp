@@ -37,6 +37,8 @@ internal data class Content(
     @ProtoNumber(11) val call: CallContent? = null,
     /** On a copy for the sender's own other devices: the user the message went to. */
     @ProtoNumber(15) val destination: String = "",
+    /** What the sending phone can play (ContentCodec.CAPS_*), on every message, end to end; 0: not said. */
+    @ProtoNumber(16) val caps: Int = 0,
 )
 
 /**
@@ -65,9 +67,13 @@ internal data class ContactSyncContent(
     @ProtoNumber(2) val identityKey: ByteArray = ByteArray(0),
     @ProtoNumber(3) val verified: Boolean = false,
     @ProtoNumber(4) val displayName: String = "",
+    /** This user's name for them ("" none); [nicknameSet]: this message says it (older phones don't). */
+    @ProtoNumber(5) val nickname: String = "",
+    @ProtoNumber(6) val nicknameSet: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean = other is ContactSyncContent && user == other.user &&
-        identityKey.contentEquals(other.identityKey) && verified == other.verified && displayName == other.displayName
+        identityKey.contentEquals(other.identityKey) && verified == other.verified && displayName == other.displayName &&
+        nickname == other.nickname && nicknameSet == other.nicknameSet
 
     override fun hashCode(): Int = user.hashCode()
 }
@@ -106,9 +112,11 @@ internal data class ClipContent(
     @ProtoNumber(4) val sentAt: Long = 0,
     /** A voice message's length; 0 for a burst, which is still being said. */
     @ProtoNumber(5) val durationMs: Long = 0,
+    /** Push-to-video: the clip's packets are tagged, audio and pieces of the camera's frames (TalkVideo). */
+    @ProtoNumber(6) val video: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean = other is ClipContent && id == other.id && key.contentEquals(other.key) &&
-        kind == other.kind && sentAt == other.sentAt && durationMs == other.durationMs
+        kind == other.kind && sentAt == other.sentAt && durationMs == other.durationMs && video == other.video
 
     override fun hashCode(): Int = id.hashCode()
 
@@ -146,9 +154,14 @@ internal data class CallContent(
     @ProtoNumber(5) val sentAt: Long = 0,
     /** With RECORDING: saving started (true) or stopped. */
     @ProtoNumber(6) val recording: Boolean = false,
+    /** With VIEW: how the sender shows [of]'s video (a user): cropped to fill its tile, or whole; and the tile's shape. */
+    @ProtoNumber(7) val fill: Boolean = false,
+    @ProtoNumber(8) val aspect: Float = 0f,
+    @ProtoNumber(9) val of: String = "",
 ) {
     override fun equals(other: Any?): Boolean = other is CallContent && kind == other.kind && id == other.id &&
-        key.contentEquals(other.key) && video == other.video && sentAt == other.sentAt && recording == other.recording
+        key.contentEquals(other.key) && video == other.video && sentAt == other.sentAt && recording == other.recording &&
+        fill == other.fill && aspect == other.aspect && of == other.of
 
     override fun hashCode(): Int = id.hashCode() * 31 + kind
 
@@ -162,6 +175,8 @@ internal data class CallContent(
         const val RECORDING = 6
         /** Answered or declined on another phone of the callee: this one stops ringing. */
         const val ANSWERED_ELSEWHERE = 7
+        /** How this phone shows someone's video (Fill or Fit, its tile's shape): their own preview outlines it. */
+        const val VIEW = 8
     }
 }
 
@@ -238,9 +253,27 @@ internal object GroupStateCodec {
 internal object ContentCodec {
     const val BLOCK = 160
 
+    /** Said: the caps below are this phone's (a phone that doesn't say is taken to play nothing extra). */
+    const val CAPS_SAID = 0x80
+    /** It decodes H.265, so push-to-video may send it H.265 (2026-11-22). */
+    const val CAPS_H265 = 1
+
+    /** This phone's caps, sent with everything it sends (the platform sets them). */
+    var myCaps = CAPS_SAID
+
+    /** The caps each user's phones last said; a user's several phones: the last one heard. */
+    private val heard = mutableMapOf<String, Int>()
+
+    fun note(user: String, content: Content) {
+        if (content.caps and CAPS_SAID != 0) heard[user] = content.caps
+    }
+
+    /** Whether [user]'s phone said it decodes H.265 (unknown: no). */
+    fun decodesH265(user: String): Boolean = (heard[user] ?: 0) and CAPS_H265 != 0
+
     /** [content] encoded and padded: a 0x80 byte after it, then zeros to a multiple of [BLOCK] (Signal's padding). */
     fun encode(content: Content): ByteArray {
-        val bytes = ProtoBuf.encodeToByteArray(Content.serializer(), content)
+        val bytes = ProtoBuf.encodeToByteArray(Content.serializer(), content.copy(caps = myCaps))
         val padded = ByteArray(((bytes.size + 1 + BLOCK - 1) / BLOCK) * BLOCK)
         bytes.copyInto(padded)
         padded[bytes.size] = 0x80.toByte()

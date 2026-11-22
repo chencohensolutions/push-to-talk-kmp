@@ -26,6 +26,20 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
 
 - **Catch up to live**: Shorten pauses and speed up (the default), Shorten pauses only, or Off, with a line under
   each; the chosen one has a teal check.
+- **Calls › Video** (2026-11-22, hen): **Standard (VP8)**, the default, or **H.265 (smaller, sharper)**, offered only
+  on a phone with a hardware H.265 encoder. With H.265 the phone also sends VP8 (LiveKit's backup codec), so a phone
+  that can't decode H.265 still sees it. Calls stay encrypted end to end; it applies from the next call.
+- **Calls › Save calls to** (2026-11-22, hen): **Choose a folder** opens Android's folder picker (the phone, an SD
+  card or a USB drive), kept with a lasting permission; under it, the folder's name, or Downloads › Talk.
+  **Use Downloads instead** goes back. Save as file on a kept call writes there.
+- **In the background › Open Talk when someone talks to me** (off by default): with the screen off it turns on with
+  that Talk screen over the lock screen. Android 14 and later ask for "full-screen notifications" first; while that
+  isn't allowed, a row in the warning color, "Allow Talk to open over the lock screen", opens Android's page for it
+  (2026-11-22: without it nothing opened).
+- **In the background › Reply bubble over other apps** (off by default): the bar at the bottom of the screen with a
+  Talk button while the phone is in use ([notifications.md](notifications.md), "Reply bubble"). Turning it on opens
+  Android's "Display over other apps" for Talk; while that isn't allowed, "Allow Talk to display over other apps"
+  shows under it.
 - **In the background › Stay connected** (a switch, off by default): a foreground service keeps the connection, so
   talk plays at once and buttons work with the screen off; a note says it uses a little more battery and that, off,
   the server wakes the phone when someone talks. After a restart it resumes when the app is opened (Android starts
@@ -62,3 +76,9 @@ install updates" when Android's Install unknown apps is off; "Update failed: <wh
 notification, and you tap to update."), and **Check now** (asks the server, which watches the releases). A debug build says "This is a test build" and has no Check now. How updates work: [design.md](../design.md),
 "App updates".
 
+
+- **Contacts › Show in Android Contacts** (2026-11-22, hen; off by default; asks for Contacts): a "Talk" account in
+  the phone's Contacts holds one entry per paired contact, by the name shown in Talk, with **Message**, **Voice call**
+  and **Video call**, which open Talk (the chat, or a call). Android joins it with a phone contact of the same name, or
+  it can be linked by hand in Contacts. Only the names go to Contacts; renames, new and removed contacts follow.
+  Turning it off removes the account and its entries (`AndroidContacts`).

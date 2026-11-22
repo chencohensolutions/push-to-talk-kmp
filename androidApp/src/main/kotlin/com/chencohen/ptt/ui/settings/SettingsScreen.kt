@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -53,6 +55,8 @@ internal fun SettingsScreen(
     /** Install updates automatically (on by default). */
     automaticUpdates: Boolean = true,
     setAutomaticUpdates: (Boolean) -> Unit = {},
+    /** Talk's contacts in Android Contacts, with Message and calls (off by default). */
+    contacts: List<com.chencohen.ptt.messaging.Contact> = emptyList(),
 ) {
     LaunchedEffect(Unit) { refresh() }
     SettingsScaffold(stringResource(R.string.settings_title), back) {
@@ -87,6 +91,29 @@ internal fun SettingsScreen(
                 ),
                 onClick = { presenceVisible?.let { setPresenceVisible(!it) } },
             )
+        }
+        // Show in Android Contacts (2026-11-22, hen): asks for Contacts first.
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var inContacts by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(com.chencohen.ptt.AndroidContacts.enabled(context) && com.chencohen.ptt.AndroidContacts.allowed(context)) }
+        val askContacts = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+            if (granted.values.all { it }) {
+                com.chencohen.ptt.AndroidContacts.set(context, true, contacts)
+                inContacts = true
+            }
+        }
+        SectionTitle(stringResource(R.string.settings_contacts_title))
+        SettingsCard {
+            com.chencohen.ptt.ui.talk.SwitchRow(stringResource(R.string.settings_android_contacts), stringResource(R.string.settings_android_contacts_body), inContacts) { on ->
+                if (!on) {
+                    com.chencohen.ptt.AndroidContacts.set(context, false, contacts)
+                    inContacts = false
+                } else if (com.chencohen.ptt.AndroidContacts.allowed(context)) {
+                    com.chencohen.ptt.AndroidContacts.set(context, true, contacts)
+                    inContacts = true
+                } else {
+                    askContacts.launch(arrayOf(android.Manifest.permission.READ_CONTACTS, android.Manifest.permission.WRITE_CONTACTS))
+                }
+            }
         }
         SectionTitle(stringResource(R.string.settings_talk_title))
         SettingsCard {

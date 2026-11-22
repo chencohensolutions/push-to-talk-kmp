@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
  */
 class Notifications(private val context: Context) : MessageNotifier {
     override fun incoming(contact: Contact, unread: List<TextMessage>) {
-        val name = contact.displayName ?: contact.user
+        val name = contact.name
         val sender = Person.Builder().setName(name).setKey(contact.user).build()
         val me = Person.Builder().setName(context.getString(R.string.notify_you)).build()
         val style = NotificationCompat.MessagingStyle(me)

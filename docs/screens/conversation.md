@@ -25,3 +25,7 @@ Signal's conversation in the library's look. How texts, receipts, typing and pre
 While it is on screen, texts that come in are read at once (no notification), and a read receipt goes back.
 
 A group's chat uses this screen with a group header and authors on the bubbles: see [groups.md](groups.md).
+
+- **New messages at the bottom** (2026-11-22, hen): at the bottom of the conversation (or one message from it), a new
+  message or clip scrolls into view; scrolled up, a "New message ↓" chip shows at the bottom, which scrolls down. What
+  this phone sends always scrolls down.

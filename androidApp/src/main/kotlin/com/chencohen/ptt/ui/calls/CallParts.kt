@@ -32,6 +32,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.border
+import androidx.compose.runtime.key
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -72,6 +77,8 @@ class CallActions(
     /** Save calls: saving starts or stops; "Save this call?" Not now. */
     val setSaving: (Boolean) -> Unit = {},
     val dismissAsk: () -> Unit = {},
+    /** How this phone shows a user's video: cropped to fill ([fill]) or whole, in a tile [aspect] wide for 1 high. */
+    val setView: (user: String, fill: Boolean, aspect: Float) -> Unit = { _, _, _ -> },
 )
 
 /** Shares a saved call's file (the app's calls folder, through its FileProvider). */
@@ -232,9 +239,71 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
     Box(Modifier.fillMaxSize().background(Color(0xFF0F1413))) {
         val r = room
         val remote = if (r != null && call.phase == CallPhase.ACTIVE) remoteVideo(r, changes) else emptyList()
+        val context = LocalContext.current
+        val prefs = remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
+        // The others' picture comes whole (the camera's own 4:3); this phone fills the screen with it (cropped) or fits
+        // it whole. A tap on the pill, or a double tap on the video, switches; kept for next time (2026-11-22, hen).
+        var fill by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("fill", true)) }
+        fun toggleFill() {
+            fill = !fill
+            prefs.edit().putBoolean("fill", fill).apply()
+        }
+        // The screen's orientation during a call: Auto (the phone's sensor), Portrait or Landscape; kept for next time.
+        var orientation by remember { androidx.compose.runtime.mutableIntStateOf(prefs.getInt("orientation", 0)) }
+        val activity = context as? android.app.Activity
+        androidx.compose.runtime.DisposableEffect(orientation) {
+            activity?.requestedOrientation = when (orientation) {
+                1 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                2 -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                else -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            }
+            onDispose { activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+        }
+        val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         if (remote.isNotEmpty()) {
-            Column(Modifier.fillMaxSize()) {
-                remote.forEach { track -> VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth()) }
+            val tile = Modifier.pointerInput(Unit) { detectTapGestures(onDoubleTap = { toggleFill() }) }
+            // Each tile's shape and the Fill/Fit choice go to its sender (their preview outlines the crop).
+            fun Modifier.told(user: String) = onSizeChanged { size ->
+                if (size.height > 0) actions.setView(user, fill, size.width.toFloat() / size.height)
+            }
+            // Side by side in landscape, one above the other in portrait.
+            if (landscape) {
+                Row(Modifier.fillMaxSize()) {
+                    remote.forEach { (user, track) -> key(user, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxSize().told(user), fill = fill) } }
+                }
+            } else {
+                Column(Modifier.fillMaxSize()) {
+                    remote.forEach { (user, track) -> key(user, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxWidth().told(user), fill = fill) } }
+                }
+            }
+        }
+        if (call.phase == CallPhase.ACTIVE && call.video) {
+            Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    stringResource(
+                        when (orientation) {
+                            1 -> R.string.call_orientation_portrait
+                            2 -> R.string.call_orientation_landscape
+                            else -> R.string.call_orientation_auto
+                        },
+                    ),
+                    color = Color.White, style = LibraryType.Small,
+                    modifier = Modifier.background(LibraryColors.PillScrim, CircleShape)
+                        .clickable(role = Role.Button) {
+                            orientation = (orientation + 1) % 3
+                            prefs.edit().putInt("orientation", orientation).apply()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+                if (remote.isNotEmpty()) {
+                    Text(
+                        stringResource(if (fill) R.string.call_video_fit else R.string.call_video_fill),
+                        color = Color.White, style = LibraryType.Small,
+                        modifier = Modifier.background(LibraryColors.PillScrim, CircleShape)
+                            .clickable(role = Role.Button) { toggleFill() }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
             }
         }
         Column(
@@ -293,7 +362,13 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             val own = r?.let { ownVideo(it, changes) }
             if (own != null && call.camera) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    VideoView(r, own, Modifier.size(width = 108.dp, height = 160.dp), mirror = true)
+                    // The whole picture, its own shape, with each viewer's crop outlined (2026-11-22, hen).
+                    val shape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
+                    val preview = if (shape >= 1f) Modifier.size(width = 160.dp, height = (160 / shape).dp) else Modifier.size(width = (160 * shape).dp, height = 160.dp)
+                    Box(preview) {
+                        VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = false)
+                        CropOutlines(shape, call.viewers.filterValues { it.fill }, nameOf, showNames = call.viewers.size > 1)
+                    }
                 }
                 Spacer(Modifier.height(16.dp))
             }
@@ -367,9 +442,11 @@ private fun RoundButton(icon: ImageVector, label: String, color: Color, onClick:
 
 /** The others' cameras now ([changes] only makes this read again when tracks change). */
 @Suppress("UNUSED_PARAMETER")
-private fun remoteVideo(room: Room, changes: Int): List<VideoTrack> =
+/** The others' cameras, with whose each is (a user). */
+private fun remoteVideo(room: Room, changes: Int): List<Pair<String, VideoTrack>> =
     room.remoteParticipants.values.mapNotNull { p ->
-        p.getTrackPublication(Track.Source.CAMERA)?.takeIf { !it.muted }?.track as? VideoTrack
+        val track = p.getTrackPublication(Track.Source.CAMERA)?.takeIf { !it.muted }?.track as? VideoTrack ?: return@mapNotNull null
+        (p.identity?.value?.substringBeforeLast('.') ?: "") to track
     }
 
 @Suppress("UNUSED_PARAMETER")
@@ -378,9 +455,12 @@ private fun ownVideo(room: Room, changes: Int): VideoTrack? =
 
 /** One video track drawn into a TextureViewRenderer, given back when it leaves the screen. */
 @Composable
-private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false) {
+private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false, fill: Boolean = true) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
+    androidx.compose.runtime.LaunchedEffect(renderer, fill) {
+        renderer.setScalingType(if (fill) livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL else livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+    }
     DisposableEffect(track) {
         track.addRenderer(renderer)
         onDispose {
@@ -389,4 +469,32 @@ private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror:
         }
     }
     AndroidView(factory = { renderer }, modifier = modifier)
+}
+
+/**
+ * On this phone's own preview (its whole picture, [shape] wide for 1 high): the part each viewer sees when they crop
+ * to fill their tile, a thin outline each, with their name when there are several.
+ */
+@Composable
+private fun CropOutlines(shape: Float, viewers: Map<String, com.chencohen.ptt.calls.CallView>, nameOf: (String) -> String, showNames: Boolean) {
+    if (viewers.isEmpty()) return
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val w = maxWidth
+        val h = maxHeight
+        viewers.forEach { (user, view) ->
+            // Fill shows the middle of the picture in the tile's shape.
+            val (fw, fh) = if (shape > view.aspect) (view.aspect / shape) to 1f else 1f to (shape / view.aspect)
+            Box(
+                Modifier.align(Alignment.Center).size(w * fw, h * fh)
+                    .border(1.5.dp, Color.White.copy(alpha = 0.9f)),
+            ) {
+                if (showNames) {
+                    Text(
+                        nameOf(user), color = Color.White, style = LibraryType.Tiny,
+                        modifier = Modifier.align(Alignment.TopStart).background(LibraryColors.PillScrim).padding(horizontal = 3.dp),
+                    )
+                }
+            }
+        }
+    }
 }

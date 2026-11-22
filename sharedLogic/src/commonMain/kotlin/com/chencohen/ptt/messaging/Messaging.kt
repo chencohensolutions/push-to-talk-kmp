@@ -83,6 +83,20 @@ data class TalkSettings(
     val quickTalkPage: String? = null,
     /** Settings › Talk › Open Talk when someone talks to me: the screen turns on with that Talk screen (off by default). */
     val openOnTalk: Boolean = false,
+    /**
+     * Settings › Talk › Reply bubble over other apps (off by default): while the phone is in use, a burst shows a bar at
+     * the bottom of the screen with the sender and a Talk button, for the burst and the reply window after it.
+     */
+    val replyBubble: Boolean = false,
+    /**
+     * Settings › Calls › Video: VP8 (standard) or H.265 (smaller and sharper; 2026-11-22, hen), offered only on a phone
+     * with a hardware H.265 encoder. Phones that can't take H.265 get VP8 from the same sender (a backup codec).
+     */
+    val callVideo: com.chencohen.ptt.calls.CallVideo = com.chencohen.ptt.calls.CallVideo.VP8,
+    /** Push-to-video (2026-11-22, hen; off by default): a press on a Talk screen sends the camera too. */
+    val pushVideo: Boolean = false,
+    /** The reply bubble shows a burst's video (off by default). */
+    val bubbleVideo: Boolean = false,
 )
 
 /**
@@ -253,6 +267,7 @@ internal class Messaging(
         saveCalls = { talkSettings().saveCalls },
         keepOnServer = { call, peer, group, on -> api.recordCall(call, peer, group, on) },
         serverKeepsCalls = { settings.serverKeepsCalls },
+        logEvent = { call, peer, group, event -> api.logCallEvent(call, peer, group, event) },
         onCall = {
             talk.release(send = true)
             live.leaveNow()
@@ -260,8 +275,20 @@ internal class Messaging(
         now = now, random = random,
     )
 
+    /**
+     * Push-to-video in [chat] may go as H.265: chosen in Settings › Calls › Video, and every other phone there said
+     * it decodes H.265 (ContentCodec.caps); otherwise VP8. One format per burst, no second copy.
+     */
+    fun videoH265For(chat: String?): Boolean {
+        if (chat == null || talkSettings().callVideo != com.chencohen.ptt.calls.CallVideo.H265) return false
+        val me = device()?.user
+        val users = Group.idOf(chat)?.let { id -> store.group(id)?.readers?.map { it.user }?.filter { it != me } } ?: listOf(chat)
+        return users.isNotEmpty() && users.all { ContentCodec.decodesH265(it) }
+    }
+
     init {
-        talk.live = live
+        if (LIVE_TALK_AUDIO) talk.live = live
+        talk.sendVideo = { talkSettings().pushVideo }
         scope.launchCollect(calls.state) { c -> _state.update { it.copy(call = c) } }
         scope.launchCollect(live.state) { l -> _state.update { it.copy(live = l) } }
         _state.update { it.copy(talkSettings = talkSettings()) }
@@ -331,6 +358,10 @@ internal class Messaging(
         quickTalk = settings.quickTalkChats,
         quickTalkPage = settings.quickTalkPage,
         openOnTalk = settings.openOnTalk,
+        replyBubble = settings.replyBubble,
+        callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.VP8,
+        pushVideo = settings.pushVideo,
+        bubbleVideo = settings.bubbleVideo,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -343,6 +374,10 @@ internal class Messaging(
         settings.quickTalkChats = talk.quickTalk
         settings.quickTalkPage = talk.quickTalkPage
         settings.openOnTalk = talk.openOnTalk
+        settings.replyBubble = talk.replyBubble
+        settings.callVideo = talk.callVideo.name
+        settings.pushVideo = talk.pushVideo
+        settings.bubbleVideo = talk.bubbleVideo
         _state.update { it.copy(talkSettings = talk) }
     }
 
@@ -639,7 +674,10 @@ internal class Messaging(
         val self = device() ?: return
         scope.launch {
             try {
-                sender.send(self.user, Content(contact = ContactSyncContent(contact.user, Base64.decode(contact.identityKey), contact.verified, contact.displayName.orEmpty())))
+                sender.send(
+                    self.user,
+                    Content(contact = ContactSyncContent(contact.user, Base64.decode(contact.identityKey), contact.verified, contact.displayName.orEmpty(), contact.nickname.orEmpty(), nicknameSet = true)),
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -664,6 +702,7 @@ internal class Messaging(
                 verified = sync.verified,
                 changedKey = old?.changedKey?.takeIf { it != key },
                 displayName = sync.displayName.ifEmpty { null } ?: old?.displayName,
+                nickname = if (sync.nicknameSet) sync.nickname.ifBlank { null } else old?.nickname,
             )
         )
     }
@@ -922,6 +961,13 @@ internal class Messaging(
         return matches
     }
 
+    /** This user's own name for [user] ([name] blank: back to theirs), on all of this user's phones. */
+    fun rename(user: String, name: String) {
+        store.contact(user)?.let { store.putContact(it.copy(nickname = name.trim().take(60).ifBlank { null })) }
+        publish()
+        syncContact(user)
+    }
+
     fun setVerified(user: String, verified: Boolean) {
         store.contact(user)?.let { store.putContact(it.copy(verified = verified)) }
         publish()
@@ -1089,6 +1135,7 @@ internal class Messaging(
             return
         }
         val content = ContentCodec.decode(decrypted.plaintext) ?: return
+        ContentCodec.note(envelope.senderUser, content)
         content.groupChange?.let { return groups.receiveChange(envelope.senderUser, it) }
         content.senderKey?.let { return groups.receiveSenderKey(from, decrypted.senderIdentityKey, it) }
         if (envelope.senderUser == self.user) {
@@ -1226,3 +1273,13 @@ private fun parseTime(rfc3339: String): Long? = runCatching { kotlin.time.Instan
 private fun <T> CoroutineScope.launchCollect(flow: StateFlow<T>, block: (T) -> Unit) {
     launch { flow.collect { block(it) } }
 }
+
+/**
+ * Talk audio through LiveKit rooms (phase 5b), off since 1.4.0 (2026-11-22, hen: bursts started late and ended early).
+ * In a room a press published a new microphone track, which took a moment to start, so the first words were lost,
+ * and the release took it down at once, so the listener lost the end still on its way; the listener, hearing it
+ * live, didn't play the clip. Now every burst goes by the clip path: the app's own microphone, kept open on the Talk
+ * screens with the last 300 ms before the press, recorded from the press and sent once the floor is granted, and
+ * the listener plays all of it to the end.
+ */
+internal const val LIVE_TALK_AUDIO = false
