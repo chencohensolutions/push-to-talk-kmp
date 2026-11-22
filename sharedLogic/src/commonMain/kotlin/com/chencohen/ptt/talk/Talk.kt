@@ -574,6 +574,12 @@ internal class Talk(
         burst.key = clip.key
         burst.sentAt = clip.sentAt
         burst.video = clip.video
+        // Already playing (the floor's news came first, and it started then): its pictures begin now, before any
+        // packet (none opens without this key). 2026-11-22: later bursts showed no video.
+        if (clip.video && burst.playing) {
+            videoOut?.begin(burst.id)
+            _state.update { s -> if (s.playing?.clip == burst.id) s.copy(playing = s.playing.copy(video = true)) else s }
+        }
         scope.launch { consider(burst) }
         drain(burst)
     }

@@ -252,6 +252,29 @@ class TalkTest {
     }
 
     @Test
+    fun severalVideoBurstsInARowEachShowTheirPictures() = runTest {
+        val (_, hen, dana) = paired()
+        hen.talk.sendVideo = { true }
+        repeat(3) { n ->
+            hen.work.launch { hen.talk.press("dana") }
+            advanceUntilIdle()
+            hen.camera.film(0, 4_000)
+            hen.mic.say(0, 5)
+            for (i in 1..4) hen.camera.film(i, 800)
+            hen.mic.say(5, 5)
+            advanceUntilIdle()
+            hen.work.launch { hen.talk.release() }
+            advanceUntilIdle()
+            assertEquals(n + 1, dana.screen.begun.size, "burst ${n + 1} began its video")
+            assertEquals(5 * (n + 1), dana.screen.frames.size, "burst ${n + 1} brought its 5 pictures")
+            assertTrue(dana.screen.frames[5 * n].key, "burst ${n + 1} starts at a key frame")
+        }
+        assertEquals(3, dana.screen.begun.distinct().size)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun theWholeBurstPlaysFromTheFirstWordToTheLast() = runTest {
         val (_, hen, dana) = paired()
         // Spoken at once with the press, before the server gives the floor: kept, and sent once it does.

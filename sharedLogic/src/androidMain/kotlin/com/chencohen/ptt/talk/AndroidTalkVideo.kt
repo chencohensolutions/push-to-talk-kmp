@@ -341,6 +341,13 @@ object AndroidTalkVideoOut : TalkVideoOut {
     private val waiting = ArrayDeque<TalkVideo.Frame>()
     private val inputs = ArrayDeque<Int>()
 
+    /**
+     * The clip's frames since its last key frame: a view that comes after the clip began (the Talk screen's or the
+     * bubble's, which show only once a video burst plays) starts from them at once, instead of waiting for the next key
+     * frame or, on a short burst, showing nothing (2026-11-22: later bursts showed no video).
+     */
+    private val sinceKey = ArrayList<TalkVideo.Frame>()
+
     private val _shown = MutableStateFlow<Shown?>(null)
 
     /** The clip being shown: its picture's size and rotation, for the view's shape. */
@@ -353,7 +360,20 @@ object AndroidTalkVideoOut : TalkVideoOut {
             if (surface === target) return
             surface = target
             releaseDecoder()
+            Log.i(TAG, "view attached (clip ${clip != null}, ${sinceKey.size} frames since the key frame)")
+            restart()
         }
+    }
+
+    /** With a view and a key frame of the clip: a decoder from that key frame on. */
+    private fun restart() {
+        val target = surface ?: return
+        if (clip == null || decoder != null) return
+        val first = sinceKey.firstOrNull()?.takeIf { it.key } ?: return
+        startDecoder(first.codec, target) ?: return
+        waiting.clear()
+        waiting.addAll(sinceKey)
+        feed()
     }
 
     fun detach(target: Surface) {
@@ -370,8 +390,10 @@ object AndroidTalkVideoOut : TalkVideoOut {
             playedMs = 0
             playedAt = SystemClock.elapsedRealtime()
             waiting.clear()
+            sinceKey.clear()
             releaseDecoder()
             if (thread == null) thread = HandlerThread("talk-video-out").also { it.start(); handler = Handler(it.looper) }
+            Log.i(TAG, "video burst $clip begins (view ${surface != null})")
         }
     }
 
@@ -379,9 +401,13 @@ object AndroidTalkVideoOut : TalkVideoOut {
         synchronized(lock) {
             if (this.clip != clip) return
             _shown.value = Shown(clip, _shown.value?.takeIf { it.clip == clip }?.width ?: 0, _shown.value?.takeIf { it.clip == clip }?.height ?: 0, frame.rotation)
+            if (frame.key) sinceKey.clear()
+            if (sinceKey.isNotEmpty() || frame.key) sinceKey += frame
+            if (sinceKey.size > MAX_SINCE_KEY) sinceKey.subList(0, sinceKey.size - MAX_SINCE_KEY).clear()
             val target = surface ?: return
             if (decoder == null || decoderCodec != frame.codec) {
                 if (!frame.key) return
+                releaseDecoder()
                 startDecoder(frame.codec, target) ?: return
             }
             waiting.addLast(frame)
@@ -402,6 +428,7 @@ object AndroidTalkVideoOut : TalkVideoOut {
             if (this.clip != clip) return
             this.clip = null
             waiting.clear()
+            sinceKey.clear()
             releaseDecoder()
             _shown.value = null
         }
@@ -449,6 +476,7 @@ object AndroidTalkVideoOut : TalkVideoOut {
             }, handler)
             dec.configure(MediaFormat.createVideoFormat(mime, AndroidTalkVideoCapture.WIDTH, AndroidTalkVideoCapture.HEIGHT), target, null, 0)
             dec.start()
+            Log.i(TAG, "decoding ${dec.name}")
             decoder = dec
             decoderCodec = codec
             inputs.clear()
@@ -485,5 +513,6 @@ object AndroidTalkVideoOut : TalkVideoOut {
     }
 
     private const val LATE_MS = 150L
+    private const val MAX_SINCE_KEY = 90
     private const val MAX_WAIT_MS = 1_000L
 }
