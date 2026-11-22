@@ -510,8 +510,6 @@
     <string name="ready_title">Talk מוכנה</string>
     <string name="ready_body">דיבור של אחרים יושמע בקול. אין חיבור: לא צורך סוללה.</string>
     <string name="ready_stop">עצירה</string>
-    <string name="talk_full_volume">להשמיע דיבור בעוצמה מלאה ברקע</string>
-    <string name="talk_full_volume_body">נשארת התראה שקטה „Talk מוכנה”, בלי חיבור. כבוי: הדיבור מושמע כמו שיחת טלפון, חלש יותר.</string>
     <string name="playing_channel">דיבור מושמע</string>
     <string name="playing_group">%1$s ב%2$s</string>
     <string name="playing_now">מדבר/ת… %1$s</string>

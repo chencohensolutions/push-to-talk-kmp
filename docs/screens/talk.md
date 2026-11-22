@@ -52,7 +52,7 @@ check.
 ## Notifications
 
 "Dana is talking" (or "Dana is talking in Family"), "Tap Play to hear it", with **Play** (opens the chat and plays
-the burst) and **Reply** (opens Talk mode there), on the Talk channel. With Play talk at full volume in the background on (the default), a silent "Talk is ready"
+the burst) and **Reply** (opens Talk mode there), on the Talk channel. A silent "Talk is ready"
 notification (its own channel, least important, **Stop**) stays while the app isn't connected, and woken bursts play
 out loud through it at media volume. Without it, a woken burst plays in a talk session, and Android shows its
 call-style notification "Talk · Family" with **Leave**, gone 20 s after the last burst. Stay connected has its own ongoing

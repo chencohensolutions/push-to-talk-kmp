@@ -54,10 +54,6 @@ internal fun TalkSettingsScreen(
                 }
             }
             RowDivider()
-            SwitchRow(stringResource(R.string.talk_full_volume), stringResource(R.string.talk_full_volume_body), settings.fullVolumeBackground) {
-                change(settings.copy(fullVolumeBackground = it))
-            }
-            RowDivider()
             SwitchRow(stringResource(R.string.talk_stay_connected), stringResource(R.string.talk_stay_connected_body), settings.stayConnected) {
                 change(settings.copy(stayConnected = it))
             }
