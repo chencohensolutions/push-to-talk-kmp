@@ -45,12 +45,14 @@ object TalkPlaying {
     private suspend fun update(app: TalkApp, talk: TalkUiState) {
         val playing = talk.playing
         if (playing != null) {
+            if (shown == null) TalkWidgets.show(app, playing.chat, com.chencohen.ptt.talk.TalkWidgetView.Incoming(playing.from))
             shown = playing.chat to playing.from
             lastClip = playing.clip
             post(app, playing.chat, playing.from, playing.playedMs, live = true)
         } else {
             val (chat, from) = shown ?: return
             shown = null
+            TalkWidgets.show(app, chat, com.chencohen.ptt.talk.TalkWidgetView.Idle)
             TalkReply.open(chat)
             post(app, chat, from, 0, live = false)
         }

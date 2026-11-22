@@ -527,4 +527,14 @@
     <string name="talking_cancel">ביטול</string>
     <string name="talk_open_on_talk">לפתוח את Talk כשמישהו מדבר אליי</string>
     <string name="talk_open_on_talk_body">כשהמסך כבוי, הוא נדלק עם מסך הדיבור שלו מעל מסך הנעילה. כשהמסך דלוק מגיעה התראה בלבד. לא במצב נא לא להפריע ולא בצ׳אטים מושתקים.</string>
+    <string name="widget_label">לדבר אל…</string>
+    <string name="widget_description">לחיצה לדיבור אל איש קשר או קבוצה ממסך הבית</string>
+    <string name="widget_description_for">לדבר אל %1$s</string>
+    <string name="widget_choose">לבחור אל מי</string>
+    <string name="widget_tap">הקשה לדיבור</string>
+    <string name="widget_talking">מדברים %1$s · הקשה לשליחה</string>
+    <string name="widget_incoming">%1$s מדבר/ת</string>
+    <string name="widget_busy">%1$s מדבר/ת עכשיו</string>
+    <string name="widget_pick_title">לדבר אל מי?</string>
+    <string name="widget_pick_empty">אין עדיין אנשי קשר. צריך לפתוח את Talk ולהוסיף אחד.</string>
 </resources>

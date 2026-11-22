@@ -295,3 +295,21 @@ suspend fun appRelease(context: Context): com.chencohen.ptt.update.AppRelease? {
 
 /** Nothing is going on that an app update would cut off: no call, talk or live room (AppUpdate.quiet). */
 fun talkQuiet(context: Context): Boolean = com.chencohen.ptt.update.AppUpdate.quiet(hub(context).state.value)
+
+/**
+ * The conversations a talk widget can be set up for (chat key and name), Quick talk ones first: paired contacts not
+ * blocked, and groups this user reads (TalkWidgetChoices).
+ */
+suspend fun talkWidgetChoices(context: Context): List<Pair<String, String>> {
+    val messaging = hub(context)
+    val me = settings(context).device?.user.orEmpty()
+    return withContext(messagingWork) {
+        val contacts = messaging.store.contacts().filter { it.paired && !it.blocked }
+            .map { it.user to (it.displayName?.takeIf { n -> n.isNotBlank() } ?: it.user) }
+        val groups = messaging.store.groups().filter { !it.gone && it.isReader(me) }.map { it.chat to it.name.ifBlank { it.chat } }
+        com.chencohen.ptt.talk.TalkWidgetChoices.order(contacts + groups, messaging.talkSettings().quickTalk)
+    }
+}
+
+/** This phone's user name (empty before enrolling). */
+fun myUser(context: Context): String = settings(context).device?.user.orEmpty()

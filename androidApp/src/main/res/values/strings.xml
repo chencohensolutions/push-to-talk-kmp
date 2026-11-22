@@ -523,4 +523,14 @@
     <string name="talking_cancel">Cancel</string>
     <string name="talk_open_on_talk">Open Talk when someone talks to me</string>
     <string name="talk_open_on_talk_body">When the screen is off, it turns on with their Talk screen over the lock screen. With the screen on you get the notification only. Not in Do Not Disturb or for muted chats.</string>
+    <string name="widget_label">Talk to…</string>
+    <string name="widget_description">Push-to-talk to one contact or group from the home screen</string>
+    <string name="widget_description_for">Talk to %1$s</string>
+    <string name="widget_choose">Choose who</string>
+    <string name="widget_tap">Tap to talk</string>
+    <string name="widget_talking">Talking %1$s · tap to send</string>
+    <string name="widget_incoming">%1$s is talking</string>
+    <string name="widget_busy">%1$s has the floor</string>
+    <string name="widget_pick_title">Talk to who?</string>
+    <string name="widget_pick_empty">No contacts yet. Open Talk and add one first.</string>
 </resources>

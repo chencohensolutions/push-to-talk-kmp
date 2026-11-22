@@ -372,6 +372,8 @@ what was shown (the server sends HIGH only to phones that registered notificatio
   - **Open Talk when someone talks to me** (off by default, 1.2.5): with the screen off, the playing notification's
     full-screen intent opens that Talk screen over the lock screen, and closes it 3 s after the bursts if untouched
     ([talk.md](screens/talk.md), "Opened when someone talks").
+  - **The talk widget** ([widget.md](screens/widget.md), 1.2.5): one conversation per home-screen widget; a tap talks
+    through `TalkReadyService` (the tap grants the microphone in the background), the next tap sends.
   - logcat `TalkHost` says which path ran; `TalkPlayer` logs the track's usage, route, Android's playback record and
     the volumes. `Messaging.wake` keeps `/ws` until the path's reply time is over (at most 2 minutes). If neither
     plays, the talk notification shows instead.

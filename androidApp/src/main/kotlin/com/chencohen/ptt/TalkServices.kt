@@ -170,7 +170,7 @@ class TalkReadyService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_SEND, ACTION_CANCEL -> {
+            ACTION_SEND, ACTION_CANCEL, ACTION_CANCEL_TALK -> {
                 endTalkBack(app, intent.action == ACTION_SEND)
                 return START_NOT_STICKY
             }
@@ -202,6 +202,10 @@ class TalkReadyService : Service() {
         // A headset's or a Bluetooth talk button, the screen off too: the reply window's sender, or Buttons talk in.
         if (session == null) session = mediaSession(app)
         if (intent?.action == ACTION_TALK_BACK) intent.getStringExtra(EXTRA_CHAT)?.let { startTalkBack(app, it) }
+        // The talk widget: a tap talks, the next one sends.
+        if (intent?.action == ACTION_WIDGET) intent.getStringExtra(EXTRA_CHAT)?.let { chat ->
+            if (recording?.isActive == true) endTalkBack(app, send = true) else startTalkBack(app, chat)
+        }
         return START_NOT_STICKY
     }
 
@@ -225,6 +229,7 @@ class TalkReadyService : Service() {
             return
         }
         TalkPlaying.cancel(this)
+        recordingChat = chat
         recording = app.scope.launch {
             val name = runCatching { chatName(app, chat) }.getOrDefault(chat)
             talkBack(app, chat, down = true)
@@ -232,7 +237,21 @@ class TalkReadyService : Service() {
             val started = System.currentTimeMillis()
             while (true) {
                 val s = (System.currentTimeMillis() - started) / 1000
+                val view = com.chencohen.ptt.talk.TalkWidgetView.of(chat, messagingState(app).value.talk, myUser(app), System.currentTimeMillis())
+                if (view is com.chencohen.ptt.talk.TalkWidgetView.Busy) {
+                    // The floor was taken: nothing is sent; the widget says who has it for a moment.
+                    TalkWidgets.show(app, chat, view)
+                    NotificationManagerCompat.from(this@TalkReadyService).cancel(RECORDING_ID)
+                    recording = null
+                    recordingChat = null
+                    talkBack(app, null, down = false, send = false)
+                    delay(3_000)
+                    TalkWidgets.show(app, chat, com.chencohen.ptt.talk.TalkWidgetView.Idle)
+                    runCatching { startForeground(ID, ready!!, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK) }
+                    return@launch
+                }
                 recordingNotice(name, s)
+                TalkWidgets.show(app, chat, com.chencohen.ptt.talk.TalkWidgetView.Talking(s))
                 if (s >= TALK_BACK_MAX_S) break
                 delay(1_000)
             }
@@ -240,10 +259,14 @@ class TalkReadyService : Service() {
         }
     }
 
+    private var recordingChat: String? = null
+
     private fun endTalkBack(app: TalkApp, send: Boolean) {
         val job = recording ?: return
         recording = null
         if (!job.isCompleted) job.cancel()
+        recordingChat?.let { TalkWidgets.show(app, it, com.chencohen.ptt.talk.TalkWidgetView.Idle) }
+        recordingChat = null
         app.scope.launch {
             talkBack(app, null, down = false, send = send)
             Log.i(TalkReady.TAG, if (send) "talk back sent" else "talk back cancelled")
@@ -298,6 +321,8 @@ class TalkReadyService : Service() {
         private const val TALK_BACK_MAX_S = 60L
         private const val ACTION_STOP = "com.chencohen.ptt.TALK_READY_STOP"
         const val ACTION_TALK_BACK = "com.chencohen.ptt.TALK_READY_TALK_BACK"
+        const val ACTION_WIDGET = "com.chencohen.ptt.TALK_READY_WIDGET"
+        const val ACTION_CANCEL_TALK = "com.chencohen.ptt.TALK_READY_CANCEL_TALK"
         private const val ACTION_SEND = "com.chencohen.ptt.TALK_READY_SEND"
         private const val ACTION_CANCEL = "com.chencohen.ptt.TALK_READY_CANCEL"
         const val EXTRA_CHAT = "chat"
