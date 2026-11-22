@@ -36,7 +36,7 @@ internal class LibraryPalette(
     val OnBackground: Color,
     val Muted: Color,
     val Accent: Color,
-    /** A surface that stands out from the page: light on dark, dark on light (cards, the selected tab, Undo). */
+    /** The main color, a surface that stands out from the page: pink in both themes (buttons, the selected tab, Undo). */
     val Inverse: Color,
     val OnInverse: Color,
     val OnInverseMuted: Color,
@@ -60,15 +60,21 @@ internal class LibraryPalette(
     val PhotoFade = Brush.verticalGradient(listOf(Color.Transparent, Color(0xE60F1413)))
 }
 
+/**
+ * Talk's main color, a vibrant pink, the same in light and dark: white text on it reads (4.5:1), and it stands out
+ * from both page colors.
+ */
+internal val Pink = Color(0xFFE6007E)
+
 internal val DarkLibraryPalette = LibraryPalette(
     Background = Color(0xFF0F1413),
     Raised = Color(0xFF1E2725),
     OnBackground = Color.White,
     Muted = Color(0xFFA9B4B1),
     Accent = Color(0xFF1F5F5B),
-    Inverse = Color(0xFFF5F6F4),
-    OnInverse = Color(0xFF17201F),
-    OnInverseMuted = Color(0xFF5E6866),
+    Inverse = Pink,
+    OnInverse = Color.White,
+    OnInverseMuted = Color(0xFFFFD1E8),
     Warning = Color(0xFFF2B84B),
     Error = Color(0xFFC2410C),
 )
@@ -79,9 +85,9 @@ internal val LightLibraryPalette = LibraryPalette(
     OnBackground = Color(0xFF17201F),
     Muted = Color(0xFF5E6866),
     Accent = Color(0xFF1F5F5B),
-    Inverse = Color(0xFF17201F),
-    OnInverse = Color(0xFFF5F6F4),
-    OnInverseMuted = Color(0xFFA9B4B1),
+    Inverse = Pink,
+    OnInverse = Color.White,
+    OnInverseMuted = Color(0xFFFFD1E8),
     Warning = Color(0xFFB45309),
     Error = Color(0xFFC2410C),
 )
@@ -105,7 +111,7 @@ internal fun LibraryTheme(dark: Boolean = isSystemInDarkTheme(), content: @Compo
 }
 
 /**
- * Material's color scheme from a library palette: ink (Inverse) is the main color, teal (Accent) the secondary for
+ * Material's color scheme from a library palette: pink (Inverse) is the main color, teal (Accent) the secondary for
  * "on" states and progress, surfaces from Background and Raised, Muted for secondary text and outlines.
  */
 internal fun materialColors(p: LibraryPalette, dark: Boolean): ColorScheme {
