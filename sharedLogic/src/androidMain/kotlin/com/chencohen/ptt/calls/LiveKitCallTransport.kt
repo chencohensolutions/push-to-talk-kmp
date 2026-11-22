@@ -59,6 +59,31 @@ class LiveKitCallTransport(
     private var events: Job? = null
     private var front = true
 
+    /** Follow my face: the camera's frames framed around the face before they are sent (FaceFramer). */
+    private val framer = FaceFramer()
+
+    /** Follow my face, on or off (the call screen's button, kept for next time). */
+    var followFace: Boolean
+        get() = framer.enabled
+        set(value) {
+            framer.enabled = value
+        }
+
+    /** This phone's camera, published through [framer], so the framing goes to everyone and to the preview. */
+    private suspend fun publishCamera(room: Room) {
+        val lp = room.localParticipant
+        val track = lp.createVideoTrack(name = "camera", options = room.videoTrackCaptureDefaults, videoProcessor = framer)
+        track.startCapture()
+        lp.publishVideoTrack(
+            track,
+            io.livekit.android.room.participant.VideoTrackPublishOptions(
+                name = "camera",
+                base = room.videoTrackPublishDefaults,
+                source = Track.Source.CAMERA,
+            ),
+        )
+    }
+
     /** The rooms' EGL context, shared with the recorder so it can draw their frames. */
     private val egl: livekit.org.webrtc.EglBase by lazy { livekit.org.webrtc.EglBase.create() }
     private var recorder: CallRecorder? = null
@@ -106,7 +131,7 @@ class LiveKitCallTransport(
             _room.value = room
             room.localParticipant.setMicrophoneEnabled(true)
             if (video) {
-                room.localParticipant.setCameraEnabled(true)
+                publishCamera(room)
                 watchCamera(room)
             }
             front = true
@@ -144,7 +169,12 @@ class LiveKitCallTransport(
     }
 
     override suspend fun setCamera(on: Boolean) {
-        _room.value?.localParticipant?.setCameraEnabled(on)
+        val room = _room.value
+        if (on && room != null && room.localParticipant.getTrackPublication(Track.Source.CAMERA) == null) {
+            publishCamera(room)
+        } else {
+            room?.localParticipant?.setCameraEnabled(on)
+        }
         if (on) _room.value?.let { watchCamera(it) }
         _changes.update { it + 1 }
     }

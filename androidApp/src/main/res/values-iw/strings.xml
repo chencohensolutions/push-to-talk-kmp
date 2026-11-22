@@ -161,6 +161,7 @@
     <string name="kept_whole">שלם</string>
     <string name="calls_video_stats">הצגת נתוני וידאו</string>
     <string name="calls_video_stats_body">בשיחות וידאו, כפתור "נתונים" מציג לכל וידאו את קצב הפריימים, קצב הנתונים, הגודל והקידוד.</string>
+    <string name="call_follow_face">מעקב אחרי הפנים</string>
     <string name="call_stats">נתונים</string>
     <string name="call_layout_fit">התאמה</string>
     <string name="call_layout_full">מסך מלא</string>

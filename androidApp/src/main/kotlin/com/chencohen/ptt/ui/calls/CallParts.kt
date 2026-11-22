@@ -279,6 +279,9 @@ fun CallScreen(
         }
         val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         var statsShown by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("stats", false)) }
+        // Follow my face (2026-11-22, hen): framed on this phone before sending; kept for next time.
+        var follow by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("follow_face", false)) }
+        LaunchedEffect(transport, follow) { transport?.followFace = follow }
         val stats = statsAllowed && statsShown
         // Full screen: their video cropped to fill the screen, everything over it. Fit (2026-11-22, hen): their whole
         // picture as big as fits below the camera cutout, with this phone's video under it, nothing over it.
@@ -319,6 +322,18 @@ fun CallScreen(
                         }
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                 )
+                if (call.camera) {
+                    Text(
+                        stringResource(R.string.call_follow_face),
+                        color = if (follow) LibraryColors.OnInverse else Color.White, style = LibraryType.Small,
+                        modifier = Modifier.background(if (follow) LibraryColors.Inverse else LibraryColors.PillScrim, CircleShape)
+                            .clickable(role = Role.Switch) {
+                                follow = !follow
+                                prefs.edit().putBoolean("follow_face", follow).apply()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
                 if (statsAllowed) {
                     Text(
                         stringResource(R.string.call_stats),

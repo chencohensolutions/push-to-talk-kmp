@@ -40,6 +40,12 @@ says "Calls need the microphone. Allow it in the app's settings."
   big as fits between the name and your preview, below the camera cutout; your preview under it, nothing over it).
   The pill at the top right names the layout a tap switches to ("Fit" / "Full screen"); a double tap on the video
   does the same; kept for next time.
+- **Follow my face** (2026-11-22, hen; a pill at the top right while your camera is on, kept for next time): on this
+  phone, before sending, the camera's picture is cropped around the biggest face, head and shoulders, at most 2x, and
+  scaled back to the camera's size (`FaceFramer`, a LiveKit VideoProcessor), so everyone in the call and your own
+  preview see it framed. ML Kit's on-phone face detector (bundled, offline) looks at a 240-wide copy four times a
+  second; the crop eases, ignores small moves, and zooms back out 1.5 s after the face is lost. Display only: nothing
+  but the picture is sent.
 - **Stats** (2026-11-22, hen; Call settings › Advanced › Show video stats, off by default): a **Stats** pill at the top
   right shows or hides, on each video and your preview, its frame rate, bit rate, size and codec from WebRTC's stats,
   once a second (your camera: all simulcast layers' bytes, the biggest layer's size and rate). Kept for next time.
