@@ -129,7 +129,8 @@ data class PairingState(
 /**
  * Pairing by QR code (docs/design.md, "Pairing"): the Add contact screen shows this phone's code ([open]) and scans
  * theirs ([scanned], then [pair]); a pair request someone sent by scanning this phone's code is confirmed with
- * [review] and [accept]. The code is made again when it expires while the screen is open; [leave] when it closes.
+ * [review] and [accept]. The code is made again when it expires while the screen is open, and once it was used
+ * (a pair request came by it); [leave] when the screen closes.
  */
 class PairingController internal constructor(
     private val messaging: Messaging,
@@ -147,6 +148,7 @@ class PairingController internal constructor(
     val currentState: PairingState get() = _state.value
 
     private var codeJob: Job? = null
+    private var screenOpen = false
     private var stepJob: Job? = null
     private var scannedCode: PairCode? = null
     private var scannedInvite: InviteLink? = null
@@ -154,7 +156,12 @@ class PairingController internal constructor(
     init {
         // Waiting for them: the PAIRED envelope (or the contacts) says when they confirmed.
         scope.launch {
+            var requests: Set<PairRequest>? = null
             messaging.state.collect { state ->
+                // A new pair request by QR code used this phone's code (the server takes a code once): show a new one.
+                val now = state.requests.filter { !it.viaLink }.toSet()
+                if (requests != null && (now - requests!!).isNotEmpty()) dropCode()
+                requests = now
                 val step = _state.value.step
                 if (step is PairingStep.Waiting && state.contacts.any { it.user == step.user && it.paired }) {
                     setStep(PairingStep.Paired(step.user))
@@ -165,6 +172,7 @@ class PairingController internal constructor(
 
     /** The Add contact screen opened: shows this phone's code (a new one when there is none or it expired). */
     fun open() {
+        screenOpen = true
         if (_state.value.step !is PairingStep.Showing) setStep(PairingStep.Showing)
         if (codeJob?.isActive == true) return
         codeJob = scope.launch {
@@ -178,8 +186,17 @@ class PairingController internal constructor(
         }
     }
 
+    /** Forgets the shown code, which was used: the screen, when open, makes a new one at once. */
+    private fun dropCode() {
+        codeJob?.cancel()
+        codeJob = null
+        _state.update { it.copy(code = null, codeExpiresAt = null) }
+        if (screenOpen) open()
+    }
+
     /** The screen closed: stops making codes, and forgets a code that was read and not paired. */
     fun leave() {
+        screenOpen = false
         codeJob?.cancel()
         stepJob?.cancel()
         scannedCode = null

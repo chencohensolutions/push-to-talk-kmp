@@ -62,6 +62,8 @@ class LiveKitCallTransport(
 
     override suspend fun join(url: String, token: String, key: ByteArray, video: Boolean): Boolean = withContext(Dispatchers.IO) {
         leave()
+        // The key provider is native WebRTC code: load the library first (LiveKit.create would, but only after it).
+        LiveKit.init(appContext)
         val provider = BaseKeyProvider(enableSharedKey = true, discardFrameWhenCryptorNotReady = true)
         provider.setSharedKey(Base64.encodeToString(key, Base64.NO_WRAP), 0)
         val room = LiveKit.create(

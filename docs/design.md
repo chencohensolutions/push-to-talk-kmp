@@ -126,7 +126,7 @@ QR only, as the plan says:
    33-byte identity key, the token, 16 random bytes kept on the phone for a week (`Invite`) and never sent to the
    server, and the first 16 hex digits of the server key's fingerprint (a code from another server is told apart).
    Bytes are base64url without padding. A phone that reads a higher `v` says it needs a newer app. A new code is made
-   30 seconds before the old one expires while the screen is open.
+   30 seconds before the old one expires while the screen is open, and once a pair request used it.
 2. **Scan and send.** The scanning phone trusts the code's identity key, fetches `prekeyBundles(user, token)`, refuses
    them when their identity key isn't the code's, opens a session with each device and sends a `pair_request` with
    the secret, its user name and its identity key, every envelope carrying the token. Then it calls `confirmPair`

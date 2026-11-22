@@ -71,6 +71,8 @@ class LiveKitTalkTransport(
     override suspend fun join(url: String, token: String, identity: String, ownKey: ByteArray, ownIndex: Int): Boolean =
         withContext(Dispatchers.IO) {
             leave()
+            // The key provider is native WebRTC code: load the library first (LiveKit.create would, but only after it).
+            LiveKit.init(appContext)
             val provider = BaseKeyProvider(
                 enableSharedKey = false,
                 keyRingSize = LiveTalk.KEY_RING,
