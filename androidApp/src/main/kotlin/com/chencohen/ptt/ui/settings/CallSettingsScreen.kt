@@ -14,9 +14,9 @@ import com.chencohen.ptt.ui.style.SettingsCard
 import com.chencohen.ptt.ui.style.SettingsScaffold
 import com.chencohen.ptt.ui.talk.ChoiceRow
 
-/** Settings › Calls (docs/screens/settings.md): Save calls, Off, Ask each time or Always. */
+/** Settings › Call settings (docs/screens/settings.md): Ringtone, Video, Advanced, and a row to Saving calls. */
 @Composable
-internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change: (TalkSettings) -> Unit) {
+internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change: (TalkSettings) -> Unit, openSaving: () -> Unit = {}) {
     SettingsScaffold(stringResource(R.string.settings_calls_title), back) {
         // How an incoming call rings: Talk's soft chime (the default) or the phone's ringtone (2026-11-22, hen).
         SectionTitle(stringResource(R.string.calls_ring_title))
@@ -53,8 +53,23 @@ internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change
                 settings.video60 && can60,
             ) { on -> if (can60) change(settings.copy(video60 = on)) }
         }
-        // Saving calls: whether, and where the files go.
-        SectionTitle(stringResource(R.string.calls_save_title))
+        // Saving calls has its own screen (2026-11-22, hen).
+        SettingsCard {
+            com.chencohen.ptt.ui.style.InfoRow(stringResource(R.string.calls_save_title), stringResource(savingWords(settings.saveCalls)), onClick = openSaving)
+        }
+    }
+}
+
+private fun savingWords(mode: SaveCalls): Int = when (mode) {
+    SaveCalls.OFF -> R.string.calls_save_off
+    SaveCalls.ASK -> R.string.calls_save_ask
+    SaveCalls.ALWAYS -> R.string.calls_save_always
+}
+
+/** Settings › Call settings › Saving calls (docs/screens/settings.md): Off, Ask each time or Always, and where to. */
+@Composable
+internal fun SavingCallsScreen(settings: TalkSettings, back: () -> Unit, change: (TalkSettings) -> Unit) {
+    SettingsScaffold(stringResource(R.string.calls_save_title), back) {
         SettingsCard {
             val modes = listOf(
                 SaveCalls.OFF to (R.string.calls_save_off to R.string.calls_save_off_body),
