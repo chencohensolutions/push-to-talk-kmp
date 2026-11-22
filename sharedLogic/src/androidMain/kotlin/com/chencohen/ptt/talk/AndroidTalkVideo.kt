@@ -249,12 +249,21 @@ class AndroidTalkVideoCapture(context: Context, private val wantH265: () -> Bool
                     executor,
                     object : CameraCaptureSession.StateCallback() {
                         override fun onConfigured(s: CameraCaptureSession) {
-                            session = s
-                            val request = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
-                                targets.forEach { addTarget(it) }
-                                set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(FPS, FPS))
+                            // The camera may have closed meanwhile (the screen left, or Video turned off).
+                            if (camera !== device) {
+                                runCatching { s.close() }
+                                return
                             }
-                            runCatching { s.setRepeatingRequest(request.build(), null, handler) }
+                            session = s
+                            try {
+                                val request = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                                    targets.forEach { addTarget(it) }
+                                    set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(FPS, FPS))
+                                }
+                                s.setRepeatingRequest(request.build(), null, handler)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "camera closed while starting", e)
+                            }
                         }
 
                         override fun onConfigureFailed(s: CameraCaptureSession) { Log.w(TAG, "camera session failed") }
