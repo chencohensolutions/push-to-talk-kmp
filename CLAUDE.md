@@ -47,7 +47,7 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
 
 - Logic goes in `sharedLogic` (with tests); the UIs only render state and call controller methods.
 - Every screen follows the system's light or dark theme with the library palette; colors, buttons, type, shapes,
-  messages, empty states and words follow [docs/screens/style.md](docs/screens/style.md). Ink is the one main action
+  messages, empty states and words follow [docs/screens/style.md](docs/screens/style.md). Ink (now a vibrant pink) is the one main action
   (later the talk button), teal is "live", red is leave, remove, revoke.
 - Screens, flows and gestures follow Signal's messenger pattern; no Signal name, icon or artwork.
 - Anything the server and the app must agree on (the schema, ptt.proto, the QR link, the DHT salt and info strings,

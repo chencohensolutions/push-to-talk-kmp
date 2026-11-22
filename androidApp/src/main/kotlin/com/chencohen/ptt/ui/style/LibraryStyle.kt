@@ -66,9 +66,10 @@ internal val DarkLibraryPalette = LibraryPalette(
     OnBackground = Color.White,
     Muted = Color(0xFFA9B4B1),
     Accent = Color(0xFF1F5F5B),
-    Inverse = Color(0xFFF5F6F4),
-    OnInverse = Color(0xFF17201F),
-    OnInverseMuted = Color(0xFF5E6866),
+    // 2026-11-22 (hen): the main color is a vibrant pink, not ink. Dark text on it here (6.3:1).
+    Inverse = Color(0xFFFF4FA3),
+    OnInverse = Color(0xFF22060F),
+    OnInverseMuted = Color(0xFF5C1238),
     Warning = Color(0xFFF2B84B),
     Error = Color(0xFFC2410C),
 )
@@ -79,9 +80,10 @@ internal val LightLibraryPalette = LibraryPalette(
     OnBackground = Color(0xFF17201F),
     Muted = Color(0xFF5E6866),
     Accent = Color(0xFF1F5F5B),
-    Inverse = Color(0xFF17201F),
-    OnInverse = Color(0xFFF5F6F4),
-    OnInverseMuted = Color(0xFFA9B4B1),
+    // 2026-11-22 (hen): the main color is a vibrant pink, not ink. White text on it (5.0:1).
+    Inverse = Color(0xFFD6106F),
+    OnInverse = Color.White,
+    OnInverseMuted = Color(0xFFFBD3E6),
     Warning = Color(0xFFB45309),
     Error = Color(0xFFC2410C),
 )
@@ -105,7 +107,7 @@ internal fun LibraryTheme(dark: Boolean = isSystemInDarkTheme(), content: @Compo
 }
 
 /**
- * Material's color scheme from a library palette: ink (Inverse) is the main color, teal (Accent) the secondary for
+ * Material's color scheme from a library palette: pink (Inverse) is the main color, teal (Accent) the secondary for
  * "on" states and progress, surfaces from Background and Raised, Muted for secondary text and outlines.
  */
 internal fun materialColors(p: LibraryPalette, dark: Boolean): ColorScheme {
