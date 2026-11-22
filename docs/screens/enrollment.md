@@ -18,6 +18,11 @@ the QR link) is ptt-server's `enroll-code` and `enrollDevice`; this page is what
    - With neither, it says "Nothing to paste. Copy the enrollment link or code first." and nothing changes.
 
    A whole link pasted into the address or code field opens the same way.
+
+   Someone's Add contact code (`ptt://pair?…`), scanned or pasted, is not taken as a code: it is for phones already
+   set up and has no server, so the screen says "That's an Add contact code, for a phone that's already set up. To
+   join, ask them for an invite: Add contact, then Invite a friend." An invite's QR code or link opens
+   [Joining by an invite](#joining-by-an-invite).
 3. **Confirm** (`EnrollmentStep.Confirm`): "Register this phone?" with the server, the account the code is for and
    when it expires, and the device name (the phone's model, editable). The server row says "Its key matches server ID
    T6DNBAM-IJR6WLU-…" after a link that pinned the key. Otherwise it says "Its certificate is trusted by this phone".
