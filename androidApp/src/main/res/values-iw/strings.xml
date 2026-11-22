@@ -512,4 +512,17 @@
     <string name="ready_stop">עצירה</string>
     <string name="talk_full_volume">להשמיע דיבור בעוצמה מלאה ברקע</string>
     <string name="talk_full_volume_body">נשארת התראה שקטה „Talk מוכנה”, בלי חיבור. כבוי: הדיבור מושמע כמו שיחת טלפון, חלש יותר.</string>
+    <string name="playing_channel">דיבור מושמע</string>
+    <string name="playing_group">%1$s ב%2$s</string>
+    <string name="playing_now">מדבר/ת… %1$s</string>
+    <string name="playing_done">דיבר/ה עכשיו</string>
+    <string name="playing_reply_hint">להחזיק את כפתור האוזניות כדי לענות</string>
+    <string name="playing_stop">עצירה</string>
+    <string name="playing_mute">השתקת %1$s לשעה</string>
+    <string name="playing_again">להשמיע שוב</string>
+    <string name="playing_talk_back">לענות בדיבור</string>
+    <string name="talking_to">מדברים אל %1$s %2$s</string>
+    <string name="talking_auto_send">נשלח מעצמו אחרי דקה</string>
+    <string name="talking_send">לשלוח</string>
+    <string name="talking_cancel">ביטול</string>
 </resources>

@@ -508,4 +508,17 @@
     <string name="ready_stop">Stop</string>
     <string name="talk_full_volume">Play talk at full volume in the background</string>
     <string name="talk_full_volume_body">Keeps a silent “Talk is ready” notification, without a connection. Off: talk plays like a phone call, quieter.</string>
+    <string name="playing_channel">Talk playing</string>
+    <string name="playing_group">%1$s in %2$s</string>
+    <string name="playing_now">Talking… %1$s</string>
+    <string name="playing_done">Talked just now</string>
+    <string name="playing_reply_hint">Hold your headset button to reply</string>
+    <string name="playing_stop">Stop</string>
+    <string name="playing_mute">Mute %1$s 1 h</string>
+    <string name="playing_again">Play again</string>
+    <string name="playing_talk_back">Talk back</string>
+    <string name="talking_to">Talking to %1$s %2$s</string>
+    <string name="talking_auto_send">Sent by itself after a minute</string>
+    <string name="talking_send">Send</string>
+    <string name="talking_cancel">Cancel</string>
 </resources>

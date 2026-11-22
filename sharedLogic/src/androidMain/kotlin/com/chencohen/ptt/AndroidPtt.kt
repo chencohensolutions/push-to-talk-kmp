@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.random.asKotlinRandom
 import com.chencohen.ptt.messaging.MessageNotifier
@@ -173,15 +174,58 @@ suspend fun setStayConnectedSetting(context: Context, on: Boolean) {
     withContext(messagingWork) { messaging.setTalkSettings(messaging.talkSettings().copy(stayConnected = on)) }
 }
 
-/** Talk in the default conversation from a hardware button: [down] pressed, or let go. */
+/**
+ * The reply window (docs/screens/notifications.md, "Talk"): for 30 s after a burst played in the background, a
+ * hardware talk button talks back to [replyTo] instead of the default conversation.
+ */
+object TalkReply {
+    @Volatile
+    var replyTo: String? = null
+
+    @Volatile
+    var until: Long = 0
+
+    fun open(chat: String, now: Long = System.currentTimeMillis()) {
+        replyTo = chat
+        until = now + 30_000
+    }
+
+    fun chat(now: Long = System.currentTimeMillis()): String? = replyTo?.takeIf { now < until }
+}
+
+/** Talk from a hardware button: [down] pressed, or let go; in the reply window to its sender, else the default conversation. */
 suspend fun talkButton(context: Context, down: Boolean): Boolean {
     val messaging = hub(context)
     return withContext(messagingWork) {
-        val chat = messaging.talkSettings().takeIf { it.hardwareButtons }?.defaultChat ?: return@withContext false
-        if (down) messaging.talk.press(chat) else messaging.talk.release(true)
+        if (!down) {
+            if (messaging.talk.state.value.own == null) return@withContext false
+            messaging.talk.release(true)
+            return@withContext true
+        }
+        val chat = TalkReply.chat() ?: messaging.talkSettings().takeIf { it.hardwareButtons }?.defaultChat ?: return@withContext false
+        messaging.talk.press(chat)
         true
     }
 }
+
+/** Talk back from a notification: start talking in [chat], or end it ([send] false drops it). */
+suspend fun talkBack(context: Context, chat: String?, down: Boolean, send: Boolean = true) {
+    val messaging = hub(context)
+    // Connected for the burst (the wake-up's own /ws may have closed), without waiting for it here.
+    if (down) kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.wake() }
+    withContext(messagingWork) {
+        if (down) chat?.let { messaging.talk.press(it) } else messaging.talk.release(send)
+    }
+}
+
+/** Stop from the playing notification: what plays, and what waits. */
+suspend fun stopTalkPlayback(context: Context) {
+    val messaging = hub(context)
+    withContext(messagingWork) { messaging.talk.stopPlaying() }
+}
+
+/** Messaging's state, for the background talk notifications. */
+fun messagingState(context: Context): kotlinx.coroutines.flow.StateFlow<com.chencohen.ptt.messaging.MessagingState> = hub(context).state
 
 /** A talk notification's Play: the burst from the chat's history. */
 suspend fun playClip(context: Context, id: String) {

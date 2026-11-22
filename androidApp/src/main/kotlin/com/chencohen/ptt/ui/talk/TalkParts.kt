@@ -98,6 +98,34 @@ internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Uni
     }
 }
 
+/**
+ * While this screen is started (on screen, the app in front), the microphone stays open for an instant press
+ * (TalkCapture.warm); it closes when the screen stops (left, screen off, app in the background). Only with the
+ * microphone allowed: it is asked for on the first press.
+ */
+@Composable
+internal fun WarmMicrophone(warm: (Boolean) -> Unit) {
+    val context = LocalContext.current
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val current by rememberUpdatedState(warm)
+    androidx.compose.runtime.DisposableEffect(owner) {
+        fun allowed() = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> if (allowed()) current(true)
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> current(false)
+                else -> {}
+            }
+        }
+        owner.lifecycle.addObserver(observer)
+        if (owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) && allowed()) current(true)
+        onDispose {
+            owner.lifecycle.removeObserver(observer)
+            current(false)
+        }
+    }
+}
+
 /** A debug build shows the catch-up readout (how far behind live a burst plays). */
 @Composable
 internal fun isDebugBuild(): Boolean {
@@ -184,7 +212,10 @@ internal fun TalkModeScreen(
     play: (String) -> Unit,
     close: () -> Unit,
     micDenied: () -> Unit,
+    /** The microphone kept open while this screen shows (MessagingController.warmMicrophone). */
+    warmMicrophone: (Boolean) -> Unit = {},
 ) {
+    WarmMicrophone(warmMicrophone)
     val microphone = rememberMicrophone(micDenied)
     val own = talk.own?.takeIf { it.chat == chat }
     val live = own?.phase == TalkPhase.TALKING
