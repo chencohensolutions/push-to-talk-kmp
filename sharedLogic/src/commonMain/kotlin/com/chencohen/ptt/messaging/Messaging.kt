@@ -507,6 +507,17 @@ internal class Messaging(
         _state.update { it.copy(presence = it.presence + (p.user to p)) }
     }
 
+    // --- Your devices (docs/screens/devices.md) ----------------------------------------------------------------
+
+    /** This user's phones that aren't revoked, this one first, then by number. */
+    suspend fun myDevices(): List<OwnDevice> = api.myDevices().sortedWith(compareBy({ !it.current }, { it.deviceNumber }))
+
+    /** Revokes another phone of this user: true when it is revoked (or was already gone), false for this phone. */
+    suspend fun revokeDevice(deviceNumber: Int): Boolean {
+        if (device()?.deviceNumber == deviceNumber) return false
+        return api.revokeMyDevice(deviceNumber) != "CURRENT_DEVICE"
+    }
+
     // --- Linking a phone ------------------------------------------------------------------------------------------
 
     /**
@@ -1377,7 +1388,7 @@ internal class Messaging(
 internal class NewInvite(val link: InviteLink, val expiresAt: Long, val passcode: String)
 
 @OptIn(kotlin.time.ExperimentalTime::class)
-private fun parseTime(rfc3339: String): Long? = runCatching { kotlin.time.Instant.parse(rfc3339).toEpochMilliseconds() }.getOrNull()
+internal fun parseTime(rfc3339: String): Long? = runCatching { kotlin.time.Instant.parse(rfc3339).toEpochMilliseconds() }.getOrNull()
 
 private fun <T> CoroutineScope.launchCollect(flow: StateFlow<T>, block: (T) -> Unit) {
     launch { flow.collect { block(it) } }

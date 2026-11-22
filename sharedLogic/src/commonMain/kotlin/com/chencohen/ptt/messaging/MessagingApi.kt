@@ -24,7 +24,9 @@ import com.chencohen.ptt.graphql.RegisterPushMutation
 import com.chencohen.ptt.graphql.SetPresenceVisibleMutation
 import com.chencohen.ptt.graphql.ConfirmPairMutation
 import com.chencohen.ptt.graphql.ContactsQuery
+import com.chencohen.ptt.graphql.MyDevicesQuery
 import com.chencohen.ptt.graphql.MyIdentityKeyQuery
+import com.chencohen.ptt.graphql.RevokeMyDeviceMutation
 import com.chencohen.ptt.graphql.PairingTokenMutation
 import com.chencohen.ptt.graphql.PrekeyBundlesQuery
 import com.chencohen.ptt.graphql.PrekeyCountQuery
@@ -173,7 +175,27 @@ internal interface MessagingApi {
 
     /** callRecording: the kept call's tracks this user may read (none when it wasn't kept or they weren't in it). */
     suspend fun callRecording(call: String, peer: String?, group: String?): KeptCall = KeptCall(false, emptyList())
+
+    /** devices: this user's phones that aren't revoked, with when each last reached the server. */
+    suspend fun myDevices(): List<OwnDevice> = emptyList()
+
+    /** revokeMyDevice: the server's `RevokeMyDeviceResult` (REVOKED, NOT_FOUND or CURRENT_DEVICE). */
+    suspend fun revokeMyDevice(deviceNumber: Int): String = "NOT_FOUND"
 }
+
+/**
+ * One of this user's phones (Settings › Your devices): its number, the name it enrolled with, when it enrolled and when
+ * it last reached the server (milliseconds; [lastSeenAt] null when it never has), whether it is this phone, and where
+ * its key is kept (`KeyProtection`: STRONGBOX, TEE, SECURE_ENCLAVE or SOFTWARE).
+ */
+data class OwnDevice(
+    val deviceNumber: Int,
+    val name: String,
+    val registeredAt: Long?,
+    val lastSeenAt: Long?,
+    val current: Boolean,
+    val keyProtection: String,
+)
 
 /** A call the server kept (callRecording): whether it is kept now, and each participant's audio and video. */
 data class KeptCall(val recording: Boolean, val tracks: List<KeptTrack>)
@@ -305,6 +327,14 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
             run { it.mutation(com.chencohen.ptt.graphql.StopRecordingCallMutation(call, Optional.presentIfNotNull(peer), Optional.presentIfNotNull(group))).execute() }
                 .stopRecordingCall.recording
         }
+
+    override suspend fun myDevices(): List<OwnDevice> =
+        run { it.query(MyDevicesQuery()).execute() }.devices.map { d ->
+            OwnDevice(d.deviceNumber, d.name, parseTime(d.registeredAt), d.lastSeenAt?.let(::parseTime), d.current, d.keyProtection.rawValue)
+        }
+
+    override suspend fun revokeMyDevice(deviceNumber: Int): String =
+        run { it.mutation(RevokeMyDeviceMutation(deviceNumber)).execute() }.revokeMyDevice.rawValue
 
     override suspend fun createLinkCode(): Pair<String, String> {
         val code = run { it.mutation(CreateLinkCodeMutation()).execute() }.createLinkCode
