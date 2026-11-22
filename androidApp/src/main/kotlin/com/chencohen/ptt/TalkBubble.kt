@@ -25,13 +25,13 @@ import com.chencohen.ptt.messaging.Group
  * The reply bubble (docs/screens/notifications.md, "Reply bubble"; 2026-11-22, hen): with Settings › Talk › Reply
  * bubble over other apps on and Android's "Display over other apps" allowed, a burst that plays while the phone is in
  * use (and the app isn't on screen) shows a bar at the bottom of the screen, above the navigation bar: who talks, and a
- * big Talk button. Hold it to talk back and let go to send; a tap starts talking and the next tap sends. It stays for
- * the burst and the 30 s reply window after it, then goes; ✕ closes it. Without the permission the heads-up
- * notification is all there is.
+ * big Talk button in the middle. Hold it to talk back and let go to send; a tap starts talking and the next tap sends.
+ * It slides up from the bottom edge and stays until a touch outside it (not while talking), ✕, or opening the app,
+ * then slides down off the screen (hen, 19:05). Without the permission the heads-up notification is all there is.
  */
 object TalkBubble {
     private const val TAG = "TalkBubble"
-    private const val REPLY_WINDOW_MS = 30_000L
+    private const val SLIDE_MS = 250L
     private const val HOLD_MS = 350L
 
     private val main = Handler(Looper.getMainLooper())
@@ -42,7 +42,6 @@ object TalkBubble {
     private var chat: String? = null
     private var talking = false
     private var talkStarted = 0L
-    private val hide = Runnable { if (!talking) remove() }
     private val tick = object : Runnable {
         override fun run() {
             if (!talking) return
@@ -69,12 +68,20 @@ object TalkBubble {
         this.chat = chat
         this.title?.text = title
         if (!talking) line?.text = context.getString(if (live) R.string.bubble_live else R.string.bubble_reply)
-        main.removeCallbacks(hide)
-        if (!live) main.postDelayed(hide, REPLY_WINDOW_MS)
     }
 
     /** The app came on screen, or the bubble isn't wanted any more. */
-    fun dismiss() = main.post { if (!talking) remove() }
+    fun dismiss() = main.post { if (!talking) dismissNow() }
+
+    /** Slides down off the screen, then goes. */
+    private fun dismissNow() {
+        val v = view ?: return
+        val params = v.layoutParams as? WindowManager.LayoutParams
+        v.animate().translationY((v.height + (params?.y ?: 0)).toFloat()).setDuration(SLIDE_MS)
+            .setInterpolator(android.view.animation.AccelerateInterpolator())
+            .withEndAction { if (view === v) remove() }
+            .start()
+    }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun add(context: Context): Boolean {
@@ -83,44 +90,54 @@ object TalkBubble {
         val metrics = wm.currentWindowMetrics
         val bars = metrics.windowInsets.getInsets(WindowInsets.Type.navigationBars() or WindowInsets.Type.displayCutout())
         val root = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(10), dp(12), dp(10))
-            background = GradientDrawable().apply { cornerRadius = dp(28).toFloat(); setColor(0xF2191D1C.toInt()) }
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(12), dp(10), dp(12), dp(16))
+            background = GradientDrawable().apply { cornerRadius = dp(32).toFloat(); setColor(0xF2191D1C.toInt()) }
             elevation = dp(8).toFloat()
         }
+        val top = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val close = TextView(context).apply {
             text = "✕"
             setTextColor(0xFFC9D1CF.toInt())
-            textSize = 18f
+            textSize = 20f
             gravity = Gravity.CENTER
             contentDescription = context.getString(R.string.bubble_close)
-            setOnClickListener { if (talking) endTalk(context, send = false); remove() }
+            setOnClickListener { if (talking) endTalk(context, send = false); dismissNow() }
         }
-        root.addView(close, LinearLayout.LayoutParams(dp(40), dp(48)))
-        val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        title = TextView(context).apply { setTextColor(Color.WHITE); textSize = 16f; maxLines = 1; setTypeface(typeface, android.graphics.Typeface.BOLD) }
-        line = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 13f; maxLines = 1 }
+        top.addView(close, LinearLayout.LayoutParams(dp(48), dp(48)))
+        val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+        title = TextView(context).apply { setTextColor(Color.WHITE); textSize = 19f; maxLines = 1; gravity = Gravity.CENTER; setTypeface(typeface, android.graphics.Typeface.BOLD) }
+        line = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 15f; maxLines = 1; gravity = Gravity.CENTER }
         words.addView(title)
         words.addView(line)
-        root.addView(words, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
+        top.addView(words, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        // As wide as ✕, so the words are centred over the button.
+        top.addView(View(context), LinearLayout.LayoutParams(dp(48), dp(48)))
+        root.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         button = TextView(context).apply {
             text = context.getString(R.string.bubble_talk)
             setTextColor(Color.WHITE)
-            textSize = 15f
+            textSize = 18f
             gravity = Gravity.CENTER
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(PINK) }
             contentDescription = context.getString(R.string.bubble_talk_hint)
             setOnTouchListener { v, e -> touch(context, v, e) }
         }
-        root.addView(button, LinearLayout.LayoutParams(dp(72), dp(72)).apply { marginStart = dp(8) })
+        root.addView(button, LinearLayout.LayoutParams(dp(96), dp(96)).apply { topMargin = dp(8) })
+        // A touch outside it closes it (not while talking).
+        root.setOnTouchListener { _, e ->
+            if (e.actionMasked == MotionEvent.ACTION_OUTSIDE && !talking) dismissNow()
+            false
+        }
         val margin = dp(12)
         val params = WindowManager.LayoutParams(
             metrics.bounds.width() - bars.left - bars.right - 2 * margin,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
@@ -132,6 +149,12 @@ object TalkBubble {
         return try {
             wm.addView(root, params)
             view = root
+            // Slides up from below the bottom edge.
+            root.translationY = dp(400).toFloat()
+            root.post {
+                root.translationY = (root.height + params.y).toFloat()
+                root.animate().translationY(0f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            }
             Log.i(TAG, "shown")
             true
         } catch (e: Exception) {
@@ -168,7 +191,6 @@ object TalkBubble {
         val chat = chat ?: return
         talking = true
         talkStarted = System.currentTimeMillis()
-        main.removeCallbacks(hide)
         (button?.background as? GradientDrawable)?.setColor(Color.RED)
         button?.text = context.getString(R.string.bubble_send)
         main.post(tick)
@@ -178,7 +200,7 @@ object TalkBubble {
             Log.w(TAG, "can't talk back from the bubble: the Talk screen opens", it)
             talking = false
             openTalk(context, chat)
-            remove()
+            dismissNow()
         }
     }
 
@@ -192,8 +214,6 @@ object TalkBubble {
         (button?.background as? GradientDrawable)?.setColor(PINK)
         button?.text = context.getString(R.string.bubble_talk)
         line?.text = context.getString(if (send) R.string.bubble_sent else R.string.bubble_reply)
-        main.removeCallbacks(hide)
-        main.postDelayed(hide, if (send) 1_500 else REPLY_WINDOW_MS)
     }
 
     private fun openTalk(context: Context, chat: String) {
@@ -212,7 +232,6 @@ object TalkBubble {
         line = null
         button = null
         chat = null
-        main.removeCallbacks(hide)
         main.removeCallbacks(tick)
         runCatching { v.context.getSystemService(WindowManager::class.java).removeView(v) }
         Log.i(TAG, "gone")
