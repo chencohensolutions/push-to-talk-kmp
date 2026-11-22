@@ -668,7 +668,7 @@ fun HomeApp(
                         setSaving = messaging::setCallSaving,
                         dismissAsk = messaging::dismissSaveAsk,
                     ),
-                    canSave = messagingState.talkSettings.saveCalls != com.chencohen.ptt.calls.SaveCalls.OFF,
+                    canSave = current.serverKeeps || messagingState.talkSettings.saveCalls != com.chencohen.ptt.calls.SaveCalls.OFF,
                 )
             }
         }

@@ -226,10 +226,11 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             Spacer(Modifier.height(16.dp))
             Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
             Text(statusLine(call, nameOf), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
-            if (call.recordingBy.isNotEmpty()) {
+            val recorders = call.recordingBy + listOfNotNull(call.serverRecordingBy)
+            if (recorders.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    stringResource(R.string.call_recording, call.recordingBy.joinToString { nameOf(it) }),
+                    stringResource(R.string.call_recording, recorders.joinToString { nameOf(it) }),
                     color = Color.White, style = LibraryType.Small,
                     modifier = Modifier.background(LibraryColors.Error, CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
                 )
@@ -256,13 +257,15 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
                 }
             }
             Spacer(Modifier.weight(1f))
-            if (canSave && call.phase == CallPhase.ACTIVE) {
+            // Stop shows for anyone while the server keeps the call; Record only where it can be saved.
+            val stoppable = call.saving || call.serverRecordingBy != null
+            if ((canSave || stoppable) && call.phase == CallPhase.ACTIVE) {
                 Text(
-                    stringResource(if (call.saving) R.string.call_save_stop else R.string.call_save),
+                    stringResource(if (stoppable) R.string.call_save_stop else R.string.call_save),
                     color = Color.White, style = LibraryType.Small,
                     modifier = Modifier
-                        .background(if (call.saving) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
-                        .clickable(role = Role.Button) { actions.setSaving(!call.saving) }
+                        .background(if (stoppable) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
+                        .clickable(role = Role.Button) { actions.setSaving(!stoppable) }
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                 )
                 Spacer(Modifier.height(16.dp))

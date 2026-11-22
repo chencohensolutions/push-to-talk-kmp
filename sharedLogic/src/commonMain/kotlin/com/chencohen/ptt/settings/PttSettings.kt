@@ -51,6 +51,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         set(value) = store.putString(KEY_DEVICE, value?.let { json.encodeToString(EnrolledDevice.serializer(), it) })
 
     /** The server's version and build, from its last `serverInfo`; null before it answered. */
+    /** serverInfo.keepsCalls: the server keeps a call while someone in it records (Record shows only then). */
+    var serverKeepsCalls: Boolean
+        get() = store.getString(KEY_KEEPS_CALLS) == "true"
+        set(value) = store.putString(KEY_KEEPS_CALLS, value.toString())
+
     var serverVersion: String?
         get() = store.getString(KEY_SERVER_VERSION)
         set(value) = store.putString(KEY_SERVER_VERSION, value)
@@ -135,6 +140,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_PENDING_INVITE_PAIR = "pending_invite_pair"
         private const val KEY_PENDING_LINK = "pending_link"
         private const val KEY_QUICK_TALK = "talk_quick_chats"
+        private const val KEY_KEEPS_CALLS = "server_keeps_calls"
         private const val KEY_OPEN_ON_TALK = "talk_open_on_talk"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"

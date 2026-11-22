@@ -4,6 +4,7 @@ import com.apollographql.apollo.ApolloClient
 import com.chencohen.ptt.discovery.KeptDiscovery
 import com.chencohen.ptt.discovery.ServerFinder
 import com.chencohen.ptt.discovery.findServerOnNetworkErrors
+import com.chencohen.ptt.graphql.KeepsCallsQuery
 import com.chencohen.ptt.graphql.ServerCaQuery
 import com.chencohen.ptt.graphql.ServerInfoQuery
 import com.chencohen.ptt.network.MtlsHttpClientFactory
@@ -70,17 +71,25 @@ internal class ServerHttp(
      * Nothing changes when it doesn't answer.
      */
     suspend fun refreshServerInfo() {
-        val info = try {
-            graphql { apollo -> apollo.query(ServerInfoQuery()).execute().data?.serverInfo }
+        val got = try {
+            graphql { apollo ->
+                apollo.query(ServerInfoQuery()).execute().data?.serverInfo?.let { info ->
+                    // An older server doesn't know keepsCalls: it keeps no calls.
+                    val keeps = runCatching { apollo.query(KeepsCallsQuery()).execute().data?.serverInfo?.keepsCalls }.getOrNull() ?: false
+                    info to keeps
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             null
         } ?: return
+        val (info, keeps) = got
         info.discovery?.let { keepDiscovery(it.fingerprint, it.id, it.key, it.addresses) }
         info.caCertificate?.takeIf { decodePemCertificates(it).isNotEmpty() && it != settings.serverCa }?.let { settings.serverCa = it }
         settings.serverVersion = info.version
         settings.device?.takeIf { it.deviceNumber != info.deviceNumber }?.let { settings.device = it.copy(deviceNumber = info.deviceNumber) }
+        settings.serverKeepsCalls = keeps
     }
 
     /** Keeps what the server at `serverUrl` said of itself (see [KeptDiscovery.merge]). */

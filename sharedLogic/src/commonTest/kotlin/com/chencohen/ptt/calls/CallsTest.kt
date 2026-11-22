@@ -282,10 +282,38 @@ class CallsTest {
         s.calls.setRecording(false)
         runCurrent()
         assertEquals("sharon" to false, s.keeps.last())
-        // Recording again, then hanging up while it records: the server is told to stop.
+        // Hanging up while it records leaves the stop to the server (the recording device left the room).
         s.calls.setRecording(true)
+        runCurrent()
+        val asked = s.keeps.size
         s.calls.hangUp()
         runCurrent()
-        assertEquals("sharon" to false, s.keeps.last())
+        assertEquals(asked, s.keeps.size)
+    }
+
+    @Test
+    fun theServersRecordingShowsAndAnyoneInTheCallCanStopIt() = runTest {
+        val s = Setup(this)
+        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
+        s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1"))
+        s.transport.listener!!.serverRecording("sharon.1")
+        runCurrent()
+        assertEquals("sharon", s.calls.state.value!!.serverRecordingBy)
+        s.calls.setRecording(false)
+        runCurrent()
+        assertEquals(listOf<Pair<String?, Boolean>>("sharon" to false), s.keeps, "Stop works for a recording sharon started")
+        s.transport.listener!!.serverRecording(null)
+        runCurrent()
+        assertEquals(null, s.calls.state.value!!.serverRecordingBy)
+    }
+
+    @Test
+    fun roomMetadataNamesTheRecordingDevice() {
+        assertEquals("sharon.1", RoomMetadata.recorderOf("""{"recording":true,"by":"sharon.1","startedAt":"2026-11-22T16:00:00Z"}"""))
+        assertEquals(null, RoomMetadata.recorderOf("""{"recording":false}"""))
+        assertEquals(null, RoomMetadata.recorderOf(""))
+        assertEquals(null, RoomMetadata.recorderOf("not json"))
     }
 }

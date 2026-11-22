@@ -58,6 +58,10 @@ data class CallUi(
     val others: List<String> = emptyList(),
     /** Users saving the call (the Recording badge); this phone's own user too while it saves. */
     val recordingBy: Set<String> = emptySet(),
+    /** The user whose device has the server keeping the call now (the room's metadata); null: not kept. */
+    val serverRecordingBy: String? = null,
+    /** The server can keep calls (serverInfo.keepsCalls): Record shows even with Save calls off. */
+    val serverKeeps: Boolean = false,
     val microphone: Boolean = true,
     val camera: Boolean = video,
     /** Set once [phase] is ENDED. */
@@ -97,6 +101,9 @@ interface CallTransportListener {
 
     /** The room was lost. */
     fun disconnected()
+
+    /** The room's metadata: the device ("user.device") the server keeps the call for, or null when it doesn't. */
+    fun serverRecording(by: String?) {}
 }
 
 /** The platform's part: ringing, the ongoing call session, missed-call notifications. */
@@ -134,11 +141,12 @@ internal class Calls(
     private val onCall: () -> Unit,
     private val saveCalls: () -> SaveCalls = { SaveCalls.OFF },
     /**
-     * The server keeps the call, encrypted end to end, while this user records it ([on]), and stops when nobody in
-     * the call records any more (recordCall; 2026-11-22, hen: only when someone records). Failures don't stop the
-     * phone's own saving.
+     * The server keeps the call, encrypted end to end, from this user's Record ([on]: recordCall) until anyone's Stop
+     * (stopRecordingCall), or until the recording device leaves (2026-11-22, hen: only when someone records).
+     * Failures don't stop the phone's own saving.
      */
     private val keepOnServer: suspend (call: String, peer: String?, group: String?, on: Boolean) -> Unit = { _, _, _, _ -> },
+    private val serverKeepsCalls: () -> Boolean = { false },
     private val now: () -> Long,
     private val random: Random,
 ) {
@@ -231,6 +239,11 @@ internal class Calls(
     fun setRecording(on: Boolean) {
         val call = current?.takeIf { it.phase == CallPhase.ACTIVE } ?: return
         val self = me() ?: return
+        if (!on && !call.saving && call.serverRecordingBy != null) {
+            // Someone else has the server keeping it: anyone in the call may stop that.
+            scope.launch { keepOnServer(call, false) }
+            return
+        }
         if (on == call.saving) return
         if (on) {
             if (transport?.startRecording() != true) return
@@ -351,8 +364,6 @@ internal class Calls(
         joined = false
         key = null
         if (call.saving) transport?.stopRecording()?.let { savedAs = it }
-        // This phone stops asking the server to keep it (the server also stops when the room empties).
-        if (call.saving) scope.launch { keepOnServer(call, false) }
         val ended = call.copy(phase = CallPhase.ENDED, outcome = outcome, saving = false, askToSave = false)
         _state.value = ended
         host?.ended(ended)
@@ -387,7 +398,7 @@ internal class Calls(
                     val first = call.phase != CallPhase.ACTIVE && !askedToSave
                     val mode = saveCalls()
                     _state.value = call.copy(
-                        phase = CallPhase.ACTIVE, others = users,
+                        phase = CallPhase.ACTIVE, others = users, serverKeeps = serverKeepsCalls(),
                         connectedAt = call.connectedAt.takeIf { it > 0 } ?: now(),
                         askToSave = call.askToSave || (first && mode == SaveCalls.ASK),
                     )
@@ -400,6 +411,10 @@ internal class Calls(
                     end(CallOutcome.ANSWERED, tell = Group.idOf(call.chat) == null)
                 }
             }
+        }
+
+        override fun serverRecording(by: String?) {
+            scope.launch { _state.update { it?.copy(serverRecordingBy = by?.substringBeforeLast('.')) } }
         }
 
         override fun disconnected() {

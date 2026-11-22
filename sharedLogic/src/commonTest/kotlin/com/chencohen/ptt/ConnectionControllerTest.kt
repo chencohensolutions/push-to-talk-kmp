@@ -53,7 +53,13 @@ private fun respondJson(json: String): MockRequestHandler = {
 /** Answers `me` and `serverInfo` as the server does. */
 private val server: MockRequestHandler = { request ->
     val body = request.body.toByteArray().decodeToString()
-    respondJson(if ("\"operationName\":\"ServerInfo\"" in body) SERVER_INFO_JSON else ME_JSON)(request)
+    respondJson(
+        when {
+            "\"operationName\":\"ServerInfo\"" in body -> SERVER_INFO_JSON
+            "\"operationName\":\"KeepsCalls\"" in body -> """{"data":{"serverInfo":{"keepsCalls":true}}}"""
+            else -> ME_JSON
+        },
+    )(request)
 }
 
 private fun mockClient(handler: MockRequestHandler) = HttpClient(MockEngine(handler))
@@ -154,6 +160,7 @@ class ConnectionControllerTest {
         // `me` and serverInfo: the device's number and name as the server has them, who the server is and where.
         assertEquals(EnrolledDevice("hen", 3, "Pixel 9 Pro"), controller.currentState.device)
         assertEquals("2026.11.21", settings.serverVersion)
+        assertEquals(true, settings.serverKeepsCalls)
         val kept = settings.serverDiscovery!!
         assertEquals("MFZWI3D-BONSGYC", kept.id)
         assertEquals(listOf("https://10.0.2.2:56400", "https://203.0.113.7:56400"), kept.addresses)

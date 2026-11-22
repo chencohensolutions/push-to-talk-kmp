@@ -13,7 +13,11 @@ query LiveTalk {
   serverInfo { liveTalk }
 }
 
-# A call kept on the server while this user records it (Calls.setRecording; docs/screens/calls.md).
-mutation RecordCall($call: ID!, $peer: String, $group: ID, $on: Boolean!) {
-  recordCall(call: $call, peer: $peer, group: $group, on: $on) { recording }
+# Keeping a call on the server while someone records it (docs/screens/calls.md, "Recording").
+mutation RecordCall($call: ID!, $peer: String, $group: ID) {
+  recordCall(call: $call, peer: $peer, group: $group) { recording by }
+}
+
+mutation StopRecordingCall($call: ID!, $peer: String, $group: ID) {
+  stopRecordingCall(call: $call, peer: $peer, group: $group) { recording by }
 }
