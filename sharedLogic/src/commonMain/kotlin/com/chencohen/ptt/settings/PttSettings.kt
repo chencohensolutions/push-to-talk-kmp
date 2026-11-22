@@ -112,6 +112,16 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
         set(value) = store.putString(KEY_NOTIFY_ONLY, json.encodeToString(value.sorted()))
 
+    /** The chats marked Quick talk, in the order marked (the Talk tab's pages). */
+    var quickTalkChats: List<String>
+        get() = store.getString(KEY_QUICK_TALK)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_QUICK_TALK, json.encodeToString(value))
+
+    /** The Talk tab's page shown last. */
+    var quickTalkPage: String?
+        get() = store.getString(KEY_QUICK_TALK_PAGE)?.takeIf { it.isNotEmpty() }
+        set(value) = store.putString(KEY_QUICK_TALK_PAGE, value)
+
     var pendingLink: String?
         get() = store.getString(KEY_PENDING_LINK)
         set(value) = store.putString(KEY_PENDING_LINK, value)
@@ -119,6 +129,8 @@ internal class PttSettings(private val store: KeyValueStore) {
     companion object {
         private const val KEY_PENDING_INVITE_PAIR = "pending_invite_pair"
         private const val KEY_PENDING_LINK = "pending_link"
+        private const val KEY_QUICK_TALK = "talk_quick_chats"
+        private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"
         private const val KEY_STAY_CONNECTED = "talk_stay_connected"
         private const val KEY_DEFAULT_TALK = "talk_default_chat"

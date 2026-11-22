@@ -449,6 +449,14 @@ The server's side is its docs/messaging.md, "Calls": `callToken(call, peer | gro
 Not done yet from the plan's 6: R4 (HEVC; calls and saving use H.264 and LiveKit's default codec now); the 720p cap
 set explicitly; the tests on phones (a call ringing a sleeping phone, three on 4G, a saved call played from Share).
 
+## Quick talk (1.1.0)
+
+The app opens on the **Talk** tab ([quick-talk.md](screens/quick-talk.md); 2026-11-22, hen: the main screen is push
+to talk): a pager of the contacts and groups marked Quick talk, each with the hold-to-talk circle. The marks are
+`TalkSettings.quickTalk` (an ordered list in `PttSettings`, per phone), the last page `quickTalkPage`; `QuickTalk`
+keeps the order (a new mark goes last), skips chats that can't talk now, and picks the start page. Pressing on a page
+is `Talk.press` in that chat, as in Talk mode.
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.

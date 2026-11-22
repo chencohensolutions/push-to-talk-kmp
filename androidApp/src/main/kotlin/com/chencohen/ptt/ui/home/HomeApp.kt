@@ -100,8 +100,8 @@ import com.chencohen.ptt.ui.style.barsRoom
 import com.chencohen.ptt.ui.style.navigationBarRoom
 import com.chencohen.ptt.ui.style.statusBarRoom
 
-/** The home tabs, Signal's two (docs/screens/chats.md). */
-enum class HomeTab { CHATS, CALLS }
+/** The home tabs: Talk (the Quick talk chats, docs/screens/quick-talk.md) first, then Signal's two (docs/screens/chats.md). */
+enum class HomeTab { TALK, CHATS, CALLS }
 
 /** What the home screens render: the server's health, who this is (the profile circle's letter), and messaging's. */
 data class HomeState(val health: ServerHealth, val user: String?, val messaging: MessagingState = MessagingState())
@@ -123,6 +123,12 @@ class HomeActions(
     val chatName: (String) -> String = { it },
     /** Share a saved call's file. */
     val shareCall: (String) -> Unit = {},
+    /** The Talk tab: hold to talk in a Quick talk chat, and let go. */
+    val pressTalk: (String) -> Unit = {},
+    val releaseTalk: () -> Unit = {},
+    /** The Talk tab's page now on screen, remembered for next time. */
+    val quickTalkShown: (String) -> Unit = {},
+    val micDenied: () -> Unit = {},
 )
 
 /**
@@ -163,7 +169,7 @@ fun HomeApp(
     fun home() {
         saved = ""
     }
-    var tab by rememberSaveable { mutableStateOf(HomeTab.CHATS) }
+    var tab by rememberSaveable { mutableStateOf(HomeTab.TALK) }
     val messages = remember { Messages() }
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -185,6 +191,10 @@ fun HomeApp(
     fun setNotifyOnly(chat: String, on: Boolean) {
         val talk = messagingState.talkSettings
         messaging.setTalkSettings(talk.copy(notifyOnly = if (on) talk.notifyOnly + chat else talk.notifyOnly - chat))
+    }
+    fun setQuickTalk(chat: String, on: Boolean) {
+        val talk = messagingState.talkSettings
+        messaging.setTalkSettings(talk.copy(quickTalk = com.chencohen.ptt.talk.QuickTalk.set(talk.quickTalk, chat, on)))
     }
     val nameOf: (String) -> String = { u -> messagingState.contacts.firstOrNull { it.user == u }?.displayName?.takeIf { it.isNotBlank() } ?: u }
     val unnamedGroup = stringResource(R.string.group_unnamed)
@@ -224,6 +234,13 @@ fun HomeApp(
                         call = ::call,
                         chatName = chatName,
                         shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
+                        pressTalk = { chat -> messaging.pressTalk(chat) },
+                        releaseTalk = { messaging.releaseTalk(true) },
+                        quickTalkShown = { chat ->
+                            val talk = messaging.state.value.talkSettings
+                            if (talk.quickTalkPage != chat) messaging.setTalkSettings(talk.copy(quickTalkPage = chat))
+                        },
+                        micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                     ),
                 )
                 name == "settings" -> {
@@ -360,8 +377,10 @@ fun HomeApp(
                                 }
                             },
                             setNotifyOnly = { on -> setNotifyOnly(Group.chatOf(id), on) },
+                            setQuickTalk = { on -> setQuickTalk(Group.chatOf(id), on) },
                         ),
                         notifyOnly = Group.chatOf(id) in messagingState.talkSettings.notifyOnly,
+                        quickTalk = Group.chatOf(id) in messagingState.talkSettings.quickTalk,
                     )
                 }
                 name == "invite" -> {
@@ -557,8 +576,10 @@ fun HomeApp(
                                 }
                             },
                             setNotifyOnly = { on -> setNotifyOnly(user, on) },
+                            setQuickTalk = { on -> setQuickTalk(user, on) },
                         ),
                         notifyOnly = user in messagingState.talkSettings.notifyOnly,
+                        quickTalk = user in messagingState.talkSettings.quickTalk,
                     )
                 }
                 name.startsWith("safety/") && pageUser != null -> {
@@ -632,7 +653,31 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
     val insets = barsRoom()
     val chats = state.messaging
     Box(Modifier.fillMaxSize().background(LibraryColors.Background)) {
-        Column(
+        if (tab == HomeTab.TALK) {
+            val me = state.user.orEmpty()
+            val unnamed = stringResource(R.string.group_unnamed)
+            val contactNames = chats.contacts.filter { it.paired && !it.blocked }.associate { c -> c.user to (c.displayName?.takeIf { it.isNotBlank() } ?: c.user) }
+            val groups = chats.groups.filter { !it.gone && it.isReader(me) }.associateBy { it.chat }
+            val quick = chats.talkSettings.quickTalk
+            val pages = com.chencohen.ptt.talk.QuickTalk.pages(quick, contactNames.keys + groups.keys).map { chat ->
+                groups[chat]?.let { g -> com.chencohen.ptt.ui.talk.QuickTalkPage(chat, g.name.ifBlank { unnamed }, g.picture) }
+                    ?: com.chencohen.ptt.ui.talk.QuickTalkPage(chat, contactNames.getValue(chat))
+            }
+            com.chencohen.ptt.ui.talk.QuickTalkHome(
+                pages = pages,
+                startPage = com.chencohen.ptt.talk.QuickTalk.startPage(pages.map { it.chat }, chats.talkSettings.quickTalkPage),
+                me = me,
+                talk = chats.talk,
+                nameOf = { u -> contactNames[u] ?: u },
+                press = actions.pressTalk,
+                release = actions.releaseTalk,
+                openChat = actions.openContact,
+                openChats = { selectTab(HomeTab.CHATS) },
+                pageShown = actions.quickTalkShown,
+                micDenied = actions.micDenied,
+                modifier = Modifier.padding(top = insets.calculateTopPadding() + 64.dp, bottom = insets.calculateBottomPadding() + 80.dp),
+            )
+        } else Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
@@ -726,7 +771,11 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
             NewChatButton(actions.newChat, Modifier.align(Alignment.BottomEnd).navigationBarRoom().padding(end = 20.dp, bottom = 84.dp))
         }
         SegmentedBar(
-            options = listOf(HomeTab.CHATS to stringResource(R.string.chats_title), HomeTab.CALLS to stringResource(R.string.calls_title)),
+            options = listOf(
+                HomeTab.TALK to stringResource(R.string.quick_talk_title),
+                HomeTab.CHATS to stringResource(R.string.chats_title),
+                HomeTab.CALLS to stringResource(R.string.calls_title),
+            ),
             selected = tab,
             onSelect = selectTab,
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarRoom().padding(bottom = 16.dp),
@@ -747,7 +796,13 @@ private fun TopBar(state: HomeState, tab: HomeTab, openSettings: () -> Unit, mod
         ProfileCircle(state.user, openSettings)
         Spacer(Modifier.width(14.dp))
         Text(
-            stringResource(if (tab == HomeTab.CHATS) R.string.chats_title else R.string.calls_title),
+            stringResource(
+                when (tab) {
+                    HomeTab.TALK -> R.string.quick_talk_title
+                    HomeTab.CHATS -> R.string.chats_title
+                    HomeTab.CALLS -> R.string.calls_title
+                },
+            ),
             color = LibraryColors.OnBackground,
             style = LibraryType.ScreenTitle,
             modifier = Modifier.weight(1f).semantics { heading() },

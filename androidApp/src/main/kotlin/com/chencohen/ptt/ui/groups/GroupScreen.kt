@@ -57,6 +57,8 @@ class GroupActions(
     val delete: () -> Unit = {},
     /** When I'm away: Notify only (true) or Play aloud. */
     val setNotifyOnly: (Boolean) -> Unit = {},
+    /** Quick talk on or off: a page of the Talk tab (docs/screens/quick-talk.md). */
+    val setQuickTalk: (Boolean) -> Unit = {},
 )
 
 /**
@@ -64,7 +66,7 @@ class GroupActions(
  * invitation to answer, the members with how each is known to this phone, and leave or delete in red.
  */
 @Composable
-internal fun GroupScreen(me: String, group: Group?, contacts: List<Contact>, actions: GroupActions, notifyOnly: Boolean = false) {
+internal fun GroupScreen(me: String, group: Group?, contacts: List<Contact>, actions: GroupActions, notifyOnly: Boolean = false, quickTalk: Boolean = false) {
     val context = LocalContext.current
     SettingsScaffold(title = group?.let { groupName(it) } ?: "", back = actions.back, imePadding = true) {
         if (group == null) {
@@ -128,7 +130,10 @@ internal fun GroupScreen(me: String, group: Group?, contacts: List<Contact>, act
                 SettingsCard { InfoRow(stringResource(R.string.group_rename), null, onClick = { name = group.name; editing = true }) }
             }
         }
-        if (!group.gone && group.isReader(me)) com.chencohen.ptt.ui.talk.WhenAwayCard(notifyOnly, actions.setNotifyOnly)
+        if (!group.gone && group.isReader(me)) {
+            com.chencohen.ptt.ui.talk.QuickTalkCard(quickTalk, actions.setQuickTalk)
+            com.chencohen.ptt.ui.talk.WhenAwayCard(notifyOnly, actions.setNotifyOnly)
+        }
         SectionTitle(stringResource(R.string.group_members))
         SettingsCard {
             val rows = group.readers.map { it.user to false } + group.invited.filter { !group.isReader(it.user) }.map { it.user to true }
