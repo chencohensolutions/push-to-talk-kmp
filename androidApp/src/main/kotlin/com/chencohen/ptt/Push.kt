@@ -41,7 +41,7 @@ class TalkApp : Application() {
         setCallHost(this, AndroidCallHost(this))
         // Show in Android Contacts: the entries follow Talk's contacts (names, added, removed).
         scope.launch {
-            messagingState(this@TalkApp).map { s -> s.contacts.filter { it.paired && !it.blocked }.map { it.user to it.name } }
+            messagingState(this@TalkApp).map { s -> s.contacts.filter { it.paired && !it.blocked }.map { Triple(it.user, it.name, it.shownEmail) } }
                 .distinctUntilChanged()
                 .collect { AndroidContacts.sync(this@TalkApp, messagingState(this@TalkApp).value.contacts) }
         }

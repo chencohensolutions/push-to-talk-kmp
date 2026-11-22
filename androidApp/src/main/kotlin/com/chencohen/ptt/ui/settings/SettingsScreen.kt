@@ -57,6 +57,9 @@ internal fun SettingsScreen(
     setAutomaticUpdates: (Boolean) -> Unit = {},
     /** Talk's contacts in Android Contacts, with Message and calls (off by default). */
     contacts: List<com.chencohen.ptt.messaging.Contact> = emptyList(),
+    /** This user's email, shared with their contacts (null: none). */
+    myEmail: String? = null,
+    setMyEmail: (String) -> Unit = {},
 ) {
     LaunchedEffect(Unit) { refresh() }
     SettingsScaffold(stringResource(R.string.settings_title), back) {
@@ -102,7 +105,11 @@ internal fun SettingsScreen(
             }
         }
         SectionTitle(stringResource(R.string.settings_contacts_title))
+        var editingEmail by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+        var shownEmail by androidx.compose.runtime.remember(myEmail) { androidx.compose.runtime.mutableStateOf(myEmail) }
         SettingsCard {
+            InfoRow(stringResource(R.string.settings_my_email), shownEmail ?: stringResource(R.string.settings_my_email_none), onClick = { editingEmail = true })
+            RowDivider()
             com.chencohen.ptt.ui.talk.SwitchRow(stringResource(R.string.settings_android_contacts), stringResource(R.string.settings_android_contacts_body), inContacts) { on ->
                 if (!on) {
                     com.chencohen.ptt.AndroidContacts.set(context, false, contacts)
@@ -114,6 +121,32 @@ internal fun SettingsScreen(
                     askContacts.launch(arrayOf(android.Manifest.permission.READ_CONTACTS, android.Manifest.permission.WRITE_CONTACTS))
                 }
             }
+        }
+        if (editingEmail) {
+            var text by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(shownEmail.orEmpty()) }
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { editingEmail = false },
+                title = { Text(stringResource(R.string.settings_my_email)) },
+                text = {
+                    androidx.compose.foundation.layout.Column {
+                        Text(stringResource(R.string.settings_my_email_body), style = LibraryType.Caption, color = LibraryColors.Muted)
+                        androidx.compose.material3.OutlinedTextField(
+                            value = text, onValueChange = { text = it.take(254) }, singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Email),
+                        )
+                    }
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        setMyEmail(text)
+                        shownEmail = text.trim().ifBlank { null }
+                        editingEmail = false
+                    }) { Text(stringResource(R.string.contact_rename_save)) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { editingEmail = false }) { Text(stringResource(R.string.contact_rename_cancel)) }
+                },
+            )
         }
         SectionTitle(stringResource(R.string.settings_talk_title))
         SettingsCard {

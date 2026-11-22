@@ -69,6 +69,14 @@ class MessagingController internal constructor(
     /** This phone's Talk screen or reply bubble for [chat] is open (null: closed); the other user's phone is told. */
     fun setHere(chat: String?) = onWork { messaging.setHere(chat) }
 
+    /** Their email as this user knows it (blank: none), for Android Contacts. */
+    fun setContactEmail(user: String, email: String) = onWork { messaging.setEmail(user, email) }
+
+    val myEmail: String? get() = messaging.myEmail
+
+    /** This user's own email, shared with their paired contacts (blank: none). */
+    fun setMyEmail(email: String) = onWork { messaging.setMyEmail(email) }
+
     /** Rename: this user's own name for [user] (blank: back to theirs). */
     fun renameContact(user: String, name: String) {
         scope.launch { withContext(work) { messaging.rename(user, name) } }

@@ -322,6 +322,8 @@ fun HomeApp(
                         automaticUpdates = automaticUpdates,
                         setAutomaticUpdates = { on -> com.chencohen.ptt.AppUpdates.setAutomatic(app, on) },
                         contacts = messagingState.contacts,
+                        myEmail = messaging.myEmail,
+                        setMyEmail = { email -> messaging.setMyEmail(email) },
                         presenceVisible = presenceVisible,
                         setPresenceVisible = { visible ->
                             presenceVisible = null
@@ -628,6 +630,7 @@ fun HomeApp(
                         actions = ContactActions(
                             back = ::pop,
                             rename = { name -> messaging.renameContact(user, name) },
+                            setEmail = { email -> messaging.setContactEmail(user, email) },
                             acceptKeyChange = { messaging.acceptKeyChange(user) },
                             openSafetyNumber = { push("safety/$user") },
                             setBlocked = { blocked ->

@@ -31,7 +31,14 @@ data class Contact(
     val displayName: String? = null,
     /** The name this user gave them (Rename; 2026-11-22, hen), on all of this user's phones; null: none. */
     val nickname: String? = null,
+    /** Their email as this user typed it (on all of this user's phones); null: none. */
+    val email: String? = null,
+    /** The email their own phone shared (ProfileContent, end to end); null: not shared. */
+    val theirEmail: String? = null,
 ) {
+    /** The email shown and put in Android Contacts: this user's, else theirs. */
+    val shownEmail: String? get() = email?.takeIf { it.isNotBlank() } ?: theirEmail?.takeIf { it.isNotBlank() }
+
     /** How they are shown: this user's name for them, else their own, else their user name. */
     val name: String get() = nickname?.takeIf { it.isNotBlank() } ?: displayName?.takeIf { it.isNotBlank() } ?: user
 }
