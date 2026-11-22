@@ -142,12 +142,13 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_CALL_VIDEO)
         set(value) = store.putString(KEY_CALL_VIDEO, value)
 
-    /** Push-to-video (off unless turned on on a Talk screen), and the reply bubble showing video (off unless on). */
+    /** Push-to-video (off unless turned on on a Talk screen), and the reply bubble showing video (on unless off). */
     var pushVideo: Boolean
         get() = store.getString(KEY_PUSH_VIDEO) == "true"
         set(value) = store.putString(KEY_PUSH_VIDEO, value.toString())
     var bubbleVideo: Boolean
-        get() = store.getString(KEY_BUBBLE_VIDEO) == "true"
+        // On unless turned off (2026-11-22, hen: a received video plays by default, in the bubble too).
+        get() = store.getString(KEY_BUBBLE_VIDEO) != "false"
         set(value) = store.putString(KEY_BUBBLE_VIDEO, value.toString())
 
     var pendingLink: String?

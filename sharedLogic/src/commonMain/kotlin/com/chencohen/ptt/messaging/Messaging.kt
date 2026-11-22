@@ -95,8 +95,8 @@ data class TalkSettings(
     val callVideo: com.chencohen.ptt.calls.CallVideo = com.chencohen.ptt.calls.CallVideo.VP8,
     /** Push-to-video (2026-11-22, hen; off by default): a press on a Talk screen sends the camera too. */
     val pushVideo: Boolean = false,
-    /** The reply bubble shows a burst's video (off by default). */
-    val bubbleVideo: Boolean = false,
+    /** The reply bubble shows a burst's video (on by default; its Video switch turns it off). */
+    val bubbleVideo: Boolean = true,
 )
 
 /**
