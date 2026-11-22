@@ -99,11 +99,18 @@ object TalkBubble {
             val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value
             val rotation = shown?.rotation ?: 0
             val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 4f / 3f
-            val side = box.width.takeIf { it > 0 } ?: return main.postDelayed(this, 200).let { }
-            // Fitted in the square box once turned.
+            // The box takes the picture's upright shape (tall for a phone held upright, wide on its side), at most
+            // 240 dp on its long side.
+            val side = (240 * box.resources.displayMetrics.density).toInt()
             val turned = rotation % 180 != 0
             val shownAspect = if (turned) 1f / aspect else aspect
             val (w, h) = if (shownAspect >= 1f) side to (side / shownAspect).toInt() else (side * shownAspect).toInt() to side
+            val boxParams = box.layoutParams
+            if (boxParams.width != w || boxParams.height != h) {
+                boxParams.width = w
+                boxParams.height = h
+                box.layoutParams = boxParams
+            }
             val (vw, vh) = if (turned) h to w else w to h
             val lp = video.layoutParams
             if (lp.width != vw || lp.height != vh) {
