@@ -79,3 +79,6 @@ The talk button grows (up to 1.25 times) and glows with the voice: the one playi
   "Video off" / "Video on" (asks for the camera the first time), then Chat, Voice call, Video call. Centred above the
   big button: this phone's front camera while Video is on (the camera stays open while the screen shows, so a press
   sends it with the voice at once), or someone's video burst while it plays, upright, in step with their voice.
+  When their video comes while Video is on, this phone's camera slides and shrinks into the top end corner over it
+  (a third of the box, 280 ms), and grows back to its place when it ends (2026-11-22, hen); it is the same view
+  throughout, so the camera isn't opened again.

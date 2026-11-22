@@ -155,17 +155,40 @@ internal fun FittedBox(shape: Float, modifier: Modifier = Modifier, alignment: A
 }
 
 /**
- * Above a Talk screen's button, centred: someone's video burst while it plays, else this phone's camera while Video
- * is on, else nothing.
+ * Above a Talk screen's button, centred: someone's video burst while it plays, and this phone's camera while Video is
+ * on. When their video comes, this phone's slides and shrinks into the top end corner over it, and grows back when it
+ * ends (2026-11-22, hen), in 280 ms; it is the same view throughout, so the camera isn't opened again.
  */
 @Composable
 internal fun TalkVideoBox(playingVideo: Boolean, pushVideo: Boolean, modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
-    when {
-        playingVideo -> TalkVideoView(modifier, alignment)
-        pushVideo -> PushVideoPreview(modifier, alignment)
-        else -> Box(modifier)
+    val small by androidx.compose.animation.core.animateFloatAsState(
+        if (playingVideo && pushVideo) 1f else 0f,
+        androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "own video",
+    )
+    BoxWithConstraints(modifier) {
+        if (playingVideo) TalkVideoView(Modifier.fillMaxSize(), alignment)
+        if (pushVideo) {
+            androidx.compose.runtime.key("own camera") {
+                // From where it sits alone (alignment, the whole box) to the top end corner at a third of the size.
+                val from = alignment as? androidx.compose.ui.BiasAlignment ?: androidx.compose.ui.BiasAlignment(0f, 0f)
+                val place = androidx.compose.ui.BiasAlignment(
+                    from.horizontalBias + (1f - from.horizontalBias) * small,
+                    from.verticalBias + (-1f - from.verticalBias) * small,
+                )
+                val share = 1f - (1f - SMALL_SHARE) * small
+                Box(
+                    Modifier.align(place).padding(all = (8 * small).dp).size(maxWidth * share, maxHeight * share),
+                ) {
+                    PushVideoPreview(Modifier.fillMaxSize(), if (small > 0.5f) Alignment.TopEnd else alignment)
+                }
+            }
+        }
     }
 }
+
+/** This phone's video beside someone's: this much of the box's width and height. */
+private const val SMALL_SHARE = 0.32f
 
 /**
  * A burst's video, as its sender's camera took it, turned upright and fitted in the space given; drawn by
