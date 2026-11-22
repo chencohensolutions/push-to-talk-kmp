@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Placeholder icon (phase 1): the Journal ink as the ground. -->
+<!-- Placeholder icon (phase 1): Talk's pink (#E6007E) as the ground. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#17201F"
+        android:fillColor="#E6007E"
         android:pathData="M0,0h108v108h-108z" />
 </vector>

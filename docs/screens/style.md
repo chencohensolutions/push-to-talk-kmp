@@ -15,7 +15,7 @@ system's light or dark theme.
 
 | Color | Is for | Never for |
 |---|---|---|
-| Ink (`Inverse` / `OnInverse`: ink on light, paper on dark) | The one main action of a screen (later the talk button), the selected tab, text actions, the profile circle, the new-chat pencil | |
+| Pink (`Inverse` / `OnInverse`: vibrant pink #E6007E with white, in both themes) | The one main action of a screen (later the talk button), the selected tab, text actions, the profile circle, the new-chat pencil | |
 | Teal (`Accent`) | "Live" and progress: a running step, a check, later someone talking | Buttons and links |
 | Red (`Error`) | Actions that leave, remove or revoke (Register again, Block, Remove contact, later Revoke device), failures | Anything that only changes a setting |
 | Orange (`Warning`) | Warnings: the Offline pill's cloud, the rejected card's mark, "Can’t reach your server right now", "Safety number changed" | Links and buttons |
