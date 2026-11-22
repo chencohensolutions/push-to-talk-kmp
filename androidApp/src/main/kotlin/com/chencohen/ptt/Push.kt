@@ -89,7 +89,7 @@ class TalkMessagingService : FirebaseMessagingService() {
         runBlocking {
             withTimeoutOrNull(18_000) {
                 // A ringing call (a Telecom call) keeps the process too.
-                while (wake.isActive && !TalkSession.active && !callKeepsProcess()) kotlinx.coroutines.delay(100)
+                while (wake.isActive && !TalkReady.active && !TalkSession.active && !callKeepsProcess()) kotlinx.coroutines.delay(100)
             }
         }
     }

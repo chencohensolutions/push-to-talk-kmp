@@ -32,13 +32,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-// Talk outside the screen (docs/design.md, "Phase 5a"; the plan's "Background delivery and battery"). With Stay
-// connected off nothing runs in the background: a `talk` push wakes the phone, and a burst it should play aloud is
-// registered with Telecom as a talk session (Core-Telecom's addCall, answered by the app itself), which the system
-// backs with a phone-call service: Android 17 lets an app play from the background only that way (a media-playback
-// service started from the push is silenced, 1.0.3-1.2.0). The burst plays as the call's voice on the loudspeaker
-// (TalkAudio). With the app on screen it plays as media, no session. If the session can't start, or the chat is
-// Notify only, a notification with Play and Reply instead. Stay connected keeps /ws in a foreground service.
+// Talk outside the screen (docs/design.md, "Woken by talk"). With Stay connected off nothing connects in the
+// background: a `talk` push wakes the phone. Android 17 lets an app play from the background only from a foreground
+// service with while-in-use rights, which a service started by a push doesn't get. So TalkReadyService, started when
+// the app opens (it gets them then), waits idle with a silent notification, holding no connection; a woken burst
+// plays through it as media: the loudspeaker at media volume. Without it (after a restart, stopped, or turned off in
+// Settings › Talk) the burst plays in a Telecom talk session (Core-Telecom's addCall, answered by the app itself) as
+// the call's voice on the loudspeaker. If neither can play, or the chat is Notify only, a notification with Play and
+// Reply. Stay connected keeps /ws in a foreground service.
 
 /** The platform's part in playing talk (TalkHost): the talk session, and the talk notifications. */
 class AndroidTalkHost(private val app: TalkApp) : TalkHost {
@@ -46,6 +47,10 @@ class AndroidTalkHost(private val app: TalkApp) : TalkHost {
         if (StayConnectedService.running) return true
         if (onScreen()) {
             Log.i(TAG, "burst plays as media: the app is on screen")
+            return true
+        }
+        if (TalkReady.play(app)) {
+            Log.i(TAG, "woken burst plays as media through Talk ready")
             return true
         }
         val ok = TalkSession.begin(app, chat, from)
@@ -68,7 +73,142 @@ class AndroidTalkHost(private val app: TalkApp) : TalkHost {
         app.scope.launch { TalkNotifications.show(app, chat, from, clip) }
     }
 
-    override fun idle() = TalkSession.endSoon(app)
+    override fun idle() {
+        TalkReady.endSoon(app)
+        TalkSession.endSoon(app)
+    }
+}
+
+/**
+ * Woken bursts played as media through TalkReadyService (2026-11-22, hen's idea: the app stays in the notifications,
+ * not connected). The service runs from the last app open, so it has while-in-use rights; a burst takes transient
+ * audio focus (others duck) while it plays and gives it back 20 s after the last one, so a reply can follow.
+ */
+object TalkReady {
+    const val TAG = "TalkReady"
+    private const val REPLY_WAIT = 20_000L
+
+    @Volatile
+    var active = false
+        private set
+
+    private var ending: Job? = null
+    private var focus: android.media.AudioFocusRequest? = null
+
+    /** Ready to play a woken burst as media: the service runs and audio focus is granted. */
+    fun play(app: TalkApp): Boolean {
+        ending?.cancel()
+        if (active) return true
+        if (!TalkReadyService.running) {
+            Log.i(TAG, "not running: the call session plays it")
+            return false
+        }
+        val audio = app.getSystemService(android.media.AudioManager::class.java)
+        val request = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            )
+            .setOnAudioFocusChangeListener { }
+            .build()
+        val result = audio.requestAudioFocus(request)
+        if (result != android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            // Android 17 refuses focus to an app without while-in-use rights, or a phone call is on.
+            Log.w(TAG, "audio focus refused ($result): the call session plays it")
+            return false
+        }
+        focus = request
+        active = true
+        Log.i(TAG, "audio focus granted; media ${audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)}/${audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)}")
+        return true
+    }
+
+    /** Nothing plays: the focus goes back after the reply time unless another burst comes. */
+    fun endSoon(app: TalkApp) {
+        if (!active) return
+        ending?.cancel()
+        ending = app.scope.launch {
+            delay(REPLY_WAIT)
+            done(app)
+        }
+    }
+
+    fun done(context: Context) {
+        ending?.cancel()
+        ending = null
+        focus?.let { context.getSystemService(android.media.AudioManager::class.java).abandonAudioFocusRequest(it) }
+        focus = null
+        active = false
+    }
+}
+
+/**
+ * "Talk is ready": a media-playback foreground service started when the app opens (so it has while-in-use rights),
+ * idle until a woken burst plays through it (TalkReady). No connection, no wake lock, no timer. Its notification is
+ * silent and the least important, with Stop (until the next app open). Never started at boot: Android would mute it.
+ */
+class TalkReadyService : Service() {
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            TalkReady.done(this)
+            running = false
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val stop = PendingIntent.getService(this, 0, Intent(this, TalkReadyService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(this, TalkNotifications.READY_CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(getString(R.string.ready_title))
+            .setContentText(getString(R.string.ready_body))
+            .setContentIntent(open)
+            .addAction(0, getString(R.string.ready_stop), stop)
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .build()
+        try {
+            startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            running = true
+            Log.i(TalkReady.TAG, "Talk is ready")
+        } catch (e: Exception) {
+            // Not started from the screen: Android says no; bursts play in the call session.
+            Log.w(TalkReady.TAG, "can't run in the foreground", e)
+            running = false
+            stopSelf()
+        }
+        return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        running = false
+        TalkReady.done(this)
+        super.onDestroy()
+    }
+
+    companion object {
+        private const val ID = 44
+        private const val ACTION_STOP = "com.chencohen.ptt.TALK_READY_STOP"
+
+        @Volatile
+        var running = false
+            private set
+
+        /** From the screen (MainActivity.onStart, Settings): start it, or stop it when the setting is off. */
+        fun set(context: Context, on: Boolean) {
+            if (on) {
+                if (running) return
+                runCatching { context.startForegroundService(Intent(context, TalkReadyService::class.java)) }
+                    .onFailure { Log.w(TalkReady.TAG, "can't start", it) }
+            } else {
+                context.stopService(Intent(context, TalkReadyService::class.java))
+            }
+        }
+    }
 }
 
 /**
@@ -326,6 +466,7 @@ object TalkNotifications {
     const val TALK_CHANNEL = "talk"
     const val SESSION_CHANNEL = "talk_session"
     const val STAY_CHANNEL = "stay_connected"
+    const val READY_CHANNEL = "talk_ready"
     const val ACTION_PLAY = "com.chencohen.ptt.PLAY_CLIP"
     const val ACTION_TALK = "com.chencohen.ptt.TALK_BACK"
     const val EXTRA_CLIP = "clip"
@@ -338,6 +479,7 @@ object TalkNotifications {
         )
         manager.createNotificationChannel(NotificationChannel(SESSION_CHANNEL, context.getString(R.string.talk_session_channel), NotificationManager.IMPORTANCE_DEFAULT))
         manager.createNotificationChannel(NotificationChannel(STAY_CHANNEL, context.getString(R.string.stay_channel), NotificationManager.IMPORTANCE_LOW))
+        manager.createNotificationChannel(NotificationChannel(READY_CHANNEL, context.getString(R.string.ready_channel), NotificationManager.IMPORTANCE_MIN))
     }
 
     /** "Dana is talking" (in a group, "Dana is talking in Family"), with Play and Reply, which open the app. */

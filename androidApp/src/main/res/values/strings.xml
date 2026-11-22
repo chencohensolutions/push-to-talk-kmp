@@ -502,4 +502,10 @@
     <string name="update_notification_body">Tap to update. Android asks you to confirm.</string>
     <string name="update_automatic">Install updates automatically</string>
     <string name="update_automatic_body">When nothing is going on: no call or talk, the app closed. Off: a notification, and you tap to update.</string>
+    <string name="ready_channel">Talk is ready</string>
+    <string name="ready_title">Talk is ready</string>
+    <string name="ready_body">Talk from others plays out loud. Not connected: no battery used.</string>
+    <string name="ready_stop">Stop</string>
+    <string name="talk_full_volume">Play talk at full volume in the background</string>
+    <string name="talk_full_volume_body">Keeps a silent “Talk is ready” notification, without a connection. Off: talk plays like a phone call, quieter.</string>
 </resources>

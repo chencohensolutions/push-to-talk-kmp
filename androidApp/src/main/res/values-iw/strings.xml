@@ -506,4 +506,10 @@
     <string name="update_notification_body">הקשה לעדכון. אנדרואיד יבקש אישור.</string>
     <string name="update_automatic">להתקין עדכונים אוטומטית</string>
     <string name="update_automatic_body">כשאין פעילות: אין שיחה או דיבור, והאפליקציה סגורה. כבוי: מגיעה התראה, ומקישים כדי לעדכן.</string>
+    <string name="ready_channel">Talk מוכנה</string>
+    <string name="ready_title">Talk מוכנה</string>
+    <string name="ready_body">דיבור של אחרים יושמע בקול. אין חיבור: לא צורך סוללה.</string>
+    <string name="ready_stop">עצירה</string>
+    <string name="talk_full_volume">להשמיע דיבור בעוצמה מלאה ברקע</string>
+    <string name="talk_full_volume_body">נשארת התראה שקטה „Talk מוכנה”, בלי חיבור. כבוי: הדיבור מושמע כמו שיחת טלפון, חלש יותר.</string>
 </resources>

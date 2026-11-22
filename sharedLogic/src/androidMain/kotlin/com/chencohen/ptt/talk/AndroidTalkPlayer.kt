@@ -70,6 +70,7 @@ private class TrackPlayback(
             decoder = OpusDecoder()
             track = openTrack()
             track.play()
+            diagnose(track)
             // A gap on a live clip only waits here: the clip ends by finish() or stop(), never by silence.
             while (!stopped) {
                 val packet = inbox.poll(FRAME_POLL_MS, TimeUnit.MILLISECONDS)
@@ -150,6 +151,20 @@ private class TrackPlayback(
             Thread.sleep(FRAME_POLL_MS)
         }
         progress()
+    }
+
+    /** What Android does with the track a moment after it starts: muted or silenced, and why (logcat TalkPlayer). */
+    private fun diagnose(t: AudioTrack) {
+        Thread {
+            Thread.sleep(700)
+            runCatching {
+                val usage = t.audioAttributes.usage
+                Log.i(TAG, "track: playState ${t.playState}, usage $usage, session ${t.audioSessionId}, routed to ${t.routedDevice?.type}")
+                val audio = (TalkAudio.appContext ?: return@runCatching).getSystemService(android.media.AudioManager::class.java)
+                audio.activePlaybackConfigurations.filter { it.audioAttributes.usage == usage }.forEach { Log.i(TAG, "playback: $it") }
+                Log.i(TAG, "volumes: media ${audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)}/${audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)}, call ${audio.getStreamVolume(android.media.AudioManager.STREAM_VOICE_CALL)}/${audio.getStreamMaxVolume(android.media.AudioManager.STREAM_VOICE_CALL)}, mode ${audio.mode}")
+            }.onFailure { Log.w(TAG, "diagnose", it) }
+        }.start()
     }
 
     private fun writeToTrack(samples: ShortArray, count: Int) {

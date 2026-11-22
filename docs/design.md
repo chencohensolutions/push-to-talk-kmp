@@ -352,19 +352,24 @@ what was shown (the server sends HIGH only to phones that registered notificatio
   `PENDING` with its file, then `PUT /blob/<id>?peer=` or `?group=` (resumable: a 409 goes on from the server's
   `Blob-Offset`) and its key in a `ClipContent` (kind VOICE, PUSH_MESSAGE). The outbox sends them as it sends texts.
   Voice messages and bursts get delivered receipts like texts, and notifications ("Voice message").
-- **Woken by `talk`** (`TalkMessagingService`): the wake-up runs on in the app's scope; when a burst should play
-  aloud, `AndroidTalkHost` registers a **talk session** with Telecom (Core-Telecom `CallsManager.addCall`, an
-  incoming audio call the app answers itself, "Talk · Family"), and `TalkSessionService` runs it as a phone-call
-  foreground service with a call-style notification and Leave. Android 17 lets an app play from the background only
-  this way: 1.0.3 to 1.2.0 played woken bursts from a media-playback service started from the push, and Android
-  silenced them (2026-11-22, hen: the notification showed, no sound). Inside the session the burst plays as the
-  call's voice (`TalkAudio.inCallSession`: `AndroidTalkPlayer` uses USAGE_VOICE_COMMUNICATION; Android mutes media
-  tracks during a call), and the session moves itself to the loudspeaker (`requestEndpointChange`) unless a headset
-  or Bluetooth device is the route, so it sounds like a walkie-talkie; its volume is the in-call volume on the
-  speaker. With the app on screen, or with Stay connected, talk plays as media with no session. The session ends 20 s
-  after the last burst (a reply can follow), and `Messaging.wake` keeps `/ws` until then (at most 2 minutes). If
-  Telecom refuses it (the plan's R1 fallback) the talk notification shows instead. logcat `TalkHost` says which path
-  ran.
+- **Woken by `talk`** (`TalkMessagingService`): the wake-up runs on in the app's scope. Android 17 lets an app play
+  from the background only from a foreground service with while-in-use rights; one started by the push doesn't get
+  them, and its sound is silenced without an error (logcat `AudioHardening`; 1.0.3 to 1.2.0 were silent). So:
+  - **Talk is ready** (`TalkReadyService`, Settings › Talk › Play talk at full volume in the background, on by
+    default; 2026-11-22, hen's idea): a media-playback foreground service started each time the app comes to the
+    screen, so it has while-in-use rights. It holds no connection, wake lock or timer, with a silent notification on
+    its own least-important channel ("Talk is ready", Stop until the next app open; the channel can be turned off in
+    Android's settings and the service keeps working). A woken burst takes transient audio focus through it
+    (`TalkReady`) and plays as media: the loudspeaker (or the headset in use) at media volume. The focus goes back
+    20 s after the last burst. Never started at boot (Android would mute it).
+  - **The call session** when Talk is ready isn't running (after a restart until the app is opened, stopped, or the
+    setting off) or focus is refused: a Telecom talk session (Core-Telecom `CallsManager.addCall`, an incoming audio
+    call the app answers itself, "Talk · Family", run by `TalkSessionService` as a phone-call service), in which the
+    burst plays as the call's voice (`TalkAudio.inCallSession`: Android mutes media during a call) on the loudspeaker
+    (`requestEndpointChange`), quieter than media. It ends 20 s after the last burst.
+  - logcat `TalkHost` says which path ran; `TalkPlayer` logs the track's usage, route, Android's playback record and
+    the volumes. `Messaging.wake` keeps `/ws` until the path's reply time is over (at most 2 minutes). If neither
+    plays, the talk notification shows instead.
 - **Stay connected** (`StayConnectedService`, Settings › Talk): a foreground service of types microphone and media
   playback, started from the screen, with an ongoing notification and Turn off; `Messaging.keepConnected` keeps `/ws`
   open while it runs. It resumes when the app is next opened after a restart (nothing starts at boot). Its media
