@@ -190,6 +190,7 @@ internal class Messaging(
             identityKey = identity,
             secret = secret,
             email = wanted,
+            passcode = null,
         )
         return NewInvite(link, expires, created.passcode)
     }

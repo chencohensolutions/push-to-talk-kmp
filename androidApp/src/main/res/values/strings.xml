@@ -228,7 +228,8 @@
     <string name="invite_code_label">Invite link QR code</string>
     <string name="invite_made_for">For %1$s. Works once, until %2$s.</string>
     <string name="invite_made_anyone">For whoever opens it first. Works once, until %1$s.</string>
-    <string name="invite_passcode_label">Code (they type it after opening the link)</string>
+    <string name="invite_passcode_label">Code (sent with the link; the QR code above has it already)</string>
+    <string name="invite_qr_note">Show this QR code to a friend next to you: scanning it is the whole invite. To send it, use the buttons below.</string>
     <string name="invite_share">Share</string>
     <string name="invite_copy">Copy invite</string>
     <string name="invite_email_it">Email the invite</string>

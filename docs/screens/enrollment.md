@@ -47,7 +47,7 @@ enrollment code and goes straight to one screen:
 
 1. **Invite** (step 2): "<Hen Cohen (hen)> invited you", "Type the 6-digit code <inviter> sent you with the link.",
    the server (with its id, from the link), **Code** (six digits, "It’s in the same message as the link."; filled in
-   when the whole message was pasted), **Email** (the invite's, locked, "This invite is for this address."), or for
+   when the invite's face-to-face QR code was scanned or the whole message pasted), **Email** (the invite's, locked, "This invite is for this address."), or for
    an invite to anyone **Your email (optional)** ("Your contacts don’t see it, and nobody emails you. You can leave it
    empty."), **Your name** ("How <inviter> and your other contacts see you."), **Device name**, the key note, and
    **Join and pair with <inviter>**. Back leaves the invite (to Welcome).

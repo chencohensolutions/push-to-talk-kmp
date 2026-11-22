@@ -157,16 +157,17 @@ sends no mail** (owner's decision, 2026-11-22: enrollment and invitations go fro
    the code ("type this code: 042 917"). With an email typed, **Email the invite** opens the user's own mail app
    (`ACTION_SENDTO` with a `mailto:` URI carrying To, subject and body, so only mail apps answer), from their own
    address. **Share** (always) gives the same text to the share sheet (WhatsApp, SMS…); **Copy invite** copies it.
-   The screen shows the QR code of the link and the code beside it, for a friend in the room. The text is built in
-   `sharedLogic` rather than from Android strings because the friend's phone reads it back (step 3).
+   The screen also shows a QR code for a friend in the room: the link **with** the code in it (`p`,
+   `MadeInvite.faceToFace`), so scanning it is the whole invite; the code is shown beside it too. The text is built
+   in `sharedLogic` rather than from Android strings because the friend's phone reads it back (step 3).
 3. **A phone that isn't enrolled** opens it (the app's `ptt://invite` intent filter, a scan, or Paste in the
    wizard): `EnrollmentController.openInvite` pins the server's key from the link, `invitePreview` says who it is
-   from and the email it is for, and the wizard goes straight to the code screen. Pasting the whole message fills
-   the code in too (`InviteMessage.passcodeIn`: the first six digits standing alone once the links are taken out).
+   from and the email it is for, and the wizard goes straight to the code screen. The face-to-face QR code fills
+   the code in (only the name is left); so does pasting the whole message (`InviteMessage.passcodeIn`: the first six digits standing alone once the links are taken out).
    `enrollWithInvite` (the code, the email, their name, the certificate request) makes the user and the certificate
    in one step. Its pairing token goes into `PttSettings.pendingInvitePair` as the inviter's `PairCode`, and
    `Messaging` pairs with it once the keys are up and `/ws` is live, as after a scan.
-4. **An enrolled phone** opens it: Add contact asks "Pair with <inviter>?" (`PairingController.openInvite`); Pair
+4. **An enrolled phone** opens it (the link, or a scan of the QR code in Add contact): Add contact asks "Pair with <inviter>?" (`PairingController.openInvite`); Pair
    calls `acceptInvite` for a token (no code: the friend is a user of the server already), then pairs the same way.
 5. **The inviter's phone** recognises the pair request by the invite's secret and confirms it without a tap: making
    the invite was the decision. Both sides mark the contact **not verified**, since a link can be forwarded; they
@@ -176,7 +177,9 @@ sends no mail** (owner's decision, 2026-11-22: enrollment and invitations go fro
 would have to be sent privately, and anything that sees only the link (a forwarded message, a link scanner, a chat
 backup, a photo of the QR code) could use it. Kept apart, the link alone does nothing, and an inviter who wants to can
 send the code another way (said aloud, another chat). The cost is typing six digits, or none when the whole message
-is pasted. Either way, whoever has both can redeem the invite, so they go to the friend only.
+is pasted. Either way, whoever has both can redeem the invite, so they go to the friend only. The QR code on the
+inviter's screen is the exception: it is for showing face to face, where the friend is in the room, so it carries the
+code; it is never sent.
 
 **The email.** For an invite with one, the friend's account gets that email (shown, locked); for an invite to anyone
 the friend may type theirs, or leave it empty. Nothing checks it: no code is sent there. The server names the user

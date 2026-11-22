@@ -254,7 +254,10 @@ class EnrollmentController internal constructor(
         openInvite(link, null)
     }
 
-    /** [openInvite], with the passcode filled in when the pasted message had it ([InviteMessage.passcodeIn]). */
+    /**
+     * [openInvite], with the passcode filled in when the pasted message had it ([InviteMessage.passcodeIn]) or the
+     * link itself carries it (the QR code shown face to face, [com.chencohen.ptt.messaging.InviteLink.passcode]).
+     */
     private fun openInvite(link: com.chencohen.ptt.messaging.InviteLink, passcode: String?) {
         if (_state.value.step is EnrollmentStep.Registering) return
         job?.cancel()
@@ -269,7 +272,7 @@ class EnrollmentController internal constructor(
                 serverId = ServerId.format(link.fingerprint),
                 invite = InviteInfo(link.inviter, null, link.email),
                 email = link.email ?: "",
-                passcode = passcode?.let(::cleanPasscode).orEmpty(),
+                passcode = (passcode ?: link.passcode)?.let(::cleanPasscode).orEmpty(),
                 step = EnrollmentStep.InviteCode(checking = true),
             )
         }

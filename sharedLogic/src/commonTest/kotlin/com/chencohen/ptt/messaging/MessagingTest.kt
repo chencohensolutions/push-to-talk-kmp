@@ -77,6 +77,8 @@ class MessagingTest {
         assertEquals("dana@example.com", invite.email)
         assertEquals("123456", invite.passcode, "the passcode, sent beside the link")
         assertFalse("123456" in invite.link, "the passcode isn't in the link")
+        assertEquals("123456", InviteLink.parse(invite.faceToFace)?.passcode, "only in the face-to-face QR code")
+        assertEquals(InviteLink.parse(invite.link), InviteLink.parse(invite.faceToFace)?.copy(passcode = null))
         val link = assertNotNull(InviteLink.parse(invite.link))
         assertEquals("hen", link.inviter)
         assertEquals(FINGERPRINT, link.fingerprint)
@@ -85,7 +87,8 @@ class MessagingTest {
         // Hen's own link is refused on her phone; on Dana's it asks "Pair with hen?", then pairs.
         assertTrue(hen.pairing.openInvite("Join me: ${invite.link}."))
         assertEquals(PairingStep.Failed(PairingError.OWN_CODE, "hen"), hen.pairing.currentState.step)
-        assertTrue(dana.pairing.openInvite("Join me: ${invite.link}."))
+        // Dana, enrolled already, scans the invite's face-to-face QR code in Add contact: it redeems the invite.
+        dana.pairing.scanned(invite.faceToFace)
         assertEquals(PairingStep.Scanned("hen"), dana.pairing.currentState.step)
         dana.pairing.pair()
         advanceUntilIdle()
@@ -138,8 +141,14 @@ class MessagingTest {
             code = "abcdefghijklmnopqrstuv", server = "https://192.168.50.2:56400", fingerprint = FINGERPRINT,
             key = null, addresses = listOf("https://192.168.50.2:56400", "https://[2001:db8::1]:56400"), inviter = "hen",
             identityKey = byteArrayOf(5) + ByteArray(32) { it.toByte() }, secret = ByteArray(16) { 9 }, email = "dana@example.com",
+            passcode = null,
         )
         assertEquals(link, InviteLink.parse(link.format()))
+        // The face-to-face QR code carries the passcode too; a malformed one is left out.
+        val faceToFace = link.withPasscode("042917")
+        assertEquals(faceToFace, InviteLink.parse(faceToFace.format()))
+        assertEquals("042917", InviteLink.parse(faceToFace.format())?.passcode)
+        assertNull(InviteLink.parse(faceToFace.format().replace("p=042917", "p=0429"))?.passcode)
         assertEquals(link, InviteLink.find("Hen invited you: ${link.format()}!"))
         assertNull(InviteLink.parse(link.format().replace("v=1", "v=2")))
         assertNull(InviteLink.parse(link.format().replace("fingerprint=", "fingerprint=0")))
@@ -153,9 +162,9 @@ class MessagingTest {
         val link = InviteLink(
             code = "abc123456defghijklmnop", server = "https://192.168.50.2:56400", fingerprint = "ab".repeat(32),
             key = null, addresses = emptyList(), inviter = "hen", identityKey = byteArrayOf(5) + ByteArray(32) { 3 },
-            secret = ByteArray(16) { 1 }, email = "dana@example.com",
+            secret = ByteArray(16) { 1 }, email = "dana@example.com", passcode = null,
         ).format()
-        val message = MadeInvite(link, "dana@example.com", 0, "hen", "042917").message("Nov 29, 2026")
+        val message = MadeInvite(link, "dana@example.com", 0, "hen", "042917", "$link&p=042917").message("Nov 29, 2026")
         assertEquals("hen invited you to Talk", message.subject)
         assertContains(message.body, "Open this link on your phone: $link\n")
         assertContains(message.body, "type this code: 042 917")

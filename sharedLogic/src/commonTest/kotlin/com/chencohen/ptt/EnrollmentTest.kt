@@ -276,7 +276,7 @@ class EnrollmentControllerTest {
     private fun inviteLink(email: String?) = com.chencohen.ptt.messaging.InviteLink(
         code = "abcdefghijklmnopqrstuv", server = "https://192.168.50.2:8080", fingerprint = "ab".repeat(32),
         key = null, addresses = emptyList(), inviter = "hen", identityKey = byteArrayOf(5) + ByteArray(32) { 3 },
-        secret = ByteArray(16) { 1 }, email = email,
+        secret = ByteArray(16) { 1 }, email = email, passcode = null,
     )
 
     private fun invitePreview(email: String?, displayName: String? = null) =
@@ -341,6 +341,16 @@ class EnrollmentControllerTest {
         controller.back()
         assertEquals(EnrollmentStep.Welcome, controller.currentState.step)
         assertNull(controller.currentState.invite)
+    }
+
+    /** The face-to-face QR code carries the passcode: scanning it fills it in, and only the name is left to type. */
+    @Test
+    fun aScannedInviteQrCodeFillsInThePasscode() = runTest {
+        val controller = controller(server(mapOf("InvitePreview" to invitePreview(null))))
+        controller.start()
+        controller.openScanned(inviteLink(null).withPasscode("042917").format())
+        controller.awaitStep { it == EnrollmentStep.InviteCode() }
+        assertEquals("042917", controller.currentState.passcode)
     }
 
     /**

@@ -8,12 +8,16 @@ import io.ktor.http.Url
 /**
  * What an Invite a friend link holds (docs/design.md, "Invites"), version 1:
  *
- * `ptt://invite?v=1&code=<invite code>&server=…&fingerprint=…&key=…&address=…&u=<user>&k=<identity key>&s=<secret>&e=<email>`
+ * `ptt://invite?v=1&code=<invite code>&server=…&fingerprint=…&key=…&address=…&u=<user>&k=<identity key>&s=<secret>&e=<email>&p=<passcode>`
  *
  * The server part (`server`, `fingerprint`, `key`, `address`) is an enrollment link's, so a phone that isn't
  * enrolled finds the server and pins its key the same way; [code] is the server's invite code (createInvite). The
  * inviter's part (`u`, `k`, `s`) is the Add contact code's without a token: redeeming the invite gives one. [email] is
  * the address the invite is for, when it is for one.
+ *
+ * [passcode] (`p`) is only in the QR code the inviter's screen shows face to face ([withPasscode]): there the friend is
+ * in the room, and scanning it is the whole invite. The link sent by mail or a chat app leaves it out, and the
+ * passcode goes beside it, so that the link alone, wherever it ends up, redeems nothing (docs/design.md, "Invites").
  */
 data class InviteLink(
     val code: String,
@@ -25,7 +29,11 @@ data class InviteLink(
     val identityKey: ByteArray,
     val secret: ByteArray,
     val email: String?,
+    val passcode: String?,
 ) {
+    /** This link with [passcode] in it: what the face-to-face QR code carries. */
+    fun withPasscode(passcode: String): InviteLink = copy(passcode = passcode)
+
     fun format(): String = URLBuilder("${PairCode.SCHEME}://$HOST").apply {
         parameters.append("v", VERSION.toString())
         parameters.append("code", this@InviteLink.code)
@@ -37,6 +45,7 @@ data class InviteLink(
         parameters.append("k", PairCode.base64Url.encode(identityKey))
         parameters.append("s", PairCode.base64Url.encode(secret))
         email?.let { parameters.append("e", it) }
+        passcode?.let { parameters.append("p", it) }
     }.buildString()
 
     /** How a phone that isn't enrolled finds the server: an enrollment link with the invite code as its code. */
@@ -77,6 +86,7 @@ data class InviteLink(
                 identityKey = identityKey,
                 secret = secret,
                 email = url.parameters["e"]?.takeIf { it.contains('@') },
+                passcode = url.parameters["p"]?.takeIf { p -> p.length == 6 && p.all { it in '0'..'9' } },
             )
         }
 

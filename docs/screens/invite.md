@@ -11,8 +11,11 @@ invite".
   an email, only that address can use the link, and you can email it from here."); **Make invite** (ink, a spinner
   while it is made). Errors under the field: not an email, invites off on the server, too many invites waiting (5),
   the server can't be reached.
-- **Made:** the link's QR code (240 dp, black on white), "For <email>. Works once, until <date>." or "For whoever
-  opens it first. …", then "Code (they type it after opening the link)" and the code in large digits ("042 917"),
+- **Made:** a QR code for a friend next to you (240 dp, black on white): the link with its code in it, so
+  scanning it is the whole invite (a new phone goes straight to its name and Join; an enrolled one, scanning in Add
+  contact, to "Pair with <user>?"), and "Show this QR code to a friend next to you: scanning it is the whole invite.
+  To send it, use the buttons below."; "For <email>. Works once, until <date>." or "For whoever
+  opens it first. …", then "Code (sent with the link; the QR code above has it already)" and the code in large digits ("042 917"),
   for a friend who scans the QR code here. With an email: **Email the invite** (ink) opens the user's mail app (only
   mail apps) with a message to that address, from their own address: "<user> invited you to Talk", the steps, the
   link and the code; "Opens your mail app with the steps, the link and the code, sent from your own address.". No

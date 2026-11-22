@@ -90,7 +90,10 @@ internal fun InviteScreen(state: PairingState, actions: InviteActions) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                QrImage(invite.link, stringResource(R.string.invite_code_label), Modifier.padding(top = 8.dp))
+                // Face to face, the QR code carries the passcode too: the friend in the room needs nothing else.
+                // What is sent (Email, Share, Copy) has the link and the code apart.
+                QrImage(invite.faceToFace, stringResource(R.string.invite_code_label), Modifier.padding(top = 8.dp))
+                Text(stringResource(R.string.invite_qr_note), color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center)
                 val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(invite.expiresAt))
                 Text(
                     if (invite.email != null) stringResource(R.string.invite_made_for, invite.email!!, date)
@@ -132,6 +135,6 @@ private fun InviteFormPreview() {
 @Composable
 private fun InviteMadePreview() {
     TalkTheme {
-        InviteScreen(PairingState(invite = MadeInvite("ptt://invite?v=1&code=x", "dana@example.com", 1_800_000_000_000, "hen", "123456")), InviteActions())
+        InviteScreen(PairingState(invite = MadeInvite("ptt://invite?v=1&code=x", "dana@example.com", 1_800_000_000_000, "hen", "123456", "ptt://invite?v=1&code=x&p=123456")), InviteActions())
     }
 }
