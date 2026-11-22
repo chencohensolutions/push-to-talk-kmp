@@ -65,6 +65,8 @@ internal fun QuickTalkHome(
     modifier: Modifier = Modifier,
     /** The microphone kept open while the Talk tab shows a page (MessagingController.warmMicrophone). */
     warmMicrophone: (Boolean) -> Unit = {},
+    /** A voice or video call in a page's chat. */
+    call: (chat: String, video: Boolean) -> Unit = { _, _ -> },
 ) {
     if (pages.isEmpty()) {
         Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
@@ -112,6 +114,8 @@ internal fun QuickTalkHome(
                     )
                 }
                 Spacer(Modifier.height(8.dp))
+                TalkChatActions(openChat = { openChat(page.chat) }, call = { video -> call(page.chat, video) })
+                Spacer(Modifier.height(12.dp))
                 Text(
                     talkLine(page.chat, talk, nameOf, me),
                     color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,

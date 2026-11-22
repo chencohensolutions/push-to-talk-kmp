@@ -262,6 +262,9 @@ internal fun TalkModeScreen(
     micDenied: () -> Unit,
     /** The microphone kept open while this screen shows (MessagingController.warmMicrophone). */
     warmMicrophone: (Boolean) -> Unit = {},
+    /** The chat, and calling there. */
+    openChat: () -> Unit = {},
+    call: (video: Boolean) -> Unit = {},
 ) {
     WarmMicrophone(warmMicrophone)
     val microphone = rememberMicrophone(micDenied)
@@ -288,7 +291,9 @@ internal fun TalkModeScreen(
             }
             Text(title, color = LibraryColors.OnBackground, style = LibraryType.PageTitle, modifier = Modifier.weight(1f))
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(12.dp))
+        TalkChatActions(openChat, call)
+        Spacer(Modifier.height(16.dp))
         Text(
             talkLine(chat, talk, nameOf, me),
             color = if (live || someone != null) LibraryColors.Accent else LibraryColors.Muted,
@@ -493,5 +498,28 @@ internal fun SwitchRow(title: String, body: String?, on: Boolean, onChange: (Boo
             if (body != null) Text(body, color = LibraryColors.Muted, style = LibraryType.Caption)
         }
         androidx.compose.material3.Switch(checked = on, onCheckedChange = onChange, modifier = Modifier.padding(start = 12.dp))
+    }
+}
+
+/** Under a Talk screen's name: open the chat, a voice call, a video call (2026-11-22, hen). */
+@Composable
+internal fun TalkChatActions(openChat: () -> Unit, call: (video: Boolean) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        TalkChatAction(LibraryIcons.Chat, stringResource(R.string.talk_action_chat), openChat)
+        TalkChatAction(LibraryIcons.Call, stringResource(R.string.call_voice)) { call(false) }
+        TalkChatAction(LibraryIcons.Video, stringResource(R.string.call_video)) { call(true) }
+    }
+}
+
+@Composable
+private fun TalkChatAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(52.dp).background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
+                .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, null, tint = LibraryColors.OnBackground, modifier = Modifier.size(24.dp)) }
+        Spacer(Modifier.height(4.dp))
+        Text(label, color = LibraryColors.Muted, style = LibraryType.Tiny)
     }
 }

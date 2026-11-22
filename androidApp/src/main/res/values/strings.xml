@@ -118,6 +118,7 @@
     <string name="kept_failed">The call couldn\'t be opened. Try again later.</string>
     <string name="kept_play">Play</string>
     <string name="kept_pause">Pause</string>
+    <string name="talk_action_chat">Chat</string>
     <string name="calls_video_title">Video</string>
     <string name="calls_video_vp8">Standard (VP8)</string>
     <string name="calls_video_vp8_body">Works with every phone.</string>

@@ -70,3 +70,6 @@ then turns the screen off after its own short lock-screen timeout (a few seconds
 
 The talk button grows (up to 1.25 times) and glows with the voice: the one playing, or the microphone's while talking
 (`VoiceLevel`: -50 to -10 dBFS, 60 ms up and 200 ms down, read once a frame).
+
+- **Chat, Voice call, Video call** (2026-11-22, hen): three round buttons under the name: the conversation (back to it
+  when the Talk screen came from it), and a voice or video call there.

@@ -591,6 +591,9 @@ fun HomeApp(
                         close = ::pop,
                         micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                         warmMicrophone = messaging::warmMicrophone,
+                        // From its chat: back to it; otherwise the chat opens.
+                        openChat = { if (stack.getOrNull(stack.size - 2) == "chat/$chat") pop() else push("chat/$chat") },
+                        call = { video -> call(chat, video) },
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -770,6 +773,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 micDenied = actions.micDenied,
                 modifier = Modifier.weight(1f),
                 warmMicrophone = actions.warmMicrophone,
+                call = actions.call,
             )
             }
         } else Column(

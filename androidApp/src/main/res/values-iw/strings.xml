@@ -117,6 +117,7 @@
     <string name="kept_failed">לא הצלחנו לפתוח את השיחה. נסו שוב מאוחר יותר.</string>
     <string name="kept_play">ניגון</string>
     <string name="kept_pause">השהיה</string>
+    <string name="talk_action_chat">צ׳אט</string>
     <string name="calls_video_title">וידאו</string>
     <string name="calls_video_vp8">רגיל (VP8)</string>
     <string name="calls_video_vp8_body">עובד בכל טלפון.</string>

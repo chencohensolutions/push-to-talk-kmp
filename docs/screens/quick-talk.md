@@ -20,3 +20,6 @@ talk). It is `ui/talk/QuickTalkHome.kt`; the list and its order are `talk/QuickT
 
 The top bar is home's (the profile circle, "Talk", Offline); the cards (Register again, pair requests, linking) stay
 on Chats. Talk mode from a conversation is unchanged.
+
+- **Chat, Voice call, Video call** (2026-11-22, hen): three round buttons under the name: the conversation (back to it
+  when the Talk screen came from it), and a voice or video call there.
