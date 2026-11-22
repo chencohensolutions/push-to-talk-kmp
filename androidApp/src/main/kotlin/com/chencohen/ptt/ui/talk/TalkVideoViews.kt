@@ -234,12 +234,17 @@ internal fun androidx.compose.foundation.layout.ColumnScope.TalkStage(
                         }
                     }
                 }
-            if (cameraLeft) {
-                video()
-                controls()
-            } else {
-                controls()
-                video()
+            when {
+                // No video to show: the button and its buttons alone, in the middle.
+                !playingVideo && !pushVideo -> controls()
+                cameraLeft -> {
+                    video()
+                    controls()
+                }
+                else -> {
+                    controls()
+                    video()
+                }
             }
         }
     }
