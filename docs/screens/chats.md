@@ -2,7 +2,7 @@
 
 The app's home once this phone is enrolled (`ui/home/HomeApp.kt`), Signal's layout in Journal's look. It renders
 `ConnectionController`'s state and `MessagingController`'s (`MessagingState`: keys, /ws, contacts, pair requests, the
-last test line of each contact). The conversations themselves are phase 3; a contact opens their page.
+conversations and how many texts of each aren't read). A contact opens their [conversation](conversation.md).
 
 - **Top bar:** the profile circle (the account's first letter in ink, or a person icon before the server says who
   this is), which opens [Settings](settings.md); the tab's title, "Chats" or "Calls", in ScreenTitle; and the
@@ -24,9 +24,9 @@ last test line of each contact). The conversations themselves are phase 3; a con
   - When the keys couldn't be uploaded (`KeysState.Failed`), a muted line says why; it is tried again at the next
     connection.
 - **Chats** tab: the contacts (`ContactRow`): the letter in a Raised circle, the name, and one line: Blocked;
-  "Safety number changed" in orange; "Waiting for them to confirm"; else the last test line ("You: …" for one sent);
-  else Paired. A shield follows a verified contact. The latest line first, then the newest contacts. A tap opens the
-  [contact's page](contacts.md). With no contacts: a chat icon over "No chats yet. Add a contact by scanning their
+  "Safety number changed" in orange; "Waiting for them to confirm"; else the last text ("You: …" for one sent);
+  else Paired. The count of unread texts in an ink pill, and a shield for a verified contact. The latest text first,
+  then the newest contacts. A tap opens the [conversation](conversation.md). With no contacts: a chat icon over "No chats yet. Add a contact by scanning their
   QR code."
 - **Calls** tab: a call icon over "No calls yet. Calls you make and get show here."
 - **The pencil** (new chat), bottom right on Chats only, in ink: opens [New chat](contacts.md).

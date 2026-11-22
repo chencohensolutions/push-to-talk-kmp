@@ -94,8 +94,43 @@ class MessagingController internal constructor(
         }
     }
 
-    /** Sends [body] to [user] end to end (phase 2's test of the transport). */
-    fun sendTest(user: String, body: String, done: (ContactResult) -> Unit) = act(done) { messaging.sendText(user, body) }
+    /** Sends [body] to [user] end to end; offline, it waits in the outbox. [done] says Failed only for an error before it was kept. */
+    fun sendText(user: String, body: String, done: (ContactResult) -> Unit) = act(done) { messaging.sendText(user, body) }
+
+    /** Tries a text that failed again. */
+    fun retry(id: String) {
+        scope.launch { withContext(work) { messaging.retry(id) } }
+    }
+
+    /** The conversation with [user] is on screen ([user] null: none is): its texts are read as they come. */
+    fun openChat(user: String?) {
+        scope.launch {
+            withContext(work) {
+                messaging.openChat = user
+                if (user != null) messaging.markRead(user)
+            }
+        }
+    }
+
+    /** Typing to [user] started or stopped (the screen throttles it). */
+    fun typing(user: String, typing: Boolean) {
+        scope.launch { withContext(work) { messaging.sendTyping(user, typing) } }
+    }
+
+    fun refreshPresence() {
+        scope.launch { withContext(work) { messaging.refreshPresence() } }
+    }
+
+    /** Whether this user shows contacts when they're online (Settings). */
+    val presenceVisible: Boolean get() = messaging.presenceVisible
+
+    /** Shows or hides this user's presence; [done] gets the setting now, or null when the server couldn't be told. */
+    fun setPresenceVisible(visible: Boolean, done: (Boolean?) -> Unit) {
+        scope.launch {
+            val shown = withContext(work) { runCatching { messaging.setPresenceVisible(visible) }.getOrNull() }
+            done(shown)
+        }
+    }
 
     /**
      * A new Link a phone code (docs/screens/link-phone.md); null with the error's message when it couldn't be made.
@@ -143,8 +178,9 @@ class MessagingController internal constructor(
         return ObservationHandle { job.cancel() }
     }
 
+    /** The screens are gone; the hub stays for the push service, with its socket closed. */
     fun close() {
         scope.cancel()
-        messaging.close()
+        messaging.stop()
     }
 }

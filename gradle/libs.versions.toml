@@ -11,6 +11,8 @@ androidx-compose-material3 = "1.5.0-alpha22"
 androidx-core = "1.19.1"
 androidx-lifecycle = "2.11.0"
 play-services-code-scanner = "16.1.0"
+# Phase 3: FCM wake-ups (news-client-kmp's version).
+firebase-bom = "34.0.0"
 # Add contact: this phone's QR code (ZXing's encoder only, as journal's invite code).
 zxing-core = "3.5.3"
 # Phase 2: libsignal from Signal's own Maven repository (settings.gradle.kts), pinned; upgrades are deliberate.
@@ -53,6 +55,8 @@ sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "s
 androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "androidx-sqlite" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugar-jdk-libs" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing-core" }
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
 # Enrollment: scans the server's QR code with Google's scanner screen (no camera permission).
 play-services-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "play-services-code-scanner" }

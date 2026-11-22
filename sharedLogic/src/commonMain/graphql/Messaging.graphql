@@ -30,6 +30,18 @@ mutation ReplaceIdentityKey($identityKey: String!) {
   replaceIdentityKey(identityKey: $identityKey)
 }
 
+mutation RegisterPush($token: String, $notificationsEnabled: Boolean!) {
+  registerPush(token: $token, notificationsEnabled: $notificationsEnabled)
+}
+
+mutation SetPresenceVisible($visible: Boolean!) {
+  setPresenceVisible(visible: $visible)
+}
+
+query Presence($users: [String!]!) {
+  presence(users: $users) { user online lastSeen }
+}
+
 mutation CreateLinkCode {
   createLinkCode { code expiresAt }
 }

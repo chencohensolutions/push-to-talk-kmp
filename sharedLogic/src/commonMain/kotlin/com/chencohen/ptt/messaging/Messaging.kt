@@ -9,6 +9,7 @@ import com.chencohen.ptt.network.describe
 import com.chencohen.ptt.relay.Envelope
 import com.chencohen.ptt.relay.EnvelopeType
 import com.chencohen.ptt.relay.FrameConnector
+import com.chencohen.ptt.relay.PushKind
 import com.chencohen.ptt.relay.RelaySocket
 import com.chencohen.ptt.relay.SocketState
 import com.chencohen.ptt.settings.EnrolledDevice
@@ -19,6 +20,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.io.encoding.Base64
@@ -37,7 +39,25 @@ data class MessagingState(
     val lastMessages: Map<String, TextMessage> = emptyMap(),
     /** The device number of the last phone this one linked (it sent it the identity key); null when none yet. */
     val linkedDevice: Int? = null,
+    /** Contacts online now, or when last seen, by user (presence; only contacts who show theirs). */
+    val presence: Map<String, UserPresence> = emptyMap(),
+    /** Contacts typing to this user now: until when, milliseconds since 1970. */
+    val typing: Map<String, Long> = emptyMap(),
+    /** How many texts from each contact aren't read yet. */
+    val unread: Map<String, Int> = emptyMap(),
+    /** Each conversation's texts, oldest first, by user. */
+    val conversations: Map<String, List<TextMessage>> = emptyMap(),
 )
+
+/**
+ * What the app shows outside its screens (Android's notifications): a text came in, or a conversation was read
+ * (here or on another phone of the user), so its notification goes.
+ */
+interface MessageNotifier {
+    fun incoming(contact: Contact, unread: List<TextMessage>)
+
+    fun read(user: String)
+}
 
 /**
  * The phone's side of keys, pairing and messages (docs/design.md, phase 2), under [MessagingController] and
@@ -55,6 +75,14 @@ internal class Messaging(
     private val random: Random = Random.Default,
     private val onRevoked: () -> Unit = {},
 ) {
+    /** Android's notifications; set by the app. */
+    var notifier: MessageNotifier? = null
+
+    /** The app is on screen ([start] to [stop]): a background wake-up then leaves the socket alone. */
+    private var foreground = false
+
+    /** The conversation on screen, whose texts are read as they come in; null when none is. */
+    var openChat: String? = null
     private val _state = MutableStateFlow(MessagingState())
     val state: StateFlow<MessagingState> = _state.asStateFlow()
 
@@ -72,7 +100,13 @@ internal class Messaging(
             }
         },
         onRevoked = onRevoked,
+        onPresence = { p -> updatePresence(UserPresence(p.user, p.online, p.lastSeen.takeIf { it > 0 })) },
         onLive = {
+            scope.launch {
+                flushOutbox()
+                sendPendingReads()
+            }
+            scope.launch { refreshPresence() }
             // Not awaited either: the request's SendResult comes through the same read loop.
             if (store.linkJoin != null) scope.launch { sendLinkRequest() }
             refreshContacts()
@@ -97,8 +131,36 @@ internal class Messaging(
 
     private fun deviceKey(): String? = device()?.let { "${it.user}/${it.deviceNumber}" }
 
-    /** Uploads the keys if needed and opens /ws; the app came to the front. */
+    /** The app came to the front: keys, /ws, and the push registration. */
     suspend fun start() {
+        foreground = true
+        open()
+    }
+
+    /** The app went to the back. */
+    fun stop() {
+        foreground = false
+        socket.stop()
+    }
+
+    /**
+     * A push woke the phone (FCM's onMessageReceived): opens /ws if the app isn't on screen, takes the queue (texts,
+     * receipts, notifications through [notifier]), sends what the outbox holds, and closes again. Returns once done,
+     * or after [limit] milliseconds.
+     */
+    suspend fun wake(limit: Long = 20_000) {
+        if (foreground || device() == null) return
+        open()
+        kotlinx.coroutines.withTimeoutOrNull(limit) {
+            socket.state.first { it is SocketState.Live || it is SocketState.Revoked || it is SocketState.Replaced }
+            // The receipts and the outbox go out after the queue: give them a moment.
+            kotlinx.coroutines.delay(1_500)
+        }
+        if (!foreground) socket.stop()
+    }
+
+    /** Uploads the keys if needed and opens /ws. */
+    private suspend fun open() {
         val self = device() ?: return
         claim(self)
         takePendingLink(self)
@@ -124,8 +186,6 @@ internal class Messaging(
         // Without keys nobody can open a session with this phone, but what is queued for it can still be read.
         if (result !is KeysState.OtherIdentity) socket.start()
     }
-
-    fun stop() = socket.stop()
 
     /** Stops for good (the app's process ends). */
     fun close() {
@@ -162,6 +222,49 @@ internal class Messaging(
         val result = keys.ensure("${self.user}/${self.deviceNumber}")
         _state.update { it.copy(keys = result) }
         socket.start()
+    }
+
+    // --- Push and presence --------------------------------------------------------------------------------------
+
+    /**
+     * Tells the server this phone's FCM [token] (null: none) and whether it shows notifications, when that changed
+     * since it was last told (registerPush). Network errors are thrown; the app tries again at the next start.
+     */
+    suspend fun registerPush(token: String?, notificationsEnabled: Boolean) {
+        val key = deviceKey() ?: return
+        if (token != null) settings.pushToken = token
+        val wanted = "$key|${token ?: settings.pushToken.orEmpty()}|$notificationsEnabled"
+        if (settings.pushRegistered == wanted) return
+        api.registerPush(token ?: settings.pushToken, notificationsEnabled)
+        settings.pushRegistered = wanted
+    }
+
+    /** Whether this user shows contacts when they're online, as last set here. */
+    val presenceVisible: Boolean get() = settings.presenceVisible
+
+    suspend fun setPresenceVisible(visible: Boolean): Boolean {
+        val shown = api.setPresenceVisible(visible)
+        settings.presenceVisible = shown
+        refreshPresence()
+        return shown
+    }
+
+    /** Asks the server who of the contacts is online (a phone that was offline missed the Presence frames). */
+    suspend fun refreshPresence() {
+        val users = store.contacts().filter { it.paired }.map { it.user }
+        if (users.isEmpty()) return
+        val answer = try {
+            api.presence(users)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return
+        }
+        _state.update { it.copy(presence = answer.associateBy { p -> p.user }) }
+    }
+
+    private fun updatePresence(p: UserPresence) {
+        _state.update { it.copy(presence = it.presence + (p.user to p)) }
     }
 
     // --- Linking a phone ------------------------------------------------------------------------------------------
@@ -641,13 +744,99 @@ internal class Messaging(
 
     // --- Messages ------------------------------------------------------------------------------------------------
 
-    /** Sends [body] to [user], encrypted end to end (phase 2's test of the transport). */
-    suspend fun sendText(user: String, body: String) {
-        val at = now()
-        val ids = sender.send(user, Content(text = TextContent(body, at)))
-        store.putMessage(TextMessage(ids.firstOrNull() ?: "local-$at", user, outgoing = true, body = body, at = at))
+    /**
+     * Sends [body] to [user], encrypted end to end. It is kept first ([MessageStatus.PENDING]): when the phone isn't
+     * connected it waits in the outbox and goes when it is ([flushOutbox]).
+     */
+    suspend fun sendText(user: String, body: String): TextMessage {
+        val message = TextMessage(newId(), user, outgoing = true, body = body, at = now(), status = MessageStatus.PENDING)
+        store.putMessage(message)
         publish()
+        return deliver(message)
     }
+
+    /** Sends one kept text; answers it with its new status. */
+    private suspend fun deliver(message: TextMessage): TextMessage {
+        val status = try {
+            sender.send(message.user, Content(text = TextContent(message.body, message.at, message.id)), pushKind = PushKind.MESSAGE)
+            MessageStatus.SENT
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: com.chencohen.ptt.relay.SocketUnavailableException) {
+            MessageStatus.PENDING
+        } catch (e: Exception) {
+            // Refused (blocked, unpaired), or no session can be made (their key changed): not tried again by itself.
+            if (e.toPairingError() == PairingError.UNREACHABLE) MessageStatus.PENDING else MessageStatus.FAILED
+        }
+        // A receipt may have come first.
+        val now = store.message(message.id) ?: message
+        val updated = now.copy(status = if (now.status.ordinal > status.ordinal && status != MessageStatus.FAILED) now.status else status)
+        store.putMessage(updated)
+        publish()
+        return updated
+    }
+
+    /** Sends what waits in the outbox, oldest first; once connected. */
+    suspend fun flushOutbox() {
+        for (message in store.messages().filter { it.outgoing && it.status == MessageStatus.PENDING }) {
+            if (deliver(message).status == MessageStatus.PENDING) return
+        }
+    }
+
+    /** Tries a text that failed again (the user's Retry). */
+    suspend fun retry(id: String) {
+        val message = store.message(id)?.takeIf { it.outgoing && it.status == MessageStatus.FAILED } ?: return
+        deliver(message.copy(status = MessageStatus.PENDING))
+    }
+
+    /**
+     * The conversation with [user] is on screen: its texts are read. A read receipt goes to them (and, as a copy, to
+     * this user's other phones, which take their notifications down).
+     */
+    suspend fun markRead(user: String) {
+        val unread = store.messagesWith(user).filter { !it.outgoing && !it.read }
+        if (unread.isEmpty()) return
+        unread.forEach { store.putMessage(it.copy(read = true)) }
+        publish()
+        notifier?.read(user)
+        sendReceipt(user, read = true, unread.map { it.id })
+    }
+
+    /** Read receipts that couldn't go yet (not connected), by user; sent once connected. */
+    private val pendingReads = mutableMapOf<String, MutableSet<String>>()
+
+    private suspend fun sendReceipt(user: String, read: Boolean, ids: List<String>) {
+        try {
+            sender.send(user, Content(receipt = ReceiptContent(read, ids)), pushKind = PushKind.SYNC)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: com.chencohen.ptt.relay.SocketUnavailableException) {
+            // A read receipt waits for the connection (a notification's Mark as read); a delivered one is moot by then.
+            if (read) pendingReads.getOrPut(user) { mutableSetOf() } += ids
+        } catch (_: Exception) {
+            // Refused: they see "sent" instead of "delivered" or "read".
+        }
+    }
+
+    private suspend fun sendPendingReads() {
+        val waiting = pendingReads.toMap()
+        pendingReads.clear()
+        waiting.forEach { (user, ids) -> sendReceipt(user, read = true, ids.toList()) }
+    }
+
+    /** This user is typing to [user] (or stopped): sent with no wake-up, and only when connected. */
+    suspend fun sendTyping(user: String, typing: Boolean) {
+        if (socket.state.value !is SocketState.Live) return
+        val contact = store.contact(user)?.takeIf { it.paired && !it.blocked } ?: return
+        try {
+            sender.send(contact.user, Content(typing = TypingContent(typing)), pushKind = PushKind.NONE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun newId(): String = random.nextBytes(12).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 
     /** One envelope from /ws; true once it is handled (stored, or dropped for good), so it is acknowledged. */
     suspend fun receive(envelope: Envelope): Boolean {
@@ -686,13 +875,42 @@ internal class Messaging(
             content.contact?.let { return takeContactSync(it) }
             // A copy of what another phone of this user sent.
             val to = content.destination.takeIf { it.isNotEmpty() } ?: return
-            content.text?.let { store.putMessage(TextMessage(envelope.id, to, outgoing = true, body = it.body, at = it.sentAt)) }
+            content.text?.let { text ->
+                val id = text.id.ifEmpty { envelope.id }
+                if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt))
+            }
+            // Read on another phone of this user: read here too, and its notification goes.
+            content.receipt?.takeIf { it.read }?.let { receipt ->
+                receipt.ids.mapNotNull(store::message).filter { !it.outgoing && !it.read }.forEach { store.putMessage(it.copy(read = true)) }
+                notifier?.read(to)
+            }
             return
         }
         content.pairRequest?.let { return pairRequest(envelope.senderUser, it, decrypted.senderIdentityKey) }
+        val contact = store.contact(envelope.senderUser)?.takeIf { it.paired && !it.blocked } ?: return
         content.text?.let { text ->
-            val contact = store.contact(envelope.senderUser)?.takeIf { it.paired && !it.blocked } ?: return
-            store.putMessage(TextMessage(envelope.id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp))
+            val id = text.id.ifEmpty { envelope.id }
+            if (store.message(id) != null) return
+            val read = openChat == contact.user && foreground
+            store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read))
+            _state.update { it.copy(typing = it.typing - contact.user) }
+            scope.launch {
+                sendReceipt(contact.user, read = false, listOf(id))
+                if (read) sendReceipt(contact.user, read = true, listOf(id))
+            }
+            if (!read) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
+        }
+        content.receipt?.let { receipt ->
+            val status = if (receipt.read) MessageStatus.READ else MessageStatus.DELIVERED
+            for (id in receipt.ids) {
+                val message = store.message(id)?.takeIf { it.outgoing && it.user == contact.user } ?: continue
+                if (message.status.ordinal < status.ordinal || message.status == MessageStatus.PENDING) store.putMessage(message.copy(status = status))
+            }
+        }
+        content.typing?.let { typing ->
+            _state.update {
+                it.copy(typing = if (typing.typing) it.typing + (contact.user to now() + TYPING_FOR) else it.typing - contact.user)
+            }
         }
     }
 
@@ -732,11 +950,16 @@ internal class Messaging(
                 contacts = store.contacts().sortedBy { it.user.lowercase() },
                 requests = store.requests().sortedBy { it.receivedAt },
                 lastMessages = messages.groupBy { it.user }.mapValues { (_, list) -> list.last() },
+                conversations = messages.groupBy { it.user },
+                unread = messages.filter { !it.outgoing && !it.read }.groupingBy { it.user }.eachCount(),
             )
         }
     }
 
     companion object {
+        /** How long "typing…" shows after the last typing message, unless a text or a stop comes first. */
+        const val TYPING_FOR = 8_000L
+
         /** How long past its end a Link a phone code still answers: the new phone may connect a while after enrolling. */
         private const val LINK_GRACE = 60 * 60_000L
 

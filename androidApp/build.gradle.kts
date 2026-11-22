@@ -1,3 +1,4 @@
+import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -21,6 +22,10 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.play.services.code.scanner)
     implementation(libs.zxing.core)
+    // Phase 3: woken by the server's pushes (FCM), and its notifications.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+    implementation(libs.androidx.core.ktx)
     // libsignal needs it (its AAR asks for core library desugaring).
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
@@ -42,6 +47,9 @@ android {
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionName = findProperty("versionName") as String? ?: "0.1"
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
+        // Firebase's settings from google-services.json, as the resources its own plugin would make (google_app_id
+        // and the rest), so Firebase starts by itself without the plugin. They are public identifiers, not secrets.
+        googleServices(file("google-services.json"), applicationId!!).forEach { (name, value) -> resValue("string", name, value) }
         // The phones (arm64) and the emulators (x86_64); libsignal and SQLCipher ship more.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -74,5 +82,26 @@ android {
     }
     buildFeatures {
         compose = true
+        resValues = true
     }
+}
+
+/** The values the google-services plugin would put in resources, read from [json] for the app [packageName]. */
+@Suppress("UNCHECKED_CAST")
+fun googleServices(json: File, packageName: String): List<Pair<String, String>> {
+    if (!json.exists()) return emptyList()
+    val root = JsonSlurper().parse(json) as Map<String, Any>
+    val project = root["project_info"] as Map<String, Any>
+    val client = (root["client"] as List<Map<String, Any>>).first {
+        ((it["client_info"] as Map<String, Any>)["android_client_info"] as Map<String, Any>)["package_name"] == packageName
+    }
+    val apiKey = ((client["api_key"] as List<Map<String, Any>>).first())["current_key"] as String
+    return listOf(
+        "google_app_id" to ((client["client_info"] as Map<String, Any>)["mobilesdk_app_id"] as String),
+        "gcm_defaultSenderId" to (project["project_number"] as String),
+        "google_api_key" to apiKey,
+        "google_crash_reporting_api_key" to apiKey,
+        "project_id" to (project["project_id"] as String),
+        "google_storage_bucket" to (project["storage_bucket"] as String? ?: ""),
+    )
 }

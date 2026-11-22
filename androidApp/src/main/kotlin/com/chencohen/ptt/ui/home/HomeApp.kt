@@ -57,6 +57,9 @@ import android.content.ClipboardManager
 import android.content.Intent
 import com.chencohen.ptt.ui.contacts.InviteActions
 import com.chencohen.ptt.ui.contacts.InviteScreen
+import com.chencohen.ptt.ui.contacts.ConversationActions
+import com.chencohen.ptt.ui.contacts.ConversationHeader
+import com.chencohen.ptt.ui.contacts.ConversationScreen
 import com.chencohen.ptt.ui.settings.LinkPhoneScreen
 import com.chencohen.ptt.ui.settings.LinkPhoneView
 import com.chencohen.ptt.ui.contacts.AddContactActions
@@ -123,6 +126,9 @@ fun HomeApp(
     /** An invite link opened on this enrolled phone (MainActivity), until Add contact took it. */
     openedInvite: String? = null,
     onInviteTaken: () -> Unit = {},
+    /** A conversation a notification opened (MainActivity), until home showed it. */
+    openedChat: String? = null,
+    onChatTaken: () -> Unit = {},
 ) {
     val state by connection.state.collectAsStateWithLifecycle()
     val messagingState by messaging.state.collectAsStateWithLifecycle()
@@ -142,6 +148,13 @@ fun HomeApp(
     val context = LocalContext.current
     val resources = LocalResources.current
     BackHandler(enabled = stack.isNotEmpty()) { pop() }
+    // A notification tapped: its conversation, over home.
+    LaunchedEffect(openedChat) {
+        if (openedChat != null) {
+            saved = "chat/$openedChat"
+            onChatTaken()
+        }
+    }
     // An invite link: Add contact asks "Pair with them?".
     LaunchedEffect(openedInvite) {
         if (openedInvite != null && stack.lastOrNull() != "join") push("join")
@@ -161,7 +174,7 @@ fun HomeApp(
                         registerAgain = onRegisterAgain,
                         newChat = { push("new") },
                         reviewRequest = { push("review/$it") },
-                        openContact = { push("contact/$it") },
+                        openContact = { push("chat/$it") },
                         replaceIdentityKey = {
                             messaging.replaceIdentityKey { result ->
                                 if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
@@ -175,6 +188,7 @@ fun HomeApp(
                     ),
                 )
                 name == "settings" -> {
+                    var presenceVisible by remember { mutableStateOf<Boolean?>(messaging.presenceVisible) }
                     val settingsState by settings.state.collectAsStateWithLifecycle()
                     SettingsScreen(
                         state = settingsState,
@@ -182,6 +196,14 @@ fun HomeApp(
                         refresh = settings::refresh,
                         registerAgain = onRegisterAgain,
                         linkPhone = { push("link") },
+                        presenceVisible = presenceVisible,
+                        setPresenceVisible = { visible ->
+                            presenceVisible = null
+                            messaging.setPresenceVisible(visible) { shown ->
+                                presenceVisible = shown ?: messaging.presenceVisible
+                                if (shown == null) messages.post(resources.getString(R.string.settings_presence_failed))
+                            }
+                        },
                     )
                 }
                 name == "link" -> {
@@ -205,7 +227,7 @@ fun HomeApp(
                     contacts = messagingState.contacts,
                     back = ::pop,
                     addContact = { push("add") },
-                    openContact = { push("contact/$it") },
+                    openContact = { push("chat/$it") },
                 )
                 name == "invite" -> {
                     val pairingState by pairing.state.collectAsStateWithLifecycle()
@@ -280,30 +302,52 @@ fun HomeApp(
                         ),
                     )
                 }
+                name.startsWith("chat/") && pageUser != null -> {
+                    val user = pageUser
+                    // On screen: what comes in is read at once; gone, notifications again.
+                    DisposableEffect(user) {
+                        messaging.openChat(user)
+                        messaging.refreshPresence()
+                        onDispose { messaging.openChat(null) }
+                    }
+                    LaunchedEffect(messagingState.unread[user]) { if ((messagingState.unread[user] ?: 0) > 0) messaging.openChat(user) }
+                    // "typing…" ends by itself when its time is up.
+                    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+                    val typingUntil = messagingState.typing[user]
+                    LaunchedEffect(typingUntil) {
+                        now = System.currentTimeMillis()
+                        if (typingUntil != null && typingUntil > now) {
+                            kotlinx.coroutines.delay(typingUntil - now)
+                            now = System.currentTimeMillis()
+                        }
+                    }
+                    ConversationScreen(
+                        user = user,
+                        contact = messagingState.contacts.firstOrNull { it.user == user },
+                        messages = messagingState.conversations[user].orEmpty(),
+                        header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
+                        actions = ConversationActions(
+                            back = ::pop,
+                            openContact = { push("contact/$user") },
+                            send = { body ->
+                                messaging.sendText(user, body) { result ->
+                                    if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
+                                }
+                            },
+                            retry = messaging::retry,
+                            typing = { messaging.typing(user, it) },
+                        ),
+                    )
+                }
                 name.startsWith("contact/") && pageUser != null -> {
-                    var sending by remember(pageUser) { mutableStateOf(false) }
                     val user = pageUser
                     ContactScreen(
                         user = user,
                         contact = messagingState.contacts.firstOrNull { it.user == user },
-                        last = messagingState.lastMessages[user],
-                        sending = sending,
                         actions = ContactActions(
                             back = ::pop,
                             acceptKeyChange = { messaging.acceptKeyChange(user) },
                             openSafetyNumber = { push("safety/$user") },
-                            sendTest = { body ->
-                                sending = true
-                                messaging.sendTest(user, body) { result ->
-                                    sending = false
-                                    messages.post(
-                                        when (result) {
-                                            ContactResult.Done -> resources.getString(R.string.contact_test_sent, user)
-                                            is ContactResult.Failed -> resources.getString(R.string.contact_failed, result.message)
-                                        },
-                                    )
-                                }
-                            },
                             setBlocked = { blocked ->
                                 messaging.setBlocked(user, blocked) { result ->
                                     messages.post(
@@ -432,7 +476,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                         // The latest text first, then the newest contacts.
                         chats.contacts
                             .sortedWith(compareByDescending<Contact> { chats.lastMessages[it.user]?.at ?: 0L }.thenByDescending { it.addedAt })
-                            .forEach { contact -> ContactRow(contact, chats.lastMessages[contact.user]) { actions.openContact(contact.user) } }
+                            .forEach { contact -> ContactRow(contact, chats.lastMessages[contact.user], chats.unread[contact.user] ?: 0) { actions.openContact(contact.user) } }
                     }
                 }
                 HomeTab.CALLS -> {

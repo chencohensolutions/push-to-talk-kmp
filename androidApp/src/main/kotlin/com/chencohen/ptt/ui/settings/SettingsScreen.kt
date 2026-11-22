@@ -34,7 +34,16 @@ import com.chencohen.ptt.ui.style.SettingsScaffold
  * with Link a phone, Register again) and Your server.
  */
 @Composable
-internal fun SettingsScreen(state: SettingsState, back: () -> Unit, refresh: () -> Unit, registerAgain: () -> Unit, linkPhone: () -> Unit = {}) {
+internal fun SettingsScreen(
+    state: SettingsState,
+    back: () -> Unit,
+    refresh: () -> Unit,
+    registerAgain: () -> Unit,
+    linkPhone: () -> Unit = {},
+    /** Show when I'm online: on, off, or null while it is being changed. */
+    presenceVisible: Boolean? = true,
+    setPresenceVisible: (Boolean) -> Unit = {},
+) {
     LaunchedEffect(Unit) { refresh() }
     SettingsScaffold(stringResource(R.string.settings_title), back) {
         SectionTitle(stringResource(R.string.settings_account_title))
@@ -53,6 +62,20 @@ internal fun SettingsScreen(state: SettingsState, back: () -> Unit, refresh: () 
                 body = stringResource(R.string.settings_register_again_body),
                 onClick = registerAgain,
                 destructive = true,
+            )
+        }
+        SectionTitle(stringResource(R.string.settings_privacy_title))
+        SettingsCard {
+            InfoRow(
+                title = stringResource(R.string.settings_presence_title),
+                body = stringResource(
+                    when (presenceVisible) {
+                        true -> R.string.settings_presence_on
+                        false -> R.string.settings_presence_off
+                        null -> R.string.library_loading
+                    },
+                ),
+                onClick = { presenceVisible?.let { setPresenceVisible(!it) } },
             )
         }
         ServerSection(state)

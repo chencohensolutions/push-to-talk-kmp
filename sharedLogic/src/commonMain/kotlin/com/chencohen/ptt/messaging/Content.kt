@@ -19,6 +19,10 @@ internal data class Content(
     @ProtoNumber(2) val text: TextContent? = null,
     /** To the sender's own other phones only: what that phone now knows of a contact. */
     @ProtoNumber(3) val contact: ContactSyncContent? = null,
+    /** Delivered or read: the ids of texts this phone got. */
+    @ProtoNumber(4) val receipt: ReceiptContent? = null,
+    /** The sender is typing (or stopped). Sent with PUSH_NONE: never wakes a phone. */
+    @ProtoNumber(5) val typing: TypingContent? = null,
     /** On a copy for the sender's own other devices: the user the message went to. */
     @ProtoNumber(15) val destination: String = "",
 )
@@ -62,7 +66,22 @@ internal data class TextContent(
     @ProtoNumber(1) val body: String = "",
     /** When it was written, milliseconds since 1970 (UTC). */
     @ProtoNumber(2) val sentAt: Long = 0,
+    /** The text's own id, the same on every phone: what receipts name. */
+    @ProtoNumber(3) val id: String = "",
 )
+
+/**
+ * [ids] of texts were delivered to a phone of the recipient, or read there ([read]). Sent back to the texts' sender;
+ * the copy to the recipient's own other phones says they were read there too.
+ */
+@Serializable
+internal data class ReceiptContent(
+    @ProtoNumber(1) val read: Boolean = false,
+    @ProtoNumber(2) val ids: List<String> = emptyList(),
+)
+
+@Serializable
+internal data class TypingContent(@ProtoNumber(1) val typing: Boolean = false)
 
 internal object ContentCodec {
     const val BLOCK = 160

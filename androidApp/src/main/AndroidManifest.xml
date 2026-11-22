@@ -4,10 +4,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 17+: the server is often on the local network; without this, connections to it time out. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <!-- Phase 3: notifications for texts that come in. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- No backup and no phone-to-phone transfer: a copied app would think it is enrolled without its key, which
          can't leave the phone's secure hardware (res/xml/data_extraction_rules.xml). -->
     <application
+        android:name=".TalkApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
@@ -53,6 +56,22 @@
                 <data android:scheme="ptt" android:host="link" />
             </intent-filter>
         </activity>
+            <!-- The server's pushes (FCM): a wake-up, then the phone takes its queue. -->
+        <service
+            android:name=".TalkMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- Reply and Mark as read from a notification. -->
+        <receiver
+            android:name=".NotificationActions"
+            android:exported="false" />
+        <!-- Firebase's own data collection off: it is used only to wake the phone. -->
+        <meta-data
+            android:name="firebase_analytics_collection_deactivated"
+            android:value="true" />
     </application>
 
 </manifest>

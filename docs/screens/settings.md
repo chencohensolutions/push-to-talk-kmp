@@ -14,6 +14,12 @@ and each time the connection's state changes.
   [enrollment wizard](enrollment.md). A new enrollment replaces the identity and forgets what was kept of the old
   server.
 
+## Privacy
+
+- **Show when I’m online:** "On: your contacts see when you’re online and when you were last seen. Tap to turn off."
+  or "Off: nobody sees when you’re online, and you don’t see theirs. …"; a tap switches it (`setPresenceVisible`);
+  "Couldn’t change it: the server didn’t answer." when it can't.
+
 ## Your server
 
 One card, all selectable to copy:

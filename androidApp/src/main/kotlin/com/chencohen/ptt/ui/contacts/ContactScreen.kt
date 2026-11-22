@@ -43,7 +43,6 @@ class ContactActions(
     val back: () -> Unit = {},
     val acceptKeyChange: () -> Unit = {},
     val openSafetyNumber: () -> Unit = {},
-    val sendTest: (String) -> Unit = {},
     val setBlocked: (Boolean) -> Unit = {},
     /** Asks first (a message with Remove), then unpairs. */
     val unpair: () -> Unit = {},
@@ -51,10 +50,10 @@ class ContactActions(
 
 /**
  * A contact's page (docs/screens/contacts.md), Signal's conversation settings: who they are and how paired, a changed
- * safety number to accept, the safety number, phase 2's one-line test message, block and remove.
+ * safety number to accept, the safety number, block and remove. The conversation itself is ConversationScreen.
  */
 @Composable
-internal fun ContactScreen(user: String, contact: Contact?, last: TextMessage?, sending: Boolean, actions: ContactActions) {
+internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActions) {
     SettingsScaffold(title = user, back = actions.back, imePadding = true) {
         if (contact == null) {
             EmptyState(stringResource(R.string.contact_gone))
@@ -91,7 +90,6 @@ internal fun ContactScreen(user: String, contact: Contact?, last: TextMessage?, 
                 onClick = actions.openSafetyNumber,
             )
         }
-        if (contact.paired && !contact.blocked) TestMessage(contact.user, last, sending, actions.sendTest)
         Spacer(Modifier.height(20.dp))
         SettingsCard {
             if (contact.blocked) {
@@ -105,57 +103,16 @@ internal fun ContactScreen(user: String, contact: Contact?, last: TextMessage?, 
     }
 }
 
-/** Phase 2's transport test: one line, sent end to end, and the last line either way. */
-@Composable
-private fun TestMessage(user: String, last: TextMessage?, sending: Boolean, send: (String) -> Unit) {
-    var text by rememberSaveable(user) { mutableStateOf("") }
-    SectionTitle(stringResource(R.string.contact_test_title))
-    PageNote(stringResource(R.string.contact_test_note), bottom = 8)
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it.take(500) },
-            placeholder = { Text(stringResource(R.string.contact_test_hint)) },
-            singleLine = true,
-            enabled = !sending,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
-            modifier = Modifier.weight(1f),
-        )
-        PrimaryButton(
-            stringResource(R.string.contact_test_send),
-            {
-                send(text.trim())
-                text = ""
-            },
-            Modifier.padding(start = 8.dp),
-            enabled = text.isNotBlank() && !sending,
-            busy = sending,
-        )
-    }
-    if (last != null) {
-        PageNote(
-            if (last.outgoing) stringResource(R.string.contact_test_last_out, last.body) else stringResource(R.string.contact_test_last_in, user, last.body),
-            top = 8,
-        )
-    }
-}
-
 @Preview
 @Composable
 private fun ContactPreview() {
     TalkTheme {
-        ContactScreen(
-            "dana",
-            Contact("dana", "", paired = true, devices = 2),
-            TextMessage("1", "dana", outgoing = false, body = "Hi from the other phone", at = 0),
-            sending = false,
-            ContactActions(),
-        )
+        ContactScreen("dana", Contact("dana", "", paired = true, devices = 2), ContactActions())
     }
 }
 
 @Preview
 @Composable
 private fun ContactKeyChangedPreview() {
-    TalkTheme { ContactScreen("dana", Contact("dana", "", paired = true, changedKey = "x", devices = 1), null, false, ContactActions()) }
+    TalkTheme { ContactScreen("dana", Contact("dana", "", paired = true, changedKey = "x", devices = 1), ContactActions()) }
 }

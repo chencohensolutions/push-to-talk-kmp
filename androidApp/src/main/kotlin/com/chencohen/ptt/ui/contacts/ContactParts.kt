@@ -52,7 +52,7 @@ internal fun Avatar(user: String, size: Dp = 48.dp) {
  * changed safety number in orange, not confirmed yet), else the last test message, else "Paired".
  */
 @Composable
-internal fun ContactRow(contact: Contact, last: TextMessage?, onClick: () -> Unit) {
+internal fun ContactRow(contact: Contact, last: TextMessage?, unread: Int = 0, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -80,6 +80,12 @@ internal fun ContactRow(contact: Contact, last: TextMessage?, onClick: () -> Uni
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (unread > 0) {
+            // Unread texts: Ink's count, Signal's dot.
+            Box(Modifier.padding(end = 8.dp).background(LibraryColors.Inverse, CircleShape).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                Text(if (unread > 99) "99+" else unread.toString(), color = LibraryColors.OnInverse, style = LibraryType.Small)
+            }
         }
         if (contact.verified && contact.changedKey == null) {
             Icon(LibraryIcons.Shield, stringResource(R.string.safety_verified), tint = LibraryColors.Muted, modifier = Modifier.size(18.dp))

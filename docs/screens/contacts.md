@@ -21,9 +21,6 @@
   kept one (`Contact.changedKey`): nothing is sent to them until **Accept the new number**, which keeps the new key and
   clears Verified.
 - **Safety number**: Verified, or "Not verified: compare it with them"; opens the safety number.
-- **Test message** (paired and not blocked): "Chats come in the next version. This sends one end-to-end encrypted
-  line, to check the way there.", a one-line field and **Send** (a spinner while it goes; then "Sent to <user>" or
-  what failed), and the last line either way under it. Phase 3 replaces it with the conversation.
 - **Block <user>** (red: "They can’t reach you and you can’t reach them until you unblock.") or **Unblock <user>**.
 - **Remove <user>** (red): asks first in the message bar, "Remove <user> from your contacts?" with **Remove**; then
   unpairs, says "<user> was removed" and goes home.

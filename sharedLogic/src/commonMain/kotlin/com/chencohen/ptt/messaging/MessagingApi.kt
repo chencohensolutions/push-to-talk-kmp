@@ -11,6 +11,9 @@ import com.chencohen.ptt.graphql.AcceptInviteMutation
 import com.chencohen.ptt.graphql.BlockMutation
 import com.chencohen.ptt.graphql.CreateInviteMutation
 import com.chencohen.ptt.graphql.CreateLinkCodeMutation
+import com.chencohen.ptt.graphql.PresenceQuery
+import com.chencohen.ptt.graphql.RegisterPushMutation
+import com.chencohen.ptt.graphql.SetPresenceVisibleMutation
 import com.chencohen.ptt.graphql.ConfirmPairMutation
 import com.chencohen.ptt.graphql.ContactsQuery
 import com.chencohen.ptt.graphql.MyIdentityKeyQuery
@@ -89,6 +92,14 @@ internal interface MessagingApi {
     /** A pairing token and when it expires (RFC 3339). */
     suspend fun pairingToken(): Pair<String, String>
 
+    /** Gives the server this device's FCM token (null: none) and whether it shows notifications (registerPush). */
+    suspend fun registerPush(token: String?, notificationsEnabled: Boolean): Boolean
+
+    suspend fun setPresenceVisible(visible: Boolean): Boolean
+
+    /** Whether each contact is online, and when last seen (milliseconds; null when unknown or hidden). */
+    suspend fun presence(users: List<String>): List<UserPresence>
+
     /** An enrollment code for another phone of this user (createLinkCode) and when it expires (RFC 3339). */
     suspend fun createLinkCode(): Pair<String, String>
 
@@ -109,6 +120,9 @@ internal interface MessagingApi {
     /** Redeems an invite on this enrolled phone: the inviter's pairing token. */
     suspend fun acceptInvite(code: String): InvitePairing
 }
+
+/** A contact online now, or when last connected ([lastSeen], milliseconds; null when unknown or hidden). */
+data class UserPresence(val user: String, val online: Boolean, val lastSeen: Long?)
 
 /**
  * A new invite: its [code] (for the link), when it expires (RFC 3339), and its [passcode], the six digits this phone
@@ -178,6 +192,19 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
         val token = run { it.mutation(PairingTokenMutation()).execute() }.pairingToken
         return token.token to token.expiresAt
     }
+
+    override suspend fun registerPush(token: String?, notificationsEnabled: Boolean): Boolean =
+        run { it.mutation(RegisterPushMutation(Optional.present(token), notificationsEnabled)).execute() }.registerPush
+
+    override suspend fun setPresenceVisible(visible: Boolean): Boolean =
+        run { it.mutation(SetPresenceVisibleMutation(visible)).execute() }.setPresenceVisible
+
+    @OptIn(kotlin.time.ExperimentalTime::class)
+    override suspend fun presence(users: List<String>): List<UserPresence> =
+        run { it.query(PresenceQuery(users)).execute() }.presence.map { p ->
+            val seen = p.lastSeen?.let { t -> runCatching { kotlin.time.Instant.parse(t.toString()).toEpochMilliseconds() }.getOrNull() }
+            UserPresence(p.user, p.online, seen)
+        }
 
     override suspend fun createLinkCode(): Pair<String, String> {
         val code = run { it.mutation(CreateLinkCodeMutation()).execute() }.createLinkCode

@@ -1,5 +1,6 @@
 package com.chencohen.ptt
 
+import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -20,6 +21,7 @@ import com.chencohen.ptt.messaging.InviteLink
 import com.chencohen.ptt.ui.EnrollmentWizard
 import com.chencohen.ptt.ui.TalkTheme
 import com.chencohen.ptt.ui.home.HomeApp
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: PttViewModel by viewModels()
@@ -30,6 +32,9 @@ class MainActivity : ComponentActivity() {
     /** An invite link opened on an enrolled phone, for Add contact. */
     private var openedInvite by mutableStateOf<String?>(null)
 
+    /** A conversation to open: a notification was tapped. */
+    private var openedChat by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -39,10 +44,20 @@ class MainActivity : ComponentActivity() {
         setContent {
             TalkTheme {
                 // Android 17 blocks connections to local network addresses (a home server) without this.
-                val localNetwork = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+                // Then notifications for texts (Android 13+ asks); the answer goes to the server with the push token.
+                val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                    (application as TalkApp).scope.launch { Push.register(this@MainActivity) }
+                }
+                val localNetwork = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                    if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
                 LaunchedEffect(Unit) {
                     if (Build.VERSION.SDK_INT >= 37 && checkSelfPermission(LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED) {
                         localNetwork.launch(LOCAL_NETWORK)
+                    } else if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                 }
                 // Without an identity the phone has to be registered first.
@@ -62,6 +77,7 @@ class MainActivity : ComponentActivity() {
                             viewModel.enrollment.reset()
                             viewModel.connection.connect()
                             viewModel.messaging.start()
+                            (application as TalkApp).scope.launch { Push.register(this@MainActivity) }
                         },
                     )
                 } else {
@@ -76,6 +92,8 @@ class MainActivity : ComponentActivity() {
                         },
                         openedInvite = openedInvite,
                         onInviteTaken = { openedInvite = null },
+                        openedChat = openedChat,
+                        onChatTaken = { openedChat = null },
                     )
                 }
             }
@@ -90,6 +108,8 @@ class MainActivity : ComponentActivity() {
         if (viewModel.connection.currentState.enrolled) {
             viewModel.connection.connect()
             viewModel.messaging.start()
+            // The push token and the notifications setting, told to the server when they changed.
+            (application as TalkApp).scope.launch { Push.register(this@MainActivity) }
         }
     }
 
@@ -105,6 +125,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openLink(intent: Intent?) {
+        // Opened again from Recents, Android hands back the intent the task started with: a link used long ago.
+        if (intent != null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        if (intent?.action == Notifications.ACTION_OPEN) {
+            openedChat = intent.getStringExtra(Notifications.EXTRA_USER)
+            return
+        }
         val data = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
         InviteLink.parse(data)?.let { invite ->
             // Enrolled on that server: pair with the inviter. Not yet (or on another): enroll with it, then pair.

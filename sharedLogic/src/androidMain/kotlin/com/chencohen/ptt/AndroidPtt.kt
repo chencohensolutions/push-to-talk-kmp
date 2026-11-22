@@ -16,6 +16,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
+import com.chencohen.ptt.messaging.MessageNotifier
 import com.chencohen.ptt.enrollment.AndroidDeviceKeyStore
 import com.chencohen.ptt.enrollment.CertificateRenewal
 import com.chencohen.ptt.enrollment.EnrollmentController
@@ -76,16 +78,25 @@ private val messagingWork = Dispatchers.IO.limitedParallelism(1)
 /** The encrypted database: one per process, opened on [messagingWork] at first use. */
 private var secureStore: SqlCipherStore? = null
 
-/** The hub and the connection controller it was made for: a new ViewModel (a new controller) gets a new hub. */
-private var messaging: Pair<ConnectionController, Messaging>? = null
+/** The one hub of the process: the screens' controllers and the push service share it. */
+private var hub: Messaging? = null
+
+/** What a revoked device does: the screens' connection checks again, so home shows Register again. */
+@Volatile
+private var onRevokedNow: () -> Unit = {}
 
 /**
- * Keys, /ws, pairing and contacts, for the screens' two controllers. A revoked device ([onRevoked], close code 4003)
- * checks the connection again, so home shows Register again.
+ * Keys, /ws, pairing and contacts, for the screens' two controllers: the process's one hub, with [connection] told
+ * when the device is revoked (close code 4003).
  */
-@Synchronized
 private fun messaging(context: Context, connection: ConnectionController): Messaging {
-    messaging?.let { (owner, hub) -> if (owner === connection) return hub }
+    onRevokedNow = { connection.connect() }
+    return hub(context)
+}
+
+@Synchronized
+private fun hub(context: Context): Messaging {
+    hub?.let { return it }
     val settings = settings(context)
     val http = serverHttp(context)
     val store = secureStore ?: SqlCipherStore(context.applicationContext).also { secureStore = it }
@@ -97,8 +108,46 @@ private fun messaging(context: Context, connection: ConnectionController): Messa
         connector = KtorFrameConnector { http.client() },
         scope = CoroutineScope(SupervisorJob() + messagingWork),
         now = { System.currentTimeMillis() },
-        onRevoked = { connection.connect() },
-    ).also { messaging = connection to it }
+        onRevoked = { onRevokedNow() },
+    ).also { hub = it }
+}
+
+// --- For the push service and the notifications (androidApp), which run without a screen -----------------------
+
+/** Who shows notifications for texts that come in, and takes them down when read. */
+fun setMessageNotifier(context: Context, notifier: MessageNotifier) {
+    hub(context).notifier = notifier
+}
+
+/** A push came: connects, takes the queue, sends the outbox, and closes again unless the app is on screen. */
+suspend fun wakeForPush(context: Context) {
+    val messaging = hub(context)
+    withContext(messagingWork) { messaging.wake() }
+}
+
+/** Tells the server this phone's FCM token (null: the one kept) and whether it shows notifications, if that changed. */
+suspend fun registerPush(context: Context, token: String?, notificationsEnabled: Boolean) {
+    val messaging = hub(context)
+    withContext(messagingWork) { messaging.registerPush(token, notificationsEnabled) }
+}
+
+/** A reply typed in a notification: read, sent (or kept in the outbox), with a connection opened for it. */
+suspend fun replyFromNotification(context: Context, user: String, body: String) {
+    val messaging = hub(context)
+    withContext(messagingWork) {
+        messaging.markRead(user)
+        messaging.sendText(user, body)
+        messaging.wake()
+    }
+}
+
+/** Mark as read, from a notification. */
+suspend fun markReadFromNotification(context: Context, user: String) {
+    val messaging = hub(context)
+    withContext(messagingWork) {
+        messaging.markRead(user)
+        messaging.wake()
+    }
 }
 
 /** Keys, /ws, contacts and pair requests (docs/screens/contacts.md). */

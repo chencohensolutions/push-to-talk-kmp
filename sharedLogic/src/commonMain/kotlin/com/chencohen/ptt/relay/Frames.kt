@@ -48,6 +48,18 @@ internal data class PongFrame(@ProtoNumber(6) val pong: Pong) : FrameKind
 internal data class QueueEmptyFrame(@ProtoNumber(7) val queueEmpty: QueueEmpty) : FrameKind
 
 @Serializable
+internal data class PresenceFrame(@ProtoNumber(8) val presence: Presence) : FrameKind
+
+/** A contact came online or went offline (the server's docs/messaging.md, "Presence"); live only. */
+@Serializable
+internal data class Presence(
+    @ProtoNumber(1) val user: String = "",
+    @ProtoNumber(2) val online: Boolean = false,
+    /** When offline: last connected, milliseconds since 1970, rounded down to 5 minutes; 0 when unknown. */
+    @ProtoNumber(3) @ProtoType(ProtoIntegerType.DEFAULT) val lastSeen: Long = 0,
+)
+
+@Serializable
 internal data class Envelope(
     @ProtoNumber(1) val id: String = "",
     @ProtoNumber(2) val senderUser: String = "",
@@ -86,7 +98,18 @@ internal data class Ack(@ProtoNumber(1) val ids: List<String> = emptyList())
 internal data class Send(
     @ProtoNumber(1) val clientId: String = "",
     @ProtoNumber(2) val envelopes: List<Envelope> = emptyList(),
+    /** What a wake-up for it is ([PushKind]): the server can't read the ciphertext. */
+    @ProtoNumber(3) val pushKind: Int = 0,
 )
+
+/** ptt.proto's PushKind: which FCM push a recipient without an open /ws gets. */
+internal object PushKind {
+    const val SYNC = 1
+    const val MESSAGE = 2
+    const val NONE = 3
+    const val TALK = 4
+    const val CALL = 5
+}
 
 @Serializable
 internal data class SendResult(

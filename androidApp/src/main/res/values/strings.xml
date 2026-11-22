@@ -105,6 +105,11 @@
     <string name="settings_device_unknown">Not registered</string>
     <string name="settings_linked_title">Linked devices</string>
     <string name="settings_linked_body">Link a phone: your new phone joins this account with your contacts.</string>
+    <string name="settings_privacy_title">Privacy</string>
+    <string name="settings_presence_title">Show when I’m online</string>
+    <string name="settings_presence_on">On: your contacts see when you’re online and when you were last seen. Tap to turn off.</string>
+    <string name="settings_presence_off">Off: nobody sees when you’re online, and you don’t see theirs. Tap to turn on.</string>
+    <string name="settings_presence_failed">Couldn’t change it: the server didn’t answer.</string>
     <string name="link_title">Link a phone</string>
     <string name="link_steps">On your new phone, install Talk, tap Get started, then Scan QR code, and scan this code.</string>
     <string name="link_code_label">Link a phone QR code</string>
@@ -204,13 +209,6 @@
     <string name="contact_safety">Safety number</string>
     <string name="contact_safety_verified">Verified</string>
     <string name="contact_safety_unverified">Not verified: compare it with them</string>
-    <string name="contact_test_title">Test message</string>
-    <string name="contact_test_note">Chats come in the next version. This sends one end-to-end encrypted line, to check the way there.</string>
-    <string name="contact_test_hint">A short message</string>
-    <string name="contact_test_send">Send</string>
-    <string name="contact_test_sent">Sent to %1$s</string>
-    <string name="contact_test_last_in">%1$s: %2$s</string>
-    <string name="contact_test_last_out">You: %1$s</string>
     <string name="contact_block">Block %1$s</string>
     <string name="contact_block_body">They can’t reach you and you can’t reach them until you unblock.</string>
     <string name="contact_unblock">Unblock %1$s</string>
@@ -222,6 +220,26 @@
     <string name="contact_done_unblocked">%1$s is unblocked</string>
     <string name="contact_done_unpaired">%1$s was removed</string>
     <string name="contact_failed">That didn’t work: %1$s</string>
+    <string name="notify_channel">Messages</string>
+    <string name="notify_channel_description">Texts from your contacts</string>
+    <string name="notify_you">You</string>
+    <string name="notify_reply">Reply</string>
+    <string name="notify_reply_hint">Message</string>
+    <string name="notify_mark_read">Mark as read</string>
+    <string name="chat_hint">Message</string>
+    <string name="chat_send">Send</string>
+    <string name="chat_typing">typing…</string>
+    <string name="chat_online">online</string>
+    <string name="chat_last_seen">last seen %1$s</string>
+    <string name="chat_status_pending">Waiting to send</string>
+    <string name="chat_status_sent">Sent</string>
+    <string name="chat_status_delivered">Delivered</string>
+    <string name="chat_status_read">Read</string>
+    <string name="chat_status_failed">Not sent · tap to try again</string>
+    <string name="chat_blocked">You blocked %1$s. Unblock them on their page to write again.</string>
+    <string name="chat_key_changed">%1$s’s safety number changed</string>
+    <string name="chat_key_changed_body">They may have a new phone, or someone may be pretending to be them. Your texts wait until you accept the new number on their page.</string>
+    <string name="chat_key_changed_action">Review</string>
     <string name="contact_gone">This contact isn’t in your list anymore.</string>
 
     <!-- Safety number (docs/screens/contacts.md) -->

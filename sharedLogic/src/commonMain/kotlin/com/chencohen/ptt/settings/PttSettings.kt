@@ -67,6 +67,21 @@ internal class PttSettings(private val store: KeyValueStore) {
      * The Link a phone code (LinkCode.format) this phone enrolled with: Messaging asks that phone for the identity key
      * once this one is connected, then forgets it. Null otherwise.
      */
+    /** This user shows contacts when they're online (setPresenceVisible), as last set from this phone. */
+    var presenceVisible: Boolean
+        get() = store.getString(KEY_PRESENCE_VISIBLE) != "false"
+        set(value) = store.putString(KEY_PRESENCE_VISIBLE, value.toString())
+
+    /** This phone's FCM registration token, as Firebase last gave it; null before. */
+    var pushToken: String?
+        get() = store.getString(KEY_PUSH_TOKEN)
+        set(value) = store.putString(KEY_PUSH_TOKEN, value)
+
+    /** What the server was last told by registerPush ("device|token|notifications"): told again only when it changes. */
+    var pushRegistered: String?
+        get() = store.getString(KEY_PUSH_REGISTERED)
+        set(value) = store.putString(KEY_PUSH_REGISTERED, value)
+
     var pendingLink: String?
         get() = store.getString(KEY_PENDING_LINK)
         set(value) = store.putString(KEY_PENDING_LINK, value)
@@ -74,6 +89,9 @@ internal class PttSettings(private val store: KeyValueStore) {
     companion object {
         private const val KEY_PENDING_INVITE_PAIR = "pending_invite_pair"
         private const val KEY_PENDING_LINK = "pending_link"
+        private const val KEY_PUSH_TOKEN = "push_token"
+        private const val KEY_PRESENCE_VISIBLE = "presence_visible"
+        private const val KEY_PUSH_REGISTERED = "push_registered"
         private val json = Json { ignoreUnknownKeys = true }
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_SERVER_DISCOVERY = "server_discovery"

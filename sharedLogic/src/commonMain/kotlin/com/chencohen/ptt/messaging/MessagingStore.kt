@@ -41,9 +41,38 @@ data class PairRequest(
     val viaLink: Boolean = false,
 )
 
-/** A text message (phase 2 sends them only as a test of the transport). */
+/** Where a text this phone sent stands. */
+enum class MessageStatus {
+    /** Not on the server yet: in the outbox, sent when the phone is connected. */
+    PENDING,
+
+    /** The server took it. */
+    SENT,
+
+    /** A phone of theirs has it. */
+    DELIVERED,
+
+    /** They read it. */
+    READ,
+
+    /** The server refused it, or it can't be encrypted for them (a changed key, blocked): not tried again. */
+    FAILED,
+}
+
+/**
+ * A text in a conversation with [user]: [id] is the text's own, the same on every phone. [status] is for one this
+ * phone's user sent ([outgoing]), from any of their phones; [read] for one they got.
+ */
 @Serializable
-data class TextMessage(val id: String, val user: String, val outgoing: Boolean, val body: String, val at: Long)
+data class TextMessage(
+    val id: String,
+    val user: String,
+    val outgoing: Boolean,
+    val body: String,
+    val at: Long,
+    val status: MessageStatus = MessageStatus.SENT,
+    val read: Boolean = false,
+)
 
 /**
  * The secret of an Add contact code this phone showed, or of an invite link it made ([viaLink]; [token] is then the
@@ -152,6 +181,10 @@ internal class MessagingStore(val store: SecureStore) {
         write(Spaces.MESSAGES, message.at.toString().padStart(15, '0') + "-" + message.id, TextMessage.serializer(), message)
 
     fun messages(): List<TextMessage> = all(Spaces.MESSAGES, TextMessage.serializer())
+
+    fun messagesWith(user: String): List<TextMessage> = messages().filter { it.user == user }
+
+    fun message(id: String): TextMessage? = messages().firstOrNull { it.id == id }
 
     fun removeMessagesOf(user: String) {
         store.keys(Spaces.MESSAGES).forEach { key ->

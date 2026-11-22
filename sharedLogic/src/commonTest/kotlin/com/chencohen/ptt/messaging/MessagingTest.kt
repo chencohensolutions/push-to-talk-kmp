@@ -2,6 +2,7 @@ package com.chencohen.ptt.messaging
 
 import com.chencohen.ptt.crypto.DeviceAddress
 import com.chencohen.ptt.discovery.KeptDiscovery
+import com.chencohen.ptt.relay.PushKind
 import com.chencohen.ptt.relay.SocketState
 import com.chencohen.ptt.settings.EnrolledDevice
 import com.chencohen.ptt.settings.KeyValueStore
@@ -403,6 +404,118 @@ class MessagingTest {
     }
 
     @Test
+    fun textsAreDeliveredAndReadWithReceipts() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val notified = mutableListOf<String>()
+        val readOn = mutableListOf<String>()
+        hen.messaging.notifier = object : MessageNotifier {
+            override fun incoming(contact: Contact, unread: List<TextMessage>) {
+                notified += unread.joinToString("|") { it.body }
+            }
+
+            override fun read(user: String) {
+                readOn += user
+            }
+        }
+
+        val sent = dana.messaging.sendText("hen", "hi hen")
+        advanceUntilIdle()
+        assertEquals(PushKind.MESSAGE, server.pushKinds.last { it != PushKind.SYNC })
+        val got = hen.store.messagesWith("dana").single()
+        assertEquals(sent.id, got.id, "the text's own id on both phones")
+        assertFalse(got.read)
+        assertEquals(1, hen.state.unread["dana"])
+        assertEquals(listOf("hi hen"), notified)
+        assertEquals(MessageStatus.DELIVERED, dana.store.message(sent.id)!!.status)
+
+        hen.messaging.markRead("dana")
+        advanceUntilIdle()
+        assertEquals(MessageStatus.READ, dana.store.message(sent.id)!!.status)
+        assertNull(hen.state.unread["dana"])
+        assertEquals(listOf("dana"), readOn)
+
+        // A conversation on screen reads what comes in at once, with no notification.
+        hen.messaging.openChat = "dana"
+        val second = dana.messaging.sendText("hen", "again")
+        advanceUntilIdle()
+        assertEquals(MessageStatus.READ, dana.store.message(second.id)!!.status)
+        assertEquals(1, notified.size)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun anOfflineTextWaitsInTheOutbox() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        dana.controller.stop()
+        advanceUntilIdle()
+
+        val waiting = dana.messaging.sendText("hen", "later")
+        assertEquals(MessageStatus.PENDING, waiting.status)
+        assertTrue(hen.store.messagesWith("dana").isEmpty())
+
+        dana.controller.start()
+        advanceUntilIdle()
+        assertEquals("later", hen.store.messagesWith("dana").single().body)
+        assertEquals(MessageStatus.DELIVERED, dana.store.message(waiting.id)!!.status)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun aPushWakesThePhoneForItsQueue() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        hen.controller.stop()
+        advanceUntilIdle()
+        dana.messaging.sendText("hen", "wake up")
+        advanceUntilIdle()
+        assertTrue(hen.store.messagesWith("dana").isEmpty(), "asleep: nothing yet")
+
+        hen.messaging.wake()
+        advanceUntilIdle()
+        assertEquals("wake up", hen.store.messagesWith("dana").single().body)
+        assertEquals(com.chencohen.ptt.relay.SocketState.Stopped, hen.state.socket, "closed again after the wake-up")
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun typingPresenceAndThePushRegistration() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+
+        dana.messaging.sendTyping("hen", true)
+        advanceUntilIdle()
+        assertTrue("dana" in hen.state.typing)
+        assertEquals(PushKind.NONE, server.pushKinds.last())
+        dana.messaging.sendText("hen", "done typing")
+        advanceUntilIdle()
+        assertFalse("dana" in hen.state.typing, "a text ends typing")
+
+        hen.messaging.refreshPresence()
+        assertTrue(hen.state.presence["dana"]!!.online)
+        hen.messaging.setPresenceVisible(false)
+        assertFalse(hen.state.presence["dana"]!!.online, "hidden works both ways")
+
+        hen.messaging.registerPush("token-1", notificationsEnabled = true)
+        assertEquals("token-1" to true, server.pushTokens[hen.address])
+        server.pushTokens.clear()
+        hen.messaging.registerPush(null, notificationsEnabled = true)
+        assertTrue(server.pushTokens.isEmpty(), "unchanged: not sent again")
+        hen.messaging.registerPush(null, notificationsEnabled = false)
+        assertEquals("token-1" to false, server.pushTokens[hen.address])
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
     fun aPairRequestWithoutTheSecretIsDropped() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)
@@ -484,8 +597,8 @@ class MessagingTest {
         hen.messaging.setBlocked("dana", true)
         advanceUntilIdle()
         assertTrue(hen.state.contacts.single().blocked)
-        val refused = runCatching { dana.messaging.sendText("hen", "hi") }.exceptionOrNull()
-        assertIs<SendRefusedException>(refused)
+        // Refused by the server: kept as failed, not left in the outbox.
+        assertEquals(MessageStatus.FAILED, dana.messaging.sendText("hen", "hi").status)
         hen.messaging.setBlocked("dana", false)
 
         // Dana starts over with a new identity key: Hen's phone is told, and asks before trusting it.

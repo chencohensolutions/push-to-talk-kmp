@@ -117,6 +117,7 @@ internal class RelaySocket(
     private val beforeConnect: suspend () -> Unit = {},
     private val onRevoked: () -> Unit = {},
     private val onLive: suspend () -> Unit = {},
+    private val onPresence: (Presence) -> Unit = {},
     private val backoff: List<Duration> = listOf(1.seconds, 2.seconds, 5.seconds, 10.seconds, 30.seconds),
     private val sendTimeout: Duration = 20.seconds,
     private val random: Random = Random.Default,
@@ -227,6 +228,7 @@ internal class RelaySocket(
                     runCatching { onLive() }.onFailure { if (it is CancellationException) throw it }
                 }
                 is PingFrame -> sendMutex.withLock { open.send(Frames.encode(Frame(PongFrame(Pong(kind.ping.id))))) }
+                is PresenceFrame -> onPresence(kind.presence)
                 is PongFrame, is AckFrame, is SendFrame, null -> Unit
             }
         }

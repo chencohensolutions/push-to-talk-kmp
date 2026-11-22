@@ -48,6 +48,12 @@ internal class FakeServer {
     /** Invite codes and who made them (createInvite), until redeemed. */
     val invites = mutableMapOf<String, String>()
     val displayNames = mutableMapOf<String, String>()
+    /** registerPush: each device's token and notifications flag. */
+    val pushTokens = mutableMapOf<DeviceAddress, Pair<String?, Boolean>>()
+    val presenceHidden = mutableSetOf<String>()
+    /** The push kind of each accepted Send, in order. */
+    val pushKinds = mutableListOf<Int>()
+
     /** Link codes (createLinkCode) and whose they are. */
     val linkCodes = mutableMapOf<String, String>()
     val blocks = mutableSetOf<Pair<String, String>>()
@@ -111,6 +117,21 @@ internal class FakeServer {
             val token = "token${nextId++}".padEnd(22, 'x')
             tokens[token] = device.user
             return token to "2026-11-21T10:10:00Z"
+        }
+
+        override suspend fun registerPush(token: String?, notificationsEnabled: Boolean): Boolean {
+            pushTokens[device] = token to notificationsEnabled
+            return true
+        }
+
+        override suspend fun setPresenceVisible(visible: Boolean): Boolean {
+            if (visible) presenceHidden -= device.user else presenceHidden += device.user
+            return visible
+        }
+
+        override suspend fun presence(users: List<String>): List<UserPresence> = users.filter { setOf(it, device.user) in pairs }.map { u ->
+            val hidden = u in presenceHidden || device.user in presenceHidden
+            UserPresence(u, !hidden && connections.keys.any { it.user == u }, null)
         }
 
         override suspend fun createLinkCode(): Pair<String, String> {
@@ -224,6 +245,7 @@ internal class FakeServer {
             enqueue(e.copy(id = id, senderUser = from.user, senderDevice = from.device, routingToken = "", recipientRegistrationId = 0, serverTimestamp = 1_000_000L + nextId))
             id
         }
+        pushKinds += send.pushKind
         return SendResult(send.clientId, SendStatus.ACCEPTED, envelopeIds = ids)
     }
 

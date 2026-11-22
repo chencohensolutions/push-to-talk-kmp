@@ -113,8 +113,8 @@ devices, opens sessions with new ones from their bundles and sends again (3 trie
 
 A `PREKEY_MESSAGE` or `MESSAGE` envelope's ciphertext opens to one protobuf `Content` (`messaging/Content.kt`, only
 the phones read it), padded to a multiple of 160 bytes (a 0x80 byte, then zeros): `pair_request` (1: `secret`,
-`user`, `identity_key`), `text` (2: `body`, `sent_at`), and on the copies for the sender's own devices `destination`
-(15). Phase 2 sends a text only as a test of the transport; the conversation is phase 3.
+`user`, `identity_key`), `text` (2: `body`, `sent_at`, `id`), `contact` (3, to one's own phones only), `receipt` (4:
+`read`, `ids`), `typing` (5: `typing`), and on the copies for the sender's own devices `destination` (15).
 
 ### Pairing
 
@@ -136,7 +136,7 @@ QR only, as the plan says:
 
 The screens: [Add contact](screens/add-contact.md) (from the pencil, New chat), and New chat, a contact's page and
 the safety number in [screens/contacts.md](screens/contacts.md); pair requests are cards in [Chats](screens/chats.md).
-A contact's page has one test line, sent end to end, to check the transport before phase 3's conversations.
+A contact's page has the safety number, block and remove; the conversation is its own page (phase 3).
 
 A contact paired by QR is marked verified. `contacts` brings the list in line with the server (unpaired by the other
 side, blocked, devices, another identity key). Unpair forgets the contact, its sessions and its messages; block and
@@ -228,9 +228,52 @@ key change is accepted. The other phones trust that key and take the verified fl
 they would only learn of the contact from the server's `contacts`, not verified. A text sent from one phone already
 reaches the others as a copy (`Content.destination`).
 
+## Phase 3: messages and FCM
+
+The server's side is its docs/messaging.md, "Push" and "Presence".
+
+**Texts.** `Messaging.sendText` keeps a `TextMessage` first, with its own `id` (12 random bytes, hex) that is the same
+on every phone, as `PENDING`; `deliver` sends it with `PushKind.MESSAGE` and marks it `SENT`. Not connected
+(`SocketUnavailableException`, or the server unreachable) it stays `PENDING`: **the outbox**, sent oldest first once
+`/ws` is live (`flushOutbox`). Refused (blocked, unpaired) or impossible (their key changed) it is `FAILED`, and the
+conversation offers to try again (`retry`). A text that comes in is kept unless one with its id is (a second copy),
+and answered at once with a delivered receipt.
+
+**Delivered and read.** `ReceiptContent` (`read`, `ids`) goes back to the texts' sender with `PushKind.SYNC`:
+delivered when a phone stored them, read when the conversation is on screen (`MessagingController.openChat` →
+`markRead`). Statuses only go up (`PENDING` < `SENT` < `DELIVERED` < `READ`). A read receipt's copy reaches the
+reader's own other phones (`destination`), which mark those texts read and take their notification down. A read
+receipt that can't go yet (a notification's Mark as read while offline) waits for the connection.
+
+**Typing** (`TypingContent`) goes with `PushKind.NONE`, only while connected: started at most every 4 s while the line
+has text, stopped when it empties, after 6 s without typing, or by the text itself; the other side shows "typing…"
+for at most 8 s (`TYPING_FOR`).
+
+**Presence.** On each connection `refreshPresence` asks `presence(contacts)`, and `Presence` frames on `/ws`
+(`RelaySocket`'s `onPresence`) keep `MessagingState.presence` current: the conversation's header says "online" or
+"last seen <time>". Settings → Privacy → **Show when I'm online** (`setPresenceVisible`, kept in
+`PttSettings.presenceVisible`) hides it both ways.
+
+**Push.** The phone holds no socket in the background. Firebase starts by itself from the resources
+`androidApp/build.gradle.kts` makes out of `google-services.json` (the google-services plugin isn't used); its
+analytics are off. `Push.register` gives the server the FCM token and whether notifications are on
+(`registerPush`, only when one of them changed, kept as `PttSettings.pushRegistered`): when the app comes to the
+front, after enrolling, and when FCM makes a new token. `TalkMessagingService.onMessageReceived` gets only
+`{"kind": …}` and calls `Messaging.wake`: open `/ws` unless the app is on screen, take the queue, send the outbox and
+pending receipts, close again (at most ~20 s). The texts it took show as **notifications**
+([screens/notifications.md](screens/notifications.md)) through `MessageNotifier`, which the app sets on the hub; a
+conversation on screen reads them instead. The hub (`AndroidPtt.hub`) is one per process, shared by the screens
+and the push service.
+
+**Key changes.** A contact whose server key isn't the trusted one shows "safety number changed" in Chats and on top
+of the conversation; texts to them fail until the new key is accepted on their page.
+
+Not done yet from the plan's phase 3: the idle battery run, and checking `RemoteMessage.getPriority()` against
+what was shown (the server sends HIGH only to phones that registered notifications as on).
+
 ## Next
 
-Messages and FCM (phase 3), groups, push-to-talk, calls and iOS, as the plan says.
+Groups (phase 4), push-to-talk (5), calls (6) and iOS, as the plan says.
 
 The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3
