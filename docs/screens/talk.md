@@ -18,7 +18,8 @@ header, or by a talk notification's **Reply**. A full-screen walkie-talkie:
   the phone is in the conversation's live room (phase 5b), "Live: in the room" or "Live: heard 230 ms after the press".
 - The **hold-to-talk circle**: ink, 220 dp, with a microphone and "Hold to talk"; a teal ring while live, a faded
   teal ring and a muted circle while someone else talks. Recording starts on the press (before the floor is
-  granted: the plan's catch-up) and stops on release.
+  granted: the plan's catch-up) and stops on release. While it is held the microphone works like a speakerphone's
+  (it hears a voice at arm's length), unless a headset is connected.
 - **Last talk**: the last ten bursts and voice messages of the conversation, newest first: Play (or Pause while it
   plays), who ("You" for ours), length and time.
 
@@ -48,6 +49,7 @@ check.
 ## Notifications
 
 "Dana is talking" (or "Dana is talking in Family"), "Tap Play to hear it", with **Play** (opens the chat and plays
-the burst) and **Reply** (opens Talk mode there), on the Talk channel. While a woken burst plays in a talk session,
-Android shows its ongoing call-style notification "Talk · Family" with **Leave**. Stay connected has its own ongoing
+the burst) and **Reply** (opens Talk mode there), on the Talk channel. While woken bursts play (in the background, as media on the
+loudspeaker), an ongoing notification "Talk · Family" with **Leave** shows; it goes 20 s after the last burst. When
+Android refuses that and they play in a Telecom talk session instead, it is a call-style notification. Stay connected has its own ongoing
 notification, "Talk is connected", with **Turn off**.

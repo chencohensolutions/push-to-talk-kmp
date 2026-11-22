@@ -68,6 +68,9 @@ class LiveKitTalkTransport(
     private val sampleCapture = SampleCapture()
     override val capture: TalkCapture get() = sampleCapture
 
+    /** The speakerphone's microphone tuning while the button is held, as for clips (SpeakerphoneMic). */
+    private val speakerphone = SpeakerphoneMic(appContext)
+
     override suspend fun join(url: String, token: String, identity: String, ownKey: ByteArray, ownIndex: Int): Boolean =
         withContext(Dispatchers.IO) {
             leave()
@@ -111,6 +114,7 @@ class LiveKitTalkTransport(
         }
 
     override fun leave() {
+        speakerphone.end()
         sampleCapture.detach()
         mic = null
         events?.cancel()
@@ -135,6 +139,8 @@ class LiveKitTalkTransport(
         val local = room.localParticipant
         if (on) {
             if (mic != null) return
+            speakerphone.begin()
+            // LiveKit's own capture options: echo cancelling, noise suppression and automatic gain control (WebRTC's).
             val track = local.createAudioTrack("talk")
             mic = track
             sampleCapture.attach(track)
@@ -143,12 +149,14 @@ class LiveKitTalkTransport(
                 sampleCapture.detach()
                 mic = null
                 runCatching { track.stop() }
+                speakerphone.end()
             }
         } else {
             val track = mic ?: return
             mic = null
             sampleCapture.detach()
             local.unpublishTrack(track, true)
+            speakerphone.end()
         }
     }
 
