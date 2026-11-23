@@ -107,6 +107,14 @@ internal fun TalkSettingsScreen(
                 if (on && !overlayAllowed) openOverlaySetting()
             }
             RowDivider()
+            // Follow face on push-to-video (2026-11-23, hen: "optional, off by default"); calls keep their own.
+            val followPrefs = androidx.compose.runtime.remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
+            var followTalk by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(followPrefs.getBoolean(com.chencohen.ptt.ui.talk.FOLLOW_TALK, false)) }
+            SwitchRow(stringResource(R.string.talk_follow_face), stringResource(R.string.talk_follow_face_body), followTalk) { on ->
+                followTalk = on
+                followPrefs.edit().putBoolean(com.chencohen.ptt.ui.talk.FOLLOW_TALK, on).apply()
+            }
+            RowDivider()
             SwitchRow(stringResource(R.string.talk_unmute), stringResource(R.string.talk_unmute_body), settings.unmuteForTalk) {
                 change(settings.copy(unmuteForTalk = it))
             }

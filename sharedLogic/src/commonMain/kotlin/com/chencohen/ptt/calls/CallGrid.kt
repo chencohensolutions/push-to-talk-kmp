@@ -189,6 +189,16 @@ object CallGrid {
         return listOf(left to top, centre to top, right to top, left to bottom, centre to bottom, right to bottom)
     }
 
+    /**
+     * The most a picture may be zoomed (2026-11-23, hen: "don't crop the video below the video box size"): no closer
+     * than its own pixels allow ([sourceWidth] pixels across, laid out [contentWidth] wide at zoom 1), never past
+     * [wanted], and never below [fill] (the zoom that fills the box).
+     */
+    fun zoomCap(wanted: Float, sourceWidth: Float, contentWidth: Float, fill: Float = 1f): Float {
+        val ownPixels = if (sourceWidth > 0f && contentWidth > 0f) sourceWidth / contentWidth else wanted
+        return max(fill, min(wanted, ownPixels))
+    }
+
     /** Of [slots] (top left corners), the one nearest [x], [y]. */
     fun nearest(slots: List<Pair<Float, Float>>, x: Float, y: Float): Int =
         slots.indices.minByOrNull { (slots[it].first - x).let { d -> d * d } + (slots[it].second - y).let { d -> d * d } } ?: 0

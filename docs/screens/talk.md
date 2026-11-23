@@ -75,8 +75,10 @@ The talk button grows (up to 1.25 times) and glows with the voice: the one playi
 - **Chat, Voice call, Video call** (2026-11-22, hen): three round buttons under the name: the conversation (back to it
   when the Talk screen came from it), and a voice or video call there.
 
-- **Follow face in push-to-video** (2026-11-23, hen): a Follow face pill at the top of someone's video burst (the
-  same choice as in calls, kept for next time), on the Talk screen, the woken full-screen video, the reply bubble and
+- **Follow face in push-to-video** (2026-11-23, hen; its own choice, off by default, in Settings › Talk too): a
+  Follow face pill at the top of someone's video burst (kept for next time); framed by the clip's own clock, frame by
+  frame between the sender's two-a-second positions (no lag), starting framed; never zoomed closer than the video's own
+  pixels allow (calls too), on the Talk screen, the woken full-screen video, the reply bubble and
   replays. The sender's phone looks for its face twice a second while sending and puts where it is inside the
   encrypted clip (with the pictures, so replays have it; apps before 1.4.14 skip it and play the clip as before); the
   picture glides to keep the face near the upper third, ignoring small moves. From a sender that puts none (an older

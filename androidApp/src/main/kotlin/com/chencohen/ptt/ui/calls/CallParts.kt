@@ -789,6 +789,8 @@ private fun VideoView(
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
     // The picture's shape as shown (its rotation applied), from the frames themselves.
     var aspect by remember(track) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    // Its own pixels across, upright: no zoom past them (2026-11-23, hen: "don't crop below the video box size").
+    var sourceWidth by remember(track) { androidx.compose.runtime.mutableFloatStateOf(0f) }
     androidx.compose.runtime.LaunchedEffect(renderer, fill) {
         renderer.setScalingType(if (fill) livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL else livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FIT)
     }
@@ -804,6 +806,7 @@ private fun VideoView(
                 last = now
                 android.util.Log.i("CallVideo", "${if (mirror) "own" else "received"} video $now, shown ${w}x$h")
                 main.post {
+                    sourceWidth = w.toFloat()
                     aspect = w.toFloat() / h
                     onShape(w.toFloat() / h)
                 }
@@ -826,9 +829,16 @@ private fun VideoView(
     val pinching = pinchKey != null && aspect > 0f && bw > 0f && bh > 0f
     val content = if (aspect > 0f && bw > 0f && bh > 0f) com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, fill && !pinching) else null
     val coverRatio = if (pinching) { val fit = com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, false); maxOf(bw / fit.first, bh / fit.second) } else 1f
-    val zoomMost = if (fill) coverRatio * 1.5f else maxZoom
+    val zoomMost = if (pinching) {
+        val fitWidth = com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, false).first
+        com.chencohen.ptt.calls.CallGrid.zoomCap(if (fill) coverRatio * 1.5f else maxZoom, sourceWidth, fitWidth, fill = if (fill) coverRatio else 1f)
+    } else {
+        maxZoom
+    }
+    // Follow face's own zoom (without pinching) on the picture as laid out: no closer than its pixels either.
+    val followMost = if (pinching) zoomMost else com.chencohen.ptt.calls.CallGrid.zoomCap(maxZoom, sourceWidth, content?.first ?: 0f)
     val pinch = rememberPinch(pinchKey, pinching, if (fill) coverRatio else 1f, zoomMost, dragFace)
-    val framing = followFace(track, follow, fill, boxSize, content, maxZoom, faceAt, everyMs, hint, pinch.zoom, avoid, pan)
+    val framing = followFace(track, follow, fill, boxSize, content, followMost, faceAt, everyMs, hint, pinch.zoom?.coerceAtMost(zoomMost), avoid, pan)
     Box(modifier.clipToBounds().onSizeChanged { boxSize = it }.then(pinch.modifier), contentAlignment = Alignment.Center) {
         val density = androidx.compose.ui.platform.LocalDensity.current
         val shaped = if (content != null) {

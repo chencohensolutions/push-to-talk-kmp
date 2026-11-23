@@ -491,6 +491,23 @@ object AndroidTalkVideoOut : TalkVideoOut {
     /** The clip shown has the sender's face positions (else Follow face looks on this phone). */
     fun hasFaces(): Boolean = synchronized(lock) { faces.isNotEmpty() }
 
+    /**
+     * Where the sender's face is in the picture showing [aheadMs] from now, by the clip's own clock (2026-11-23, hen:
+     * "the face focus happens with a small delay"): between the two positions around it, in proportion; before the
+     * first, the first (so it starts framed); null when there is none, or the last is 1.5 s old.
+     */
+    fun faceAt(aheadMs: Long = 0): TalkVideo.Face? = synchronized(lock) {
+        if (clip == null || faces.isEmpty()) return null
+        val at = playedMs + SystemClock.elapsedRealtime() - playedAt + aheadMs
+        val i = faces.indexOfLast { it.ptsMs <= at }
+        if (i < 0) return faces.first()
+        val a = faces[i]
+        val b = faces.getOrNull(i + 1)
+        if (b == null) return a.takeIf { at - it.ptsMs < 1_500 }
+        val t = ((at - a.ptsMs).toFloat() / (b.ptsMs - a.ptsMs).coerceAtLeast(1)).coerceIn(0f, 1f)
+        TalkVideo.Face(at, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.h + (b.h - a.h) * t)
+    }
+
     /** Where the sender's face is in the picture showing now; null: none for 1.5 s. */
     fun faceNow(): TalkVideo.Face? = synchronized(lock) {
         if (clip == null) return null

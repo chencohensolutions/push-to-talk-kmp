@@ -691,6 +691,8 @@
     <string name="burst_saved">נשמר ב־%1$s</string>
     <string name="burst_share">שיתוף</string>
     <string name="burst_save_failed">לא הצלחתי לשמור</string>
+    <string name="talk_follow_face">מעקב אחרי פנים בדיבור עם וידאו</string>
+    <string name="talk_follow_face_body">שומר את הפנים של השולח בתמונה בדיבור עם וידאו</string>
     <string name="talk_quick_reply">חלון תשובה מהירה</string>
     <string name="talk_quick_reply_body">כשמגיעה הודעה בזמן שהטלפון בשימוש, חלון בתחתית המסך מראה את השיחה עם שדה לתשובה וכפתור להחזיק ולדבר.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>

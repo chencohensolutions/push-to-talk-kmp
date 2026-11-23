@@ -240,12 +240,16 @@ object TalkBubble {
      * positions keep the face near the upper third, head and shoulders about 45% of the height, small moves left alone.
      */
     private fun follow(context: Context, video: View, w: Float, h: Float) {
-        val on = context.getSharedPreferences("call_view", Context.MODE_PRIVATE).getBoolean("follow_remote", false)
-        val face = if (on) com.chencohen.ptt.talk.AndroidTalkVideoOut.faceNow() else null
+        val on = context.getSharedPreferences("call_view", Context.MODE_PRIVATE).getBoolean(com.chencohen.ptt.ui.talk.FOLLOW_TALK, false)
+        // Where the face will be when this glide ends (the clip's own clock): no lag behind the picture.
+        val face = if (on) com.chencohen.ptt.talk.AndroidTalkVideoOut.faceAt(aheadMs = 300) else null
+        val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value
+        val sourceWidth = (if ((shown?.rotation ?: 0) % 180 != 0) shown?.height else shown?.width)?.toFloat() ?: 0f
+        val most = com.chencohen.ptt.calls.CallGrid.zoomCap(1.8f, sourceWidth, w)
         val now = android.os.SystemClock.elapsedRealtime()
         if (face != null) followFaceSeen = now
         val want = if (face != null) {
-            val p = com.chencohen.ptt.calls.CallGrid.place(w, h, w, h, face.x, face.y, face.h, maxZoom = 1.8f, targetY = 0.4f)
+            val p = com.chencohen.ptt.calls.CallGrid.place(w, h, w, h, face.x, face.y, face.h, maxZoom = most, targetY = 0.4f)
             // From the top left corner (CallGrid) to the view's own pivot, its centre.
             Triple(p.scale, p.x - (1 - p.scale) * w / 2, p.y - (1 - p.scale) * h / 2)
         } else if (on && now - followFaceSeen < 1_500) {
@@ -255,10 +259,10 @@ object TalkBubble {
         }
         val (s0, x0, y0) = followAt
         val first = followAt == Triple(1f, 0f, 0f) && face != null
-        if (kotlin.math.abs(want.first - s0) > 0.08f || kotlin.math.abs(want.second - x0) > w * 0.05f || kotlin.math.abs(want.third - y0) > h * 0.05f || (want == Triple(1f, 0f, 0f) && followAt != want)) {
+        if (want != followAt) {
             followAt = want
             video.animate().scaleX(want.first).scaleY(want.first).translationX(want.second).translationY(want.third)
-                .setDuration(if (first) 0L else 500L).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+                .setDuration(if (first) 0L else 300L).setInterpolator(android.view.animation.LinearInterpolator()).start()
         }
     }
 

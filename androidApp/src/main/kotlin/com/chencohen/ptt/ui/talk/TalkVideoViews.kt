@@ -228,14 +228,16 @@ internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment =
     val frameAspect = if (s != null && s.width > 0 && s.height > 0) s.width.toFloat() / s.height else 4f / 3f
     val turned = rotation % 180 != 0
     val upright = if (turned) 1f / frameAspect else frameAspect
-    // Follow face (2026-11-23, hen: "in push-to-video too"): the same choice as in calls; the sender's face positions
-    // (inside the clip), or a look here twice a second when it sends none (an older app).
+    // Follow face (2026-11-23, hen: "in push-to-video too"; then "optional, off by default"): its own choice, also in
+    // Settings › Talk; the sender's face positions (inside the clip) by the clip's own clock, or a look here twice a
+    // second when it sends none (an older app).
     val context = LocalContext.current
     val prefs = androidx.compose.runtime.remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
-    var follow by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("follow_remote", false)) }
+    var follow by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean(FOLLOW_TALK, false)) }
     var texture by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<TextureView?>(null) }
-    val face = talkFace(follow && s != null, s?.clip, texture, rotation)
-    val key = s?.clip ?: ""
+    val local = talkFace(follow && s != null, s?.clip, texture, rotation)
+    // The source's own pixels across, upright: the zoom stops where they run out (hen: "too zoomed").
+    val sourceWidth = (if (turned) s?.height else s?.width)?.toFloat() ?: 0f
     @Composable
     fun picture(w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp, framing: Modifier) {
         Box(Modifier.requiredSize(w, h).then(framing), contentAlignment = Alignment.Center) {
@@ -272,7 +274,7 @@ internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment =
             modifier = m.background(if (follow) com.chencohen.ptt.ui.style.LibraryColors.Inverse else com.chencohen.ptt.ui.style.LibraryColors.PillScrim, CircleShape)
                 .clickable(role = Role.Switch) {
                     follow = !follow
-                    prefs.edit().putBoolean("follow_remote", follow).apply()
+                    prefs.edit().putBoolean(FOLLOW_TALK, follow).apply()
                 }
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         )
@@ -286,10 +288,9 @@ internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment =
             val bh = constraints.maxHeight.toFloat()
             val fit = com.chencohen.ptt.calls.CallGrid.content(bw, bh, upright, false)
             val coverRatio = maxOf(bw / fit.first, bh / fit.second)
-            val pinch = com.chencohen.ptt.ui.calls.rememberPinch("zoom_talk_full", true, coverRatio, coverRatio * 1.5f)
-            val framing = com.chencohen.ptt.ui.calls.faceFraming(
-                key, follow, true, androidx.compose.ui.unit.IntSize(bw.toInt(), bh.toInt()), fit, coverRatio * 1.5f, 0.4f, face, pinch.zoom,
-            )
+            val most = com.chencohen.ptt.calls.CallGrid.zoomCap(coverRatio * 1.5f, sourceWidth, fit.first, fill = coverRatio)
+            val pinch = com.chencohen.ptt.ui.calls.rememberPinch("zoom_talk_full", true, coverRatio, most)
+            val framing = talkFraming(follow && s != null, s?.clip, local, bw, bh, fit, most, pinch.zoom)
             Box(Modifier.fillMaxSize().then(pinch.modifier), contentAlignment = Alignment.Center) {
                 with(density) { picture(fit.first.toDp(), fit.second.toDp(), framing) }
             }
@@ -299,15 +300,67 @@ internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment =
         FittedBox(upright, modifier, alignment) { w, h ->
             val wp = with(density) { w.toPx() }
             val hp = with(density) { h.toPx() }
-            val pinch = com.chencohen.ptt.ui.calls.rememberPinch("zoom_talk", true, 1f, 1.8f)
-            val framing = com.chencohen.ptt.ui.calls.faceFraming(
-                key, follow, false, androidx.compose.ui.unit.IntSize(wp.toInt(), hp.toInt()), wp to hp, 1.8f, 0.4f, face, pinch.zoom,
-            )
+            val most = com.chencohen.ptt.calls.CallGrid.zoomCap(1.8f, sourceWidth, wp)
+            val pinch = com.chencohen.ptt.ui.calls.rememberPinch("zoom_talk", true, 1f, most)
+            val framing = talkFraming(follow && s != null, s?.clip, local, wp, hp, wp to hp, most, pinch.zoom)
             Box(Modifier.fillMaxSize().clipToBounds().then(pinch.modifier), contentAlignment = Alignment.Center) {
                 picture(w, h, framing)
                 followPill(Modifier.align(Alignment.TopStart).padding(8.dp))
             }
         }
+    }
+}
+
+/** Follow face for push-to-video (its own choice, off by default; Settings › Talk and the pill on the video). */
+internal const val FOLLOW_TALK = "follow_talk"
+
+/**
+ * Follow face on a push-to-video burst, frame by frame: the face at the picture showing (the sender's positions by the
+ * clip's own clock, between its two-a-second positions; or [local], found here) placed by CallGrid.frame as in calls,
+ * with only a light smoothing (80 ms; 250 ms for a face found here, which comes twice a second); the first frame is
+ * already framed.
+ */
+@Composable
+private fun talkFraming(
+    on: Boolean,
+    clip: String?,
+    local: android.graphics.RectF?,
+    bw: Float,
+    bh: Float,
+    content: Pair<Float, Float>,
+    maxZoom: Float,
+    zoom: Float?,
+): Modifier {
+    var now by androidx.compose.runtime.remember(clip) { androidx.compose.runtime.mutableStateOf<Triple<Float, Float, Float>?>(null) }
+    val localNow by androidx.compose.runtime.rememberUpdatedState(local)
+    androidx.compose.runtime.LaunchedEffect(on, clip, bw, bh, content, maxZoom, zoom) {
+        var last = 0L
+        while (true) {
+            androidx.compose.runtime.withFrameNanos { t ->
+                val dt = if (last == 0L) 0f else (t - last) / 1_000_000f
+                last = t
+                val sent = if (on) AndroidTalkVideoOut.faceAt() else null
+                val face = sent?.let { com.chencohen.ptt.calls.CallGrid.Face(it.x, it.y, it.h * 0.75f, it.h) }
+                    ?: localNow?.takeIf { on }?.let { com.chencohen.ptt.calls.CallGrid.Face(it.centerX(), it.centerY(), it.width(), it.height()) }
+                val p = com.chencohen.ptt.calls.CallGrid.frame(bw, bh, content.first, content.second, face, 0.4f, zoom?.coerceAtMost(maxZoom), maxZoom)
+                val target = p?.let { Triple(it.scale, it.x, it.y) } ?: Triple(1f, 0f, 0f)
+                val was = now
+                now = if (was == null || dt <= 0f) {
+                    target
+                } else {
+                    val k = 1f - kotlin.math.exp(-dt / (if (sent != null) 80f else 250f))
+                    Triple(was.first + (target.first - was.first) * k, was.second + (target.second - was.second) * k, was.third + (target.third - was.third) * k)
+                }
+            }
+        }
+    }
+    return Modifier.graphicsLayer {
+        val n = now ?: return@graphicsLayer
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+        scaleX = n.first
+        scaleY = n.first
+        translationX = n.second
+        translationY = n.third
     }
 }
 
@@ -353,12 +406,8 @@ private fun talkFace(on: Boolean, clip: String?, view: TextureView?, rotation: I
     }
     androidx.compose.runtime.LaunchedEffect(on, clip) {
         while (on) {
-            AndroidTalkVideoOut.faceNow()?.let { f ->
-                box = com.chencohen.ptt.ui.calls.faceBox(f.x, f.y, f.h)
-                seenAt = android.os.SystemClock.elapsedRealtime()
-            }
             if (box != null && android.os.SystemClock.elapsedRealtime() - seenAt > 1_500) box = null
-            kotlinx.coroutines.delay(100)
+            kotlinx.coroutines.delay(250)
         }
     }
     return box
