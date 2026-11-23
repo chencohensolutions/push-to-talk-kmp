@@ -888,9 +888,9 @@ internal class Editing(val id: String, val original: String, caret: Int, val wid
 /**
  * My sent text, edited in place (2026-11-24, hen): the words don't move. The edit field lies exactly where the
  * bubble's text was (same style, padding and wrap width), and only the container turns: teal to the writing bubble's
- * look (coral outline), widening to the row on my side, the time's line giving way to "Editing your message" and ✓.
- * The text keeps its wrap until the first change, then may use the whole box. ✓ saves; Back or a tap outside turn it
- * back unchanged (no ✕). 220 ms each way, eased.
+ * look (coral outline, no label), widening on my side, the time's line easing away so it stays one line, ✓ inline on
+ * the text's line. The text keeps its wrap until the first change, then may use the box (38.2% to 85% of the row).
+ * ✓ saves; Back or a tap outside turn it back unchanged (no ✕). 220 ms each way, eased.
  */
 @Composable
 private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit) {
@@ -918,47 +918,50 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
     val from = with(density) { edit.width.toDp() }.coerceAtLeast(pad * 2 + 24.dp)
     // The box: the writing bubble's widths (38.2% to 85% of the row, by the text), never narrower than the bubble was.
     val style = LibraryType.Body
-    val target = maxOf(draftWidth(edit.value.text, style, chrome = pad * 2), from)
+    val target = maxOf(draftWidth(edit.value.text, style, chrome = pad * 2 + 36.dp), from)
     val full by androidx.compose.animation.core.animateDpAsState(target, androidx.compose.animation.core.tween(150), label = "edit width")
     val boxWidth = from + (full - from) * p
     // The text's wrap: the bubble's own until the first change, then (eased) the box's.
     val wrap by androidx.compose.animation.core.animateDpAsState(
         if (edit.changed) full - pad * 2 else from - pad * 2, androidx.compose.animation.core.tween(220), label = "wrap",
     )
+    var lastLineRoom by remember { mutableStateOf(0f) }
+    val check = 30.dp
+    // ✓ inline on the text's line: over the room the last line leaves (the words don't move), or, when that line is
+    // full, in a slot of its own at the end.
+    val roomForCheck = with(density) { lastLineRoom.toDp() } >= check + 6.dp
+    val slot by androidx.compose.animation.core.animateDpAsState(if (roomForCheck) 0.dp else check + 6.dp, androidx.compose.animation.core.tween(200), label = "check slot")
     Box(Modifier.fillMaxWidth(), contentAlignment = MySide) {
-        Column(
-            Modifier.width(boxWidth)
-                .border(1.5.dp, coral.copy(alpha = p), LibraryShapes.Card)
-                .background(androidx.compose.ui.graphics.lerp(LibraryColors.Mine, LibraryColors.Background, p), LibraryShapes.Card)
-                .background(coral.copy(alpha = 0.08f * p), LibraryShapes.Card)
-                .padding(horizontal = pad, vertical = 8.dp),
-            // On my side, where the bubble's text was: the box grows away from it.
-            horizontalAlignment = Alignment.End,
-        ) {
-            androidx.compose.foundation.text.BasicTextField(
-                value = edit.value,
-                onValueChange = { v ->
-                    if (v.text != edit.value.text) edit.changed = true
-                    change(v.copy(text = v.text.take(4_000)))
-                },
-                textStyle = LibraryType.Body.copy(color = androidx.compose.ui.graphics.lerp(LibraryColors.OnMine, LibraryColors.OnBackground, p)),
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(coral),
-                maxLines = 6,
-                modifier = Modifier.width(wrap).focusRequester(focus),
-            )
-            // The time's line gives way to the label and ✓ (the text above stays where it is).
-            Row(
-                Modifier.fillMaxWidth().padding(top = 2.dp).height(18.dp + 18.dp * p),
-                verticalAlignment = Alignment.CenterVertically,
+        Column(horizontalAlignment = Alignment.End) {
+            Box(
+                Modifier.width(boxWidth + slot * p)
+                    .border(1.5.dp, coral.copy(alpha = p), LibraryShapes.Card)
+                    .background(androidx.compose.ui.graphics.lerp(LibraryColors.Mine, LibraryColors.Background, p), LibraryShapes.Card)
+                    .background(coral.copy(alpha = 0.08f * p), LibraryShapes.Card)
+                    // The time's line under the text eases away: one line while editing.
+                    .padding(start = pad, end = pad, top = 8.dp, bottom = 8.dp + 20.dp * (1f - p)),
+                contentAlignment = Alignment.TopEnd,
             ) {
-                Text(
-                    stringResource(R.string.chat_edit_label), color = coral, style = LibraryType.Small,
-                    modifier = Modifier.weight(1f).graphicsLayer { alpha = p },
+                androidx.compose.foundation.text.BasicTextField(
+                    value = edit.value,
+                    onValueChange = { v ->
+                        if (v.text != edit.value.text) edit.changed = true
+                        change(v.copy(text = v.text.take(4_000)))
+                    },
+                    textStyle = LibraryType.Body.copy(color = androidx.compose.ui.graphics.lerp(LibraryColors.OnMine, LibraryColors.OnBackground, p)),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(coral),
+                    maxLines = 6,
+                    onTextLayout = { layout ->
+                        val last = layout.lineCount - 1
+                        lastLineRoom = layout.size.width - (layout.getLineRight(last) - layout.getLineLeft(last))
+                    },
+                    // On my side, where the bubble's text was; the ✓'s own slot, when it needs one, at the end.
+                    modifier = Modifier.padding(end = slot * p).width(wrap).focusRequester(focus),
                 )
                 val save = stringResource(R.string.chat_edit_save)
                 val can = edit.value.text.isNotBlank()
                 Box(
-                    Modifier.size(32.dp).graphicsLayer { alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p }
+                    Modifier.size(check).graphicsLayer { alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p }
                         .background(if (can) coral else coral.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape)
                         .clickable(enabled = can && p > 0.5f, role = Role.Button, onClickLabel = save) { if (saving == null) saving = true },
                     contentAlignment = Alignment.Center,

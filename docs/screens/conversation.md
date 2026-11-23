@@ -141,8 +141,10 @@ only showing the window doesn't.
 **Editing a sent text** (2026-11-24, hen): a double tap on one of my texts turns it in place (200 ms) into the writing
 bubble's look, the caret where the finger was (the text's own layout, right to left too), the keyboard up. The words
 don't move: the edit field lies exactly where the bubble's text was (same style, padding and wrap width) and only the
-container turns (teal to the coral outline, widening on my side, the time's line giving way to "Editing your message"
-and ✓); the text keeps its wrap until the first change. ✓ saves; Back or a tap outside turn it back unchanged (no ✕). The edit goes end to end like
+container turns (teal to the coral outline, no label, widening on my side, the time's line easing away so a one-line
+text stays one line, ✓ inline on the text's line: over the room its last line leaves, or in a slot of its own at the
+end when that line is full); the text keeps its wrap until the first change, then the box widens (38.2% to 85% of the
+row) before it wraps. ✓ saves; Back or a tap outside turn it back unchanged (no ✕). The edit goes end to end like
 a text (`EditContent` in Content field 19, kept and pushed silently, also to my other phones; in a group through the
 group's Send); every phone replaces the text and shows "edited" by the time. Only the author's edit of their own text
 counts; an id a phone doesn't have is ignored; older apps skip the field. While I edit, live only like live typing
