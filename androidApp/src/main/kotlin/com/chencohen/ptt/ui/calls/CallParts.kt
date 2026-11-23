@@ -302,7 +302,9 @@ fun CallScreen(
         val videoOn = call.phase == CallPhase.ACTIVE && (remote.isNotEmpty() || own != null)
         var controls by remember { androidx.compose.runtime.mutableStateOf(true) }
         val shown = controls || !videoOn
-        val normal = !maximized && remote.isNotEmpty()
+        // Three or more in the call: everyone, this phone too, in equal tiles (2026-11-23, hen).
+        val group = call.phase == CallPhase.ACTIVE && remote.size >= 2
+        val normal = !maximized && remote.isNotEmpty() && !group
 
         // Each tile's shape and whether it is cropped go to its sender (their preview outlines the crop).
         fun Modifier.told(user: String) = onSizeChanged { size ->
@@ -348,6 +350,36 @@ fun CallScreen(
             Modifier.fillMaxSize().pointerInput(videoOn) { detectTapGestures(onTap = { if (videoOn) controls = !controls }) },
         ) {
             when {
+                group -> androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                    // Equal tiles, each cropped to fill; with Follow face each person's face in the middle of their
+                    // tile at the same head-and-shoulders size, so the grid looks even on any phone's shape.
+                    val tiles = remote + listOfNotNull(own?.let { "" to it })
+                    val grid = com.chencohen.ptt.calls.CallGrid.shape(tiles.size, constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
+                    // About three looks a second in all, shared out among the tiles.
+                    val every = (1_000L * tiles.size / 3).coerceAtLeast(com.chencohen.ptt.calls.FaceFinder.EVERY_MS)
+                    Column(Modifier.fillMaxSize()) {
+                        for (row in 0 until grid.rows) {
+                            Row(Modifier.weight(1f).fillMaxWidth()) {
+                                for (column in 0 until grid.columns) {
+                                    val at = row * grid.columns + column
+                                    if (at >= tiles.size) {
+                                        Spacer(Modifier.weight(1f).fillMaxHeight())
+                                        continue
+                                    }
+                                    val (user, track) = tiles[at]
+                                    key(user, track.sid ?: track.name) {
+                                        VideoView(
+                                            r!!, track,
+                                            Modifier.weight(1f).fillMaxHeight().padding(1.dp).then(if (user.isNotEmpty()) Modifier.told(user) else Modifier),
+                                            mirror = user.isEmpty(), fill = true, stats = stats,
+                                            follow = followThem, maxZoom = 1.5f, faceAt = 0.45f, everyMs = every,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 normal && landscape -> Row(Modifier.fillMaxSize()) {
                     // Theirs at full height and its own shape on the camera's side (whichever way the phone is
                     // turned, 2026-11-23, hen); this phone's in the rest, before the buttons on the far side.
@@ -376,7 +408,7 @@ fun CallScreen(
                 }
                 else -> {
                     if (remote.isNotEmpty()) theirs(Modifier.fillMaxSize())
-                    if (own != null) {
+                    if (own != null && !group) {
                         // A small window in the corner, above the buttons while they show.
                         val lift by androidx.compose.animation.core.animateDpAsState(if (shown) 150.dp else 16.dp, label = "own window")
                         val aside by androidx.compose.animation.core.animateDpAsState(if (shown) 104.dp else 16.dp, label = "own window aside")
@@ -441,7 +473,7 @@ fun CallScreen(
                                 }
                             }
                             // The layout a tap switches to.
-                            if (remote.isNotEmpty()) Pill(stringResource(if (maximized) R.string.call_layout_normal else R.string.call_layout_maximized)) { toggleLayout() }
+                            if (remote.isNotEmpty() && !group) Pill(stringResource(if (maximized) R.string.call_layout_normal else R.string.call_layout_maximized)) { toggleLayout() }
                         }
                     }
                     if (remote.isEmpty()) {
@@ -658,6 +690,8 @@ private fun VideoView(
     /** Follow face (on what is received): pan and zoom the view to keep the face framed, up to [maxZoom]. */
     follow: Boolean = false,
     maxZoom: Float = 1.8f,
+    faceAt: Float = 0.4f,
+    everyMs: Long = com.chencohen.ptt.calls.FaceFinder.EVERY_MS,
 ) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
@@ -696,12 +730,8 @@ private fun VideoView(
     // so Follow face can slide over all of it.
     val bw = boxSize.width.toFloat()
     val bh = boxSize.height.toFloat()
-    val content = if (aspect > 0f && bw > 0f && bh > 0f) {
-        if ((bw / bh > aspect) == fill) bw to bw / aspect else bh * aspect to bh
-    } else {
-        null
-    }
-    val framing = followFace(track, follow, fill, boxSize, content, maxZoom)
+    val content = if (aspect > 0f && bw > 0f && bh > 0f) com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, fill) else null
+    val framing = followFace(track, follow, fill, boxSize, content, maxZoom, faceAt, everyMs)
     Box(modifier.clipToBounds().onSizeChanged { boxSize = it }, contentAlignment = Alignment.Center) {
         val density = androidx.compose.ui.platform.LocalDensity.current
         val shaped = if (content != null) {
@@ -736,6 +766,9 @@ private fun followFace(
     boxSize: androidx.compose.ui.unit.IntSize,
     content: Pair<Float, Float>?,
     maxZoom: Float,
+    /** Where the face goes down the box (a share of its height); how often to look (shared out in a group). */
+    faceAt: Float = 0.4f,
+    everyMs: Long = com.chencohen.ptt.calls.FaceFinder.EVERY_MS,
 ): Modifier {
     var box by remember(track) { androidx.compose.runtime.mutableStateOf<android.graphics.RectF?>(null) }
     var seenAt by remember(track) { androidx.compose.runtime.mutableLongStateOf(0L) }
@@ -745,7 +778,7 @@ private fun followFace(
             return@DisposableEffect onDispose {}
         }
         val main = android.os.Handler(android.os.Looper.getMainLooper())
-        val finder = com.chencohen.ptt.calls.FaceFinder("FollowFace") { found ->
+        val finder = com.chencohen.ptt.calls.FaceFinder("FollowFace", everyMs) { found ->
             main.post {
                 if (found != null) {
                     box = found
@@ -776,16 +809,13 @@ private fun followFace(
         if (target != Triple(1f, 0f, 0f)) target = Triple(1f, 0f, 0f)
     } else {
         val (cw, ch) = content
-        // Where the picture sits in the box before any follow (centred), and the face in it.
-        val ox = (bw - cw) / 2
-        val oy = (bh - ch) / 2
-        val zoom = (0.45f * bh / (b.height() * ch)).coerceIn(1f, if (fill) minOf(maxZoom, 1.5f) else maxZoom)
-        val fx = b.centerX() * cw
-        val fy = b.centerY() * ch
-        // The face to the middle, a little above it (the upper third), and the picture still covering what it covered.
-        fun span(want: Float, low: Float, high: Float) = if (low <= high) want.coerceIn(low, high) else (low + high) / 2
-        val tx = span(bw / 2 - ox - fx * zoom, minOf(bw, ox + cw) - ox - cw * zoom, maxOf(0f, ox) - ox)
-        val ty = span(bh * 0.4f - oy - fy * zoom, minOf(bh, oy + ch) - oy - ch * zoom, maxOf(0f, oy) - oy)
+        val p = com.chencohen.ptt.calls.CallGrid.place(
+            bw, bh, cw, ch, b.centerX(), b.centerY(), b.height(),
+            maxZoom = if (fill) minOf(maxZoom, 1.5f) else maxZoom, targetY = faceAt,
+        )
+        val zoom = p.scale
+        val tx = p.x
+        val ty = p.y
         val (s0, x0, y0) = target
         if (kotlin.math.abs(zoom - s0) > 0.08f || kotlin.math.abs(tx - x0) > bw * 0.04f || kotlin.math.abs(ty - y0) > bh * 0.04f) {
             target = Triple(zoom, tx, ty)

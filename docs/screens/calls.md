@@ -47,6 +47,12 @@ says "Calls need the microphone. Allow it in the app's settings."
   swaps the sides at once (the display's rotation is followed, not the configuration).
   The name, pills and buttons float over the video on soft shades; a single tap on the video hides or shows them all
   (no double tap).
+- **Group video calls** (2026-11-23, hen: "with 4 or 6 people, all faces are centred and the boxes are evenly
+  sized"): with two or more others, everyone (this phone too) gets an equal tile, the columns and rows chosen for the
+  screen's shape and turn (`CallGrid.shape`: the biggest equal tiles for a 3:4 picture; 4 in 2×2, 6 in 2×3 upright and
+  3×2 on its side, 3 stacked on a tall phone). Every tile is cropped to fill; with Follow face each tile's crop slides
+  and zooms (`CallGrid.place`, up to 1.5x) to put that person's face in its middle at the same head-and-shoulders
+  size, so the grid looks even; the face finder takes turns, about three looks a second in all. No layout pill.
 - **Follow face** (2026-11-23, hen; a pill at the top while someone's video shows, kept for next time, apart from
   Frame my face; both may be on): on this phone's view of the received video only (the big tile in a group call), the
   same face finder looks four times a second and the view pans and zooms to keep the face near the upper third, head

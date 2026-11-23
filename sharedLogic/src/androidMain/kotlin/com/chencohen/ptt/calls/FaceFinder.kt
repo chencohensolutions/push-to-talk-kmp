@@ -16,7 +16,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * rotation), or null when there is none; on a thread of its own. Used by Frame my face (FaceFramer, the camera before
  * sending) and Follow face (the call screen, on what is received).
  */
-class FaceFinder(private val tag: String, private val found: (RectF?) -> Unit) {
+class FaceFinder(
+    private val tag: String,
+    /** How often to look: shared out among the tiles of a group call (about three looks a second in all). */
+    private val everyMs: Long = EVERY_MS,
+    private val found: (RectF?) -> Unit,
+) {
     private val detector by lazy {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
@@ -34,7 +39,7 @@ class FaceFinder(private val tag: String, private val found: (RectF?) -> Unit) {
     fun offer(frame: VideoFrame) {
         if (closed) return
         val now = SystemClock.elapsedRealtime()
-        if (now - lastLookAt < EVERY_MS || !busy.compareAndSet(false, true)) return
+        if (now - lastLookAt < everyMs || !busy.compareAndSet(false, true)) return
         lastLookAt = now
         val buffer = frame.buffer
         val sw = WIDTH
@@ -97,8 +102,8 @@ class FaceFinder(private val tag: String, private val found: (RectF?) -> Unit) {
         return out
     }
 
-    private companion object {
+    companion object {
         const val EVERY_MS = 250L
-        const val WIDTH = 240
+        private const val WIDTH = 240
     }
 }
