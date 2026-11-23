@@ -122,3 +122,7 @@ file: opened on the phone (`Talk.clipContents`), its Opus voice and, for push-to
 or H.265, not re-encoded) in Matroska (`BurstFile`, .mkv, the picture turned upright when played), named
 "<name> <date>.mkv", where saved calls go (the folder chosen in Call settings › Saving calls, or Downloads › Talk).
 "Saved to …" shows with **Share**.
+
+**Faster push-to-video start** (2026-11-23, hen: "the delay is big"): the first segment of a burst goes after 60 ms of
+voice instead of 200 ms; the video decoder stays set up between bursts (drawing to a hidden surface until a view
+shows, then moved onto it), and is let go after a minute without a burst.

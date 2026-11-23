@@ -465,6 +465,40 @@ object AndroidTalkVideoOut : TalkVideoOut {
     private var clip: String? = null
     private var decoder: MediaCodec? = null
     private var decoderCodec = -1
+    /** The last decoder's codec and picture size: a warm one gives no new size, and the next starts as this one. */
+    private var lastCodec = -1
+    private var lastWidth = 0
+    private var lastHeight = 0
+
+    /**
+     * Where the decoder draws with no view on screen (2026-11-23, hen: "the delay is big"): it stays set up between
+     * bursts and before the view comes, drawing here (dropped), so a burst's first picture needs no new decoder.
+     */
+    private var parking: android.media.ImageReader? = null
+
+    private fun parkingSurface(): Surface? {
+        parking?.let { return it.surface }
+        val h = handler ?: return null
+        return runCatching {
+            android.media.ImageReader.newInstance(AndroidTalkVideoCapture.WIDTH, AndroidTalkVideoCapture.HEIGHT, android.graphics.ImageFormat.PRIVATE, 3).also { r ->
+                r.setOnImageAvailableListener({ runCatching { it.acquireLatestImage()?.close() } }, h)
+                parking = r
+            }.surface
+        }.onFailure { Log.w(TAG, "no parking surface", it) }.getOrNull()
+    }
+
+    /** Where the decoder draws now: the view, or the parking surface. */
+    private fun target(): Surface? = surface ?: parkingSurface()
+
+    /** Unused for a minute: the decoder goes (the app in the background, or no bursts). */
+    private val idle = Runnable {
+        synchronized(lock) {
+            if (clip == null && decoder != null) {
+                Log.i(TAG, "decoder idle: released")
+                releaseDecoder()
+            }
+        }
+    }
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
     private var playedMs = 0L
@@ -528,6 +562,11 @@ object AndroidTalkVideoOut : TalkVideoOut {
         synchronized(lock) {
             if (surface === target) return
             surface = target
+            val dec = decoder
+            if (dec != null && runCatching { dec.setOutputSurface(target) }.isSuccess) {
+                Log.i(TAG, "view attached to the running decoder (clip ${clip != null})")
+                return
+            }
             releaseDecoder()
             Log.i(TAG, "view attached (clip ${clip != null}, ${sinceKey.size} frames since the key frame)")
             restart()
@@ -536,7 +575,7 @@ object AndroidTalkVideoOut : TalkVideoOut {
 
     /** With a view and a key frame of the clip: a decoder from that key frame on. */
     private fun restart() {
-        val target = surface ?: return
+        val target = target() ?: return
         if (clip == null || decoder != null) return
         val first = sinceKey.firstOrNull()?.takeIf { it.key } ?: return
         startDecoder(first.codec, target) ?: return
@@ -549,7 +588,10 @@ object AndroidTalkVideoOut : TalkVideoOut {
         synchronized(lock) {
             if (surface !== target) return
             surface = null
-            releaseDecoder()
+            // The decoder stays, drawing to the parking surface, unless it can't move there.
+            val dec = decoder ?: return
+            val park = parkingSurface()
+            if (park == null || runCatching { dec.setOutputSurface(park) }.isFailure) releaseDecoder()
         }
     }
 
@@ -561,8 +603,17 @@ object AndroidTalkVideoOut : TalkVideoOut {
             waiting.clear()
             sinceKey.clear()
             faces.clear()
-            releaseDecoder()
             if (thread == null) thread = HandlerThread("talk-video-out").also { it.start(); handler = Handler(it.looper) }
+            handler?.removeCallbacks(idle)
+            val dec = decoder
+            if (dec != null) {
+                // Warm from the last burst: emptied, ready for this one's key frame.
+                inputs.clear()
+                if (runCatching { dec.flush(); dec.start() }.isFailure) releaseDecoder() else onStep?.invoke("decoder kept from the last burst")
+            } else if (lastCodec >= 0) {
+                // Set up now, before the first frame comes, for the codec the last burst had.
+                target()?.let { startDecoder(lastCodec, it) }
+            }
             Log.i(TAG, "video burst $clip begins (view ${surface != null})")
             onStep?.invoke("video begins (view ${surface != null})")
         }
@@ -571,11 +622,12 @@ object AndroidTalkVideoOut : TalkVideoOut {
     override fun frame(clip: String, frame: TalkVideo.Frame) {
         synchronized(lock) {
             if (this.clip != clip) return
-            _shown.value = Shown(clip, _shown.value?.takeIf { it.clip == clip }?.width ?: 0, _shown.value?.takeIf { it.clip == clip }?.height ?: 0, frame.rotation)
+            val same = _shown.value?.takeIf { it.clip == clip }
+            _shown.value = Shown(clip, same?.width ?: lastWidth, same?.height ?: lastHeight, frame.rotation)
             if (frame.key) sinceKey.clear()
             if (sinceKey.isNotEmpty() || frame.key) sinceKey += frame
             if (sinceKey.size > MAX_SINCE_KEY) sinceKey.subList(0, sinceKey.size - MAX_SINCE_KEY).clear()
-            val target = surface ?: return
+            val target = target() ?: return
             if (decoder == null || decoderCodec != frame.codec) {
                 if (!frame.key) return
                 releaseDecoder()
@@ -601,7 +653,9 @@ object AndroidTalkVideoOut : TalkVideoOut {
             waiting.clear()
             sinceKey.clear()
             faces.clear()
-            releaseDecoder()
+            // Kept for the next burst, a minute at most.
+            handler?.removeCallbacks(idle)
+            handler?.postDelayed(idle, IDLE_MS)
             _shown.value = null
         }
     }
@@ -644,6 +698,8 @@ object AndroidTalkVideoOut : TalkVideoOut {
                     val w = format.getInteger(MediaFormat.KEY_WIDTH)
                     val h = format.getInteger(MediaFormat.KEY_HEIGHT)
                     _shown.value = _shown.value?.copy(width = w, height = h)
+                    lastWidth = w
+                    lastHeight = h
                     onStep?.invoke("first video frame decoded (${w}x$h)")
                 }
             }, handler)
@@ -653,6 +709,7 @@ object AndroidTalkVideoOut : TalkVideoOut {
             onStep?.invoke("decoder started (${dec.name})")
             decoder = dec
             decoderCodec = codec
+            lastCodec = codec
             inputs.clear()
             dec
         } catch (e: Exception) {
@@ -688,5 +745,6 @@ object AndroidTalkVideoOut : TalkVideoOut {
 
     private const val LATE_MS = 150L
     private const val MAX_SINCE_KEY = 90
+    private const val IDLE_MS = 60_000L
     private const val MAX_WAIT_MS = 1_000L
 }
