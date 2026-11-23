@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.draw.shadow
 import com.chencohen.ptt.messaging.ReadMarks.Tick
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.asImageBitmap
@@ -105,7 +106,9 @@ internal fun ComposeBubble(
                 hint,
                 color = LibraryColors.Muted,
                 style = LibraryType.Body,
+                // Nearly the whole row (2026-11-24, hen: wider), anchored on my side.
                 modifier = Modifier
+                    .fillMaxWidth()
                     .drawBehind {
                         drawRoundRect(
                             dash,
@@ -119,18 +122,12 @@ internal fun ComposeBubble(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             )
         } else {
-            // Its width follows the text at once (no easing while writing, 2026-11-24, hen): the longest line's, up to
-            // the bubbles' width, anchored on my side and growing toward the middle; the text wraps inside it, and
-            // past 6 lines it scrolls inside with the caret in view.
-            val measurer = androidx.compose.ui.text.rememberTextMeasurer()
-            val density = androidx.compose.ui.platform.LocalDensity.current
+            // As wide as the row (2026-11-24, hen: wider, the same width as the empty one, so nothing shrinks when the
+            // first letter goes in); the text wraps inside it, and past 6 lines it scrolls inside with the caret in view.
             val style = LibraryType.Body.copy(color = LibraryColors.OnBackground)
-            val textWidth = remember(text) { with(density) { measurer.measure(text.ifEmpty { " " }, style).size.width.toDp() } }
             val label = stringResource(R.string.chat_send)
-            val chrome = 14.dp + 8.dp + 8.dp + 36.dp
-            val width = (textWidth + chrome + 4.dp).coerceIn(120.dp, bubbleMaxWidth())
             Column(
-                bubbleModifier.width(width)
+                bubbleModifier.fillMaxWidth()
                     .shadow(8.dp, LibraryShapes.Card)
                     .background(LibraryColors.Background, LibraryShapes.Card)
                     .border(1.5.dp, coral, LibraryShapes.Card)
@@ -351,7 +348,7 @@ private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
  * How far a message of mine got (2026-11-23, hen picked option A, "filling circle"): a ~12 dp circle beside the time,
  * in its colour. Sending: a dashed ring, slowly turning; Sent (the server has it): an empty ring; Delivered (on their
  * phone): a solid dot; Read: nothing (it fades as their circle glides to it). Each change eases in ~200 ms: the ring
- * closes, then fills. The one place to swap the set.
+ * closes, then fills. The one place to swap the set. (2026-11-24: envelopes instead, below.)
  */
 @Composable
 internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifier: Modifier = Modifier) {
@@ -364,23 +361,48 @@ internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifi
         Tick.FAILED -> stringResource(R.string.chat_status_failed)
         Tick.NONE -> stringResource(R.string.chat_status_read)
     }
-    val closed by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.SENDING) 0f else 1f, tween(200), label = "ring closes")
-    val filled by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.DELIVERED) 1f else 0f, tween(200), label = "dot fills")
+    // Envelopes (2026-11-24, hen's pick "E2 · Flying, sent, sealed"): Sending flies (shifted ahead, two speed lines
+    // trailing, drifting); Sent rests; Delivered gets a round seal on its flap (popping in); Read: no mark. Drawn on a
+    // 16-unit square; in Hebrew mirrored so the lines trail behind.
+    val ease = tween<Float>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+    val flying by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.SENDING) 1f else 0f, ease, label = "flying")
+    val sealed by androidx.compose.animation.core.animateFloatAsState(
+        if (tick == Tick.DELIVERED) 1f else 0f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f), label = "seal",
+    )
     val shown by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.NONE) 0f else 1f, tween(250), label = "mark fades")
-    val turning = androidx.compose.animation.core.rememberInfiniteTransition(label = "sending")
-    val turn by turning.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(1_600, easing = androidx.compose.animation.core.LinearEasing)), label = "turn")
+    val drifting = androidx.compose.animation.core.rememberInfiniteTransition(label = "sending")
+    val drift by drifting.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(900, easing = androidx.compose.animation.core.LinearEasing)), label = "drift")
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     if (shown <= 0f) return
-    androidx.compose.foundation.Canvas(modifier.size(12.dp).semantics { contentDescription = label }) {
-        val color = (if (tick == Tick.FAILED) warn else ink).copy(alpha = ink.alpha * shown)
-        val r = size.minDimension / 2 - 0.8.dp.toPx()
-        val w = 1.6.dp.toPx()
-        // Dashed while sending, closing into a whole ring; then filling into a dot.
-        val dash = 3.dp.toPx() * (1f - closed)
-        val effect = if (dash > 0.1f) PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), dash)) else null
-        rotate(if (tick == Tick.SENDING) turn else 0f) {
-            drawCircle(color, r, style = Stroke(width = w, pathEffect = effect))
+    androidx.compose.foundation.Canvas(modifier.size(16.dp).semantics { contentDescription = label }) {
+        val u = size.minDimension / 16f
+        val color = (if (tick == Tick.FAILED) warn else ink).copy(alpha = 0.75f * shown)
+        fun l(a: Float, b: Float) = a + (b - a) * flying
+        val stroke = Stroke(width = 1.35f * u, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+        withTransform({ if (rtl) scale(-1f, 1f, pivot = center) }) {
+            // The envelope: resting (x2 y3.8 12x8.6) or flying (x4 y4.6 10.5x7.6).
+            val x = l(2f, 4f)
+            val y = l(3.8f, 4.6f)
+            val w = l(12f, 10.5f)
+            val h = l(8.6f, 7.6f)
+            drawRoundRect(color, androidx.compose.ui.geometry.Offset(x * u, y * u), androidx.compose.ui.geometry.Size(w * u, h * u), androidx.compose.ui.geometry.CornerRadius(l(1.6f, 1.4f) * u), style = stroke)
+            val flap = androidx.compose.ui.graphics.Path().apply {
+                moveTo(l(2.6f, 4.5f) * u, l(4.6f, 5.3f) * u)
+                lineTo(l(8f, 9.25f) * u, l(8.8f, 9f) * u)
+                lineTo(l(13.4f, 14f) * u, l(4.6f, 5.3f) * u)
+            }
+            drawPath(flap, color, style = stroke)
+            // The speed lines, trailing and drifting back while it flies.
+            if (flying > 0f) {
+                val back = drift * 0.8f
+                val lines = color.copy(alpha = color.alpha * flying * (1f - 0.5f * drift))
+                drawLine(lines, androidx.compose.ui.geometry.Offset((0.8f - back) * u, 7f * u), androidx.compose.ui.geometry.Offset((2.8f - back) * u, 7f * u), 1.35f * u, androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(lines, androidx.compose.ui.geometry.Offset((1.4f - back) * u, 9.6f * u), androidx.compose.ui.geometry.Offset((3f - back) * u, 9.6f * u), 1.35f * u, androidx.compose.ui.graphics.StrokeCap.Round)
+            }
+            // The seal on the flap, popping in.
+            if (sealed > 0.01f) drawCircle(color, 2.3f * u * sealed.coerceAtLeast(0f), androidx.compose.ui.geometry.Offset(8f * u, 9.4f * u))
         }
-        if (filled > 0f) drawCircle(color, r * filled)
     }
 }
 

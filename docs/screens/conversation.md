@@ -87,7 +87,7 @@ and the button is Send meanwhile. The header keeps the name, presence and Talk m
 old line had no attachments, so nothing else needed a new place.
 
 **How far they read** (2026-11-23, hen, from the approved mockups; `ReadMarks`): no "Read" word. Beside the time of
-each message of mine they haven't read, one small circle (hen picked "filling circle"): a dashed ring turning slowly
+each message of mine they haven't read, one small circle (hen picked "filling circle"; replaced by envelopes 2026-11-24, see Status marks below): a dashed ring turning slowly
 while sending, an empty ring once the server has it, a solid dot once it is on their phone, nothing once read; each
 change eases (the ring closes, then fills). Their small letter circle sits right after the last message of mine they
 read, gliding down as they read; a tap shows when they read it ("read 20:44"). When they read everything it sits at the
@@ -125,9 +125,10 @@ above it and scrolls behind nothing. On Send the message fills in at the end of 
 the thumb finds it in one place: Voice message, Voice call, Video call, then the big push-to-talk button near the right
 edge and the upright Voice | video switch at the edge; my camera's thumbnail on the button's top-left corner.
 
-**The writing bubble** (2026-11-24, hen): its width follows the text at once (no easing while writing): the longest
-line's, from 120 dp up to the bubbles' width (78% of the screen, the same for every bubble), anchored on my side (the
-left in Hebrew, `MySide`) and growing toward the middle; the text wraps inside it, and past 6 lines it scrolls inside
+**The writing bubble** (2026-11-24, hen): as wide as the row, like the empty "Write a message" one before it (so
+nothing shrinks as the first letter goes in), anchored on my side (the left in Hebrew, `MySide`); sent bubbles keep
+their 78% at most, and Send's flight eases the width from one to the other; the edit box widens to the row the same
+way; the text wraps inside it, and past 6 lines it scrolls inside
 with the caret in view. Their live draft follows its text at once too; only its turn into the message eases. Its
 place, and the row's folding, come straight from the keyboard's animated insets, frame by frame.
 
@@ -146,3 +147,10 @@ counts; an id a phone doesn't have is ignored; older apps skip the field. While 
 only that it is being edited; either way their bubble gets a soft outline and "Editing…", and its size eases. A cancel
 puts it back; it also goes 20 s after the last word. No server change: live-only sends exist. Messaging.editText,
 editLive; MessagingTest covers the edit, the author check, an unknown id, and the live view on cancel and timeout.
+
+
+**Status marks** (2026-11-24, hen's pick "E2 · Flying, sent, sealed", replacing the filling circle): on my messages,
+by the time, an envelope drawn on a 16-unit square in the time's colour at 75%: Sending flies (shifted ahead, two
+speed lines trailing and drifting; mirrored in Hebrew so they trail behind); Sent rests; Delivered gets a round seal
+on its flap, popping in; Read: no mark (their letter circle says it). Each change eases. Failed: the envelope in the
+warning colour. `StatusMark`, the chat, the quick-reply window and groups.

@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
@@ -902,9 +903,13 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
     val p = open.value
     val coral = com.chencohen.ptt.ui.style.Pink
     Box(Modifier.fillMaxWidth(), contentAlignment = MySide) {
+        // From the bubble's width to the row's (as the writing bubble), and back.
+        val full = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp - 24.dp
+        var natural by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val from = with(density) { natural.toDp() }
         Column(
-            Modifier.widthIn(max = bubbleMaxWidth())
-                .animateContentSize(androidx.compose.animation.core.tween(200))
+            Modifier.then(if (natural == 0) Modifier.widthIn(max = bubbleMaxWidth()).onSizeChanged { natural = it.width } else Modifier.width(from + (full - from) * p))
                 .border(1.5.dp, coral.copy(alpha = p), LibraryShapes.Card)
                 .background(androidx.compose.ui.graphics.lerp(LibraryColors.Mine, LibraryColors.Background, p), LibraryShapes.Card)
                 .background(coral.copy(alpha = 0.08f * p), LibraryShapes.Card)
