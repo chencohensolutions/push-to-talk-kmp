@@ -163,11 +163,12 @@ class Notifications(private val context: Context) : MessageNotifier {
         /** The phone's notification sound (the first channel; a channel's sound can't change afterwards). */
         const val CHANNEL = "messages"
         /**
-         * Talk's calm chime, res/raw/message_calm.ogg (tools/ringtone/make_message_calm.py): the default. A new channel id
+         * Talk's message sound, res/raw/message_tone.wav (hen picked "e", a soft E4 tone, uncompressed 16-bit 48 kHz mono, 2026-11-23; sound-candidates/ on its branch): the default. A new channel id
          * (2026-11-23, hen: "too alarming"), since a channel's sound can't change; the old one's settings carry over.
          */
-        const val SOFT_CHANNEL = "messages_calm"
-        private const val OLD_SOFT_CHANNEL = "messages_soft"
+        const val SOFT_CHANNEL = "messages_tone"
+        /** Earlier channels whose sound can't change: their settings carry over, then they go. */
+        private val OLD_SOFT_CHANNELS = listOf("messages_calm", "messages_soft")
         const val ACTION_OPEN = "com.chencohen.ptt.OPEN_CHAT"
         const val ACTION_REPLY = "com.chencohen.ptt.REPLY"
         const val ACTION_READ = "com.chencohen.ptt.MARK_READ"
@@ -184,8 +185,8 @@ class Notifications(private val context: Context) : MessageNotifier {
             val channel = NotificationChannel(CHANNEL, context.getString(R.string.notify_channel_phone), NotificationManager.IMPORTANCE_HIGH)
                 .apply { description = context.getString(R.string.notify_channel_description) }
             manager.createNotificationChannel(channel)
-            val sound = android.net.Uri.parse("android.resource://${context.packageName}/${R.raw.message_calm}")
-            val old = manager.getNotificationChannel(OLD_SOFT_CHANNEL)
+            val sound = android.net.Uri.parse("android.resource://${context.packageName}/${R.raw.message_tone}")
+            val old = OLD_SOFT_CHANNELS.firstNotNullOfOrNull { manager.getNotificationChannel(it) }
             val soft = NotificationChannel(SOFT_CHANNEL, context.getString(R.string.notify_channel), old?.importance ?: NotificationManager.IMPORTANCE_HIGH).apply {
                 description = context.getString(R.string.notify_channel_description)
                 // The notification volume (USAGE_NOTIFICATION), so Do Not Disturb, silent and vibrate apply as for any app.
@@ -205,7 +206,7 @@ class Notifications(private val context: Context) : MessageNotifier {
                 }
             }
             manager.createNotificationChannel(soft)
-            if (old != null) manager.deleteNotificationChannel(OLD_SOFT_CHANNEL)
+            OLD_SOFT_CHANNELS.forEach { id -> if (manager.getNotificationChannel(id) != null) manager.deleteNotificationChannel(id) }
         }
     }
 }

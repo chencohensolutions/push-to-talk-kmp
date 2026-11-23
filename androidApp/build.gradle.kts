@@ -66,6 +66,10 @@ android {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
     }
+    // The message sound stays uncompressed in the APK (2026-11-23, hen: lossless WAV).
+    androidResources {
+        noCompress += "wav"
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
