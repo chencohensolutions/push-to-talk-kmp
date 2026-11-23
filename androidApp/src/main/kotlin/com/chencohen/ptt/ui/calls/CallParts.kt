@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -26,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
@@ -235,7 +242,17 @@ fun CallsList(
  * the Recording badge, and the microphone, camera, flip and Hang up buttons.
  */
 @Composable
-fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transport: LiveKitCallTransport?, actions: CallActions, compact: Boolean = false, canSave: Boolean = false) {
+fun CallScreen(
+    call: CallUi,
+    title: String,
+    nameOf: (String) -> String,
+    transport: LiveKitCallTransport?,
+    actions: CallActions,
+    compact: Boolean = false,
+    canSave: Boolean = false,
+    /** Call settings › Advanced › Show video stats: a Stats button here shows each video's fps, bit rate and size. */
+    statsAllowed: Boolean = false,
+) {
     if (compact) {
         CompactCall(call, title, transport)
         return
@@ -247,12 +264,13 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
         val remote = if (r != null && call.phase == CallPhase.ACTIVE) remoteVideo(r, changes) else emptyList()
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
-        // The others' picture comes whole (the camera's own 4:3); this phone fills the screen with it (cropped) or fits
-        // it whole. A tap on the pill, or a double tap on the video, switches; kept for next time (2026-11-22, hen).
-        var fill by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("fill", true)) }
-        fun toggleFill() {
-            fill = !fill
-            prefs.edit().putBoolean("fill", fill).apply()
+        // Two layouts (2026-11-23, hen, from the approved mockup), kept for next time. Maximized: their video covers the
+        // whole screen, cropped, under the cutout too; this phone's in a small corner window. Normal: their whole
+        // picture as wide as the screen from the very top (side by side on its side), this phone's in the rest.
+        var maximized by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("fill", true)) }
+        fun toggleLayout() {
+            maximized = !maximized
+            prefs.edit().putBoolean("fill", maximized).apply()
         }
         // The screen's orientation during a call: Auto (the phone's sensor), Portrait or Landscape; kept for next time.
         var orientation by remember { androidx.compose.runtime.mutableIntStateOf(prefs.getInt("orientation", 0)) }
@@ -266,142 +284,329 @@ fun CallScreen(call: CallUi, title: String, nameOf: (String) -> String, transpor
             onDispose { activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
         }
         val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        if (remote.isNotEmpty()) {
-            val tile = Modifier.pointerInput(Unit) { detectTapGestures(onDoubleTap = { toggleFill() }) }
-            // Each tile's shape and the Fill/Fit choice go to its sender (their preview outlines the crop).
-            fun Modifier.told(user: String) = onSizeChanged { size ->
-                if (size.height > 0) actions.setView(user, fill, size.width.toFloat() / size.height)
-            }
-            // Side by side in landscape, one above the other in portrait.
+        // On its side, the camera's edge: left when turned left (90), right when turned right (270); followed live,
+        // a turn of 180 degrees changes no configuration.
+        val cameraLeft = rememberDisplayRotation() != android.view.Surface.ROTATION_270
+        var statsShown by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("stats", false)) }
+        val stats = statsAllowed && statsShown
+        // Follow face (2026-11-23, hen): on what is received, this phone's view only; kept for next time.
+        var followThem by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("follow_remote", false)) }
+        val own = r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
+        val ownShape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
+        // Their pictures' shapes, from their frames: Normal sizes their video by it.
+        val shapes = remember { androidx.compose.runtime.mutableStateMapOf<String, Float>() }
+        // A tap anywhere on the video hides or shows every control; nothing to hide before the video comes.
+        val videoOn = call.phase == CallPhase.ACTIVE && (remote.isNotEmpty() || own != null)
+        var controls by remember { androidx.compose.runtime.mutableStateOf(true) }
+        val shown = controls || !videoOn
+        // Three or more in the call: everyone, this phone too, in equal tiles (2026-11-23, hen).
+        val group = call.phase == CallPhase.ACTIVE && remote.size >= 2
+        val normal = !maximized && remote.isNotEmpty() && !group
+
+        // Each tile's shape and whether it is cropped go to its sender (their preview outlines the crop).
+        fun Modifier.told(user: String) = onSizeChanged { size ->
+            if (size.height > 0) actions.setView(user, maximized, size.width.toFloat() / size.height)
+        }
+
+        @Composable
+        fun theirs(modifier: Modifier) {
             if (landscape) {
-                Row(Modifier.fillMaxSize()) {
-                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxSize().told(user), fill = fill) } }
+                Row(modifier) {
+                    remote.forEach { (user, track) ->
+                        key(user, track.sid ?: track.name, maximized) {
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxSize().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first, hint = { transport?.faceHint(user) })
+                        }
+                    }
                 }
             } else {
-                Column(Modifier.fillMaxSize()) {
-                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxWidth().told(user), fill = fill) } }
-                }
-            }
-        }
-        if (call.phase == CallPhase.ACTIVE && call.video) {
-            Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    stringResource(
-                        when (orientation) {
-                            1 -> R.string.call_orientation_portrait
-                            2 -> R.string.call_orientation_landscape
-                            else -> R.string.call_orientation_auto
-                        },
-                    ),
-                    color = Color.White, style = LibraryType.Small,
-                    modifier = Modifier.background(LibraryColors.PillScrim, CircleShape)
-                        .clickable(role = Role.Button) {
-                            orientation = (orientation + 1) % 3
-                            prefs.edit().putInt("orientation", orientation).apply()
+                Column(modifier) {
+                    remote.forEach { (user, track) ->
+                        key(user, track.sid ?: track.name, maximized) {
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first, hint = { transport?.faceHint(user) })
                         }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-                if (remote.isNotEmpty()) {
-                    Text(
-                        stringResource(if (fill) R.string.call_video_fit else R.string.call_video_fill),
-                        color = Color.White, style = LibraryType.Small,
-                        modifier = Modifier.background(LibraryColors.PillScrim, CircleShape)
-                            .clickable(role = Role.Button) { toggleFill() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
+                    }
                 }
             }
         }
-        Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            if (remote.isEmpty()) Spacer(Modifier.height(48.dp))
-            if (remote.isEmpty()) Avatar(title, size = 96.dp)
-            Spacer(Modifier.height(16.dp))
-            Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
-            Text(statusLine(call, nameOf), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
-            val recorders = call.recordingBy + listOfNotNull(call.serverRecordingBy)
-            if (recorders.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    stringResource(R.string.call_recording, recorders.joinToString { nameOf(it) }),
-                    color = Color.White, style = LibraryType.Small,
-                    modifier = Modifier.background(LibraryColors.Error, CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
-                )
+
+        @Composable
+        fun mine(modifier: Modifier) {
+            val o = own ?: return
+            Box(modifier) {
+                key(o.sid ?: o.name) { VideoView(r!!, o, Modifier.fillMaxSize(), mirror = true, fill = false, stats = stats) }
+                CropOutlines(ownShape, call.viewers.filterValues { it.fill }, nameOf, showNames = call.viewers.size > 1)
             }
-            if (call.askToSave && call.phase == CallPhase.ACTIVE) {
-                Spacer(Modifier.height(16.dp))
+        }
+
+        val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+        // Sides on its side are the camera's, not the language's: laid out left to right, text kept as it reads.
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalLayoutDirection provides if (landscape) androidx.compose.ui.unit.LayoutDirection.Ltr else direction,
+        ) {
+        Box(
+            Modifier.fillMaxSize().pointerInput(videoOn) { detectTapGestures(onTap = { if (videoOn) controls = !controls }) },
+        ) {
+            when {
+                group -> androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                    // Equal tiles, each cropped to fill; with Follow face each person's face in the middle of their
+                    // tile at the same head-and-shoulders size, so the grid looks even on any phone's shape.
+                    val tiles = remote + listOfNotNull(own?.let { "" to it })
+                    val grid = com.chencohen.ptt.calls.CallGrid.shape(tiles.size, constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
+                    // About three looks a second in all, shared out among the tiles.
+                    val every = (1_000L * tiles.size / 3).coerceAtLeast(com.chencohen.ptt.calls.FaceFinder.EVERY_MS)
+                    Column(Modifier.fillMaxSize()) {
+                        for (row in 0 until grid.rows) {
+                            Row(Modifier.weight(1f).fillMaxWidth()) {
+                                for (column in 0 until grid.columns) {
+                                    val at = row * grid.columns + column
+                                    if (at >= tiles.size) {
+                                        Spacer(Modifier.weight(1f).fillMaxHeight())
+                                        continue
+                                    }
+                                    val (user, track) = tiles[at]
+                                    key(user, track.sid ?: track.name) {
+                                        VideoView(
+                                            r!!, track,
+                                            Modifier.weight(1f).fillMaxHeight().padding(1.dp).then(if (user.isNotEmpty()) Modifier.told(user) else Modifier),
+                                            mirror = user.isEmpty(), fill = true, stats = stats,
+                                            follow = followThem, maxZoom = 1.5f, faceAt = 0.45f, everyMs = every,
+                                            hint = { if (user.isNotEmpty()) transport?.faceHint(user) else null },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                normal && landscape -> Row(Modifier.fillMaxSize()) {
+                    // Theirs at full height and its own shape on the camera's side (whichever way the phone is
+                    // turned, 2026-11-23, hen); this phone's in the rest, before the buttons on the far side.
+                    val shape = remote.firstOrNull()?.first?.let { shapes[it] } ?: (4f / 3f)
+                    @Composable
+                    fun them() = theirs(Modifier.fillMaxHeight().aspectRatio(shape * remote.size.coerceAtLeast(1), matchHeightConstraintsFirst = true))
+                    @Composable
+                    fun me() = Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        mine(Modifier.fillMaxSize().padding(start = if (cameraLeft) 8.dp else 104.dp, end = if (cameraLeft) 104.dp else 8.dp, top = 8.dp, bottom = 8.dp))
+                    }
+                    if (cameraLeft) {
+                        them()
+                        me()
+                    } else {
+                        me()
+                        them()
+                    }
+                }
+                normal -> Column(Modifier.fillMaxSize()) {
+                    // Theirs as wide as the screen at its own shape, from the very top; this phone's in the rest.
+                    val shape = remote.firstOrNull()?.first?.let { shapes[it] } ?: (3f / 4f)
+                    theirs(Modifier.fillMaxWidth().aspectRatio(shape / remote.size.coerceAtLeast(1)))
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        mine(Modifier.fillMaxSize().padding(8.dp))
+                    }
+                }
+                else -> {
+                    if (remote.isNotEmpty()) theirs(Modifier.fillMaxSize())
+                    if (own != null && !group) {
+                        // A small window in the corner, above the buttons while they show.
+                        val lift by androidx.compose.animation.core.animateDpAsState(if (shown) 150.dp else 16.dp, label = "own window")
+                        val aside by androidx.compose.animation.core.animateDpAsState(if (shown) 104.dp else 16.dp, label = "own window aside")
+                        val window = if (ownShape >= 1f) Modifier.size(width = 160.dp, height = (160 / ownShape).dp) else Modifier.size(width = (160 * ownShape).dp, height = 160.dp)
+                        // On its side: away from the camera, beside the buttons' column, not under it.
+                        val place = when {
+                            !landscape -> Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = lift)
+                            cameraLeft -> Modifier.align(Alignment.BottomEnd).padding(end = aside, bottom = 16.dp)
+                            else -> Modifier.align(Alignment.BottomStart).padding(start = aside, bottom = 16.dp)
+                        }
+                        mine(place.then(window).clip(RoundedCornerShape(12.dp)))
+                    }
+                }
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            shown,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                val scrim = Color.Black.copy(alpha = 0.55f)
+                // The top: the pills, the name and how the call is going, over a soft shade.
                 Column(
-                    Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.12f), com.chencohen.ptt.ui.style.LibraryShapes.Card).padding(16.dp),
+                    Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(if (videoOn) scrim else Color.Transparent, Color.Transparent)))
+                        .statusBarsPadding().displayCutoutPadding().padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(stringResource(R.string.call_save_ask), color = LibraryColors.PhotoText, style = LibraryType.RowTitle)
-                    Text(stringResource(R.string.call_save_ask_body), color = LibraryColors.PhotoTextMuted, style = LibraryType.Caption, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    if (call.phase == CallPhase.ACTIVE && call.video) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                            Pill(
+                                stringResource(
+                                    when (orientation) {
+                                        1 -> R.string.call_orientation_portrait
+                                        2 -> R.string.call_orientation_landscape
+                                        else -> R.string.call_orientation_auto
+                                    },
+                                ),
+                            ) {
+                                orientation = (orientation + 1) % 3
+                                prefs.edit().putInt("orientation", orientation).apply()
+                            }
+                            if (remote.isNotEmpty()) {
+                                Pill(stringResource(R.string.call_follow_them), on = followThem) {
+                                    followThem = !followThem
+                                    prefs.edit().putBoolean("follow_remote", followThem).apply()
+                                }
+                            }
+                            if (statsAllowed) {
+                                Pill(stringResource(R.string.call_stats), on = statsShown) {
+                                    statsShown = !statsShown
+                                    prefs.edit().putBoolean("stats", statsShown).apply()
+                                }
+                            }
+                            // The layout a tap switches to.
+                            if (remote.isNotEmpty() && !group) Pill(stringResource(if (maximized) R.string.call_layout_normal else R.string.call_layout_maximized)) { toggleLayout() }
+                        }
+                    }
+                    if (remote.isEmpty()) {
+                        Spacer(Modifier.height(48.dp))
+                        Avatar(title, size = 96.dp)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
+                    Text(statusLine(call, nameOf), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
+                    val recorders = call.recordingBy + listOfNotNull(call.serverRecordingBy)
+                    if (recorders.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
                         Text(
-                            stringResource(R.string.call_save_not_now), color = LibraryColors.PhotoTextMuted, style = LibraryType.RowTitle,
-                            modifier = Modifier.clickable(role = Role.Button, onClick = actions.dismissAsk).padding(8.dp),
+                            stringResource(R.string.call_recording, recorders.joinToString { nameOf(it) }),
+                            color = Color.White, style = LibraryType.Small,
+                            modifier = Modifier.background(LibraryColors.Error, CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
                         )
+                    }
+                    if (call.askToSave && call.phase == CallPhase.ACTIVE) {
+                        Spacer(Modifier.height(16.dp))
+                        Column(
+                            Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.5f), com.chencohen.ptt.ui.style.LibraryShapes.Card).padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(stringResource(R.string.call_save_ask), color = LibraryColors.PhotoText, style = LibraryType.RowTitle)
+                            Text(stringResource(R.string.call_save_ask_body), color = LibraryColors.PhotoTextMuted, style = LibraryType.Caption, textAlign = TextAlign.Center)
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                                Text(
+                                    stringResource(R.string.call_save_not_now), color = LibraryColors.PhotoTextMuted, style = LibraryType.RowTitle,
+                                    modifier = Modifier.clickable(role = Role.Button, onClick = actions.dismissAsk).padding(8.dp),
+                                )
+                                Text(
+                                    stringResource(R.string.call_save), color = LibraryColors.PhotoText, style = LibraryType.RowTitle,
+                                    modifier = Modifier.clickable(role = Role.Button) { actions.setSaving(true) }.padding(8.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                // Save or Stop, and the call's buttons, over a soft shade: along the bottom upright; on its side, a
+                // column along the edge away from the camera (2026-11-23, hen).
+                val side = landscape && call.phase != CallPhase.ENDED
+                Column(
+                    if (side) {
+                        Modifier.align(if (cameraLeft) Alignment.CenterEnd else Alignment.CenterStart).fillMaxHeight()
+                            .background(
+                                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    if (cameraLeft) listOf(Color.Transparent, if (videoOn) scrim else Color.Transparent) else listOf(if (videoOn) scrim else Color.Transparent, Color.Transparent),
+                                ),
+                            )
+                            .padding(horizontal = 12.dp, vertical = 16.dp)
+                    } else {
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, if (videoOn) scrim else Color.Transparent)))
+                            .navigationBarsPadding().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 24.dp)
+                    },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = if (side) Arrangement.Center else Arrangement.Top,
+                ) {
+                    // Stop shows for anyone while the server keeps the call; Record only where it can be saved.
+                    val stoppable = call.saving || call.serverRecordingBy != null
+                    if ((canSave || stoppable) && call.phase == CallPhase.ACTIVE) {
                         Text(
-                            stringResource(R.string.call_save), color = LibraryColors.PhotoText, style = LibraryType.RowTitle,
-                            modifier = Modifier.clickable(role = Role.Button) { actions.setSaving(true) }.padding(8.dp),
+                            stringResource(if (stoppable) R.string.call_save_stop else R.string.call_save),
+                            color = Color.White, style = LibraryType.Small,
+                            modifier = Modifier
+                                .background(if (stoppable) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
+                                .clickable(role = Role.Button) { actions.setSaving(!stoppable) }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
                         )
+                        Spacer(Modifier.height(16.dp))
+                    }
+                    when (call.phase) {
+                        CallPhase.RINGING -> ButtonLine(side) {
+                            RoundButton(LibraryIcons.Close, stringResource(R.string.call_decline), LibraryColors.Error, actions.decline)
+                            RoundButton(if (call.video) LibraryIcons.Video else LibraryIcons.Call, stringResource(R.string.call_answer), LibraryColors.Accent, actions.accept)
+                        }
+                        CallPhase.ENDED -> {}
+                        else -> ButtonLine(side) {
+                            RoundButton(
+                                if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff,
+                                stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute),
+                                Color.White.copy(alpha = 0.18f),
+                            ) { actions.setMicrophone(!call.microphone) }
+                            RoundButton(
+                                if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff,
+                                stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on),
+                                Color.White.copy(alpha = 0.18f),
+                            ) { actions.setCamera(!call.camera) }
+                            if (call.camera) RoundButton(LibraryIcons.Flip, stringResource(R.string.call_flip), Color.White.copy(alpha = 0.18f), actions.switchCamera)
+                            RoundButton(LibraryIcons.Call, stringResource(R.string.call_hang_up), LibraryColors.Error, actions.hangUp)
+                        }
                     }
                 }
             }
-            Spacer(Modifier.weight(1f))
-            // Stop shows for anyone while the server keeps the call; Record only where it can be saved.
-            val stoppable = call.saving || call.serverRecordingBy != null
-            if ((canSave || stoppable) && call.phase == CallPhase.ACTIVE) {
-                Text(
-                    stringResource(if (stoppable) R.string.call_save_stop else R.string.call_save),
-                    color = Color.White, style = LibraryType.Small,
-                    modifier = Modifier
-                        .background(if (stoppable) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
-                        .clickable(role = Role.Button) { actions.setSaving(!stoppable) }
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                )
-                Spacer(Modifier.height(16.dp))
-            }
-            val own = r?.let { ownVideo(it, changes) }
-            if (own != null && call.camera) {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    // The whole picture, its own shape, with each viewer's crop outlined (2026-11-22, hen).
-                    val shape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
-                    val preview = if (shape >= 1f) Modifier.size(width = 160.dp, height = (160 / shape).dp) else Modifier.size(width = (160 * shape).dp, height = 160.dp)
-                    Box(preview) {
-                        key(own.sid ?: own.name) { VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = false) }
-                        CropOutlines(shape, call.viewers.filterValues { it.fill }, nameOf, showNames = call.viewers.size > 1)
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-            when (call.phase) {
-                CallPhase.RINGING -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    RoundButton(LibraryIcons.Close, stringResource(R.string.call_decline), LibraryColors.Error, actions.decline)
-                    RoundButton(if (call.video) LibraryIcons.Video else LibraryIcons.Call, stringResource(R.string.call_answer), LibraryColors.Accent, actions.accept)
-                }
-                CallPhase.ENDED -> {}
-                else -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    RoundButton(
-                        if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff,
-                        stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute),
-                        Color.White.copy(alpha = 0.18f),
-                    ) { actions.setMicrophone(!call.microphone) }
-                    RoundButton(
-                        if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff,
-                        stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on),
-                        Color.White.copy(alpha = 0.18f),
-                    ) { actions.setCamera(!call.camera) }
-                    if (call.camera) RoundButton(LibraryIcons.Flip, stringResource(R.string.call_flip), Color.White.copy(alpha = 0.18f), actions.switchCamera)
-                    RoundButton(LibraryIcons.Call, stringResource(R.string.call_hang_up), LibraryColors.Error, actions.hangUp)
-                }
-            }
-            Spacer(Modifier.height(24.dp))
+        }
         }
     }
+}
+
+/** The call's buttons: in a row, or a column on the edge away from the camera. */
+@Composable
+private fun ButtonLine(column: Boolean, content: @Composable () -> Unit) {
+    if (column) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) { content() }
+    } else {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { content() }
+    }
+}
+
+/** The display's rotation (Surface.ROTATION_*), followed as it turns, a half turn included. */
+@Composable
+private fun rememberDisplayRotation(): Int {
+    val view = androidx.compose.ui.platform.LocalView.current
+    var rotation by remember { androidx.compose.runtime.mutableIntStateOf(view.display?.rotation ?: 0) }
+    DisposableEffect(view) {
+        val manager = view.context.getSystemService(android.hardware.display.DisplayManager::class.java)
+        val listener = object : android.hardware.display.DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) {}
+            override fun onDisplayRemoved(displayId: Int) {}
+            override fun onDisplayChanged(displayId: Int) {
+                view.display?.rotation?.let { rotation = it }
+            }
+        }
+        manager.registerDisplayListener(listener, android.os.Handler(android.os.Looper.getMainLooper()))
+        onDispose { manager.unregisterDisplayListener(listener) }
+    }
+    return rotation
+}
+
+/** A small pill over the video: [on] in the inverse colour. */
+@Composable
+private fun Pill(text: String, on: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text,
+        color = if (on) LibraryColors.OnInverse else Color.White, style = LibraryType.Small,
+        modifier = Modifier.background(if (on) LibraryColors.Inverse else LibraryColors.PillScrim, CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
 
 @Composable
@@ -466,7 +671,22 @@ private fun ownVideo(room: Room, changes: Int): VideoTrack? =
  * (2026-11-22, hen: "fit and crop is not working": both cropped).
  */
 @Composable
-private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false, fill: Boolean = true) {
+private fun VideoView(
+    room: Room,
+    track: VideoTrack,
+    modifier: Modifier,
+    mirror: Boolean = false,
+    fill: Boolean = true,
+    stats: Boolean = false,
+    onShape: (Float) -> Unit = {},
+    /** Follow face (on what is received): pan and zoom the view to keep the face framed, up to [maxZoom]. */
+    follow: Boolean = false,
+    maxZoom: Float = 1.8f,
+    faceAt: Float = 0.4f,
+    everyMs: Long = 100L,
+    /** The sender's newest face hint (FaceHint), when it sends them: used instead of looking here. */
+    hint: () -> com.chencohen.ptt.calls.FaceHint? = { null },
+) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
     // The picture's shape as shown (its rotation applied), from the frames themselves.
@@ -485,7 +705,10 @@ private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror:
                 if (h <= 0 || now == last) return
                 last = now
                 android.util.Log.i("CallVideo", "${if (mirror) "own" else "received"} video $now, shown ${w}x$h")
-                main.post { aspect = w.toFloat() / h }
+                main.post {
+                    aspect = w.toFloat() / h
+                    onShape(w.toFloat() / h)
+                }
             }
         }
         track.addRenderer(renderer)
@@ -496,11 +719,177 @@ private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror:
             renderer.release()
         }
     }
-    Box(modifier, contentAlignment = Alignment.Center) {
-        val shaped = if (!fill && aspect > 0f) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize()
-        AndroidView(factory = { renderer }, modifier = shaped)
+    var boxSize by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    // The whole picture: as big as covers the box (Maximized, the box clips it) or fits in it (Normal). Drawn whole,
+    // so Follow face can slide over all of it.
+    val bw = boxSize.width.toFloat()
+    val bh = boxSize.height.toFloat()
+    val content = if (aspect > 0f && bw > 0f && bh > 0f) com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, fill) else null
+    val framing = followFace(track, follow, fill, boxSize, content, maxZoom, faceAt, everyMs, hint)
+    Box(modifier.clipToBounds().onSizeChanged { boxSize = it }, contentAlignment = Alignment.Center) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val shaped = if (content != null) {
+            with(density) { Modifier.requiredSize(content.first.toDp(), content.second.toDp()) }
+        } else {
+            Modifier.fillMaxSize()
+        }
+        AndroidView(factory = { renderer }, modifier = shaped.then(framing))
+        val line = videoStats(track, stats)
+        if (line != null) {
+            Text(
+                line, color = Color.White, style = LibraryType.Tiny,
+                modifier = Modifier.align(Alignment.TopStart).then(if (fill) Modifier.statusBarsPadding() else Modifier).padding(6.dp).background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
+            )
+        }
     }
 }
+
+/**
+ * Follow face (2026-11-23, hen; the call screen's pill, on the received video only): the same face finder as Frame my
+ * face looks at the frames as they come, and the view pans and zooms (at most [maxZoom]) to keep the face near the upper
+ * third, head and shoulders about 45% of the height, easing in half a second, small moves left alone, back to the plain
+ * picture 1.5 s after the face is lost. Display only. Maximized already crops: the crop slides to the face and zooms at
+ * most 1.5x; Normal pans and zooms inside the tile.
+ */
+@Composable
+private fun followFace(
+    track: VideoTrack,
+    on: Boolean,
+    fill: Boolean,
+    boxSize: androidx.compose.ui.unit.IntSize,
+    content: Pair<Float, Float>?,
+    maxZoom: Float,
+    /** Where the face goes down the box (a share of its height); how often to look (shared out in a group). */
+    faceAt: Float = 0.4f,
+    everyMs: Long = com.chencohen.ptt.calls.FaceFinder.EVERY_MS,
+    hint: () -> com.chencohen.ptt.calls.FaceHint? = { null },
+): Modifier {
+    var box by remember(track) { androidx.compose.runtime.mutableStateOf<android.graphics.RectF?>(null) }
+    var seenAt by remember(track) { androidx.compose.runtime.mutableLongStateOf(0L) }
+    DisposableEffect(track, on) {
+        if (!on) {
+            box = null
+            return@DisposableEffect onDispose {}
+        }
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val finder = com.chencohen.ptt.calls.FaceFinder("FollowFace", everyMs) { found ->
+            main.post {
+                if (found != null) {
+                    box = found
+                    seenAt = android.os.SystemClock.elapsedRealtime()
+                }
+            }
+        }
+        // Looked for here only while the sender sends no hints (an older app).
+        val sink = livekit.org.webrtc.VideoSink { frame -> if (hint() == null) finder.offer(frame) }
+        track.addRenderer(sink)
+        onDispose {
+            track.removeRenderer(sink)
+            finder.close()
+        }
+    }
+    // The sender's newest hint, read at the frame rate (they come up to 15 a second); lost for 1.5 s: back to the
+    // plain picture.
+    LaunchedEffect(track, on) {
+        while (on) {
+            hint()?.let { h ->
+                box = android.graphics.RectF(h.x - h.h * 0.375f, h.y - h.h / 2, h.x + h.h * 0.375f, h.y + h.h / 2)
+                seenAt = android.os.SystemClock.elapsedRealtime()
+            }
+            if (box != null && android.os.SystemClock.elapsedRealtime() - seenAt > 1_500) box = null
+            delay(33)
+        }
+    }
+    // The target: scale and offset of the picture in the box; moved only past a dead zone.
+    var target by remember(track) { androidx.compose.runtime.mutableStateOf(Triple(1f, 0f, 0f)) }
+    val b = box
+    val bw = boxSize.width.toFloat()
+    val bh = boxSize.height.toFloat()
+    if (b == null || content == null || bw <= 0f || bh <= 0f) {
+        if (target != Triple(1f, 0f, 0f)) target = Triple(1f, 0f, 0f)
+    } else {
+        val (cw, ch) = content
+        val p = com.chencohen.ptt.calls.CallGrid.place(
+            bw, bh, cw, ch, b.centerX(), b.centerY(), b.height(),
+            maxZoom = if (fill) minOf(maxZoom, 1.5f) else maxZoom, targetY = faceAt,
+        )
+        val zoom = p.scale
+        val tx = p.x
+        val ty = p.y
+        val (s0, x0, y0) = target
+        // Only a small dead zone against jitter: the crop follows the face as it moves.
+        if (kotlin.math.abs(zoom - s0) > 0.03f || kotlin.math.abs(tx - x0) > bw * 0.015f || kotlin.math.abs(ty - y0) > bh * 0.015f) {
+            target = Triple(zoom, tx, ty)
+        }
+    }
+    // Straight to the face when Follow face is turned on, a call starts or a tile appears (2026-11-23, hen: "instantly,
+    // without delay"); after that one frame's smoothing, and a short ease back to the plain picture.
+    var placed by remember(track, on) { androidx.compose.runtime.mutableStateOf(false) }
+    val plain = target == Triple(1f, 0f, 0f)
+    val ease: androidx.compose.animation.core.AnimationSpec<Float> = when {
+        !placed && !plain -> androidx.compose.animation.core.snap()
+        plain -> androidx.compose.animation.core.tween(250)
+        else -> androidx.compose.animation.core.tween(40)
+    }
+    LaunchedEffect(plain) { if (!plain) placed = true }
+    val s by androidx.compose.animation.core.animateFloatAsState(target.first, ease, label = "follow zoom")
+    val x by androidx.compose.animation.core.animateFloatAsState(target.second, ease, label = "follow x")
+    val y by androidx.compose.animation.core.animateFloatAsState(target.third, ease, label = "follow y")
+    return Modifier.graphicsLayer {
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+        scaleX = s
+        scaleY = s
+        translationX = x
+        translationY = y
+    }
+}
+
+/**
+ * Show video stats (Call settings › Advanced; 2026-11-22, hen): [track]'s frame rate, bit rate, size and codec from
+ * WebRTC's stats, read once a second while [on]. This phone's camera sums its simulcast layers' bytes and shows the
+ * biggest layer's size and rate.
+ */
+@Composable
+private fun videoStats(track: VideoTrack, on: Boolean): String? {
+    var line by remember(track) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    LaunchedEffect(track, on) {
+        if (!on) {
+            line = null
+            return@LaunchedEffect
+        }
+        var lastBytes = -1L
+        var lastAt = 0L
+        while (true) {
+            val report = runCatching { track.getRTCStats() }.getOrNull()
+            if (report != null) {
+                val all = report.statsMap.values
+                val rtp = all.filter { (it.type == "inbound-rtp" || it.type == "outbound-rtp") && it.members["kind"] == "video" }
+                fun num(s: livekit.org.webrtc.RTCStats, k: String) = (s.members[k] as? Number)?.toDouble()
+                val bytes = rtp.sumOf { (num(it, "bytesReceived") ?: num(it, "bytesSent") ?: 0.0).toLong() }
+                val top = rtp.maxByOrNull { num(it, "frameWidth") ?: 0.0 }
+                val now = android.os.SystemClock.elapsedRealtime()
+                val kbps = if (lastBytes >= 0 && now > lastAt) (bytes - lastBytes) * 8 / (now - lastAt) else null
+                lastBytes = bytes
+                lastAt = now
+                if (top != null) {
+                    val codec = (all.firstOrNull { it.id == top.members["codecId"] }?.members?.get("mimeType") as? String)?.substringAfter('/')
+                    val w = num(top, "frameWidth")?.toInt()
+                    val h = num(top, "frameHeight")?.toInt()
+                    line = listOfNotNull(
+                        num(top, "framesPerSecond")?.let { "%.0f fps".format(it) },
+                        kbps?.let { "$it kbit/s" },
+                        if (w != null && h != null) "${w}×$h" else null,
+                        codec,
+                    ).joinToString(" · ")
+                }
+            }
+            delay(1_000)
+        }
+    }
+    return line
+}
+
 
 /**
  * On this phone's own preview (its whole picture, [shape] wide for 1 high): the part each viewer sees when they crop

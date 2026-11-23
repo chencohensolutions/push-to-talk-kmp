@@ -69,6 +69,7 @@ sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "s
 androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "androidx-sqlite" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugar-jdk-libs" }
 livekit-android = { module = "io.livekit:livekit-android", version.ref = "livekit" }
+mlkit-face-detection = { module = "com.google.mlkit:face-detection", version = "16.1.7" }
 core-telecom = { module = "androidx.core:core-telecom", version.ref = "core-telecom" }
 androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }
 play-services-tflite-java = { module = "com.google.android.gms:play-services-tflite-java", version.ref = "tflite-play" }

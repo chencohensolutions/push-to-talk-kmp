@@ -45,6 +45,8 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
   700 kbit/s; it was 15 fps and 350 kbit/s). Only where the front camera runs a steady 60 fps at that size; elsewhere
   the row says so and stays off. A push-to-video burst sends at most `Talk.VIDEO_BUDGET` (7.4 MB, under the server's
   8 MiB clip) of video, about 85 s at 30 fps and 60 s at 60, then goes on with the voice only.
+- **Calls › Advanced › Show video stats** (off by default; 2026-11-22, hen): the Stats pill in video calls
+  ([calls.md](calls.md)).
 - **Calls › Save calls to** (2026-11-22, hen): **Choose a folder** opens Android's folder picker (the phone, an SD
   card or a USB drive), kept with a lasting permission; under it, the folder's name, or Downloads › Talk.
   **Use Downloads instead** goes back. Save as file on a kept call writes there.

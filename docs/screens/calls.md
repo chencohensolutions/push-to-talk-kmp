@@ -35,8 +35,41 @@ says "Calls need the microphone. Allow it in the app's settings."
   also stops by itself when the recording phone leaves the call, when the room empties, or after 4 hours, so hanging
   up sends nothing. A server that doesn't keep calls (or an older one) is ignored: the phone's own saving goes on.
 - **Video as the camera sends it** (2026-11-22, hen): each phone sends its camera's own 4:3 picture, uncropped. The
-  phone showing it fills the screen with it (cropped, the default) or fits it whole: the **Fit** / **Fill** pill at the
-  top right, or a double tap on the video, switches, and it is kept for next time.
+  phone showing it has two layouts (2026-11-23, hen, from the approved mockups), one pill at the top that names the
+  layout a tap switches to, kept for next time:
+  - **Maximized** (the default): their video covers the whole screen, cropped, behind the camera cutout and status
+    bar too; your video is a small corner window.
+  - **Normal**: upright, their whole picture as wide as the screen at its own shape from the very top, and your video
+    in the rest, at its own shape, as wide as that allows, centred. On its side, side by side: theirs at full height
+    on the camera's side, yours in the rest, as big as fits, centred.
+  On its side (2026-11-23, hen), whichever way it is turned and in Hebrew too: the call's buttons are a column along
+  the edge away from the camera, and in Maximized your window sits beside that column, not under it. A half turn
+  swaps the sides at once (the display's rotation is followed, not the configuration).
+  The name, pills and buttons float over the video on soft shades; a single tap on the video hides or shows them all
+  (no double tap).
+- **Group video calls** (2026-11-23, hen: "with 4 or 6 people, all faces are centred and the boxes are evenly
+  sized"): with two or more others, everyone (this phone too) gets an equal tile, the columns and rows chosen for the
+  screen's shape and turn (`CallGrid.shape`: the biggest equal tiles for a 3:4 picture; 4 in 2×2, 6 in 2×3 upright and
+  3×2 on its side, 3 stacked on a tall phone). Every tile is cropped to fill; with Follow face each tile's crop slides
+  and zooms (`CallGrid.place`, up to 1.5x) to put that person's face in its middle at the same head-and-shoulders
+  size, so the grid looks even; the face finder takes turns, about three looks a second in all. No layout pill.
+- **Face hints** (2026-11-23, hen: "the sender sends the face position", then "don't crop the face before
+  sending"): while its camera runs, the sending phone sends its whole picture untouched and looks for the biggest face
+  up to 15 times a second, as fast as it keeps up (`FaceHinter`, a LiveKit VideoProcessor, ML Kit's on-phone detector, bundled, offline). Each
+  face found goes to the others as a hint (`FaceHint`: centre and height as shares of the picture, the frame's time),
+  sealed with the call's key, over the call's data channel (topic `face`, lossy). Receivers keep each sender's last
+  few (`FaceHints`); a hint stands for 1.5 s.
+- **Follow face** (2026-11-23, hen; a pill at the top while someone's video shows, kept for next time; the one face
+  option): on this phone's view of the received video only, framed by the sender's hints, or, from a sender that sends
+  none (an older app), by the same face finder here (10 looks a second on the big tile); instant (2026-11-23, hen):
+  turned on, at a call's start or when a tile appears it goes straight to the face, then follows it with a small
+  jitter dead zone and one frame's smoothing, and eases back to the plain picture only when the face is lost; the view
+  pans and zooms to keep the face near the upper third, head
+  and shoulders about 45% of the height, back to the plain picture 1.5 s after the face is lost. Maximized: the picture is drawn whole and clipped to the screen, so the crop slides to
+  the face, with at most 1.5x more zoom; Normal: at most 1.8x inside the tile. Only this phone's view changes.
+- **Stats** (2026-11-22, hen; Call settings › Advanced › Show video stats, off by default): a **Stats** pill at the top
+  right shows or hides, on each video and your preview, its frame rate, bit rate, size and codec from WebRTC's stats,
+  once a second (your camera: all simulcast layers' bytes, the biggest layer's size and rate). Kept for next time.
 - **Your crop, on your preview** (2026-11-22, hen): each phone tells the others how it shows their video (VIEW in the
   call's messages: Fill or Fit, and its tile's shape). Your own preview is your whole picture, in its own shape, with
   a thin outline of the part each Fill viewer sees (their name on it when there are several); nothing for Fit.

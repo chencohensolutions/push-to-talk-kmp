@@ -803,6 +803,7 @@ fun HomeApp(
                     ),
                     compact = inPip,
                     canSave = current.serverKeeps || messagingState.talkSettings.saveCalls != com.chencohen.ptt.calls.SaveCalls.OFF,
+                    statsAllowed = messagingState.talkSettings.videoStats,
                 )
             }
         }
