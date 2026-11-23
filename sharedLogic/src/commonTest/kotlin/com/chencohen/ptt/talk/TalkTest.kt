@@ -28,6 +28,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -192,7 +193,8 @@ class TalkTest {
     fun aBurstPlaysLiveOnTheOtherPhoneAndStaysInBothChats() = runTest {
         val (server, hen, dana) = paired()
         hen.work.launch { hen.talk.press("dana") }
-        advanceUntilIdle()
+        // Not past the stale-floor limit (75 s): the floor is still held.
+        advanceTimeBy(2_000)
         assertEquals(TalkPhase.TALKING, hen.state.talk.own?.phase)
         val id = hen.state.talk.own!!.clip
         assertEquals("hen", dana.state.talk.talkers["hen"]?.user, "dana sees who talks")
@@ -331,7 +333,7 @@ class TalkTest {
 
     @Test
     fun theWholeBurstPlaysFromTheFirstWordToTheLast() = runTest {
-        val (_, hen, dana) = paired()
+        val (server, hen, dana) = paired()
         // Spoken at once with the press, before the server gives the floor: kept, and sent once it does.
         hen.work.launch {
             hen.talk.press("dana")
@@ -350,6 +352,44 @@ class TalkTest {
         assertEquals(28, heard.size, "every packet from the press to the release plays")
         heard.forEachIndexed { i, p -> assertContentEquals(packets(0, 28)[i], p) }
         assertEquals(listOf("finish"), dana.speaker.ends, "the end of a burst plays out, it isn't cut")
+        assertEquals(emptyList(), server.segmentRefusals, "the segments went in order")
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun segmentsWaitingForTheFloorNeverFallBehindNewOnes() = runTest {
+        // 2026-11-23 (hen: "something is blocking calling and sending"): a new segment went out while those recorded
+        // before the grant were still waiting; the server refused the gap and the floor stayed held.
+        val (server, hen, dana) = paired()
+        hen.work.launch {
+            hen.talk.press("dana")
+            hen.mic.say(0, 40)
+        }
+        // The grant and more voice at the same moment.
+        hen.work.launch { hen.mic.say(40, 30) }
+        advanceUntilIdle()
+        hen.work.launch {
+            hen.mic.say(70, 5)
+            hen.talk.release()
+        }
+        advanceUntilIdle()
+        assertEquals(emptyList(), server.segmentRefusals, "every segment in order")
+        assertEquals(75, dana.speaker.played.single().size)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aFloorWhoseEndNeverCameStopsShowingAfterTheServersLimit() = runTest {
+        val (server, hen, dana) = paired()
+        dana.work.launch { dana.talk.press("hen") }
+        advanceTimeBy(1_000)
+        assertTrue(hen.state.talk.talkers.containsKey("dana"))
+        // The ENDED frame is lost: hen's phone lets it go by itself.
+        server.dropTalkStates = true
+        advanceTimeBy(Talk.STALE_TALKER_MS + 1)
+        assertFalse(hen.state.talk.talkers.containsKey("dana"), "no stale floor blocks talk or calls")
         hen.stop()
         dana.stop()
     }

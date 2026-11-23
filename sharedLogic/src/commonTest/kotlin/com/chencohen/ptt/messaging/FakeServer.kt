@@ -411,7 +411,11 @@ internal class FakeServer {
     /** Forwarded segments are dropped (a slow phone), so it reads the clip over /blob. */
     var dropForwarded = false
 
+    /** Talk states are lost on the way (a dropped connection's frames). */
+    var dropTalkStates = false
+
     private fun frame(to: DeviceAddress, kind: FrameKind) {
+        if (dropTalkStates && kind is TalkStateFrame) return
         if (kind is TalkStateFrame) talkStates += to to kind.talkState
         connections[to]?.incoming?.trySend(Frames.encode(Frame(kind)))
     }
@@ -438,9 +442,20 @@ internal class FakeServer {
     /** Each segment's ciphertext size, as the server would check it (16 KB). */
     val segmentSizes = mutableListOf<Int>()
 
+    /** Segments the server refused, as the real one does: out of order or with a gap. */
+    val segmentRefusals = mutableListOf<Int>()
+    private val nextSegment = HashMap<String, Int>()
+
     private fun clipSegment(from: DeviceAddress, segment: ClipSegment) {
         segmentSizes += segment.ciphertext.size
         val (pair, floor) = floors.entries.firstOrNull { it.value.id == segment.burstId && it.value.talker == from }?.toPair() ?: return
+        val next = nextSegment[segment.burstId] ?: 0
+        if (segment.index != next) {
+            segmentRefusals += segment.index
+            frame(from, TalkStateFrame(TalkState(TalkEvent.REFUSED, segment.burstId, refusal = SendStatus.INVALID)))
+            return
+        }
+        nextSegment[segment.burstId] = next + 1
         clips.getValue(segment.burstId) += com.chencohen.ptt.talk.ClipRecords.record(segment.index, segment.last, segment.ciphertext)
         if (!dropForwarded) for (d in devicesOf(floor.peer) + devicesOf(from.user).filter { it != from }) frame(d, ClipSegmentFrame(segment))
         if (segment.last) {
