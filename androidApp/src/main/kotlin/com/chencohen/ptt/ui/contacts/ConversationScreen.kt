@@ -316,7 +316,11 @@ internal fun ConversationScreen(
             ) {
                 // Every change eases in and out (2026-11-23, hen: "everything with a transition, no sharp changes").
                 val ease = androidx.compose.animation.core.tween<Float>(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-                val move = androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                // While a bubble changes its size in place (an edit, Send's flight, a live draft growing), the others follow
+                // it in the same frame: no placement animation of their own trailing it (2026-11-24, hen: "don't make
+                // the surrounding objects move with delay"). Otherwise (one added or gone) they glide.
+                val morphing = editing != null || flight.body != null || shownDrafts.isNotEmpty() || liveEdits.isNotEmpty()
+                val move = if (morphing) null else androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                 // Both kept pushing at once: a video call may suit them (2026-11-23, hen).
                 if (talk.suggestCall == user) {
                     item(key = "suggest-call") {

@@ -159,3 +159,8 @@ by the time, an envelope drawn on a 16-unit square in the time's colour at 75%: 
 speed lines trailing and drifting; mirrored in Hebrew so they trail behind); Sent rests; Delivered gets a round seal
 on its flap, popping in; Read: no mark (their letter circle says it). Each change eases. Failed: the envelope in the
 warning colour. `StatusMark`, the chat, the quick-reply window and groups.
+
+
+**Neighbours follow in the same frame** (2026-11-24, hen: "don't make the surrounding objects move with delay"): while
+a bubble changes its size in place (an edit, Send's flight, a live draft or live edit), the other items have no
+placement animation of their own, so they move with it frame by frame; when one is added or removed they glide.
