@@ -105,27 +105,50 @@ object TalkBubble {
      * After something above the button shows or goes: the window takes the new height with its bottom edge where it was
      * (the content stays against it), and what came in above grows in from the bottom up.
      */
-    private fun fit(grown: View? = null) {
-        val root = view ?: return
-        val holder = frame ?: return
-        val lp = holder.layoutParams as? WindowManager.LayoutParams ?: return
+    private fun fit(animate: Boolean = false, done: () -> Unit = {}) {
+        val root = view ?: return done()
+        val holder = frame ?: return done()
+        val lp = holder.layoutParams as? WindowManager.LayoutParams ?: return done()
         root.measure(
             View.MeasureSpec.makeMeasureSpec(lp.width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
-        val h = root.measuredHeight
-        if (h != lp.height) {
-            lp.height = h
-            runCatching { holder.context.getSystemService(WindowManager::class.java).updateViewLayout(holder, lp) }
+        val target = root.measuredHeight
+        // The content at its full height against the window's bottom edge, whatever the window's height is meanwhile:
+        // while it grows the content is uncovered from the bottom up, and nothing in it moves.
+        root.layoutParams?.let { p ->
+            if (p.height != target) {
+                p.height = target
+                root.layoutParams = p
+            }
         }
-        grown?.takeIf { it.visibility == View.VISIBLE }?.let { g ->
-            g.pivotY = (g.layoutParams?.height?.takeIf { it > 0 } ?: g.measuredHeight).toFloat()
-            g.pivotX = (g.layoutParams?.width?.takeIf { it > 0 } ?: g.measuredWidth) / 2f
-            g.scaleY = 0.2f
-            g.alpha = 0f
-            g.animate().scaleY(1f).alpha(1f).setDuration(200).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        resizing?.cancel()
+        resizing = null
+        val wm = holder.context.getSystemService(WindowManager::class.java)
+        if (!animate || lp.height == target) {
+            if (lp.height != target) {
+                lp.height = target
+                runCatching { wm.updateViewLayout(holder, lp) }
+            }
+            return done()
+        }
+        // About 200 ms from the old height to the new, the bottom edge (and the button) where it is.
+        resizing = android.animation.ValueAnimator.ofInt(lp.height, target).apply {
+            duration = 200
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener {
+                if (frame !== holder) return@addUpdateListener
+                lp.height = it.animatedValue as Int
+                runCatching { wm.updateViewLayout(holder, lp) }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) = done()
+            })
+            start()
         }
     }
+
+    private var resizing: android.animation.ValueAnimator? = null
 
     /** Whether a press here sends the camera too: this contact's Voice | Video. */
     private fun videoMode(context: Context): Boolean = chat?.let { messagingState(context).value.talkSettings.pushVideoFor(it) } ?: false
@@ -201,13 +224,56 @@ object TalkBubble {
         // The camera kept open for the preview (the service holds it while the app is in the background).
         if (mine && !sendingVideo && !previewOn) preview(context, true) else if (!mine && previewOn) preview(context, false)
         val box = videoBox ?: return
-        val reserve = seenVideo || videoMode(context)
-        box.visibility = when {
-            theirs || mine -> View.VISIBLE
-            reserve -> View.INVISIBLE
-            else -> View.GONE
+        // Voice: compact, the video area opens upwards (200 ms) while a video shows and closes after; Video: it stays.
+        val reserve = videoMode(context)
+        when {
+            theirs || mine -> if (box.visibility != View.VISIBLE) {
+                val grow = box.visibility == View.GONE
+                box.visibility = View.VISIBLE
+                fit(animate = grow)
+            }
+            reserve -> if (box.visibility != View.INVISIBLE) {
+                val grow = box.visibility == View.GONE
+                box.visibility = View.INVISIBLE
+                fit(animate = grow)
+            }
+            box.visibility != View.GONE -> {
+                // Hidden first, then the window closes over it (200 ms), then it goes.
+                val root = view
+                val holder = frame
+                val lp = holder?.layoutParams as? WindowManager.LayoutParams
+                if (root != null && lp != null) {
+                    val from = lp.height
+                    box.visibility = View.INVISIBLE
+                    resizing?.cancel()
+                    root.measure(View.MeasureSpec.makeMeasureSpec(lp.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                    // Measured with the box: shrink to the height without it.
+                    val boxH = box.measuredHeight + ((box.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let { it.topMargin + it.bottomMargin } ?: 0)
+                    val to = from - boxH
+                    val wm = holder.context.getSystemService(WindowManager::class.java)
+                    resizing = android.animation.ValueAnimator.ofInt(from, to).apply {
+                        duration = 200
+                        interpolator = android.view.animation.DecelerateInterpolator()
+                        addUpdateListener {
+                            if (frame !== holder) return@addUpdateListener
+                            lp.height = it.animatedValue as Int
+                            runCatching { wm.updateViewLayout(holder, lp) }
+                        }
+                        addListener(object : android.animation.AnimatorListenerAdapter() {
+                            override fun onAnimationEnd(animation: android.animation.Animator) {
+                                if (videoBox === box && box.visibility == View.INVISIBLE) {
+                                    box.visibility = View.GONE
+                                    fit()
+                                }
+                            }
+                        })
+                        start()
+                    }
+                } else {
+                    fit()
+                }
+            }
         }
-        fit()
         val burstView = box.findViewWithTag<View>("video")
         fun fade(v: View?, to: Float) {
             v ?: return
