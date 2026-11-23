@@ -1,6 +1,7 @@
 package com.chencohen.ptt.ui.contacts
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -155,6 +156,10 @@ internal fun ConversationScreen(
             }
         }
         val atBottom by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
+        val morph = rememberDraftMorph(user, drafts, newest)
+        // A draft that grows (a new line) stays in view, if the list was at the bottom (2026-11-23, hen).
+        val draftText = drafts.joinToString("\n") { it.second }
+        LaunchedEffect(draftText) { if (draftText.isNotEmpty() && list.firstVisibleItemIndex == 0) list.scrollToItem(0) }
         LaunchedEffect(atBottom) { if (atBottom) unseen = false }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
@@ -164,9 +169,15 @@ internal fun ConversationScreen(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                // Drafts written live, newest place at the bottom, until the message comes.
-                items(drafts, key = { "draft/" + (it.first ?: "") }) { (who, text) -> DraftBubble(who, text) }
-                items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null) }
+                // Drafts written live, newest place at the bottom, until the message comes; then it turns into it.
+                items(drafts.filter { "draft/" + (it.first ?: "") != morph?.key }, key = { "draft/" + (it.first ?: "") }) { (who, text) -> DraftBubble(who, text) }
+                items(messages.asReversed(), key = { if (it.id == morph?.id) morph.key else it.id }) { message ->
+                    if (message.id == morph?.id) {
+                        MorphingBubble(message, if (group != null) message.author else null)
+                    } else {
+                        Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null)
+                    }
+                }
             }
             if (unseen) {
                 Text(
@@ -381,24 +392,82 @@ private fun Composer(user: String, actions: ConversationActions, talk: TalkUiSta
 
 /**
  * A draft someone is writing live (their Live typing; 2026-11-23, hen): their side, dimmed and outlined, the text as
- * it is now with a caret, "writing" above it; it turns into the message when they send it.
+ * it is now with a caret, "Writing…" above it. [settled] 0 is the draft; towards 1 it becomes the message where it is
+ * (hen: "a nice transition"): the outline fills with the bubble's colour, "Writing…" fades and folds away, the time
+ * fades in; the text stays put.
  */
 @Composable
-internal fun DraftBubble(who: String?, text: String, modifier: Modifier = Modifier) {
+internal fun DraftBubble(
+    who: String?,
+    text: String,
+    modifier: Modifier = Modifier,
+    settled: Float = 0f,
+    time: String? = null,
+    shape: androidx.compose.ui.graphics.Shape = LibraryShapes.Card,
+    padding: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
         Column(
             Modifier.widthIn(max = 300.dp)
-                .border(1.dp, LibraryColors.Accent.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
-                .background(LibraryColors.Raised.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
-                .padding(horizontal = 12.dp, vertical = 7.dp),
+                .animateContentSize(androidx.compose.animation.core.tween(250))
+                .border(1.dp, LibraryColors.Accent.copy(alpha = 0.5f * (1f - settled)), shape)
+                .background(LibraryColors.Raised.copy(alpha = 0.5f + 0.5f * settled), shape)
+                .padding(padding),
         ) {
+            if (settled < 1f) {
+                Text(
+                    if (who != null) stringResource(R.string.chat_draft_by, who) else stringResource(R.string.chat_draft),
+                    color = LibraryColors.Accent.copy(alpha = 1f - settled), style = LibraryType.Small,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
+            }
             Text(
-                if (who != null) stringResource(R.string.chat_draft_by, who) else stringResource(R.string.chat_draft),
-                color = LibraryColors.Accent, style = LibraryType.Small,
+                if (settled > 0f) text else "$text\u258F",
+                color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * settled), style = LibraryType.Body,
             )
-            Text("$text▏", color = LibraryColors.OnBackground.copy(alpha = 0.75f), style = LibraryType.Body)
+            if (time != null && settled > 0f) {
+                Text(time, color = LibraryColors.Muted.copy(alpha = settled), style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End).padding(top = 2.dp))
+            }
         }
     }
+}
+
+/**
+ * The newest message just replaced a live draft that was on screen: it turns into the message in place (250 ms,
+ * keeping the draft's place in the list), then the ordinary bubble takes over. Null: no draft to turn.
+ */
+internal class DraftMorph(val id: String, val key: String)
+
+/** Remembers which new message comes in where a draft was ([drafts] now; [newest] the newest message). */
+@Composable
+internal fun rememberDraftMorph(chat: String, drafts: List<Pair<String?, String>>, newest: TextMessage?): DraftMorph? {
+    var lastDrafts by remember(chat) { mutableStateOf(drafts) }
+    var lastNewest by remember(chat) { mutableStateOf(newest?.id) }
+    var morph by remember(chat) { mutableStateOf<DraftMorph?>(null) }
+    if (newest != null && newest.id != lastNewest) {
+        val from = lastDrafts.firstOrNull { (who, _) -> !newest.outgoing && (who == null || who == newest.author) }
+        if (from != null && newest.clip == null && newest.call == null) morph = DraftMorph(newest.id, "draft/" + (from.first ?: ""))
+        lastNewest = newest.id
+    }
+    androidx.compose.runtime.SideEffect { lastDrafts = drafts }
+    LaunchedEffect(morph?.id) {
+        if (morph != null) {
+            delay(MORPH_MS + 50L)
+            morph = null
+        }
+    }
+    return morph
+}
+
+internal const val MORPH_MS = 250
+
+/** A message turning from its draft: [settled] goes 0 to 1 in [MORPH_MS]. */
+@Composable
+internal fun MorphingBubble(message: TextMessage, who: String?, modifier: Modifier = Modifier, shape: androidx.compose.ui.graphics.Shape = LibraryShapes.Card, padding: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
+    val settled = remember(message.id) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(message.id) { settled.animateTo(1f, androidx.compose.animation.core.tween(MORPH_MS)) }
+    val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
+    DraftBubble(who, message.body, modifier, settled.value, time, shape, padding)
 }
 
 @Preview

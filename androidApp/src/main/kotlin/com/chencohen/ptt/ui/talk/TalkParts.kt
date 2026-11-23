@@ -535,6 +535,15 @@ internal fun WhenAwayCard(notifyOnly: Boolean, set: (Boolean) -> Unit) {
     }
 }
 
+/** A contact's or group's Live typing switch (2026-11-23, hen; off unless turned on here). */
+@Composable
+internal fun LiveTypingCard(on: Boolean, set: (Boolean) -> Unit) {
+    com.chencohen.ptt.ui.style.SectionTitle(stringResource(R.string.settings_live_typing))
+    com.chencohen.ptt.ui.style.SettingsCard {
+        SwitchRow(stringResource(R.string.live_typing_contact), stringResource(R.string.settings_live_typing_body), on, set)
+    }
+}
+
 /** A contact's or group's Quick talk switch: on, it is a page of the Talk tab (docs/screens/quick-talk.md). */
 @Composable
 internal fun QuickTalkCard(on: Boolean, set: (Boolean) -> Unit) {

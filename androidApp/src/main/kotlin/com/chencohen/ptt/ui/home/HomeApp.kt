@@ -246,6 +246,10 @@ fun HomeApp(
         val talk = messagingState.talkSettings
         messaging.setTalkSettings(talk.copy(notifyOnly = if (on) talk.notifyOnly + chat else talk.notifyOnly - chat))
     }
+    fun setLiveTyping(chat: String, on: Boolean) {
+        val talk = messagingState.talkSettings
+        messaging.setTalkSettings(talk.copy(liveTypingFor = talk.liveTypingFor + (chat to on)))
+    }
     fun setQuickTalk(chat: String, on: Boolean) {
         val talk = messagingState.talkSettings
         messaging.setTalkSettings(talk.copy(quickTalk = com.chencohen.ptt.talk.QuickTalk.set(talk.quickTalk, chat, on)))
@@ -493,9 +497,11 @@ fun HomeApp(
                                 }
                             },
                             setNotifyOnly = { on -> setNotifyOnly(Group.chatOf(id), on) },
+                            setLiveTyping = { on -> setLiveTyping(Group.chatOf(id), on) },
                             setQuickTalk = { on -> setQuickTalk(Group.chatOf(id), on) },
                         ),
                         notifyOnly = Group.chatOf(id) in messagingState.talkSettings.notifyOnly,
+                        liveTyping = messagingState.talkSettings.liveTypingTo(Group.chatOf(id)),
                         quickTalk = Group.chatOf(id) in messagingState.talkSettings.quickTalk,
                     )
                 }
@@ -712,9 +718,11 @@ fun HomeApp(
                             },
                             setNotifyOnly = { on -> setNotifyOnly(user, on) },
                             setQuickTalk = { on -> setQuickTalk(user, on) },
+                            setLiveTyping = { on -> setLiveTyping(user, on) },
                         ),
                         notifyOnly = user in messagingState.talkSettings.notifyOnly,
                         quickTalk = user in messagingState.talkSettings.quickTalk,
+                        liveTyping = messagingState.talkSettings.liveTypingTo(user),
                     )
                 }
                 name.startsWith("kept/") && pageUser != null && keptCalls[pageUser] != null -> {

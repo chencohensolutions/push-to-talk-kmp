@@ -129,12 +129,22 @@ data class TalkSettings(
      * contact as it is written, deletions too, before Send.
      */
     val liveTyping: Boolean = false,
+    /** Live typing to each contact or group, its own switch (2026-11-23, hen; off unless turned on there). */
+    val liveTypingFor: Map<String, Boolean> = emptyMap(),
+    /** The chats there were when [liveTyping] (the default for new ones) was turned on: they keep their own choice. */
+    val liveTypingKnown: Set<String> = emptySet(),
     /**
      * Voice or Video per contact or group (2026-11-23, hen: "remember that setting for that contact"): what the Talk
      * screen's and the reply bubble's Voice | Video chose last for it; [pushVideo] for one never chosen.
      */
     val videoFor: Map<String, Boolean> = emptyMap(),
 ) {
+    /**
+     * Whether what is written to [chat] goes live: its own switch; one never set follows Settings › Privacy › Live
+     * typing only if it came after that was turned on (turning it on never switches on the chats there were).
+     */
+    fun liveTypingTo(chat: String): Boolean = liveTypingFor[chat] ?: (liveTyping && chat !in liveTypingKnown)
+
     /** Whether a press to [chat] sends the camera too. */
     fun pushVideoFor(chat: String?): Boolean = chat?.let { videoFor[it] } ?: pushVideo
 
@@ -444,6 +454,8 @@ internal class Messaging(
         lowBatteryNoWake = settings.lowBatteryNoWake,
         videoFor = settings.videoFor,
         liveTyping = settings.liveTyping,
+        liveTypingFor = settings.liveTypingFor,
+        liveTypingKnown = settings.liveTypingKnown,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -474,6 +486,11 @@ internal class Messaging(
         settings.lowBatteryNoWake = talk.lowBatteryNoWake
         if (talk.videoFor != before.videoFor) settings.videoFor = talk.videoFor
         settings.liveTyping = talk.liveTyping
+        if (talk.liveTypingFor != before.liveTypingFor) settings.liveTypingFor = talk.liveTypingFor
+        // The default turned on: the chats there are now keep theirs (off unless set), only new ones follow it.
+        val known = if (talk.liveTyping && !before.liveTyping) knownChats() else talk.liveTypingKnown
+        if (known != before.liveTypingKnown) settings.liveTypingKnown = known
+        val talk = talk.copy(liveTypingKnown = known)
         _state.update { it.copy(talkSettings = talk) }
     }
 
@@ -1326,7 +1343,7 @@ internal class Messaging(
      * while it stays, so it doesn't fade on the other phone.
      */
     fun draft(user: String, text: String) {
-        if (!talkSettings().liveTyping) return
+        if (!talkSettings().liveTypingTo(user)) return
         draftWanted[user] = text
         if (!draftSending.add(user)) return
         scope.launch {
@@ -1353,6 +1370,9 @@ internal class Messaging(
             }
         }
     }
+
+    /** Every contact and group chat this phone has now. */
+    private fun knownChats(): Set<String> = (store.contacts().map { it.user } + store.groups().map { it.chat }).toSet()
 
     /** The line to [user] was sent or left: no more drafts. */
     fun draftDone(user: String) {

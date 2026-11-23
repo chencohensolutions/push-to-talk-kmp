@@ -36,3 +36,5 @@ A group's chat uses this screen with a group header and authors on the bubbles: 
 **Live drafts** (2026-11-23, hen): when the contact uses Live typing (Settings › Privacy), what they are writing shows
 at the bottom as an outlined "Writing…" bubble (in a group, "Dana is writing…"), updated as they write, deletions
 too; the message replaces it, and it fades 20 s after their last change.
+A growing draft stays in view when the list is at the bottom; when the message comes, the draft turns into it in place
+(250 ms: the outline fills, "Writing…" folds away, the time fades in), in the chat and the quick-reply window alike.

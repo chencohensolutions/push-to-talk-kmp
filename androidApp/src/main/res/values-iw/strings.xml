@@ -694,9 +694,12 @@
     <string name="talk_follow_face">מעקב אחרי פנים בדיבור עם וידאו</string>
     <string name="talk_follow_face_body">שומר את הפנים של השולח בתמונה בדיבור עם וידאו</string>
     <string name="settings_live_typing">הקלדה חיה</string>
+    <string name="settings_live_typing_default">הקלדה חיה לאנשי קשר חדשים</string>
     <string name="settings_live_typing_body">איש הקשר רואה את מה שאת/ה כותב/ת בזמן הכתיבה, אות אחר אות, גם מה שנמחק, עוד לפני השליחה. כבוי: רואים רק שאת/ה מקליד/ה.</string>
     <string name="chat_draft">כותב/ת…</string>
     <string name="chat_draft_by">%1$s כותב/ת…</string>
+    <string name="live_typing_contact">הקלדה חיה אליהם</string>
+    <string name="settings_live_typing_per_contact">בדף של כל איש קשר יש מתג משלו; הפעלה כאן לא מפעילה את אנשי הקשר הקיימים.</string>
     <string name="talk_quick_reply">חלון תשובה מהירה</string>
     <string name="talk_quick_reply_body">כשמגיעה הודעה בזמן שהטלפון בשימוש, חלון בתחתית המסך מראה את השיחה עם שדה לתשובה וכפתור להחזיק ולדבר.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>

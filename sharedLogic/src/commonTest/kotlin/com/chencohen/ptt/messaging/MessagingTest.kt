@@ -535,7 +535,16 @@ class MessagingTest {
         assertEquals(before, server.ephemeral.size)
         assertFalse("dana" in hen.state.drafts)
 
+        // The default turned on: hen was a contact already, so hen keeps its own (off).
         dana.messaging.setTalkSettings(dana.messaging.talkSettings().copy(liveTyping = true))
+        assertFalse(dana.messaging.talkSettings().liveTypingTo("hen"), "turning the default on doesn't switch on existing contacts")
+        assertTrue(dana.messaging.talkSettings().liveTypingTo("someone new"), "a new contact follows the default")
+        dana.messaging.draft("hen", "Hel")
+        advanceTimeBy(500)
+        assertFalse("dana" in hen.state.drafts)
+        // hen's own switch.
+        dana.messaging.setTalkSettings(dana.messaging.talkSettings().let { it.copy(liveTypingFor = it.liveTypingFor + ("hen" to true)) })
+        assertTrue(dana.messaging.talkSettings().liveTypingTo("hen"))
         dana.messaging.draft("hen", "Hel")
         dana.messaging.draft("hen", "Hello")
         advanceTimeBy(500)
