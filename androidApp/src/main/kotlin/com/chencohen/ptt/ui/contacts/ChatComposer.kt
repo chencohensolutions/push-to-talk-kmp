@@ -90,9 +90,12 @@ internal fun ComposeBubble(
     startEditing: () -> Unit,
     change: (String) -> Unit,
     send: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** On the bubble being written (its place on the screen, for Send's flight). */
+    bubbleModifier: Modifier = Modifier,
 ) {
     val coral = com.chencohen.ptt.ui.style.Pink
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         if (!editing && text.isEmpty()) {
             val hint = stringResource(R.string.chat_write_hint)
             val dash = LibraryColors.Muted.copy(alpha = 0.6f)
@@ -115,7 +118,7 @@ internal fun ComposeBubble(
             )
         } else {
             Column(
-                Modifier.widthIn(min = 120.dp, max = 300.dp)
+                bubbleModifier.widthIn(min = 120.dp, max = 300.dp)
                     .animateContentSize(tween(200))
                     .shadow(8.dp, LibraryShapes.Card)
                     .background(LibraryColors.Background, LibraryShapes.Card)

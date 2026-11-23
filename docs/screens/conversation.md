@@ -38,6 +38,21 @@ at the bottom as an outlined "Writing…" bubble (in a group, "Dana is writing�
 too; the message replaces it, and it fades 20 s after their last change.
 A growing draft stays in view when the list is at the bottom; when the message comes, the draft turns into it in place
 (250 ms: the outline fills, "Writing…" folds away, the time fades in), in the chat and the quick-reply window alike.
+2026-11-24 (hen): the draft and its message are one list item (one key, `LiveKeys`), so nothing is removed and added:
+no jump, and nothing scrolls when it turns (it is in place already); if the message differs from the last draft its
+text crossfades. Their draft counts as a new message for scrolling: appearing or growing at the bottom, the list glides
+to it; erased, it shrinks away and the list glides back.
+
+**Scrolling to new messages** (2026-11-24, hen): at the bottom, a new message (or one sent) glides the list to the new
+end, eased over 300 ms, after the new item is laid out, landing exactly at the bottom (`glideToEnd`). Scrolled up, the
+list stays and the "New message" chip shows.
+
+**Send's flight** (2026-11-24, hen): the bubble written in becomes the sent message. A copy is drawn over the chat from
+the draft's place to the message's slot (kept unseen at the end of the list, scrolled into view, wherever the keyboard
+puts it), 300 ms on one easing: the coral outline gives way to the teal fill, it moves and resizes with the text at its
+size, "Your message" fades out and the time and status circle fade in. At the end the message shows and the copy goes in
+the same frame. As it leaves, a new empty draft pops up in the pinned place (from 0.85 with a fade, 200 ms), the keyboard
+still up and focused on it. The same in the quick-reply window.
 
 **Writing in the chat** (2026-11-23, hen, from the approved mockup "chat-typing-in-chat"): there is no line to write in
 at the bottom. The last thing in the chat is an empty dashed bubble on this phone's side, "Write a message…"; a tap

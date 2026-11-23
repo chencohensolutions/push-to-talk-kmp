@@ -79,6 +79,13 @@ the conversation open in the app while it is in front; skipped (off, not allowed
 always. Every decision is logged (QuickReply). 2026-11-23: it crashed the app as it attached (Compose found no
 lifecycle on the window's root view), so it never showed; fixed.
 
+- **2026-11-24 (hen): the chat itself.** Under its own header the window shows the conversation screen
+  (`ConversationScreen` with `embeddedHeader`), the same design and ways: the whole conversation, teal bubbles, the
+  pinned draft, status and read circles, live drafts morphing into their messages, video and voice bursts, the live
+  video bubble, the waiting press, and the button row (Video call, hold to talk or video by the chat's Voice | Video,
+  Voice call, Voice message). Hidden while writing. From the window, the calls and Voice message open the app (a
+  voice message needs the chat), and so does anything that would ask for a permission. The header says "typing…" or
+  "online" under the name. The items below that differ from this are earlier.
 - **Header**: a grab bar; the letter circle and the name (a group's name for a group); a tap opens the chat and
   closes the window; **×** closes it. A swipe down closes it too, and so does Back.
 - **The last messages** (up to 12), newest at the bottom, in bubbles like the chat's (a group's with who wrote each).

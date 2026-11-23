@@ -188,6 +188,14 @@ internal fun isDebugBuild(): Boolean {
 internal fun rememberMicrophone(onDenied: () -> Unit): (then: () -> Unit) -> Unit {
     val context = LocalContext.current
     val denied by rememberUpdatedState(onDenied)
+    // In the quick-reply window there's no activity to ask from: not allowed yet goes to [onDenied] (it opens the chat).
+    if (androidx.activity.compose.LocalActivityResultRegistryOwner.current == null) {
+        return remember(context) {
+            { then: () -> Unit ->
+                if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) then() else denied()
+            }
+        }
+    }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (!granted) denied() }
     return remember(context) {
         { then: () -> Unit ->
