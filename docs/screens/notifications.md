@@ -74,6 +74,8 @@ lifecycle on the window's root view), so it never showed; fixed.
 - **A field** ("Reply") and, while it is empty, a round **hold-to-talk** button: hold to talk to them (or the group),
   let go to send, slide away to cancel (the button shows ×), as the chat's microphone. With text typed it is **Send**:
   the text goes end to end like any other.
+- **The keyboard**: while it is open the window sits right above it, moving with it (its frame keeps clear of
+  it); with too little room the window gets shorter and the message list gives way.
 - **Closing by itself**: untouched for 20 s with nothing typed and nobody talking. A new message from them keeps it.
 - **Someone else writes**: the window switches to them, unless you are typing or talking, then they wait and show when
   the window closes (once each, in order; one opened in the app meanwhile is skipped).
