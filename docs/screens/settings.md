@@ -63,6 +63,8 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
   Android's "Display over other apps" for Talk; while that isn't allowed, "Allow Talk to display over other apps"
   shows under it. While it is on without that permission, the app asks once on opening ("Show Talk over other
   apps?", Allow or Not now) and then only shows that row.
+- **In the background › Quick reply window** (on by default; 2026-11-23, hen): a message shows its chat at the bottom
+  of the screen over other apps, to reply or hold and talk ([notifications.md](notifications.md), "Quick reply window").
 - **In the background › Unmute for incoming talk** (on by default; 2026-11-22, hen): a burst that starts while the
   media volume is 0 turns it up to 60% (`TalkUnmute`), with Android's volume bar showing, for as long as bursts play
   (the queued ones and the catch-up too), then back to 0; a volume the user changed meanwhile stays. Nothing changes in

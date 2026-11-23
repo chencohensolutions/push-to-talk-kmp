@@ -55,3 +55,20 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   it off (and on again) for later bursts.
 - **Reply window:** for 30 s after a woken burst, a headset's or Bluetooth talk button (held) talks back to its sender
   instead of Buttons talk in; while Talk is ready runs, those buttons work with the screen off.
+
+## Quick reply window
+
+`QuickReplyWindow` (Android), `QuickReply` (shared; 2026-11-23, hen; Settings › Talk › Quick reply window, on by
+default; needs "Display over other apps"). A message (or a voice message) that comes in while the phone is in use, its
+screen on, shows its conversation in a window at the bottom of the screen, full width, 40% of its height, over other
+apps; the notification shows as well. Not for the conversation open in the app while it is in front.
+
+- **Header**: a grab bar; the letter circle and the name (a group's name for a group); a tap opens the chat and
+  closes the window; **×** closes it. A swipe down closes it too, and so does Back.
+- **The last messages** (up to 12), newest at the bottom, in bubbles like the chat's (a group's with who wrote each).
+- **A field** ("Reply") and, while it is empty, a round **hold-to-talk** button: hold to talk to them (or the group),
+  let go to send, slide away to cancel (the button shows ×), as the chat's microphone. With text typed it is **Send**:
+  the text goes end to end like any other.
+- **Closing by itself**: untouched for 20 s with nothing typed and nobody talking. A new message from them keeps it.
+- **Someone else writes**: the window switches to them, unless you are typing or talking, then they wait and show when
+  the window closes (once each, in order; one opened in the app meanwhile is skipped).

@@ -635,6 +635,13 @@
     <string name="overlay_ask_later">לא עכשיו</string>
     <string name="talk_unmute">הפעלת השמע כשמדברים אליי</string>
     <string name="talk_unmute_body">כשמישהו מדבר אליכם ועוצמת המדיה כבויה, היא עולה ל־60% בזמן שהוא מדבר, ואחר כך נכבית שוב. לא במצב נא לא להפריע.</string>
+    <string name="quick_reply_open">פתיחת השיחה</string>
+    <string name="quick_reply_close">סגירה</string>
+    <string name="quick_reply_hint">תשובה</string>
+    <string name="quick_reply_send">שליחה</string>
+    <string name="quick_reply_talk">להחזיק כדי לדבר</string>
+    <string name="talk_quick_reply">חלון תשובה מהירה</string>
+    <string name="talk_quick_reply_body">כשמגיעה הודעה בזמן שהטלפון בשימוש, חלון בתחתית המסך מראה את השיחה עם שדה לתשובה וכפתור להחזיק ולדבר.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>
     <string name="talk_reply_bubble_body">כשהטלפון בשימוש ומישהו מדבר אליכם, מופיע פס בתחתית המסך עם השם שלו וכפתור "לדבר", עד 30 שניות אחרי שסיים.</string>
     <string name="talk_allow_overlay">לאפשר ל-Talk להופיע מעל אפליקציות אחרות</string>

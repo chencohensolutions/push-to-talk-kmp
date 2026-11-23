@@ -83,6 +83,11 @@ internal fun TalkSettingsScreen(
                 AllowRow(stringResource(R.string.talk_allow_overlay)) { openOverlaySetting() }
             }
             RowDivider()
+            SwitchRow(stringResource(R.string.talk_quick_reply), stringResource(R.string.talk_quick_reply_body), settings.quickReply) { on ->
+                change(settings.copy(quickReply = on))
+                if (on && !overlayAllowed) openOverlaySetting()
+            }
+            RowDivider()
             SwitchRow(stringResource(R.string.talk_unmute), stringResource(R.string.talk_unmute_body), settings.unmuteForTalk) {
                 change(settings.copy(unmuteForTalk = it))
             }
