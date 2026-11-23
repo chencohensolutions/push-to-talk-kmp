@@ -209,6 +209,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_QUICK_REPLY) != "false"
         set(value) = store.putString(KEY_QUICK_REPLY, value.toString())
 
+    /** Settings › Talk › Don't turn the screen on when battery is low: on unless turned off. */
+    var lowBatteryNoWake: Boolean
+        get() = store.getString(KEY_LOW_BATTERY_NO_WAKE) != "false"
+        set(value) = store.putString(KEY_LOW_BATTERY_NO_WAKE, value.toString())
+
     /** This user's email, shared with their paired contacts (Settings › Contacts › Your email); null: none. */
     var myEmail: String?
         get() = store.getString(KEY_MY_EMAIL)
@@ -236,6 +241,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_VIDEO_60 = "video_60fps"
         private const val KEY_VIDEO_STATS = "video_stats"
         private const val KEY_QUICK_REPLY = "quick_reply"
+        private const val KEY_LOW_BATTERY_NO_WAKE = "low_battery_no_wake"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"
         private const val KEY_STAY_CONNECTED = "talk_stay_connected"

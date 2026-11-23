@@ -645,6 +645,15 @@
     <string name="quick_reply_hint">Reply</string>
     <string name="quick_reply_send">Send</string>
     <string name="quick_reply_talk">Hold to talk</string>
+    <string name="talk_screen_off">Turn the screen off right after talk</string>
+    <string name="talk_screen_off_body">When talk woke the phone, the screen goes off the moment it ends, if you didn\'t touch it. Android asks to let Talk lock the screen (only that). To uninstall Talk, turn this off first.</string>
+    <string name="talk_screen_off_why">Talk only turns the screen off right after talk that woke the phone. Nothing else.</string>
+    <string name="playing_record_channel">Talk while the phone slept</string>
+    <string name="after_talk_voice">Talked to you · %1$s</string>
+    <string name="after_talk_video">Sent you a video · %1$s</string>
+    <string name="after_talk_open">Tap to open the chat</string>
+    <string name="talk_low_battery">Don\'t turn the screen on when battery is low</string>
+    <string name="talk_low_battery_body" formatted="false">Under 20% and not charging: video talk plays like voice, with the screen off.</string>
     <string name="talk_quick_reply">Quick reply window</string>
     <string name="talk_quick_reply_body">When a message comes in while you use the phone, a window at the bottom shows the chat with a field to reply and a button to hold and talk.</string>
     <string name="talk_reply_bubble">Reply bubble over other apps</string>

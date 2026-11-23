@@ -648,6 +648,15 @@
     <string name="quick_reply_hint">תשובה</string>
     <string name="quick_reply_send">שליחה</string>
     <string name="quick_reply_talk">להחזיק כדי לדבר</string>
+    <string name="talk_screen_off">לכבות את המסך מיד אחרי דיבור</string>
+    <string name="talk_screen_off_body">כשדיבור העיר את הטלפון, המסך נכבה ברגע שהוא נגמר, אם לא נגעתם בו. Android מבקש לאשר ל־Talk לנעול את המסך (רק את זה). כדי להסיר את Talk, צריך קודם לכבות את זה.</string>
+    <string name="talk_screen_off_why">‏Talk רק מכבה את המסך מיד אחרי דיבור שהעיר את הטלפון. שום דבר אחר.</string>
+    <string name="playing_record_channel">דיבור בזמן שהטלפון ישן</string>
+    <string name="after_talk_voice">דיבר אליך · %1$s</string>
+    <string name="after_talk_video">שלח לך וידאו · %1$s</string>
+    <string name="after_talk_open">הקשה פותחת את השיחה</string>
+    <string name="talk_low_battery">לא להדליק את המסך כשהסוללה חלשה</string>
+    <string name="talk_low_battery_body" formatted="false">מתחת ל־20% ולא בטעינה: דיבור עם וידאו מושמע כמו קול, והמסך נשאר כבוי.</string>
     <string name="talk_quick_reply">חלון תשובה מהירה</string>
     <string name="talk_quick_reply_body">כשמגיעה הודעה בזמן שהטלפון בשימוש, חלון בתחתית המסך מראה את השיחה עם שדה לתשובה וכפתור להחזיק ולדבר.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>

@@ -117,6 +117,8 @@ data class TalkSettings(
     val videoStats: Boolean = false,
     /** Settings › Talk › Quick reply window (on by default; 2026-11-23, hen): a message shows its chat over other apps. */
     val quickReply: Boolean = true,
+    /** Settings › Talk › Don't turn the screen on when battery is low (on by default; 2026-11-23, hen): under 20%, not charging. */
+    val lowBatteryNoWake: Boolean = true,
 )
 
 /**
@@ -410,6 +412,7 @@ internal class Messaging(
         video60 = settings.video60,
         videoStats = settings.videoStats,
         quickReply = settings.quickReply,
+        lowBatteryNoWake = settings.lowBatteryNoWake,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -437,6 +440,7 @@ internal class Messaging(
         settings.video60 = talk.video60
         settings.videoStats = talk.videoStats
         settings.quickReply = talk.quickReply
+        settings.lowBatteryNoWake = talk.lowBatteryNoWake
         _state.update { it.copy(talkSettings = talk) }
     }
 

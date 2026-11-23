@@ -617,6 +617,9 @@ object TalkNotifications {
         manager.createNotificationChannel(
             NotificationChannel(TalkPlaying.CHANNEL, context.getString(R.string.playing_channel), NotificationManager.IMPORTANCE_HIGH).apply { setSound(null, null) },
         )
+        manager.createNotificationChannel(
+            NotificationChannel(TalkPlaying.RECORD_CHANNEL, context.getString(R.string.playing_record_channel), NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null) },
+        )
     }
 
     /** "Dana is talking" (in a group, "Dana is talking in Family"), with Play and Reply, which open the app. */

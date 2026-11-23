@@ -40,6 +40,12 @@ class Notifications(private val context: Context) : MessageNotifier {
      */
     private fun showOrHold(chat: String, style: NotificationCompat.MessagingStyle, count: Int) {
         if (count == 0) return
+        // A burst woke the phone and plays full screen: no sound, no heads-up; posted silently when it is over.
+        if (TalkPlaying.quiet) {
+            synchronized(quietHeld) { quietHeld[chat] = style to count }
+            android.util.Log.i(TAG, "message for $chat: held while a woken burst plays")
+            return
+        }
         if (QuickReplyWindow.takes(context, chat)) {
             synchronized(held) { held[chat] = style to count }
             android.util.Log.i(TAG, "message for $chat: in the quick-reply window, no notification")
@@ -63,6 +69,16 @@ class Notifications(private val context: Context) : MessageNotifier {
     }
 
     private val held = HashMap<String, Pair<NotificationCompat.MessagingStyle, Int>>()
+    private val quietHeld = HashMap<String, Pair<NotificationCompat.MessagingStyle, Int>>()
+
+    /** A woken burst is over: the messages that came meanwhile, in the shade, silently. */
+    fun postQuietly() {
+        val all = synchronized(quietHeld) { quietHeld.toMap().also { quietHeld.clear() } }
+        for ((chat, sc) in all) {
+            android.util.Log.i(TAG, "message for $chat: posted silently after the woken burst")
+            show(chat, sc.first, sc.second, silent = true)
+        }
+    }
 
     /** A group's: the group's name on top, each line with who wrote it. */
     override fun incomingGroup(group: Group, unread: List<TextMessage>) {

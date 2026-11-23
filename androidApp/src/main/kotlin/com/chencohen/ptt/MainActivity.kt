@@ -47,6 +47,10 @@ class MainActivity : ComponentActivity() {
 
     /** Opened over the lock screen for a burst (Open Talk when someone talks to me), and not touched since. */
     private var wokeForTalk by mutableStateOf(false)
+
+    /** The burst that woke the phone is over: the dim "after talk" screen shows for [wokenChat] until the screen goes off. */
+    private var afterTalk by mutableStateOf(false)
+    private var wokenChat: String? = null
     private var touched = false
 
     /** A volume key held down for talk, not yet let go. */
@@ -100,6 +104,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(wokeForTalk) { if (wokeForTalk) backAfterWake() }
+                LaunchedEffect(afterTalk) { if (afterTalk) watchAfterTalk() }
                 // A call rings or runs: the app shows over the lock screen and wakes the screen for it.
                 val ringing by viewModel.messaging.state.collectAsStateWithLifecycle()
                 val callOn = ringing.call != null
@@ -157,6 +162,9 @@ class MainActivity : ComponentActivity() {
                         },
                         openedClip = openedClip,
                     )
+                    if (afterTalk) {
+                        wokenChat?.let { chat -> com.chencohen.ptt.ui.talk.AfterTalkScreen(chat, ::openAfterTalk) }
+                    }
                 }
             }
         }
@@ -240,6 +248,7 @@ class MainActivity : ComponentActivity() {
      * so the phone is back on the lock screen and Android turns the screen off after its short lock-screen timeout.
      */
     private suspend fun backAfterWake() {
+        WakeTimeline.mark("Talk screen up")
         var quietSince = 0L
         while (wokeForTalk) {
             kotlinx.coroutines.delay(500)
@@ -252,17 +261,72 @@ class MainActivity : ComponentActivity() {
             val busy = viewModel.messaging.state.value.talk.let { it.playing != null || it.queued.isNotEmpty() || it.talkers.isNotEmpty() }
             val now = System.currentTimeMillis()
             if (busy) quietSince = 0L else if (quietSince == 0L) quietSince = now
-            if (quietSince != 0L && now - quietSince > 3_000) {
+            // Over (2026-11-23, hen: "close and turn off the screen immediately"): back behind the lock screen at once,
+            // kept in memory (it comes back fast next time); with Turn the screen off right after talk, the screen too.
+            if (quietSince != 0L && now - quietSince > 400) {
                 wokeForTalk = false
-                setTurnScreenOn(false)
-                setShowWhenLocked(false)
                 window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                finish()
+                if (ScreenOff.lockNow(this)) {
+                    // Turn the screen off right after talk: locked now; the screen goes off at once.
+                    setTurnScreenOn(false)
+                    setShowWhenLocked(false)
+                    moveTaskToBack(true)
+                    android.util.Log.i("MainActivity", "woken burst over: screen off now (device admin)")
+                } else {
+                    // The dim "after talk" screen over the lock screen until the screen goes off (2026-11-23, hen).
+                    setTurnScreenOn(false)
+                    setShowWhenLocked(true)
+                    window.attributes = window.attributes.apply { screenBrightness = 0.05f }
+                    afterTalk = true
+                    android.util.Log.i("MainActivity", "woken burst over: dim after-talk screen until the screen goes off")
+                }
             }
         }
     }
 
+    /** While the dim after-talk screen shows: a new burst brings the Talk screen back, full screen. */
+    private suspend fun watchAfterTalk() {
+        while (afterTalk) {
+            kotlinx.coroutines.delay(300)
+            val talk = viewModel.messaging.state.value.talk
+            if (talk.playing != null) {
+                android.util.Log.i("MainActivity", "after talk: a new burst, back to the Talk screen")
+                dimEnd()
+                wokeForTalk = true
+                touched = false
+                setTurnScreenOn(true)
+                break
+            }
+        }
+    }
+
+    /** The dim after-talk screen goes: normal brightness. */
+    private fun dimEnd() {
+        afterTalk = false
+        window.attributes = window.attributes.apply { screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+    }
+
+    /** A tap on the dim after-talk screen: unlock, then the chat. */
+    private fun openAfterTalk() {
+        val chat = wokenChat ?: return
+        dimEnd()
+        setShowWhenLocked(false)
+        val keyguard = getSystemService(android.app.KeyguardManager::class.java)
+        keyguard.requestDismissKeyguard(this, object : android.app.KeyguardManager.KeyguardDismissCallback() {
+            override fun onDismissSucceeded() {
+                openedChat = chat
+            }
+        })
+    }
+
     override fun onStop() {
+        // The screen went off (or the lock screen came) over the dim after-talk screen: it goes, and the app with it.
+        if (afterTalk) {
+            android.util.Log.i("MainActivity", "after talk: screen off, closing")
+            dimEnd()
+            setShowWhenLocked(false)
+            moveTaskToBack(true)
+        }
         viewModel.messaging.stop()
         viewModel.connection.stop()
         super.onStop()
@@ -313,6 +377,10 @@ class MainActivity : ComponentActivity() {
                 setTurnScreenOn(true)
                 wokeForTalk = true
                 touched = false
+                wokenChat = chat
+                if (afterTalk) dimEnd()
+                WakeTimeline.mark("Talk screen opening")
+                TalkPlaying.wokenShown(this)
             }
             openedChat = if (intent.action == TalkNotifications.ACTION_TALK) "$chat\ntalk/$chat" else chat
             if (intent.action == TalkNotifications.ACTION_PLAY) openedClip = intent.getStringExtra(TalkNotifications.EXTRA_CLIP)

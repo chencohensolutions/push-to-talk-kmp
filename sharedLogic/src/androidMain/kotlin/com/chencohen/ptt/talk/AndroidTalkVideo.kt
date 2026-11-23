@@ -384,6 +384,9 @@ class AndroidTalkVideoCapture(
  * together. With no surface, nothing is decoded until one comes and a key frame with it.
  */
 object AndroidTalkVideoOut : TalkVideoOut {
+    /** Each step of a burst's video, for the wake timeline (the app's WakeTimeline). */
+    @Volatile var onStep: ((String) -> Unit)? = null
+
     private const val TAG = "TalkVideoOut"
     private val lock = Any()
     private var surface: Surface? = null
@@ -450,6 +453,7 @@ object AndroidTalkVideoOut : TalkVideoOut {
             releaseDecoder()
             if (thread == null) thread = HandlerThread("talk-video-out").also { it.start(); handler = Handler(it.looper) }
             Log.i(TAG, "video burst $clip begins (view ${surface != null})")
+            onStep?.invoke("video begins (view ${surface != null})")
         }
     }
 
@@ -528,11 +532,13 @@ object AndroidTalkVideoOut : TalkVideoOut {
                     val w = format.getInteger(MediaFormat.KEY_WIDTH)
                     val h = format.getInteger(MediaFormat.KEY_HEIGHT)
                     _shown.value = _shown.value?.copy(width = w, height = h)
+                    onStep?.invoke("first video frame decoded (${w}x$h)")
                 }
             }, handler)
             dec.configure(MediaFormat.createVideoFormat(mime, AndroidTalkVideoCapture.WIDTH, AndroidTalkVideoCapture.HEIGHT), target, null, 0)
             dec.start()
             Log.i(TAG, "decoding ${dec.name}")
+            onStep?.invoke("decoder started (${dec.name})")
             decoder = dec
             decoderCodec = codec
             inputs.clear()

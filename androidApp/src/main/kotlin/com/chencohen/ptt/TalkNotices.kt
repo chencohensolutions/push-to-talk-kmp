@@ -25,6 +25,9 @@ import kotlinx.coroutines.launch
  */
 object TalkPlaying {
     const val CHANNEL = "talk_playing"
+
+    /** A quiet record in the shade (low importance, no sound or heads-up): a burst that woke the phone, after it. */
+    const val RECORD_CHANNEL = "talk_record"
     private const val ID = 45
     private const val TAG = "TalkPlaying"
 
@@ -33,6 +36,20 @@ object TalkPlaying {
     private var wokeFor: String? = null
     private var shown: Pair<String, String>? = null
     private var lastClip: String? = null
+
+    /**
+     * The phone was woken for the burst playing now, its Talk screen over the lock screen (2026-11-23, hen: "if video
+     * is displayed when the screen was off, there's no need for a notification"): no notification, sound or bubble
+     * while it plays; messages meanwhile wait (Notifications) and everything is posted quietly after.
+     */
+    @Volatile var quiet = false
+        private set
+
+    /** A voice burst that played with the screen off: its notifications go on the quiet channel (no heads-up). */
+    private var dark: String? = null
+
+    /** When [quiet] ends (Notifications posts what it held, silently). */
+    @Volatile var onQuietEnd: (() -> Unit)? = null
 
     /** A woken burst is about to play (AndroidTalkHost): follow what plays until it is over. */
     fun watch(app: TalkApp) {
@@ -47,20 +64,27 @@ object TalkPlaying {
         if (playing != null) {
             if (shown == null) TalkWidgets.show(app, playing.chat, com.chencohen.ptt.talk.TalkWidgetView.Incoming(playing.from))
             shown = playing.chat to playing.from
+            if (lastClip != playing.clip) WakeTimeline.mark("burst plays")
             lastClip = playing.clip
-            post(app, playing.chat, playing.from, playing.playedMs, live = true)
-            if (TalkBubble.allowed(app)) TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video)
+            post(app, playing.chat, playing.from, playing.playedMs, live = true, video = playing.video)
+            if (!quiet && TalkBubble.allowed(app)) TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video)
         } else {
             val (chat, from) = shown ?: return
             shown = null
             TalkWidgets.show(app, chat, com.chencohen.ptt.talk.TalkWidgetView.Idle)
             TalkReply.open(chat)
             post(app, chat, from, 0, live = false)
-            TalkBubble.show(app, chat, TalkBubble.titleOf(app, chat, from), live = false)
+            if (quiet) {
+                Log.i(TAG, "woken burst over: a quiet record in the shade, no bubble")
+                quiet = false
+                onQuietEnd?.invoke()
+            } else {
+                TalkBubble.show(app, chat, TalkBubble.titleOf(app, chat, from), live = false)
+            }
         }
     }
 
-    private suspend fun post(app: TalkApp, chat: String, from: String, playedMs: Long, live: Boolean) {
+    private suspend fun post(app: TalkApp, chat: String, from: String, playedMs: Long, live: Boolean, video: Boolean = false) {
         if (app.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val who = runCatching { chatName(app, from) }.getOrDefault(from)
         val title = if (Group.idOf(chat) != null) {
@@ -69,7 +93,23 @@ object TalkPlaying {
             who
         }
         val seconds = playedMs / 1000
-        val builder = NotificationCompat.Builder(app, CHANNEL)
+        // Only video wakes the screen (2026-11-23, hen: "if it's only voice PTT, the screen should stay off"); a voice
+        // burst that turns into video wakes it then.
+        val asleep = !app.getSystemService(android.os.PowerManager::class.java).isInteractive
+        if (live && lastClip != wokeFor && video && wakes(app, chat)) {
+            wokeFor = lastClip
+            quiet = true
+            wake(app, chat, title)
+        } else if (live && asleep && lastClip != wokeFor) {
+            if (lastClip != dark) Log.i(TAG, "${if (video) "video" else "voice"} burst while the screen is off, not woken: a silent notification without heads-up")
+            dark = lastClip
+        }
+        // Woken for it: nothing over the video while it plays; after, a quiet record.
+        if (live && quiet) {
+            NotificationManagerCompat.from(app).cancel(ID)
+            return
+        }
+        val builder = NotificationCompat.Builder(app, if ((!live && quiet) || lastClip == dark) RECORD_CHANNEL else CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(
@@ -83,10 +123,6 @@ object TalkPlaying {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .addAction(talkBackAction(app, chat))
-        if (live && lastClip != wokeFor && wakes(app, chat)) {
-            wokeFor = lastClip
-            wake(app, chat, title)
-        }
         if (live) {
             builder.setOngoing(true)
                 .addAction(0, app.getString(R.string.playing_stop), receiver(app, TalkActionReceiver.ACTION_STOP, chat))
@@ -96,6 +132,11 @@ object TalkPlaying {
             builder.setTimeoutAfter(60_000).setAutoCancel(true)
         }
         NotificationManagerCompat.from(app).notify(ID, builder.build())
+    }
+
+    /** The woken Talk screen is up: the full-screen notification that may have opened it goes. */
+    fun wokenShown(context: Context) {
+        NotificationManagerCompat.from(context).cancel(WAKE_ID)
     }
 
     fun cancel(context: Context) {
@@ -113,6 +154,7 @@ object TalkPlaying {
      * allows such apps from the background; else a new notification of its own carries the full-screen intent.
      */
     private fun wake(app: TalkApp, chat: String, title: String) {
+        WakeTimeline.mark("waking the screen")
         val intent = wakeIntent(app, chat)
         val nm = app.getSystemService(android.app.NotificationManager::class.java)
         val fullScreen = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
@@ -165,6 +207,13 @@ object TalkPlaying {
         v
     }.onFailure { Log.w(TAG, "no window for the wake-up", it) }.getOrNull()
 
+    /** Under 20% and not charging, now (Don't turn the screen on when battery is low). */
+    private fun lowBattery(app: TalkApp): Boolean {
+        val battery = app.getSystemService(android.os.BatteryManager::class.java)
+        val level = battery.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        return level in 0 until 20 && !battery.isCharging
+    }
+
     /** Debug builds (DebugTriggers): the wake-up as a burst from [chat] would run it. */
     fun debugWake(app: TalkApp, chat: String) {
         Log.i(TAG, "debug wake for $chat: wakes ${wakes(app, chat)}")
@@ -178,6 +227,7 @@ object TalkPlaying {
             app.getSystemService(android.os.PowerManager::class.java).isInteractive -> "the screen is on"
             app.getSystemService(android.app.NotificationManager::class.java).currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL -> "Do Not Disturb"
             muted(app, chat) -> "muted"
+            messagingState(app).value.talkSettings.lowBatteryNoWake && lowBattery(app) -> "battery under 20% and not charging"
             else -> null
         }
         Log.i(TAG, "wake for $chat: ${why?.let { "skipped, $it" } ?: "yes"}")

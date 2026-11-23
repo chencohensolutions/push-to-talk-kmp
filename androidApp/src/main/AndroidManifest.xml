@@ -208,6 +208,16 @@
         <meta-data
             android:name="firebase_analytics_collection_deactivated"
             android:value="true" />
+        <!-- Settings › Talk › Turn the screen off right after talk: a device admin with force-lock only. -->
+        <receiver
+            android:name=".ScreenOffAdmin"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data android:name="android.app.device_admin" android:resource="@xml/screen_off_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

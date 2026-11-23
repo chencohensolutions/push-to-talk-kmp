@@ -83,6 +83,24 @@ internal fun TalkSettingsScreen(
                 RowDivider()
                 AllowRow(stringResource(R.string.talk_allow_overlay)) { openOverlaySetting() }
             }
+            if (settings.openOnTalk) {
+                RowDivider()
+                SwitchRow(stringResource(R.string.talk_low_battery), stringResource(R.string.talk_low_battery_body), settings.lowBatteryNoWake) { on ->
+                    change(settings.copy(lowBatteryNoWake = on))
+                }
+                RowDivider()
+                // Turn the screen off right after talk: Android's device admin, force-lock only (2026-11-23, hen).
+                var screenOff by androidx.compose.runtime.remember(resumed) { androidx.compose.runtime.mutableStateOf(com.chencohen.ptt.ScreenOff.on(context)) }
+                val why = stringResource(R.string.talk_screen_off_why)
+                SwitchRow(stringResource(R.string.talk_screen_off), stringResource(R.string.talk_screen_off_body), screenOff) { on ->
+                    if (on) {
+                        runCatching { context.startActivity(com.chencohen.ptt.ScreenOff.request(context, why)) }
+                    } else {
+                        com.chencohen.ptt.ScreenOff.off(context)
+                        screenOff = false
+                    }
+                }
+            }
             RowDivider()
             SwitchRow(stringResource(R.string.talk_quick_reply), stringResource(R.string.talk_quick_reply_body), settings.quickReply) { on ->
                 change(settings.copy(quickReply = on))

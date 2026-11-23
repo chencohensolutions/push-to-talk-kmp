@@ -84,3 +84,21 @@ The talk button grows (up to 1.25 times) and glows with the voice: the one playi
   When their video comes while Video is on, this phone's camera slides and shrinks into the top end corner over it
   (a third of the box, 280 ms), and grows back to its place when it ends (2026-11-22, hen); it is the same view
   throughout, so the camera isn't opened again.
+
+## Woken by a burst (2026-11-23, hen)
+
+With Open Talk when someone talks to me on and the screen off, a **video** burst opens the Talk screen over the lock
+screen, its video filling the screen (cropped to fill). A voice-only burst leaves the screen off (hen: "if it's only
+voice PTT, the screen should stay off"): it plays as before, its notification quiet (no heads-up); one that turns into
+video wakes it then. **Don't turn the screen on when battery is low** (Settings › Talk, on by default): under 20% and
+not charging, checked at the burst, a video burst plays like a voice one. While it plays there is no notification, sound or bubble: only the
+burst's own sound; messages that come meanwhile are held. When it ends:
+
+- With **Turn the screen off right after talk** (Settings › Talk, off by default; Android's device admin, force-lock
+  only; turn it off before uninstalling Talk): the phone locks at once and the screen goes off.
+- Otherwise the **after talk** screen: near black at the screen's dimmest, in dim grey the letter circle, the name,
+  "Talked to you · 20:04" (or "Sent you a video") and the length. A tap unlocks and opens the chat; the power button
+  or the screen going off closes it (the app goes behind, not forward); a new burst brings the full-screen video back.
+- In the shade, quietly (a low channel, no sound or heads-up): the burst's record and the messages held meanwhile.
+
+Each step from the push to the first decoded frame is logged as the "wake timeline", to see where the time goes.
