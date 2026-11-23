@@ -708,6 +708,9 @@
     <string name="chat_suggest_call">Switch to a video call?</string>
     <string name="chat_my_draft">Your message</string>
     <string name="chat_edited">edited</string>
+    <string name="chat_deleted">Message deleted</string>
+    <string name="chat_delete">Delete for everyone</string>
+    <string name="chat_undo">Undo</string>
     <string name="chat_editing">Editing…</string>
     <string name="chat_edit_save">Save the edit</string>
     <string name="chat_edit_cancel">Cancel the edit</string>

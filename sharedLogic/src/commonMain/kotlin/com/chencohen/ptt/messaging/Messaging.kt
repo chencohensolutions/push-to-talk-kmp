@@ -279,6 +279,7 @@ internal class Messaging(
             if (changed) publish()
         },
         onEdit = { group, author, edit -> takeEdit(group.chat, author, mine = author == device()?.user, edit) },
+        onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
         onTyping = { group, author, typing, draft ->
             val key = typingKey(group.chat, author)
             _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing, draft)) }
@@ -1463,6 +1464,38 @@ internal class Messaging(
         return true
     }
 
+    /**
+     * Deletes this user's own message [id] for everyone (2026-11-24, hen): gone here (its clip's file too), then end
+     * to end to the chat (its people and this user's other phones), kept and pushed silently like a text.
+     */
+    suspend fun deleteMessage(id: String): Boolean {
+        val message = store.message(id)?.takeIf { it.outgoing && !it.deleted } ?: return false
+        editWanted.remove(id)
+        store.removeMessage(message)
+        if (message.clip != null) talk.forgetClip(id)
+        publish()
+        val content = Content(delete = DeleteContent(id))
+        try {
+            Group.idOf(message.user)?.let { group -> groups.send(group, content, PushKind.SYNC) } ?: sender.send(message.user, content, pushKind = PushKind.SYNC)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return false
+        }
+        return true
+    }
+
+    /** A delete from [author] in [chat] (as [takeEdit]): this user's own on another phone goes; theirs leaves a mark. */
+    private fun takeDelete(chat: String, author: String?, mine: Boolean, delete: DeleteContent) {
+        val message = store.message(delete.id)?.takeIf {
+            it.user == chat && it.outgoing == mine && !it.deleted && (author == null || mine || it.author == author)
+        } ?: return
+        if (message.clip != null) talk.forgetClip(message.id)
+        if (mine) store.removeMessage(message) else store.putMessage(message.copy(body = "", clip = null, deleted = true, editedAt = null))
+        _state.update { it.copy(liveEdits = it.liveEdits - delete.id) }
+        publish()
+    }
+
     private val editWanted = HashMap<String, String?>()
     private val editSending = HashSet<String>()
 
@@ -1593,6 +1626,7 @@ internal class Messaging(
                 if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt))
             }
             content.edit?.let { takeEdit(to, null, mine = true, it) }
+            content.delete?.let { takeDelete(to, null, mine = true, it) }
             content.clip?.let { talk.receiveClip(to, self.user, it, envelope.serverTimestamp, outgoingCopy = true) }
             content.talkKey?.let { live.takeKey("${self.user}.${envelope.senderDevice}", it) }
             content.call?.let { calls.receive(to, self.user, it, envelope.serverTimestamp, ownCopy = true) }
@@ -1618,6 +1652,7 @@ internal class Messaging(
             if (!read) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
         }
         content.edit?.let { takeEdit(contact.user, null, mine = false, it) }
+        content.delete?.let { takeDelete(contact.user, null, mine = false, it) }
         content.talkKey?.let { live.takeKey("${contact.user}.${envelope.senderDevice}", it) }
         content.call?.let { calls.receive(contact.user, contact.user, it, envelope.serverTimestamp, ownCopy = false) }
         content.clip?.let { clip ->

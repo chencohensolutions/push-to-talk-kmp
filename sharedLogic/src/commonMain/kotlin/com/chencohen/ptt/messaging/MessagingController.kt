@@ -144,6 +144,9 @@ class MessagingController internal constructor(
     /** Edit my sent text [id] (2026-11-24, hen). */
     fun editText(id: String, body: String) = onWork { messaging.editText(id, body) }
 
+    /** Delete my message [id] for everyone (2026-11-24, hen). */
+    fun deleteMessage(id: String) = onWork { messaging.deleteMessage(id) }
+
     /** Editing [id] live (null: cancelled). */
     fun editLive(id: String, text: String?) = onWork { messaging.editLive(id, text) }
 

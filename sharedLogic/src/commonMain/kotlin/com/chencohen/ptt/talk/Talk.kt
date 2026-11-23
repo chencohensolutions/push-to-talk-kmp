@@ -306,6 +306,9 @@ internal class Talk(
         }
     }
 
+    /** A burst or voice message deleted: its file goes too. */
+    fun forgetClip(id: String) = runCatching { clips.delete(id) }
+
     /** The video call suggestion was answered or dismissed. */
     fun dismissCallSuggestion() = _state.update { it.copy(suggestCall = null) }
 

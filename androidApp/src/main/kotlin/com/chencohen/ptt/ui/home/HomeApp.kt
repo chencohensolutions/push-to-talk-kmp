@@ -662,6 +662,7 @@ fun HomeApp(
                             setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.withVideoFor(user, on)) },
                             edit = { id, body -> messaging.editText(id, body) },
                             editLive = { id, text -> messaging.editLive(id, text) },
+                            delete = { id -> messaging.deleteMessage(id) },
                         ),
                         talk = messagingState.talk,
                         talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),

@@ -3,6 +3,7 @@ package com.chencohen.ptt.ui.contacts
 import androidx.compose.foundation.background
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.positionInWindow
@@ -119,6 +120,8 @@ class ConversationActions(
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** My sent text [id] edited to the new text (2026-11-24, hen). */
     val edit: (id: String, body: String) -> Unit = { _, _ -> },
+    /** My message [id] deleted for everyone (sent once its Undo has passed). */
+    val delete: (id: String) -> Unit = {},
     /** Editing [id] live: the text as it stands (null: cancelled). */
     val editLive: (id: String, text: String?) -> Unit = { _, _ -> },
     /** Writing started (the draft opened): what they wrote counts as read (the quick-reply window). */
@@ -180,6 +183,18 @@ internal fun ConversationScreen(
     // Editing one of my sent texts (2026-11-24, hen): a double tap on it.
     val edits = remember(user) { EditSession() }
     val editing = edits.editing
+    // Deleted from the edit box (2026-11-24, hen): gone from the chat at once, sent once its 4 s Undo has passed.
+    var pendingDelete by remember(user) { mutableStateOf<String?>(null) }
+    val deleteNow by androidx.compose.runtime.rememberUpdatedState(actions.delete)
+    LaunchedEffect(pendingDelete) {
+        val id = pendingDelete ?: return@LaunchedEffect
+        delay(4_000)
+        deleteNow(id)
+        pendingDelete = null
+    }
+    androidx.compose.runtime.DisposableEffect(user) { onDispose { pendingDelete?.let { deleteNow(it) } } }
+    @Suppress("NAME_SHADOWING")
+    val messages = remember(messages, pendingDelete) { if (pendingDelete == null) messages else messages.filter { it.id != pendingDelete } }
     Box(
         Modifier.fillMaxSize().onGloballyPositioned { flight.origin = it.positionInWindow() }.pointerInput(Unit) {
             // Every touch counts (the camera's idle time).
@@ -395,6 +410,13 @@ internal fun ConversationScreen(
                                         if (save) actions.edit(message.id, edit.value.text) else actions.editLive(message.id, null)
                                     },
                                     gone = { edits.gone(edit) },
+                                    delete = {
+                                        actions.editLive(message.id, null)
+                                        edits.gone(edit)
+                                        // One already waiting goes now.
+                                        pendingDelete?.let { actions.delete(it) }
+                                        pendingDelete = message.id
+                                    },
                                 )
                             } else if (message.id == sentMorph) {
                                 Bubble(
@@ -442,6 +464,25 @@ internal fun ConversationScreen(
             )
             val rowShown = if (imeFull > 0) 1f - (imeNow.toFloat() / imeFull).coerceIn(0f, 1f) else 1f
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { floatingHeight = it.height }.graphicsLayer { alpha = seeThrough }) {
+                androidx.compose.animation.AnimatedVisibility(
+                    pendingDelete != null,
+                    enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(180)),
+                    exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) + androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(150)),
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) {
+                    Row(
+                        Modifier.padding(top = 6.dp).shadow(4.dp, androidx.compose.foundation.shape.CircleShape)
+                            .background(LibraryColors.Inverse, androidx.compose.foundation.shape.CircleShape)
+                            .padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(stringResource(R.string.chat_deleted), color = LibraryColors.OnInverse, style = LibraryType.Small)
+                        Text(
+                            stringResource(R.string.chat_undo), color = com.chencohen.ptt.ui.style.Pink, style = LibraryType.Small,
+                            modifier = Modifier.padding(start = 8.dp).clickable(role = Role.Button) { pendingDelete = null }.padding(horizontal = 10.dp, vertical = 8.dp),
+                        )
+                    }
+                }
                 if (canWrite) {
                     // Its place comes straight from the keyboard's animated insets (the column's imePadding): no size or
                     // position animation of its own, so it rises and sinks with the keyboard, frame by frame.
@@ -509,7 +550,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     back = a.back, openContact = a.openContact, send = a.send, retry = a.retry, typing = a.typing, draft = a.draft, openTalk = a.openTalk,
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
-    setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive,
+    setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
 )
 
 
@@ -619,7 +660,13 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             if (showAuthor && !mine && message.author != null) {
                 Text(message.author!!, color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
             }
-            if (message.call != null) {
+            if (message.deleted) {
+                // Deleted by its author: only a faint mark is left.
+                Text(
+                    stringResource(R.string.chat_deleted), color = LibraryColors.Muted.copy(alpha = 0.8f),
+                    style = LibraryType.Small.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                )
+            } else if (message.call != null) {
                 com.chencohen.ptt.ui.calls.CallEntryContent(message, onInverse = mine, share = actions.shareCall, playKept = actions.playKept) { actions.call(message.call!!.video) }
             } else if (message.clip?.video == true) {
                 // Live, then the video it leaves (first picture, length), in the same place.
@@ -952,7 +999,7 @@ internal class Editing(val id: String, val original: String, caret: Int, val wid
  * ✓ saves; Back or a tap outside turn it back unchanged (no ✕). 220 ms each way, eased.
  */
 @Composable
-private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit) {
+private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit, delete: () -> Unit = {}) {
     val open = remember(edit.id) { androidx.compose.animation.core.Animatable(0f) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
     var saving by remember(edit.id) { mutableStateOf<Boolean?>(null) }
@@ -992,7 +1039,7 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
                 .border(1.5.dp, coral.copy(alpha = p), LibraryShapes.Card)
                 .background(androidx.compose.ui.graphics.lerp(LibraryColors.Mine, LibraryColors.Background, p), LibraryShapes.Card)
                 .background(coral.copy(alpha = 0.08f * p), LibraryShapes.Card)
-                .padding(horizontal = pad, vertical = 8.dp),
+                .padding(start = pad, end = pad, top = 8.dp, bottom = 6.dp),
         ) {
             // The text exactly where the bubble's was: same style, padding and width (its lines unchanged).
             androidx.compose.foundation.text.BasicTextField(
@@ -1006,21 +1053,44 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
                 maxLines = 6,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
-            // ✓ in the place of the time and its mark, at the end of that line: the height and lines don't change.
-            Box(Modifier.align(Alignment.End).padding(top = 2.dp).height(18.dp), contentAlignment = Alignment.Center) {
+            // Delete and ✓ in the place of the time and its mark, at the end of that line (2026-11-24, hen): 6 dp under
+            // the text, the box's own inset from its outline, small enough that the height doesn't change; each with a
+            // full-size touch area around it.
+            Row(
+                Modifier.align(Alignment.End).padding(top = 6.dp).height(14.dp).graphicsLayer { alpha = p },
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val del = stringResource(R.string.chat_delete)
+                SmallAction(del, enabled = p > 0.5f && saving == null, onClick = delete) {
+                    Icon(LibraryIcons.Trash, del, tint = LibraryColors.Warning, modifier = Modifier.size(14.dp))
+                }
                 val save = stringResource(R.string.chat_edit_save)
                 val can = edit.value.text.isNotBlank()
-                Box(
-                    // 6 dp clear of the text above (2026-11-24, hen): smaller, and lowered into the box's bottom padding,
-                    // so neither the height nor the lines change.
-                    Modifier.offset(y = 5.dp).requiredSize(20.dp).graphicsLayer { alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p }
-                        .background(if (can) coral else coral.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape)
-                        .clickable(enabled = can && p > 0.5f, role = Role.Button, onClickLabel = save) { if (saving == null) saving = true },
-                    contentAlignment = Alignment.Center,
-                ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(12.dp)) }
+                SmallAction(save, enabled = can && p > 0.5f, onClick = { if (saving == null) saving = true }) {
+                    Box(
+                        Modifier.size(14.dp).graphicsLayer { scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p }
+                            .background(if (can) coral else coral.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(10.dp)) }
+                }
             }
         }
     }
+}
+
+/** A small control drawn at its own size, its touch area 40 dp around it (not taking room). */
+@Composable
+private fun SmallAction(label: String, enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
+    Box(
+        Modifier.layout { m, c ->
+            val touch = 40.dp.roundToPx()
+            val pl = m.measure(androidx.compose.ui.unit.Constraints.fixed(touch, touch))
+            val shown = 14.dp.roundToPx()
+            layout(shown, shown) { pl.place((shown - touch) / 2, (shown - touch) / 2) }
+        }.clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { content() }
 }
 
 /**

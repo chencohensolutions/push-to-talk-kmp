@@ -45,6 +45,8 @@ internal data class Content(
     @ProtoNumber(18) val profile: ProfileContent? = null,
     /** A sent text edited (2026-11-24, hen), or being edited live. Older apps skip the field. */
     @ProtoNumber(19) val edit: EditContent? = null,
+    /** The author deleted their message for everyone (2026-11-24, hen). Older apps skip the field. */
+    @ProtoNumber(20) val delete: DeleteContent? = null,
 )
 
 /** What a user shares with their paired contacts about themselves: their email ("" none; Settings › Contacts). */
@@ -76,6 +78,10 @@ internal data class EditContent(
         const val CANCEL = 2
     }
 }
+
+/** Message [id] deleted by its author, for everyone. */
+@Serializable
+internal data class DeleteContent(@ProtoNumber(1) val id: String = "")
 
 @Serializable
 internal data class HereContent(@ProtoNumber(1) val open: Boolean = false)

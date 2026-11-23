@@ -510,6 +510,35 @@ class MessagingTest {
     }
 
     @Test
+    fun aDeleteRemovesItForEveryoneAndOnlyTheAuthorCanDelete() = runTest {
+        // 2026-11-24 (hen): delete for everyone.
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val mine = hen.messaging.sendText("dana", "oops")
+        val theirs = dana.messaging.sendText("hen", "keep this")
+        advanceUntilIdle()
+        // Not the author: nothing changes, on either side.
+        assertFalse(hen.messaging.deleteMessage(theirs.id))
+        dana.messaging.deleteMessage(mine.id)
+        advanceUntilIdle()
+        assertEquals("oops", hen.store.message(mine.id)?.body)
+        assertEquals("oops", dana.store.message(mine.id)?.body)
+        // An id nobody has: ignored.
+        assertFalse(hen.messaging.deleteMessage("no-such-id"))
+        // The author: gone on hen's phone, a "Message deleted" mark on dana's.
+        assertTrue(hen.messaging.deleteMessage(mine.id))
+        advanceUntilIdle()
+        assertNull(hen.store.message(mine.id))
+        val left = dana.store.message(mine.id)!!
+        assertTrue(left.deleted)
+        assertEquals("", left.body)
+        assertEquals("keep this", hen.store.message(theirs.id)?.body)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
     fun aLiveEditShowsAndGoesOnCancelOrAfterAWhile() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)

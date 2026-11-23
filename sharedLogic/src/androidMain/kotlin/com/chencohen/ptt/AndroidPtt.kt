@@ -292,6 +292,12 @@ fun editText(context: Context, id: String, body: String) {
     kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editText(id, body) }
 }
 
+/** Delete my message for everyone, from the quick-reply window. */
+fun deleteMessage(context: Context, id: String) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.deleteMessage(id) }
+}
+
 /** Editing live from the quick-reply window (null: cancelled). */
 fun editLive(context: Context, id: String, text: String?) {
     val messaging = hub(context)

@@ -711,6 +711,9 @@
     <string name="chat_suggest_call">לעבור לשיחת וידאו?</string>
     <string name="chat_my_draft">ההודעה שלך</string>
     <string name="chat_edited">נערכה</string>
+    <string name="chat_deleted">ההודעה נמחקה</string>
+    <string name="chat_delete">מחיקה לכולם</string>
+    <string name="chat_undo">ביטול</string>
     <string name="chat_editing">בעריכה…</string>
     <string name="chat_edit_save">שמירת העריכה</string>
     <string name="chat_edit_cancel">ביטול העריכה</string>

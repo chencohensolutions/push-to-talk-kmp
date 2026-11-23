@@ -99,6 +99,8 @@ data class TextMessage(
     val readBy: Map<String, Long> = emptyMap(),
     /** Edited by its author (2026-11-24, hen): when, on the author's clock; the chat says "edited". */
     val editedAt: Long? = null,
+    /** Deleted by its author (2026-11-24, hen): only "Message deleted" is left of it here. */
+    val deleted: Boolean = false,
 )
 
 /** How a call went, for the chat and the Calls tab. */
@@ -323,6 +325,8 @@ internal class MessagingStore(val store: SecureStore) {
     fun messagesWith(user: String): List<TextMessage> = messages().filter { it.user == user }
 
     fun message(id: String): TextMessage? = messages().firstOrNull { it.id == id }
+
+    fun removeMessage(message: TextMessage) = store.remove(Spaces.MESSAGES, message.at.toString().padStart(15, '0') + "-" + message.id)
 
     fun removeMessagesOf(user: String) {
         store.keys(Spaces.MESSAGES).forEach { key ->

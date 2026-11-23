@@ -163,3 +163,13 @@ warning colour. `StatusMark`, the chat, the quick-reply window and groups.
 **Neighbours follow in the same frame** (2026-11-24, hen: "don't make the surrounding objects move with delay"): while
 a bubble changes its size in place (an edit, Send's flight, a live draft or live edit), the other items have no
 placement animation of their own, so they move with it frame by frame; when one is added or removed they glide.
+
+
+**Delete for everyone** (2026-11-24, hen): in the edit box, a small trash beside ✓ (both where the time and its mark
+were, 6 dp under the text, inset like the text, small so the box keeps its height; each with a 40 dp touch area). A tap
+removes the message from the chat at once (it fades and the others close up), with "Message deleted · Undo" above
+the writing bubble for 4 s; the delete is sent only then (leaving the chat sends it at once), and Undo brings the
+message back. It goes end to end (`DeleteContent`, Content field 20, kept and pushed silently, to my other phones and,
+in a group, through its Send); older apps skip it. Their phones keep a faint "Message deleted" in its place (any live
+edit view cleared, a burst's or voice message's file removed); my other phones drop it. Only the author's delete
+counts; an unknown id is ignored (MessagingTest).
