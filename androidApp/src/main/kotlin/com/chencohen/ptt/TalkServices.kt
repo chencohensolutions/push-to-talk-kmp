@@ -201,7 +201,7 @@ class TalkReadyService : Service() {
         }
         // A headset's or a Bluetooth talk button, the screen off too: the reply window's sender, or Buttons talk in.
         if (session == null) session = mediaSession(app)
-        if (intent?.action == ACTION_TALK_BACK) intent.getStringExtra(EXTRA_CHAT)?.let { startTalkBack(app, it) }
+        if (intent?.action == ACTION_TALK_BACK) intent.getStringExtra(EXTRA_CHAT)?.let { startTalkBack(app, it, intent.getBooleanExtra(EXTRA_VIDEO, false)) }
         // The talk widget: a tap talks, the next one sends.
         if (intent?.action == ACTION_WIDGET) intent.getStringExtra(EXTRA_CHAT)?.let { chat ->
             if (recording?.isActive == true) endTalkBack(app, send = true) else startTalkBack(app, chat)
@@ -215,14 +215,21 @@ class TalkReadyService : Service() {
      * Talk back from the "Talk playing" notification: a tap, so the microphone may open in the background (while-in-use
      * from the notification). Talks to [chat] until Send, Cancel, or 60 s (sent).
      */
-    private fun startTalkBack(app: TalkApp, chat: String) {
+    private fun startTalkBack(app: TalkApp, chat: String, wantVideo: Boolean = false) {
         if (recording?.isActive == true) return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             startActivity(Intent(this, MainActivity::class.java).setAction(TalkNotifications.ACTION_TALK).putExtra(Notifications.EXTRA_USER, chat).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             return
         }
+        // Push-to-video from the reply bubble (2026-11-23, hen): the camera in the background too.
+        var video = wantVideo && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (video) {
+            video = runCatching {
+                startForeground(ID, ready!!, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA)
+            }.onFailure { Log.w(TalkReady.TAG, "no camera in the background: voice only", it) }.isSuccess
+        }
         try {
-            startForeground(ID, ready!!, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            if (!video) startForeground(ID, ready!!, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         } catch (e: Exception) {
             Log.w(TalkReady.TAG, "no microphone in the background: the Talk screen opens", e)
             startActivity(Intent(this, MainActivity::class.java).setAction(TalkNotifications.ACTION_TALK).putExtra(Notifications.EXTRA_USER, chat).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -230,8 +237,16 @@ class TalkReadyService : Service() {
         }
         TalkPlaying.cancel(this)
         recordingChat = chat
+        cameraWarmed = video
         recording = app.scope.launch {
             val name = runCatching { chatName(app, chat) }.getOrDefault(chat)
+            if (video) {
+                // The camera opens first (about half a second), so the burst has video from its start.
+                warmTalkCamera(app, chat)
+                val until = System.currentTimeMillis() + 1_500
+                while (talkVideoCapture?.ready != true && System.currentTimeMillis() < until) delay(50)
+                Log.i(TalkReady.TAG, "talk back with video: camera ${if (talkVideoCapture?.ready == true) "ready" else "not ready, voice only"}")
+            }
             talkBack(app, chat, down = true)
             Log.i(TalkReady.TAG, "talking back to $chat")
             val started = System.currentTimeMillis()
@@ -260,6 +275,7 @@ class TalkReadyService : Service() {
     }
 
     private var recordingChat: String? = null
+    private var cameraWarmed = false
 
     private fun endTalkBack(app: TalkApp, send: Boolean) {
         val job = recording ?: return
@@ -267,8 +283,11 @@ class TalkReadyService : Service() {
         if (!job.isCompleted) job.cancel()
         recordingChat?.let { TalkWidgets.show(app, it, com.chencohen.ptt.talk.TalkWidgetView.Idle) }
         recordingChat = null
+        val warmed = cameraWarmed
+        cameraWarmed = false
         app.scope.launch {
             talkBack(app, null, down = false, send = send)
+            if (warmed) warmTalkCamera(app, null)
             Log.i(TalkReady.TAG, if (send) "talk back sent" else "talk back cancelled")
         }
         NotificationManagerCompat.from(this).cancel(RECORDING_ID)
@@ -321,6 +340,8 @@ class TalkReadyService : Service() {
         private const val TALK_BACK_MAX_S = 60L
         private const val ACTION_STOP = "com.chencohen.ptt.TALK_READY_STOP"
         const val ACTION_TALK_BACK = "com.chencohen.ptt.TALK_READY_TALK_BACK"
+        /** With [ACTION_TALK_BACK]: the camera goes too (push-to-video from the reply bubble). */
+        const val EXTRA_VIDEO = "video"
         const val ACTION_WIDGET = "com.chencohen.ptt.TALK_READY_WIDGET"
         const val ACTION_CANCEL_TALK = "com.chencohen.ptt.TALK_READY_CANCEL_TALK"
         const val ACTION_SEND = "com.chencohen.ptt.TALK_READY_SEND"

@@ -391,6 +391,10 @@ class MainActivity : ComponentActivity() {
                 TalkPlaying.wokenShown(this)
             }
             openedChat = if (intent.action == TalkNotifications.ACTION_TALK) "$chat\ntalk/$chat" else chat
+            // The reply bubble's Video without the camera allowed yet: Android asks here.
+            if (intent.getBooleanExtra(EXTRA_ASK_CAMERA, false) && checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.CAMERA), 41)
+            }
             if (intent.action == TalkNotifications.ACTION_PLAY) openedClip = intent.getStringExtra(TalkNotifications.EXTRA_CLIP)
             return
         }
@@ -421,6 +425,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** A talk notification's full-screen intent: show over the lock screen and turn the screen on. */
         const val EXTRA_WAKE = "wake"
+        /** With ACTION_TALK: ask for the camera (the reply bubble's Video, 2026-11-23). */
+        const val EXTRA_ASK_CAMERA = "ask_camera"
 
         /** A call from the reply bubble: [EXTRA_VIDEO], to Notifications.EXTRA_USER. */
         const val ACTION_CALL = "com.chencohen.ptt.CALL_FROM_BUBBLE"

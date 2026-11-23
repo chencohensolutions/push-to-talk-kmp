@@ -271,6 +271,9 @@ suspend fun stopTalkPlayback(context: Context) {
 /** The reply bubble for [chat] is open (null: closed): the other user's phone is told ("here"). */
 fun setHere(context: Context, chat: String?) = hub(context).setHere(chat, com.chencohen.ptt.messaging.Messaging.HERE_BUBBLE)
 
+/** The camera kept warm for push-to-video to [chat] from outside the screens (the reply bubble); null: let go. */
+fun warmTalkCamera(context: Context, chat: String?) = hub(context).warmCamera(chat)
+
 /** Changes Talk's settings from outside the screens (the reply bubble's Video). */
 fun setTalkSettings(context: Context, talk: com.chencohen.ptt.messaging.TalkSettings) = hub(context).setTalkSettings(talk)
 

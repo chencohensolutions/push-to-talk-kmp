@@ -130,7 +130,7 @@
         <service
             android:name=".TalkReadyService"
             android:exported="false"
-            android:foregroundServiceType="mediaPlayback|microphone" />
+            android:foregroundServiceType="mediaPlayback|microphone|camera" />
         <!-- Android Auto: messages as notifications, and the Car App's talk screens (docs/screens/android-auto.md). -->
         <meta-data
             android:name="com.google.android.gms.car.application"

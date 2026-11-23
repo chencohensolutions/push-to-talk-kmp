@@ -119,7 +119,18 @@ data class TalkSettings(
     val quickReply: Boolean = true,
     /** Settings › Talk › Don't turn the screen on when battery is low (on by default; 2026-11-23, hen): under 20%, not charging. */
     val lowBatteryNoWake: Boolean = true,
-)
+    /**
+     * Voice or Video per contact or group (2026-11-23, hen: "remember that setting for that contact"): what the Talk
+     * screen's and the reply bubble's Voice | Video chose last for it; [pushVideo] for one never chosen.
+     */
+    val videoFor: Map<String, Boolean> = emptyMap(),
+) {
+    /** Whether a press to [chat] sends the camera too. */
+    fun pushVideoFor(chat: String?): Boolean = chat?.let { videoFor[it] } ?: pushVideo
+
+    /** [chat]'s Voice | Video set to [video]. */
+    fun withVideoFor(chat: String, video: Boolean): TalkSettings = copy(videoFor = videoFor + (chat to video))
+}
 
 /**
  * What the app shows outside its screens (Android's notifications): a text came in, or a conversation was read
@@ -315,7 +326,7 @@ internal class Messaging(
 
     init {
         if (LIVE_TALK_AUDIO) talk.live = live
-        talk.sendVideo = { talkSettings().pushVideo }
+        talk.sendVideo = { chat -> talkSettings().pushVideoFor(chat) }
         scope.launchCollect(calls.state) { c ->
             val was = _state.value.call != null
             _state.update { it.copy(call = c) }
@@ -413,6 +424,7 @@ internal class Messaging(
         videoStats = settings.videoStats,
         quickReply = settings.quickReply,
         lowBatteryNoWake = settings.lowBatteryNoWake,
+        videoFor = settings.videoFor,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -441,6 +453,7 @@ internal class Messaging(
         settings.videoStats = talk.videoStats
         settings.quickReply = talk.quickReply
         settings.lowBatteryNoWake = talk.lowBatteryNoWake
+        if (talk.videoFor != before.videoFor) settings.videoFor = talk.videoFor
         _state.update { it.copy(talkSettings = talk) }
     }
 
@@ -576,7 +589,7 @@ internal class Messaging(
 
     private fun applyWarmCamera() {
         val camera = talk.videoCapture ?: return
-        val chat = warmWanted?.takeIf { _state.value.call == null && talk.sendVideo() }
+        val chat = warmWanted?.takeIf { _state.value.call == null && talk.sendVideo(it) }
         if (chat != null) {
             if (talk.videoChat != chat) camera.cool()
             talk.videoChat = chat

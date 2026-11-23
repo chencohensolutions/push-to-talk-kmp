@@ -48,6 +48,12 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   by the name says they are "here": their Talk screen or bubble for this chat is open now (HereContent, said end to
   end every 20 s, gone 30 s after the last); then Video call glows teal, a video call they'll see at once. A call that
   rings while the bubble shows turns it into the call: the caller's name, a big green Answer, and a red Decline.
+- **Voice | Video in the reply bubble** (2026-11-23, hen): a small upright switch beside the big button (a microphone
+  over a camera). Video turns the button into a camera: holding it sends push-to-video, with this phone's camera shown
+  in the bubble while it sends (the camera opens on the press, about half a second before the voice starts). The choice
+  is kept per contact or group, the same one the Talk screen's Voice | Video shows, and the bubble opens with it the
+  next time that contact talks. Video without the camera allowed opens the Talk screen, where Android asks. In a call
+  the camera is the call's: the press sends voice only, and "camera busy in the call, voice only" shows by the time.
 - **Picture-in-picture**: an answered video call goes on in Android's small floating window when the app is left
   (dragged and resized by Android), the other's video filling it and this phone's in a corner, with Hang up.
 - **Video in the reply bubble** (on by default; 2026-11-22, hen: a received video plays): a video burst's picture

@@ -135,7 +135,7 @@ class HomeActions(
     /** A call the server kept: play it. */
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** Push-to-video switched on a Talk screen; the camera warm for a chat (null: none). */
-    val setPushVideo: (Boolean) -> Unit = {},
+    val setPushVideo: (chat: String, video: Boolean) -> Unit = { _, _ -> },
     val warmCamera: (String?) -> Unit = {},
     /** A Talk page open ("here" to its user). */
     val setHere: (String?) -> Unit = {},
@@ -295,7 +295,7 @@ fun HomeApp(
                         shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                         playKept = ::playKept,
                         saveKept = ::saveKept,
-                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
+                        setPushVideo = { chat, on -> onTalkSettings(messagingState.talkSettings.withVideoFor(chat, on)) },
                         warmCamera = messaging::warmCamera,
                         setHere = messaging::setHere,
                         pressTalk = { chat -> pressOrUnlock(chat) },
@@ -660,8 +660,8 @@ fun HomeApp(
                         // From its chat: back to it; otherwise the chat opens.
                         openChat = { if (stack.getOrNull(stack.size - 2) == "chat/$chat") pop() else push("chat/$chat") },
                         call = { video -> call(chat, video) },
-                        pushVideo = messagingState.talkSettings.pushVideo,
-                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
+                        pushVideo = messagingState.talkSettings.pushVideoFor(chat),
+                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.withVideoFor(chat, on)) },
                         warmCamera = messaging::warmCamera,
                         setHere = messaging::setHere,
                         peerHere = com.chencohen.ptt.ui.talk.rememberHere(messagingState.here, chat),
@@ -856,8 +856,8 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 modifier = Modifier.weight(1f),
                 warmMicrophone = actions.warmMicrophone,
                 call = actions.call,
-                pushVideo = chats.talkSettings.pushVideo,
-                setPushVideo = actions.setPushVideo,
+                pushVideoFor = chats.talkSettings::pushVideoFor,
+                setPushVideoFor = actions.setPushVideo,
                 warmCamera = actions.warmCamera,
                 setHere = actions.setHere,
                 here = chats.here,

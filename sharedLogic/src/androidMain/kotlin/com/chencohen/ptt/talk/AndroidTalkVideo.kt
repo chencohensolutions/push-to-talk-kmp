@@ -58,6 +58,9 @@ class AndroidTalkVideoCapture(
     private var sensor = 270
     @Volatile private var warmWanted = false
 
+    /** Warm and ready: a press now sends video from its first moment. */
+    val ready: Boolean get() = synchronized(lock) { encoder != null }
+
     /** The Talk screen's preview: the camera draws into it too while warm (null: none). */
     fun setPreview(surface: Surface?) {
         synchronized(lock) {

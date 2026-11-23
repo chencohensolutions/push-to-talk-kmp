@@ -630,6 +630,8 @@
     <string name="bubble_sent">Sent</string>
     <string name="bubble_talk">Talk</string>
     <string name="bubble_send">Send</string>
+    <string name="bubble_video_hint">Hold to send video, let go to send</string>
+    <string name="bubble_camera_busy">camera busy in the call, voice only</string>
     <string name="bubble_talk_hint">Hold to talk back, let go to send</string>
     <string name="bubble_close">Close</string>
     <string name="full_screen_ask_title">Turn the screen on for talk?</string>

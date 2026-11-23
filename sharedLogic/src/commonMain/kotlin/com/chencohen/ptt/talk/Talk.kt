@@ -170,7 +170,7 @@ internal class Talk(
 
     /** Push-to-video: the camera, whether a press sends it (the Talk screen's Video), and where bursts' video shows. */
     var videoCapture: TalkVideoCapture? = null
-    var sendVideo: () -> Boolean = { false }
+    var sendVideo: (chat: String) -> Boolean = { false }
 
     /** The chat whose Talk screen keeps the camera warm (push-to-video); null: none. */
     var videoChat: String? = null
@@ -234,7 +234,7 @@ internal class Talk(
         out.mic = mic
         stopPlaying()
         // The camera first, so the voice's packets are tagged from the first one.
-        val camera = videoCapture?.takeIf { !voiceOnly && sendVideo() }
+        val camera = videoCapture?.takeIf { !voiceOnly && sendVideo(chat) }
         if (camera != null) {
             out.video = camera.start { frame ->
                 out.videoBytes += frame.data.size

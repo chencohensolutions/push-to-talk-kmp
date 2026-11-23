@@ -44,6 +44,15 @@ object TalkBubble {
     /** The burst now has video (push-to-video). */
     private var burstVideo = false
     private var button: android.widget.ImageView? = null
+    /** Voice | Video beside the button (2026-11-23, hen), remembered per contact (TalkSettings.videoFor). */
+    private var voiceTab: android.widget.ImageView? = null
+    private var videoTab: android.widget.ImageView? = null
+    /** This phone's camera while it sends video from here. */
+    private var ownView: android.view.TextureView? = null
+    private var ownSurface: android.view.Surface? = null
+    /** A word after the time while talking ("camera busy"). */
+    private var note: String? = null
+    private var sendingVideo = false
     private var hereDot: TextView? = null
     private var videoCall: android.widget.ImageView? = null
     private var actions: LinearLayout? = null
@@ -56,7 +65,7 @@ object TalkBubble {
         override fun run() {
             if (!talking) return
             val s = (System.currentTimeMillis() - talkStarted) / 1000
-            line?.text = "%d:%02d".format(s / 60, s % 60)
+            line?.text = "%d:%02d".format(s / 60, s % 60) + (note?.let { " · $it" } ?: "")
             main.postDelayed(this, 500)
         }
     }
@@ -80,6 +89,61 @@ object TalkBubble {
         if (this.chat != chat) setHere(context, chat)
         burstVideo = live && video
         showVideo(context)
+        showMode(context)
+    }
+
+    /** Whether a press here sends the camera too: this contact's Voice | Video. */
+    private fun videoMode(context: Context): Boolean = chat?.let { messagingState(context).value.talkSettings.pushVideoFor(it) } ?: false
+
+    /** Voice | Video shows the contact's choice; the button a camera in Video. */
+    private fun showMode(context: Context) {
+        val video = videoMode(context)
+        fun mark(v: android.widget.ImageView?, on: Boolean) {
+            (v?.background as? GradientDrawable)?.setColor(if (on) Color.WHITE else Color.TRANSPARENT)
+            v?.setColorFilter(if (on) 0xFF191D1C.toInt() else Color.WHITE)
+            v?.isSelected = on
+        }
+        mark(voiceTab, !video)
+        mark(videoTab, video)
+        if (!talking && ringing == null) {
+            button?.setImageResource(if (video) R.drawable.ic_bubble_video else R.drawable.ic_bubble_mic)
+            button?.contentDescription = context.getString(if (video) R.string.bubble_video_hint else R.string.bubble_talk_hint)
+        }
+    }
+
+    /** Voice | Video chosen here: kept for this contact; Video without the camera allowed asks for it in the app. */
+    private fun chooseMode(context: Context, video: Boolean) {
+        val chat = chat ?: return
+        if (talking || video == videoMode(context)) return
+        val settings = messagingState(context).value.talkSettings
+        setTalkSettings(context, settings.withVideoFor(chat, video))
+        Log.i(TAG, "$chat: ${if (video) "video" else "voice"} from the bubble")
+        if (video && context.checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            runCatching {
+                context.startActivity(
+                    Intent(context, MainActivity::class.java).setAction(TalkNotifications.ACTION_TALK).putExtra(Notifications.EXTRA_USER, chat)
+                        .putExtra(MainActivity.EXTRA_ASK_CAMERA, true)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                )
+            }
+            dismissNow()
+            return
+        }
+        main.postDelayed({ showMode(context) }, 100)
+    }
+
+    /** This phone's camera in the window while it sends video (the burst's picture, if any, gives way). */
+    private fun showOwn(context: Context, on: Boolean) {
+        val own = ownView ?: return
+        own.visibility = if (on) View.VISIBLE else View.GONE
+        videoBox?.findViewWithTag<View>("video")?.visibility = if (on) View.GONE else View.VISIBLE
+        if (on) {
+            videoBox?.visibility = View.VISIBLE
+            ownSurface?.let { com.chencohen.ptt.talkVideoCapture?.setPreview(it) }
+        } else {
+            ownSurface?.let { s -> com.chencohen.ptt.talkVideoCapture?.clearPreview(s) {} }
+            showVideo(context)
+        }
     }
 
     /**
@@ -207,6 +271,31 @@ object TalkBubble {
                 },
                 android.widget.FrameLayout.LayoutParams(dp(240), dp(180), Gravity.CENTER),
             )
+            ownView = android.view.TextureView(context).apply {
+                visibility = View.GONE
+                surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                    override fun onSurfaceTextureAvailable(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                        texture.setDefaultBufferSize(com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH, com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT)
+                        ownSurface = android.view.Surface(texture).also { if (sendingVideo) com.chencohen.ptt.talkVideoCapture?.setPreview(it) }
+                    }
+
+                    override fun onSurfaceTextureSizeChanged(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
+                    override fun onSurfaceTextureDestroyed(texture: android.graphics.SurfaceTexture): Boolean {
+                        val gone = ownSurface ?: return true
+                        ownSurface = null
+                        val capture = com.chencohen.ptt.talkVideoCapture ?: run { gone.release(); return true }
+                        capture.clearPreview(gone) {
+                            gone.release()
+                            texture.release()
+                        }
+                        return false
+                    }
+
+                    override fun onSurfaceTextureUpdated(texture: android.graphics.SurfaceTexture) {}
+                }
+            }
+            // Upright, 3:4, as the camera draws it.
+            addView(ownView, android.widget.FrameLayout.LayoutParams(dp(180), dp(240), Gravity.CENTER))
         }
         root.addView(videoBox, LinearLayout.LayoutParams(dp(240), dp(240)).apply { bottomMargin = dp(8) })
         root.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -218,7 +307,29 @@ object TalkBubble {
             contentDescription = context.getString(R.string.bubble_talk_hint)
             setOnTouchListener { v, e -> touch(context, v, e) }
         }
-        root.addView(button, LinearLayout.LayoutParams(dp(96), dp(96)).apply { topMargin = dp(8) })
+        // Voice | Video beside the button, the other side as wide, so the button stays centred.
+        val modes = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+            background = GradientDrawable().apply { cornerRadius = dp(24).toFloat(); setColor(0x33FFFFFF) }
+        }
+        fun tab(icon: Int, label: Int, video: Boolean) = android.widget.ImageView(context).apply {
+            setImageResource(icon)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT) }
+            contentDescription = context.getString(label)
+            setOnClickListener { chooseMode(context, video) }
+        }
+        voiceTab = tab(R.drawable.ic_bubble_mic, R.string.talk_mode_voice, false)
+        videoTab = tab(R.drawable.ic_bubble_video, R.string.talk_mode_video, true)
+        modes.addView(voiceTab, LinearLayout.LayoutParams(dp(38), dp(38)))
+        modes.addView(videoTab, LinearLayout.LayoutParams(dp(38), dp(38)).apply { topMargin = dp(2) })
+        val buttonRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        buttonRow.addView(modes, LinearLayout.LayoutParams(dp(44), LinearLayout.LayoutParams.WRAP_CONTENT))
+        buttonRow.addView(button, LinearLayout.LayoutParams(dp(96), dp(96)).apply { marginStart = dp(20); marginEnd = dp(20) })
+        buttonRow.addView(View(context), LinearLayout.LayoutParams(dp(44), dp(44)))
+        root.addView(buttonRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         // Under the button, icons only: Video (the burst's pictures), Chat, Voice call, Video call.
         fun small(icon: Int, label: Int, onClick: () -> Unit) = android.widget.ImageView(context).apply {
             setImageResource(icon)
@@ -305,6 +416,11 @@ object TalkBubble {
 
     private fun startTalk(context: Context) {
         val chat = chat ?: return
+        // Video: the camera too, unless a call has it (then voice only, said after the time).
+        val wantVideo = videoMode(context) && context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val callOn = messagingState(context).value.call != null
+        sendingVideo = wantVideo && !callOn
+        note = if (wantVideo && callOn) context.getString(R.string.bubble_camera_busy) else null
         talking = true
         talkStarted = System.currentTimeMillis()
         (button?.background as? GradientDrawable)?.setColor(TEAL)
@@ -313,8 +429,12 @@ object TalkBubble {
         button?.setImageResource(R.drawable.ic_bubble_send)
         button?.contentDescription = context.getString(R.string.bubble_send)
         main.post(tick)
+        if (sendingVideo) showOwn(context, true)
         runCatching {
-            context.startForegroundService(Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_TALK_BACK).putExtra(TalkReadyService.EXTRA_CHAT, chat))
+            context.startForegroundService(
+                Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_TALK_BACK).putExtra(TalkReadyService.EXTRA_CHAT, chat)
+                    .putExtra(TalkReadyService.EXTRA_VIDEO, sendingVideo),
+            )
         }.onFailure {
             Log.w(TAG, "can't talk back from the bubble: the Talk screen opens", it)
             talking = false
@@ -331,9 +451,13 @@ object TalkBubble {
             context.startService(Intent(context, TalkReadyService::class.java).setAction(if (send) TalkReadyService.ACTION_SEND else TalkReadyService.ACTION_CANCEL_TALK))
         }
         (button?.background as? GradientDrawable)?.setColor(PINK)
-        button?.setImageResource(R.drawable.ic_bubble_mic)
-        button?.contentDescription = context.getString(R.string.bubble_talk_hint)
         line?.visibility = View.GONE
+        note = null
+        if (sendingVideo) {
+            sendingVideo = false
+            showOwn(context, false)
+        }
+        showMode(context)
     }
 
     /**
@@ -412,6 +536,7 @@ object TalkBubble {
             for (i in 0 until row.childCount) row.getChildAt(i).visibility = View.VISIBLE
         }
         showVideo(context)
+        showMode(context)
     }
 
     private fun answer(context: Context) {
@@ -461,6 +586,11 @@ object TalkBubble {
         videoBox = null
         videoSwitch = null
         burstVideo = false
+        voiceTab = null
+        videoTab = null
+        ownView = null
+        sendingVideo = false
+        note = null
         title = null
         line = null
         button = null

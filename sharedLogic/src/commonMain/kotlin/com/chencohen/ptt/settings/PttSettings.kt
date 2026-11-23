@@ -209,6 +209,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_QUICK_REPLY) != "false"
         set(value) = store.putString(KEY_QUICK_REPLY, value.toString())
 
+    /** Voice or Video per contact or group (TalkSettings.videoFor). */
+    var videoFor: Map<String, Boolean>
+        get() = store.getString(KEY_VIDEO_FOR)?.let { runCatching { json.decodeFromString<Map<String, Boolean>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_VIDEO_FOR, json.encodeToString(value))
+
     /** Settings › Talk › Don't turn the screen on when battery is low: on unless turned off. */
     var lowBatteryNoWake: Boolean
         get() = store.getString(KEY_LOW_BATTERY_NO_WAKE) != "false"
@@ -234,6 +239,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_CALL_VIDEO = "call_video"
         private const val KEY_MY_EMAIL = "my_email"
         private const val KEY_PUSH_VIDEO = "talk_push_video"
+        private const val KEY_VIDEO_FOR = "talk_video_for"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
         private const val KEY_SOFT_RING = "call_soft_ring"

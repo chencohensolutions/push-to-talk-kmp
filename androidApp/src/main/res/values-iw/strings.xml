@@ -633,6 +633,8 @@
     <string name="bubble_sent">נשלח</string>
     <string name="bubble_talk">לדבר</string>
     <string name="bubble_send">שליחה</string>
+    <string name="bubble_video_hint">החזקה שולחת וידאו, שחרור שולח</string>
+    <string name="bubble_camera_busy">המצלמה תפוסה בשיחה, קול בלבד</string>
     <string name="bubble_talk_hint">להחזיק כדי לענות, לשחרר כדי לשלוח</string>
     <string name="bubble_close">סגירה</string>
     <string name="full_screen_ask_title">להדליק את המסך כשמדברים אליכם?</string>
