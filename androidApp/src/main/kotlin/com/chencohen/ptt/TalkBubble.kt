@@ -36,6 +36,12 @@ object TalkBubble {
 
     private val main = Handler(Looper.getMainLooper())
     private var view: LinearLayout? = null
+    /**
+     * The window itself: holds [view] against its bottom edge, so whatever shows above the button (the time, this
+     * phone's camera, their video) grows the window upwards while the button stays where the finger is (2026-11-23,
+     * hen: "it should extend upwards while the buttons stay fixed").
+     */
+    private var frame: android.widget.FrameLayout? = null
     private var title: TextView? = null
     private var line: TextView? = null
     private var videoBox: android.widget.FrameLayout? = null
@@ -92,6 +98,32 @@ object TalkBubble {
         showMode(context)
     }
 
+    /**
+     * After something above the button shows or goes: the window takes the new height with its bottom edge where it was
+     * (the content stays against it), and what came in above grows in from the bottom up.
+     */
+    private fun fit(grown: View? = null) {
+        val root = view ?: return
+        val holder = frame ?: return
+        val lp = holder.layoutParams as? WindowManager.LayoutParams ?: return
+        root.measure(
+            View.MeasureSpec.makeMeasureSpec(lp.width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        val h = root.measuredHeight
+        if (h != lp.height) {
+            lp.height = h
+            runCatching { holder.context.getSystemService(WindowManager::class.java).updateViewLayout(holder, lp) }
+        }
+        grown?.takeIf { it.visibility == View.VISIBLE }?.let { g ->
+            g.pivotY = (g.layoutParams?.height?.takeIf { it > 0 } ?: g.measuredHeight).toFloat()
+            g.pivotX = (g.layoutParams?.width?.takeIf { it > 0 } ?: g.measuredWidth) / 2f
+            g.scaleY = 0.2f
+            g.alpha = 0f
+            g.animate().scaleY(1f).alpha(1f).setDuration(200).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        }
+    }
+
     /** Whether a press here sends the camera too: this contact's Voice | Video. */
     private fun videoMode(context: Context): Boolean = chat?.let { messagingState(context).value.talkSettings.pushVideoFor(it) } ?: false
 
@@ -138,7 +170,9 @@ object TalkBubble {
         own.visibility = if (on) View.VISIBLE else View.GONE
         videoBox?.findViewWithTag<View>("video")?.visibility = if (on) View.GONE else View.VISIBLE
         if (on) {
+            val was = videoBox?.visibility
             videoBox?.visibility = View.VISIBLE
+            fit(videoBox?.takeIf { was != View.VISIBLE })
             ownSurface?.let { com.chencohen.ptt.talkVideoCapture?.setPreview(it) }
         } else {
             ownSurface?.let { s -> com.chencohen.ptt.talkVideoCapture?.clearPreview(s) {} }
@@ -155,7 +189,9 @@ object TalkBubble {
         videoSwitch?.visibility = if (burstVideo) View.VISIBLE else View.GONE
         videoSwitch?.setImageResource(if (on) R.drawable.ic_bubble_video else R.drawable.ic_bubble_video_off)
         videoSwitch?.contentDescription = context.getString(if (on) R.string.talk_video_on else R.string.talk_video_off)
-        videoBox?.visibility = if (burstVideo && on) View.VISIBLE else View.GONE
+        val was = videoBox?.visibility
+        videoBox?.visibility = if ((burstVideo && on) || sendingVideo) View.VISIBLE else View.GONE
+        fit(videoBox?.takeIf { was != View.VISIBLE })
         main.removeCallbacks(turn)
         if (burstVideo && on) main.post(turn)
     }
@@ -180,6 +216,7 @@ object TalkBubble {
                 boxParams.width = w
                 boxParams.height = h
                 box.layoutParams = boxParams
+                fit()
             }
             val (vw, vh) = if (turned) h to w else w to h
             val lp = video.layoutParams
@@ -399,8 +436,24 @@ object TalkBubble {
             if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
             title = "Talk reply"
         }
+        val holder = android.widget.FrameLayout(context).apply {
+            clipChildren = false
+            addView(root, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+            // A touch outside the window closes it (not while talking).
+            setOnTouchListener { _, e ->
+                if (e.actionMasked == MotionEvent.ACTION_OUTSIDE && !talking) dismissNow()
+                false
+            }
+        }
+        // The window as tall as what shows, set before each change shows (fit), its bottom edge fixed.
+        root.measure(
+            View.MeasureSpec.makeMeasureSpec(params.width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        params.height = root.measuredHeight
         return try {
-            wm.addView(root, params)
+            wm.addView(holder, params)
+            frame = holder
             view = root
             // Slides up from below the bottom edge.
             root.translationY = dp(400).toFloat()
@@ -458,6 +511,7 @@ object TalkBubble {
         (button?.background as? GradientDrawable)?.setColor(TEAL)
         line?.visibility = View.VISIBLE
         line?.text = "0:00"
+        fit()
         button?.setImageResource(R.drawable.ic_bubble_send)
         button?.contentDescription = context.getString(R.string.bubble_send)
         main.post(tick)
@@ -484,6 +538,7 @@ object TalkBubble {
         }
         (button?.background as? GradientDrawable)?.setColor(PINK)
         line?.visibility = View.GONE
+        fit()
         note = null
         if (sendingVideo) {
             sendingVideo = false
@@ -629,7 +684,9 @@ object TalkBubble {
         button = null
         chat = null
         main.removeCallbacks(tick)
-        runCatching { v.context.getSystemService(WindowManager::class.java).removeView(v) }
+        val f = frame
+        frame = null
+        runCatching { v.context.getSystemService(WindowManager::class.java).removeView(f ?: v) }
         Log.i(TAG, "gone")
     }
 
