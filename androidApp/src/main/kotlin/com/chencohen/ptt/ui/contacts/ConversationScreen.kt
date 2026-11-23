@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -405,7 +406,7 @@ internal fun ConversationScreen(
                                     message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
                                     bubbleModifier = if (liveVideo) Modifier else Modifier.graphicsLayer { alpha = seeThrough },
                                     liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
-                                    startEdit = if (message.outgoing && message.clip == null && message.call == null && canWrite && editing == null) { offset -> editing = Editing(message.id, message.body, offset) } else null,
+                                    startEdit = if (message.outgoing && message.clip == null && message.call == null && canWrite && editing == null) { offset, width -> editing = Editing(message.id, message.body, offset, width) } else null,
                                 )
                             }
                         }
@@ -570,15 +571,17 @@ private fun lastSeen(at: Long): String {
 private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, tick: ReadMarks.Tick = ReadMarks.Tick.NONE, liveVideo: Boolean = false, liveSince: Long? = null, compact: Boolean = false, bubbleModifier: Modifier = Modifier,
     /** Their text being edited live: its text as it stands (null: hidden), shown in place with a soft mark. */
     liveEdit: com.chencohen.ptt.messaging.LiveEdit? = null,
-    /** Mine: a double tap edits it, the caret at the tapped character. */
-    startEdit: ((Int) -> Unit)? = null,
+    /** Mine: a double tap edits it, the caret at the tapped character ([Int] the bubble's width now, in pixels). */
+    startEdit: ((Int, Int) -> Unit)? = null,
 ) {
+    var bubbleWidth by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val retry = actions.retry
     val mine = message.outgoing
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
             bubbleModifier
                 .widthIn(max = bubbleMaxWidth())
+                .onSizeChanged { bubbleWidth = it.width }
                 .animateContentSize(androidx.compose.animation.core.tween(MORPH_MS))
                 .then(if (liveEdit != null) Modifier.border(1.dp, LibraryColors.Accent.copy(alpha = 0.6f), LibraryShapes.Card) else Modifier)
                 .background(if (mine) LibraryColors.Mine else LibraryColors.Raised, LibraryShapes.Card)
@@ -610,7 +613,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                     onTextLayout = { layout = it },
                     modifier = if (startEdit != null) Modifier.pointerInput(message.id) {
                         // The caret where the finger was (the text's own layout; right to left too).
-                        detectTapGestures(onDoubleTap = { at -> startEdit(layout?.getOffsetForPosition(at) ?: message.body.length) })
+                        detectTapGestures(onDoubleTap = { at -> startEdit(layout?.getOffsetForPosition(at) ?: message.body.length, bubbleWidth) })
                     } else Modifier,
                 )
             }
@@ -871,75 +874,95 @@ internal class ChatDraft {
 
 internal const val FLIGHT_MS = 300
 
-/** One of my texts being edited: [value] as it stands, the caret first at [caret]; [leaving] asks it to turn back. */
-internal class Editing(val id: String, val original: String, caret: Int) {
+/**
+ * One of my texts being edited: [value] as it stands, the caret first at [caret]; [width] the bubble's width as it
+ * was (its text keeps that wrap until the first change); [leaving] asks it to turn back.
+ */
+internal class Editing(val id: String, val original: String, caret: Int, val width: Int) {
     var value by mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(original, androidx.compose.ui.text.TextRange(caret.coerceIn(0, original.length))))
     var leaving by mutableStateOf(false)
+    /** Typed in: the text may take the box's whole width. */
+    var changed by mutableStateOf(false)
 }
 
 /**
- * My sent text, edited in place (2026-11-24, hen): the teal bubble turns into the writing bubble's look (coral outline,
- * "Editing your message", ✓ and ✕), the text where it was, the keyboard up; ✓ saves, ✕, Back or a tap outside turn
- * it back unchanged. 200 ms each way, eased.
+ * My sent text, edited in place (2026-11-24, hen): the words don't move. The edit field lies exactly where the
+ * bubble's text was (same style, padding and wrap width), and only the container turns: teal to the writing bubble's
+ * look (coral outline), widening to the row on my side, the time's line giving way to "Editing your message" and ✓.
+ * The text keeps its wrap until the first change, then may use the whole box. ✓ saves; Back or a tap outside turn it
+ * back unchanged (no ✕). 220 ms each way, eased.
  */
 @Composable
 private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit) {
     val open = remember(edit.id) { androidx.compose.animation.core.Animatable(0f) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
     var saving by remember(edit.id) { mutableStateOf<Boolean?>(null) }
+    val ease = androidx.compose.animation.core.tween<Float>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
     LaunchedEffect(edit.id) {
         // They see it is being edited from the first moment.
         change(edit.value)
-        open.animateTo(1f, androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
         runCatching { focus.requestFocus() }
+        open.animateTo(1f, ease)
     }
     LaunchedEffect(edit.leaving) { if (edit.leaving && saving == null) saving = false }
     LaunchedEffect(saving) {
         val save = saving ?: return@LaunchedEffect
         done(save)
-        open.animateTo(0f, androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        open.animateTo(0f, ease)
         gone()
     }
     val p = open.value
     val coral = com.chencohen.ptt.ui.style.Pink
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val pad = 14.dp
+    val from = with(density) { edit.width.toDp() }.coerceAtLeast(pad * 2 + 24.dp)
+    // The box: the writing bubble's widths (65% to 85% of the row, by the text), never narrower than the bubble was.
+    val style = LibraryType.Body
+    val target = maxOf(draftWidth(edit.value.text, style, chrome = pad * 2), from)
+    val full by androidx.compose.animation.core.animateDpAsState(target, androidx.compose.animation.core.tween(150), label = "edit width")
+    val boxWidth = from + (full - from) * p
+    // The text's wrap: the bubble's own until the first change, then (eased) the box's.
+    val wrap by androidx.compose.animation.core.animateDpAsState(
+        if (edit.changed) full - pad * 2 else from - pad * 2, androidx.compose.animation.core.tween(220), label = "wrap",
+    )
     Box(Modifier.fillMaxWidth(), contentAlignment = MySide) {
-        // From the bubble's width to the row's (as the writing bubble), and back.
-        val full = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp - 24.dp
-        var natural by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-        val density = androidx.compose.ui.platform.LocalDensity.current
-        val from = with(density) { natural.toDp() }
         Column(
-            Modifier.then(if (natural == 0) Modifier.widthIn(max = bubbleMaxWidth()).onSizeChanged { natural = it.width } else Modifier.width(from + (full - from) * p))
+            Modifier.width(boxWidth)
                 .border(1.5.dp, coral.copy(alpha = p), LibraryShapes.Card)
                 .background(androidx.compose.ui.graphics.lerp(LibraryColors.Mine, LibraryColors.Background, p), LibraryShapes.Card)
                 .background(coral.copy(alpha = 0.08f * p), LibraryShapes.Card)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = pad, vertical = 8.dp),
+            // On my side, where the bubble's text was: the box grows away from it.
+            horizontalAlignment = Alignment.End,
         ) {
-            if (p > 0f) Text(stringResource(R.string.chat_edit_label), color = coral.copy(alpha = p), style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
             androidx.compose.foundation.text.BasicTextField(
                 value = edit.value,
-                onValueChange = { v -> change(v.copy(text = v.text.take(4_000))) },
+                onValueChange = { v ->
+                    if (v.text != edit.value.text) edit.changed = true
+                    change(v.copy(text = v.text.take(4_000)))
+                },
                 textStyle = LibraryType.Body.copy(color = androidx.compose.ui.graphics.lerp(LibraryColors.OnMine, LibraryColors.OnBackground, p)),
                 cursorBrush = androidx.compose.ui.graphics.SolidColor(coral),
                 maxLines = 6,
-                modifier = Modifier.focusRequester(focus),
+                modifier = Modifier.width(wrap).focusRequester(focus),
             )
-            if (p > 0f) {
-                Row(Modifier.align(Alignment.End).padding(top = 6.dp).graphicsLayer { alpha = p }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val cancel = stringResource(R.string.chat_edit_cancel)
-                    val save = stringResource(R.string.chat_edit_save)
-                    Box(
-                        Modifier.size(32.dp).background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
-                            .clickable(role = Role.Button, onClickLabel = cancel) { if (saving == null) saving = false },
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(LibraryIcons.Close, cancel, tint = LibraryColors.OnBackground, modifier = Modifier.size(16.dp)) }
-                    val can = edit.value.text.isNotBlank()
-                    Box(
-                        Modifier.size(32.dp).background(if (can) coral else coral.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape)
-                            .clickable(enabled = can, role = Role.Button, onClickLabel = save) { if (saving == null) saving = true },
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(16.dp)) }
-                }
+            // The time's line gives way to the label and ✓ (the text above stays where it is).
+            Row(
+                Modifier.fillMaxWidth().padding(top = 2.dp).height(18.dp + 18.dp * p),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.chat_edit_label), color = coral, style = LibraryType.Small,
+                    modifier = Modifier.weight(1f).graphicsLayer { alpha = p },
+                )
+                val save = stringResource(R.string.chat_edit_save)
+                val can = edit.value.text.isNotBlank()
+                Box(
+                    Modifier.size(32.dp).graphicsLayer { alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p }
+                        .background(if (can) coral else coral.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape)
+                        .clickable(enabled = can && p > 0.5f, role = Role.Button, onClickLabel = save) { if (saving == null) saving = true },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(16.dp)) }
             }
         }
     }

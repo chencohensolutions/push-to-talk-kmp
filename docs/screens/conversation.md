@@ -125,10 +125,11 @@ above it and scrolls behind nothing. On Send the message fills in at the end of 
 the thumb finds it in one place: Voice message, Voice call, Video call, then the big push-to-talk button near the right
 edge and the upright Voice | video switch at the edge; my camera's thumbnail on the button's top-left corner.
 
-**The writing bubble** (2026-11-24, hen): as wide as the row, like the empty "Write a message" one before it (so
-nothing shrinks as the first letter goes in), anchored on my side (the left in Hebrew, `MySide`); sent bubbles keep
-their 78% at most, and Send's flight eases the width from one to the other; the edit box widens to the row the same
-way; the text wraps inside it, and past 6 lines it scrolls inside
+**The writing bubble** (2026-11-24, hen: "a bit wider"): the empty "Write a message" one is 65% of the row; writing,
+it starts at that width (nothing shrinks as the first letter goes in) and grows with the text, at once, up to 85%,
+then wraps (`draftWidth`); anchored on my side (the left in Hebrew, `MySide`). Sent bubbles keep their 78% at most, and
+Send's flight eases the width from one to the other. The edit box takes the same widths, never narrower than the
+bubble was; the text wraps inside it, and past 6 lines it scrolls inside
 with the caret in view. Their live draft follows its text at once too; only its turn into the message eases. Its
 place, and the row's folding, come straight from the keyboard's animated insets, frame by frame.
 
@@ -138,8 +139,10 @@ only showing the window doesn't.
 
 
 **Editing a sent text** (2026-11-24, hen): a double tap on one of my texts turns it in place (200 ms) into the writing
-bubble's look, "Editing your message", the caret where the finger was (the text's own layout, right to left too), the
-keyboard up, ✓ and ✕ inside. ✓ saves; ✕, Back or a tap outside turn it back unchanged. The edit goes end to end like
+bubble's look, the caret where the finger was (the text's own layout, right to left too), the keyboard up. The words
+don't move: the edit field lies exactly where the bubble's text was (same style, padding and wrap width) and only the
+container turns (teal to the coral outline, widening on my side, the time's line giving way to "Editing your message"
+and ✓); the text keeps its wrap until the first change. ✓ saves; Back or a tap outside turn it back unchanged (no ✕). The edit goes end to end like
 a text (`EditContent` in Content field 19, kept and pushed silently, also to my other phones; in a group through the
 group's Send); every phone replaces the text and shows "edited" by the time. Only the author's edit of their own text
 counts; an id a phone doesn't have is ignored; older apps skip the field. While I edit, live only like live typing

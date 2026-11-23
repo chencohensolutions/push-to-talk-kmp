@@ -106,9 +106,9 @@ internal fun ComposeBubble(
                 hint,
                 color = LibraryColors.Muted,
                 style = LibraryType.Body,
-                // Nearly the whole row (2026-11-24, hen: wider), anchored on my side.
+                // 65% of the row (2026-11-24, hen: "a bit wider"), anchored on my side.
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxWidth(DRAFT_MIN)
                     .drawBehind {
                         drawRoundRect(
                             dash,
@@ -122,12 +122,13 @@ internal fun ComposeBubble(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             )
         } else {
-            // As wide as the row (2026-11-24, hen: wider, the same width as the empty one, so nothing shrinks when the
-            // first letter goes in); the text wraps inside it, and past 6 lines it scrolls inside with the caret in view.
+            // From the empty one's width (65% of the row, so nothing shrinks as the first letter goes in), growing with
+            // the text, at once, up to 85%, then wrapping; past 6 lines it scrolls inside with the caret in view.
             val style = LibraryType.Body.copy(color = LibraryColors.OnBackground)
             val label = stringResource(R.string.chat_send)
+            val width = draftWidth(text, style, chrome = 14.dp + 8.dp + 8.dp + 36.dp)
             Column(
-                bubbleModifier.fillMaxWidth()
+                bubbleModifier.width(width)
                     .shadow(8.dp, LibraryShapes.Card)
                     .background(LibraryColors.Background, LibraryShapes.Card)
                     .border(1.5.dp, coral, LibraryShapes.Card)
@@ -156,6 +157,24 @@ internal fun ComposeBubble(
             }
         }
     }
+}
+
+/** The writing bubble's least and most width, of the row (2026-11-24, hen). */
+internal const val DRAFT_MIN = 0.65f
+internal const val DRAFT_MAX = 0.85f
+
+/** The row the chat's bubbles sit in: the screen less its 12 dp sides. */
+@Composable
+internal fun chatRowWidth(): Dp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp - 24.dp
+
+/** A writing box's width for [text]: its longest line and [chrome], from 65% to 85% of the row. */
+@Composable
+internal fun draftWidth(text: String, style: androidx.compose.ui.text.TextStyle, chrome: Dp): Dp {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val row = chatRowWidth()
+    val textWidth = remember(text, style) { with(density) { measurer.measure(text.ifEmpty { " " }, style).size.width.toDp() } }
+    return (textWidth + chrome + 4.dp).coerceIn(row * DRAFT_MIN, row * DRAFT_MAX)
 }
 
 /** A message just sent from the draft bubble: it fills in place, outline to this phone's bubble colour (250 ms). */
