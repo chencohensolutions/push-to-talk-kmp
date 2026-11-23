@@ -195,12 +195,13 @@ private fun PlacePicker(slot: Int, choose: (Int) -> Unit) {
     // and each cell still stands for its side of the screen.
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == LayoutDirection.Rtl
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides LayoutDirection.Ltr) {
+        // Compact (2026-11-24, hen): the frame hugs the cells, 6 dp between all of them and inside it.
         Column(
-            Modifier.width(96.dp).aspectRatio(3f / 2.4f).border(1.dp, LibraryColors.Muted.copy(alpha = 0.4f), RoundedCornerShape(10.dp)).padding(4.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
+            Modifier.border(1.dp, LibraryColors.Muted.copy(alpha = 0.4f), RoundedCornerShape(10.dp)).padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             for (row in 0..1) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (cell in 0..2) {
                         val column = if (rtl) 2 - cell else cell
                         val s = row * 3 + column

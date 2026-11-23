@@ -80,6 +80,8 @@ class LiveKitCallTransport(
 
     /** This phone's camera, published through [framer], which sends face hints and leaves the picture whole. */
     private suspend fun publishCamera(room: Room) {
+        // The push-to-video camera (kept warm in a chat in Video) lets go first.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.chencohen.ptt.talkVideoCapture?.handOver() }
         framer.onFace = { hint -> if (_room.value === room) sendFace(room, hint) }
         val lp = room.localParticipant
         val track = lp.createVideoTrack(name = "camera", options = room.videoTrackCaptureDefaults, videoProcessor = framer)
@@ -185,6 +187,7 @@ class LiveKitCallTransport(
         if (on && room != null && room.localParticipant.getTrackPublication(Track.Source.CAMERA) == null) {
             publishCamera(room)
         } else {
+            if (on) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.chencohen.ptt.talkVideoCapture?.handOver() }
             room?.localParticipant?.setCameraEnabled(on)
         }
         if (on) _room.value?.let { watchCamera(it) }
