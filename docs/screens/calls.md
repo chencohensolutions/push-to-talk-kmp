@@ -53,12 +53,18 @@ says "Calls need the microphone. Allow it in the app's settings."
   3×2 on its side, 3 stacked on a tall phone). Every tile is cropped to fill; with Follow face each tile's crop slides
   and zooms (`CallGrid.place`, up to 1.5x) to put that person's face in its middle at the same head-and-shoulders
   size, so the grid looks even; the face finder takes turns, about three looks a second in all. No layout pill.
-- **Follow face** (2026-11-23, hen; a pill at the top while someone's video shows, kept for next time, apart from
-  Frame my face; both may be on): on this phone's view of the received video only (the big tile in a group call), the
-  same face finder looks four times a second and the view pans and zooms to keep the face near the upper third, head
+- **Face hints** (2026-11-23, hen: "the sender sends the face position", then "don't crop the face before
+  sending"): while its camera runs, the sending phone sends its whole picture untouched and looks for the biggest face
+  about four times a second (`FaceHinter`, a LiveKit VideoProcessor, ML Kit's on-phone detector, bundled, offline). Each
+  face found goes to the others as a hint (`FaceHint`: centre and height as shares of the picture, the frame's time),
+  sealed with the call's key, over the call's data channel (topic `face`, lossy). Receivers keep each sender's last
+  few (`FaceHints`); a hint stands for 1.5 s.
+- **Follow face** (2026-11-23, hen; a pill at the top while someone's video shows, kept for next time; the one face
+  option): on this phone's view of the received video only, framed by the sender's hints, or, from a sender that sends
+  none (an older app), by the same face finder here; the view pans and zooms to keep the face near the upper third, head
   and shoulders about 45% of the height, easing in half a second, small moves left alone, back to the plain picture
   1.5 s after the face is lost. Maximized: the picture is drawn whole and clipped to the screen, so the crop slides to
-  the face, with at most 1.5x more zoom; Normal: at most 1.8x inside the tile. Nothing is sent.
+  the face, with at most 1.5x more zoom; Normal: at most 1.8x inside the tile. Only this phone's view changes.
 - **Stats** (2026-11-22, hen; Call settings › Advanced › Show video stats, off by default): a **Stats** pill at the top
   right shows or hides, on each video and your preview, its frame rate, bit rate, size and codec from WebRTC's stats,
   once a second (your camera: all simulcast layers' bytes, the biggest layer's size and rate). Kept for next time.

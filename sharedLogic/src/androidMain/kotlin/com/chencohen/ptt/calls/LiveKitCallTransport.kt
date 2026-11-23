@@ -59,18 +59,28 @@ class LiveKitCallTransport(
     private var events: Job? = null
     private var front = true
 
-    /** Follow my face: the camera's frames framed around the face before they are sent (FaceFramer). */
-    private val framer = FaceFramer()
+    /** The camera's frames on their way out: faces found in them go to the others as hints (FaceHinter). */
+    private val framer = FaceHinter()
 
-    /** Follow my face, on or off (the call screen's button, kept for next time). */
-    var followFace: Boolean
-        get() = framer.enabled
-        set(value) {
-            framer.enabled = value
+    /** The face hints received in this call, by user (FaceHint): Follow face frames with them. */
+    val faceHints = FaceHints()
+    @Volatile private var callKey: ByteArray? = null
+
+    /** The newest standing hint from [user] (not this phone's), for Follow face. */
+    fun faceHint(user: String): FaceHint? = faceHints.latest(user, android.os.SystemClock.elapsedRealtime())
+
+    private fun sendFace(room: Room, hint: FaceHint) {
+        val key = callKey ?: return
+        scope.launch {
+            runCatching {
+                room.localParticipant.publishData(FaceHint.seal(key, hint), io.livekit.android.room.track.DataPublishReliability.LOSSY, FaceHint.TOPIC)
+            }
         }
+    }
 
-    /** This phone's camera, published through [framer], so the framing goes to everyone and to the preview. */
+    /** This phone's camera, published through [framer], which sends face hints and leaves the picture whole. */
     private suspend fun publishCamera(room: Room) {
+        framer.onFace = { hint -> if (_room.value === room) sendFace(room, hint) }
         val lp = room.localParticipant
         val track = lp.createVideoTrack(name = "camera", options = room.videoTrackCaptureDefaults, videoProcessor = framer)
         track.startCapture()
@@ -99,6 +109,8 @@ class LiveKitCallTransport(
         val sixty = video && want60() && supports60(appContext)
         Log.i(TAG, "call video: ${videoCodec()}, ${if (sixty) 60 else 30} fps")
         val encoding = if (sixty) io.livekit.android.room.track.VideoEncoding(SIXTY_BITRATE, 60) else null
+        callKey = key
+        faceHints.clear()
         val room = LiveKit.create(
             appContext,
             RoomOptions(
@@ -315,6 +327,12 @@ class LiveKitCallTransport(
         when (event) {
             is RoomEvent.ParticipantConnected, is RoomEvent.ParticipantDisconnected -> others(room)
             is RoomEvent.RoomMetadataChanged -> metadata(room)
+            is RoomEvent.DataReceived -> if (event.topic == FaceHint.TOPIC) {
+                val key = callKey
+                val from = event.participant?.identity?.value?.substringBeforeLast('.')
+                val hint = if (key != null) FaceHint.open(key, event.data) else null
+                if (from != null && hint != null) faceHints.put(from, hint, android.os.SystemClock.elapsedRealtime())
+            }
             is RoomEvent.Disconnected -> {
                 if (_room.value === room) listener?.disconnected()
             }

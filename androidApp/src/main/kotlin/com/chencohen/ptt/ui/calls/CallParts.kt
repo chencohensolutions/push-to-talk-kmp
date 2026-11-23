@@ -289,9 +289,6 @@ fun CallScreen(
         val cameraLeft = rememberDisplayRotation() != android.view.Surface.ROTATION_270
         var statsShown by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("stats", false)) }
         val stats = statsAllowed && statsShown
-        // Follow my face (2026-11-22, hen): framed on this phone before sending; kept for next time.
-        var follow by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("follow_face", false)) }
-        LaunchedEffect(transport, follow) { transport?.followFace = follow }
         // Follow face (2026-11-23, hen): on what is received, this phone's view only; kept for next time.
         var followThem by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("follow_remote", false)) }
         val own = r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
@@ -317,7 +314,7 @@ fun CallScreen(
                 Row(modifier) {
                     remote.forEach { (user, track) ->
                         key(user, track.sid ?: track.name, maximized) {
-                            VideoView(r!!, track, Modifier.weight(1f).fillMaxSize().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first)
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxSize().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first, hint = { transport?.faceHint(user) })
                         }
                     }
                 }
@@ -325,7 +322,7 @@ fun CallScreen(
                 Column(modifier) {
                     remote.forEach { (user, track) ->
                         key(user, track.sid ?: track.name, maximized) {
-                            VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first)
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first, hint = { transport?.faceHint(user) })
                         }
                     }
                 }
@@ -373,6 +370,7 @@ fun CallScreen(
                                             Modifier.weight(1f).fillMaxHeight().padding(1.dp).then(if (user.isNotEmpty()) Modifier.told(user) else Modifier),
                                             mirror = user.isEmpty(), fill = true, stats = stats,
                                             follow = followThem, maxZoom = 1.5f, faceAt = 0.45f, everyMs = every,
+                                            hint = { if (user.isNotEmpty()) transport?.faceHint(user) else null },
                                         )
                                     }
                                 }
@@ -453,12 +451,6 @@ fun CallScreen(
                             ) {
                                 orientation = (orientation + 1) % 3
                                 prefs.edit().putInt("orientation", orientation).apply()
-                            }
-                            if (call.camera) {
-                                Pill(stringResource(R.string.call_follow_face), on = follow) {
-                                    follow = !follow
-                                    prefs.edit().putBoolean("follow_face", follow).apply()
-                                }
                             }
                             if (remote.isNotEmpty()) {
                                 Pill(stringResource(R.string.call_follow_them), on = followThem) {
@@ -692,6 +684,8 @@ private fun VideoView(
     maxZoom: Float = 1.8f,
     faceAt: Float = 0.4f,
     everyMs: Long = com.chencohen.ptt.calls.FaceFinder.EVERY_MS,
+    /** The sender's newest face hint (FaceHint), when it sends them: used instead of looking here. */
+    hint: () -> com.chencohen.ptt.calls.FaceHint? = { null },
 ) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
@@ -731,7 +725,7 @@ private fun VideoView(
     val bw = boxSize.width.toFloat()
     val bh = boxSize.height.toFloat()
     val content = if (aspect > 0f && bw > 0f && bh > 0f) com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, fill) else null
-    val framing = followFace(track, follow, fill, boxSize, content, maxZoom, faceAt, everyMs)
+    val framing = followFace(track, follow, fill, boxSize, content, maxZoom, faceAt, everyMs, hint)
     Box(modifier.clipToBounds().onSizeChanged { boxSize = it }, contentAlignment = Alignment.Center) {
         val density = androidx.compose.ui.platform.LocalDensity.current
         val shaped = if (content != null) {
@@ -769,6 +763,7 @@ private fun followFace(
     /** Where the face goes down the box (a share of its height); how often to look (shared out in a group). */
     faceAt: Float = 0.4f,
     everyMs: Long = com.chencohen.ptt.calls.FaceFinder.EVERY_MS,
+    hint: () -> com.chencohen.ptt.calls.FaceHint? = { null },
 ): Modifier {
     var box by remember(track) { androidx.compose.runtime.mutableStateOf<android.graphics.RectF?>(null) }
     var seenAt by remember(track) { androidx.compose.runtime.mutableLongStateOf(0L) }
@@ -786,18 +781,23 @@ private fun followFace(
                 }
             }
         }
-        val sink = livekit.org.webrtc.VideoSink { frame -> finder.offer(frame) }
+        // Looked for here only while the sender sends no hints (an older app).
+        val sink = livekit.org.webrtc.VideoSink { frame -> if (hint() == null) finder.offer(frame) }
         track.addRenderer(sink)
         onDispose {
             track.removeRenderer(sink)
             finder.close()
         }
     }
-    // Lost for 1.5 s: back to the plain picture.
+    // The sender's hints, four times a second; lost for 1.5 s: back to the plain picture.
     LaunchedEffect(track, on) {
         while (on) {
-            delay(300)
+            hint()?.let { h ->
+                box = android.graphics.RectF(h.x - h.h * 0.375f, h.y - h.h / 2, h.x + h.h * 0.375f, h.y + h.h / 2)
+                seenAt = android.os.SystemClock.elapsedRealtime()
+            }
             if (box != null && android.os.SystemClock.elapsedRealtime() - seenAt > 1_500) box = null
+            delay(250)
         }
     }
     // The target: scale and offset of the picture in the box; moved only past a dead zone.

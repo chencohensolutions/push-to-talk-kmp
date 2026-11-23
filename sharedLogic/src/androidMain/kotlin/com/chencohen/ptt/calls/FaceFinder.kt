@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * The biggest face in a stream of video frames, looked for about four times a second on a 240-wide copy with ML Kit's
  * on-phone detector (bundled, offline). [found] gets it as a share of the UPRIGHT picture (the frame turned by its
- * rotation), or null when there is none; on a thread of its own. Used by Frame my face (FaceFramer, the camera before
- * sending) and Follow face (the call screen, on what is received).
+ * rotation), or null when there is none; on a thread of its own. Used by the sender (FaceHinter, the camera
+ * before sending, for hints) and by Follow face when a sender sends none (the call screen, on what is received).
  */
 class FaceFinder(
     private val tag: String,
