@@ -362,3 +362,40 @@ internal fun VideoClipContent(message: TextMessage, live: Boolean, onInverse: Bo
     @Suppress("UNUSED_EXPRESSION") onInverse
 }
 
+/**
+ * A push-to-video burst live in the chat (2026-11-23, hen): mine, the camera as it sends, at the end of the chat in an
+ * outlined bubble like the draft (with [framed]), a red dot and the time; theirs, their video as it plays. When it
+ * ends the bubble stays and becomes the video (first picture, length).
+ */
+@Composable
+internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = true) {
+    var elapsed by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(startedAt) {
+        while (true) {
+            elapsed = (System.currentTimeMillis() - startedAt).coerceAtLeast(0L)
+            delay(200)
+        }
+    }
+    val coral = com.chencohen.ptt.ui.style.Pink
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    val video = @Composable {
+        Box(Modifier.width(168.dp).aspectRatio(3f / 4f).background(Color.Black, shape).clip(shape), contentAlignment = Alignment.Center) {
+            if (mine) com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize()) else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
+            Row(
+                Modifier.align(Alignment.BottomStart).padding(8.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(7.dp).background(LibraryColors.Error, CircleShape))
+                Text(clipLength(elapsed), color = Color.White, style = LibraryType.Tiny, modifier = Modifier.padding(start = 4.dp))
+            }
+        }
+    }
+    if (!framed) {
+        video()
+        return
+    }
+    Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+        Box(Modifier.border(1.5.dp, coral, LibraryShapes.Card).background(coral.copy(alpha = 0.08f), LibraryShapes.Card).padding(6.dp)) { video() }
+    }
+}
+

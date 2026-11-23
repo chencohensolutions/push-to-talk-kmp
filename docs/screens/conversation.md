@@ -68,3 +68,7 @@ keyboard.
 sent or received, is a video bubble at its time: its first picture (decoded from the clip kept on the phone, in
 memory only), its length ("live" while it is said), a play mark; a tap plays it full screen over the chat (Follow face
 as set), Back or a tap closes it; a long press saves it as a file. Voice bursts stay voice bubbles.
+Push-to-video from the chat (2026-11-23, hen): with the chat's Voice | Video on Video the camera stays open while the
+chat shows; holding Push-to-talk puts this phone's camera live in an outlined bubble at the end of the chat (red dot,
+time); on release the same bubble stays and becomes the sent video (first picture, length, status circle). Their
+push-to-video plays live in their bubble the same way, then stays as the video. No separate preview over the chat.

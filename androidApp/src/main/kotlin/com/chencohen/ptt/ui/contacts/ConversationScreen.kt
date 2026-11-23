@@ -129,6 +129,9 @@ internal fun ConversationScreen(
     talkLine: String? = null,
     /** Others writing live (their Live typing): who (null in a one-to-one chat) and what, as it is written. */
     drafts: List<Pair<String?, String>> = emptyList(),
+    /** This chat's Voice | Video is Video: a press sends the camera too, so it is kept open here. */
+    pushVideo: Boolean = false,
+    warmCamera: (String?) -> Unit = {},
 ) {
     // A video burst tapped in the chat plays full screen over it (2026-11-23, hen); Back or a tap closes it.
     var fullVideo by remember(user) { mutableStateOf<String?>(null) }
@@ -235,6 +238,10 @@ internal fun ConversationScreen(
             text = ""
             lastTyping = 0L
         }
+        // Push-to-video from the chat (2026-11-23, hen): the camera kept open while the chat shows, so a press sends
+        // it at once; what this phone sends shows live in its bubble at the end of the chat, and stays as the video.
+        com.chencohen.ptt.ui.talk.WarmCamera(user, pushVideo && canWrite, warmCamera)
+        val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
         val recordingVoice = talk.own?.takeIf { it.chat == user && it.phase == TalkPhase.VOICE } != null
         val talkingHere = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) } != null
         // A draft that grows (a new line) stays in view, if the list was at the bottom (2026-11-23, hen).
@@ -265,6 +272,12 @@ internal fun ConversationScreen(
                         item(key = "recording") { Box(Modifier.animateItem(ease, move, ease)) { RecordingStrip { actions.finishVoice(false) } } }
                     } else {
                         item(key = "compose") { Box(Modifier.animateItem(ease, move, ease)) { ComposeBubble(text, editing, focus, { editing = true }, ::change, ::send) } }
+                    }
+                }
+                // What this phone sends with its camera, before its message is there: the same key, so it stays in place.
+                if (sendingVideo != null && messages.none { it.id == sendingVideo.clip }) {
+                    item(key = sendingVideo.clip) {
+                        Box(Modifier.animateItem(ease, move, ease)) { LiveVideoBubble(mine = true, startedAt = sendingVideo.startedAt) }
                     }
                 }
                 // One-to-one: their circle at the very end (they read everything) and their live draft share one place:
@@ -305,7 +318,13 @@ internal fun ConversationScreen(
                             } else if (message.id == sentMorph) {
                                 SentMorphBubble(message)
                             } else {
-                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ReadMarks.tick(messages, message))
+                                // Live video in the bubble: mine while I send it, theirs while it plays (not under the
+                                // full-screen player).
+                                val liveVideo = message.clip?.video == true && fullVideo == null && (
+                                    (message.outgoing && talk.own?.clip == message.id && talk.own?.phase == TalkPhase.TALKING) ||
+                                        (!message.outgoing && talk.playing?.clip == message.id && talk.playing?.video == true)
+                                    )
+                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ReadMarks.tick(messages, message), liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt)
                             }
                         }
                     }
@@ -443,7 +462,7 @@ private fun lastSeen(at: Long): String {
 }
 
 @Composable
-private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, tick: ReadMarks.Tick = ReadMarks.Tick.NONE) {
+private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, tick: ReadMarks.Tick = ReadMarks.Tick.NONE, liveVideo: Boolean = false, liveSince: Long? = null) {
     val retry = actions.retry
     val mine = message.outgoing
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
@@ -460,7 +479,14 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             if (message.call != null) {
                 com.chencohen.ptt.ui.calls.CallEntryContent(message, onInverse = mine, share = actions.shareCall, playKept = actions.playKept) { actions.call(message.call!!.video) }
             } else if (message.clip?.video == true) {
-                VideoClipContent(message, live, onInverse = mine, play = actions.playVideo, save = actions.saveClip)
+                // Live, then the video it leaves (first picture, length), in the same place.
+                androidx.compose.animation.AnimatedContent(
+                    liveVideo,
+                    transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))) },
+                    label = "live video",
+                ) { isLive ->
+                    if (isLive) LiveVideoBubble(mine, liveSince ?: message.at, framed = false) else VideoClipContent(message, live, onInverse = mine, play = actions.playVideo, save = actions.saveClip)
+                }
             } else if (message.clip != null) {
                 ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine, save = actions.saveClip)
             } else {
