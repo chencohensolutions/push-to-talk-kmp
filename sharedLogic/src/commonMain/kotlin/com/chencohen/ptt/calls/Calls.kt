@@ -59,11 +59,7 @@ data class CallUi(
     val connectedAt: Long = 0,
     /** Others in the call now, by user. */
     val others: List<String> = emptyList(),
-    /** Users saving the call (the Recording badge); this phone's own user too while it saves. */
-    val recordingBy: Set<String> = emptySet(),
-    /** The user whose device has the server keeping the call now (the room's metadata); null: not kept. */
-    val serverRecordingBy: String? = null,
-    /** The server can keep calls (serverInfo.keepsCalls): Record shows even with Save calls off. */
+    /** The server can keep calls (serverInfo.keepsCalls): Save shows even with Save calls off. */
     val serverKeeps: Boolean = false,
     val microphone: Boolean = true,
     val camera: Boolean = video,
@@ -262,15 +258,9 @@ internal class Calls(
 
     fun switchCamera() = transport?.switchCamera()
 
-    /** Saving starts or stops on this phone (Settings › Calls › Save calls): the others see the Recording badge. */
+    /** Saving starts or stops on this phone (Settings › Calls › Save calls). */
     fun setRecording(on: Boolean) {
         val call = current?.takeIf { it.phase == CallPhase.ACTIVE } ?: return
-        val self = me() ?: return
-        if (!on && !call.saving && call.serverRecordingBy != null) {
-            // Someone else has the server keeping it: anyone in the call may stop that.
-            scope.launch { keepOnServer(call, false) }
-            return
-        }
         if (on == call.saving) return
         if (on) {
             // With a server that keeps calls, Save is only the server's: this phone doesn't record or re-encode anything
@@ -281,8 +271,7 @@ internal class Calls(
             if (savingHere) transport?.stopRecording()?.let { savedAs = it }
             savingHere = false
         }
-        _state.update { it?.copy(saving = on, askToSave = false, recordingBy = if (on) it.recordingBy + self else it.recordingBy - self) }
-        scope.launch { send(call.chat, CallContent(CallContent.RECORDING, call.id, recording = on), PushKind.NONE) }
+        _state.update { it?.copy(saving = on, askToSave = false) }
         scope.launch { keepOnServer(call, on) }
     }
 
@@ -369,10 +358,6 @@ internal class Calls(
                     here.phase == CallPhase.RINGING && from == here.caller -> end(CallOutcome.MISSED, tell = false)
                     Group.idOf(chat) == null -> end(if (here.connectedAt > 0) CallOutcome.ANSWERED else CallOutcome.CANCELLED, tell = false)
                 }
-            }
-            CallContent.RECORDING -> {
-                here ?: return
-                _state.update { it?.copy(recordingBy = if (call.recording) it.recordingBy + from else it.recordingBy - from) }
             }
             CallContent.VIEW -> {
                 here ?: return
@@ -464,8 +449,6 @@ internal class Calls(
                     val mode = saveCalls()
                     _state.value = call.copy(
                         phase = CallPhase.ACTIVE, others = users, serverKeeps = serverKeepsCalls(),
-                        // Whoever left isn't saving it any more (they can't say so once gone).
-                        recordingBy = call.recordingBy.filter { it in users || it == me() }.toSet(),
                         connectedAt = call.connectedAt.takeIf { it > 0 } ?: now(),
                         askToSave = call.askToSave || (first && mode == SaveCalls.ASK),
                     )
@@ -491,7 +474,6 @@ internal class Calls(
                     camera?.let { log(call, it) }
                     views.values.forEach { log(call, it) }
                 }
-                _state.update { it?.copy(serverRecordingBy = by?.substringBeforeLast('.')) }
             }
         }
 

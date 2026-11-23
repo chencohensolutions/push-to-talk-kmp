@@ -89,6 +89,29 @@ internal fun SavingCallsScreen(settings: TalkSettings, back: () -> Unit, change:
             }
         }
         PageNote(stringResource(R.string.calls_save_note))
+        // Download saved calls to the phone automatically (2026-11-23, hen): on call end, under the chosen conditions.
+        SectionTitle(stringResource(R.string.calls_autodl_title))
+        SettingsCard {
+            com.chencohen.ptt.ui.talk.SwitchRow(
+                stringResource(R.string.calls_autodl),
+                stringResource(R.string.calls_autodl_body),
+                settings.autoDownloadCalls,
+            ) { on -> change(settings.copy(autoDownloadCalls = on)) }
+            if (settings.autoDownloadCalls) {
+                RowDivider()
+                com.chencohen.ptt.ui.talk.SwitchRow(
+                    stringResource(R.string.calls_autodl_wifi),
+                    stringResource(R.string.calls_autodl_wifi_body),
+                    settings.autoDownloadWifiOnly,
+                ) { on -> change(settings.copy(autoDownloadWifiOnly = on)) }
+                RowDivider()
+                com.chencohen.ptt.ui.talk.SwitchRow(
+                    stringResource(R.string.calls_autodl_charging),
+                    stringResource(R.string.calls_autodl_charging_body),
+                    settings.autoDownloadChargingOnly,
+                ) { on -> change(settings.copy(autoDownloadChargingOnly = on)) }
+            }
+        }
         // Where Save as file puts a kept call: a folder picked with Android's picker (SD card and USB drives too).
         SectionTitle(stringResource(R.string.calls_folder_title))
         val context = androidx.compose.ui.platform.LocalContext.current

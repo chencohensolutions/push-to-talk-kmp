@@ -33,7 +33,7 @@ internal data class Content(
     @ProtoNumber(9) val clip: ClipContent? = null,
     /** The sender device's key for its live audio in the conversation's talk room (phase 5b). */
     @ProtoNumber(10) val talkKey: TalkKeyContent? = null,
-    /** A video call's signalling: invite, answer, hang-up, recording (phase 6). */
+    /** A video call's signalling: invite, answer, hang-up (phase 6). */
     @ProtoNumber(11) val call: CallContent? = null,
     /** On a copy for the sender's own other devices: the user the message went to. */
     @ProtoNumber(15) val destination: String = "",
@@ -168,15 +168,13 @@ internal data class CallContent(
     @ProtoNumber(4) val video: Boolean = false,
     /** When it was sent (an invite older than 30 s doesn't ring). */
     @ProtoNumber(5) val sentAt: Long = 0,
-    /** With RECORDING: saving started (true) or stopped. */
-    @ProtoNumber(6) val recording: Boolean = false,
     /** With VIEW: how the sender shows [of]'s video (a user): cropped to fill its tile, or whole; and the tile's shape. */
     @ProtoNumber(7) val fill: Boolean = false,
     @ProtoNumber(8) val aspect: Float = 0f,
     @ProtoNumber(9) val of: String = "",
 ) {
     override fun equals(other: Any?): Boolean = other is CallContent && kind == other.kind && id == other.id &&
-        key.contentEquals(other.key) && video == other.video && sentAt == other.sentAt && recording == other.recording &&
+        key.contentEquals(other.key) && video == other.video && sentAt == other.sentAt &&
         fill == other.fill && aspect == other.aspect && of == other.of
 
     override fun hashCode(): Int = id.hashCode() * 31 + kind
@@ -188,7 +186,6 @@ internal data class CallContent(
         const val HANG_UP = 4
         /** Busy on another call: declined without ringing. */
         const val BUSY = 5
-        const val RECORDING = 6
         /** Answered or declined on another phone of the callee: this one stops ringing. */
         const val ANSWERED_ELSEWHERE = 7
         /** How this phone shows someone's video (Fill or Fit, its tile's shape): their own preview outlines it. */

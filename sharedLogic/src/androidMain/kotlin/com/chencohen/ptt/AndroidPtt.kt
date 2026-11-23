@@ -276,6 +276,20 @@ fun setTalkSettings(context: Context, talk: com.chencohen.ptt.messaging.TalkSett
 
 fun messagingState(context: Context): kotlinx.coroutines.flow.StateFlow<com.chencohen.ptt.messaging.MessagingState> = hub(context).state
 
+/** The call on this phone now (its state flow), for background work such as auto-downloading a saved call. */
+fun callState(context: Context): kotlinx.coroutines.flow.StateFlow<com.chencohen.ptt.calls.CallUi?> = hub(context).calls.state
+
+/** A kept call's tracks on the server (callRecording), for downloading it. */
+suspend fun keptCallTracks(context: Context, message: com.chencohen.ptt.messaging.TextMessage): com.chencohen.ptt.messaging.KeptCall =
+    withContext(messagingWork) { hub(context).keptCall(message) }
+
+/** Reads blob [id]'s bytes (a kept call's track), still ciphertext end to end. */
+suspend fun readCallBlob(context: Context, id: String, onBytes: suspend (ByteArray) -> Unit) =
+    withContext(messagingWork) { hub(context).readBlob(id, onBytes) }
+
+/** The chat entry of call [id]; its CallEntry carries keptKey once the server kept the call. */
+fun callMessage(context: Context, id: String): com.chencohen.ptt.messaging.TextMessage? = hub(context).store.message(id)
+
 /** A talk notification's Play: the burst from the chat's history. */
 suspend fun playClip(context: Context, id: String) {
     val messaging = hub(context)

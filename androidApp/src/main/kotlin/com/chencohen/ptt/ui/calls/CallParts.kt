@@ -239,7 +239,7 @@ fun CallsList(
 /**
  * The call screen (docs/screens/calls.md), over everything while a call is on: ringing (Decline in red, Answer in
  * teal), calling, then the others' video (or their names for a voice call) with this phone's own picture in a corner,
- * the Recording badge, and the microphone, camera, flip and Hang up buttons.
+ * and the microphone, camera, flip and Hang up buttons.
  */
 @Composable
 fun CallScreen(
@@ -482,15 +482,6 @@ fun CallScreen(
                     Spacer(Modifier.height(12.dp))
                     Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
                     Text(statusLine(call, nameOf), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
-                    val recorders = call.recordingBy + listOfNotNull(call.serverRecordingBy)
-                    if (recorders.isNotEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            stringResource(R.string.call_recording, recorders.joinToString { nameOf(it) }),
-                            color = Color.White, style = LibraryType.Small,
-                            modifier = Modifier.background(LibraryColors.Error, CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
-                    }
                     if (call.askToSave && call.phase == CallPhase.ACTIVE) {
                         Spacer(Modifier.height(16.dp))
                         Column(
@@ -533,15 +524,14 @@ fun CallScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = if (side) Arrangement.Center else Arrangement.Top,
                 ) {
-                    // Stop shows for anyone while the server keeps the call; Record only where it can be saved.
-                    val stoppable = call.saving || call.serverRecordingBy != null
-                    if ((canSave || stoppable) && call.phase == CallPhase.ACTIVE) {
+                    // Save starts keeping the call; Stop (red) stops it. Only the phone that is saving sees Stop.
+                    if ((canSave || call.saving) && call.phase == CallPhase.ACTIVE) {
                         Text(
-                            stringResource(if (stoppable) R.string.call_save_stop else R.string.call_save),
+                            stringResource(if (call.saving) R.string.call_save_stop else R.string.call_save),
                             color = Color.White, style = LibraryType.Small,
                             modifier = Modifier
-                                .background(if (stoppable) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
-                                .clickable(role = Role.Button) { actions.setSaving(!stoppable) }
+                                .background(if (call.saving) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
+                                .clickable(role = Role.Button) { actions.setSaving(!call.saving) }
                                 .padding(horizontal = 14.dp, vertical = 6.dp),
                         )
                         Spacer(Modifier.height(16.dp))

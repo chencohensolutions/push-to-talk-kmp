@@ -457,14 +457,18 @@ The server's side is its docs/messaging.md, "Calls": `callToken(call, peer | gro
   folder alone).
 
 - **Kept calls** (2026-11-22, hen: the server keeps a call only while someone records it; [calls.md](screens/calls.md),
-  "Playing a kept call"): Save also asks the server to keep the call (`recordCall`; Stop is `stopRecordingCall`, for
-  anyone in it), and the Recording badge also reads the LiveKit room's metadata. `Calls` keeps the call's key on the
-  entry (`CallEntry.keptKey`) once the server kept it. **`calls/LiveKitFrames.kt`** undoes LiveKit's frame encryption
+  "Playing a kept call"): Save also asks the server to keep the call (`recordCall`; Stop is `stopRecordingCall`).
+  `Calls` reads the LiveKit room's metadata to know while the server keeps the call (no badge is shown), and keeps
+  the call's key on the entry (`CallEntry.keptKey`) once the server kept it. **`calls/LiveKitFrames.kt`** undoes LiveKit's frame encryption
   (PBKDF2-SHA256 of the key's base64 with salt "LKFrameEncryptionKey", 100 000 rounds, AES-128-GCM; the clear header
   as authenticated data; H.264 unescaped first), **`calls/KeptCallFile.kt`** downloads and decrypts each track blob
   and **`calls/Matroska.kt`** writes one file without re-encoding. The player is one ExoPlayer per person over that
   file. `tools/keptcall` makes the test fixture with Go's own crypto, so the decryption is checked against another
   implementation.
+- **Download saved calls** (2026-11-23, hen; Settings › Calls › Save calls › Download saved calls): when a call this
+  phone saved ends, `TalkApp` schedules **`CallDownloads`**, a WorkManager job (the Wi-Fi and/or charging terms from
+  `TalkSettings.autoDownload*`) that reuses `loadKeptCall`/`saveKeptCall` to download and decrypt the kept call into
+  the chosen folder once the server has it, retrying until then.
 
 - **H.265 video** (2026-11-22, hen; Settings › Calls › Video): `LiveKitCallTransport` publishes the camera in H.265
   with VP8 as LiveKit's backup codec when chosen and the phone has a hardware HEVC encoder (`hasHevcEncoder`). The
