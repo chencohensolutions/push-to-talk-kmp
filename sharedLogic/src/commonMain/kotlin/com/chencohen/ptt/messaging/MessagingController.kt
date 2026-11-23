@@ -282,6 +282,9 @@ class MessagingController internal constructor(
     /** "Save this call?" answered Not now. */
     fun dismissSaveAsk() = onWork { messaging.calls.dismissAsk() }
 
+    /** "Call ended" goes now (Back, or the app opening on it). */
+    fun dismissEndedCall() = onWork { messaging.calls.dismissEnded() }
+
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     fun pressTalk(chat: String) = onWork { messaging.talk.press(chat) }
 

@@ -334,4 +334,44 @@ class CallsTest {
         runCurrent()
         assertEquals(CallView(true, 2f), s.calls.state.value!!.viewers["sharon"])
     }
+
+    @Test
+    fun callEndedGoesEvenWhenTheCallChangedAfterItEnded() = runTest {
+        // 2026-11-23, hen: the screen stayed on "Call ended" (a camera turn after the end replaced the state).
+        val s = Setup(this)
+        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
+        s.calls.accept()
+        runCurrent()
+        s.transport.listener!!.others(listOf("sharon.1"))
+        runCurrent()
+        s.calls.hangUp()
+        runCurrent()
+        assertEquals(CallPhase.ENDED, s.calls.state.value!!.phase)
+        s.transport.listener!!.cameraFormat(0, 640, 480)
+        s.calls.setView("sharon", fill = true, aspect = 0.5f)
+        runCurrent()
+        advanceTimeBy(Calls.SHOW_ENDED + 1)
+        assertNull(s.calls.state.value)
+    }
+
+    @Test
+    fun backClosesCallEndedAtOnce() = runTest {
+        val s = Setup(this)
+        assertTrue(s.calls.start("sharon", video = false))
+        runCurrent()
+        s.calls.hangUp()
+        runCurrent()
+        assertEquals(CallPhase.ENDED, s.calls.state.value!!.phase)
+        s.calls.dismissEnded()
+        assertNull(s.calls.state.value)
+    }
+
+    @Test
+    fun dismissingLeavesACallThatIsOn() = runTest {
+        val s = Setup(this)
+        assertTrue(s.calls.start("sharon", video = false))
+        runCurrent()
+        s.calls.dismissEnded()
+        assertEquals(CallPhase.CALLING, s.calls.state.value!!.phase)
+    }
 }

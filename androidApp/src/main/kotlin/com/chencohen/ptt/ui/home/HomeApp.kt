@@ -788,7 +788,10 @@ fun HomeApp(
             FullScreenAskOnce(messagingState.talkSettings.openOnTalk)
             // A call, over everything (phase 6).
             messagingState.call?.let { current ->
-                BackHandler {}
+                // During a call Back does nothing (the call goes on); once it has ended, Back closes "Call ended".
+                BackHandler { if (current.phase == com.chencohen.ptt.calls.CallPhase.ENDED) messaging.dismissEndedCall() }
+                // Opening the app on an ended call: it goes at once.
+                LaunchedEffect(Unit) { if (current.phase == com.chencohen.ptt.calls.CallPhase.ENDED) messaging.dismissEndedCall() }
                 com.chencohen.ptt.ui.calls.CallScreen(
                     call = current,
                     title = chatName(current.chat),
