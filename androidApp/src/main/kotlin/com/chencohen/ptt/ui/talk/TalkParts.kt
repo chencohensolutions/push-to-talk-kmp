@@ -425,14 +425,14 @@ private fun ClipRow(message: TextMessage, who: String, playing: NowPlaying?, pla
 internal fun ClipContent(message: TextMessage, playing: NowPlaying?, live: Boolean, play: (String) -> Unit, stop: () -> Unit, onInverse: Boolean, save: ((String) -> Unit)? = null) {
     val clip = message.clip ?: return
     val now = playing?.clip == message.id
-    val ink = if (onInverse) LibraryColors.OnInverse else LibraryColors.OnBackground
-    val muted = if (onInverse) LibraryColors.OnInverseMuted else LibraryColors.Muted
+    val ink = if (onInverse) LibraryColors.OnMine else LibraryColors.OnBackground
+    val muted = if (onInverse) LibraryColors.OnMineMuted else LibraryColors.Muted
     Row(
         // A long press saves it as a file (2026-11-23, hen).
         Modifier.combinedClickable(role = Role.Button, onLongClick = save?.let { s -> { s(message.id) } }) { if (now) stop() else play(message.id) }.padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(36.dp).background(if (onInverse) LibraryColors.OnInverse.copy(alpha = 0.15f) else LibraryColors.Accent.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(36.dp).background(if (onInverse) LibraryColors.OnMine.copy(alpha = 0.15f) else LibraryColors.Accent.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
             Icon(if (now) LibraryIcons.Pause else LibraryIcons.Play, stringResource(if (now) R.string.clip_stop else R.string.clip_play), tint = if (onInverse) ink else LibraryColors.Accent, modifier = Modifier.size(18.dp))
         }
         Column(Modifier.padding(start = 10.dp).width(150.dp)) {

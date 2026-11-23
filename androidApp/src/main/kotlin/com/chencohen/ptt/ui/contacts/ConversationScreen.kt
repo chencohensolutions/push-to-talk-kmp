@@ -366,7 +366,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
         Column(
             Modifier
                 .widthIn(max = 300.dp)
-                .background(if (mine) LibraryColors.Inverse else LibraryColors.Raised, LibraryShapes.Card)
+                .background(if (mine) LibraryColors.Mine else LibraryColors.Raised, LibraryShapes.Card)
                 .then(if (message.status == MessageStatus.FAILED) Modifier.clickable(role = Role.Button) { retry(message.id) } else Modifier)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
@@ -378,7 +378,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             } else if (message.clip != null) {
                 ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine, save = actions.saveClip)
             } else {
-                Text(message.body, color = if (mine) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)
+                Text(message.body, color = if (mine) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Body)
             }
             val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
             val status = if (!mine) null else when (message.status) {
@@ -392,7 +392,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 listOfNotNull(time, status).joinToString(" · "),
                 color = when {
                     message.status == MessageStatus.FAILED && mine -> LibraryColors.Warning
-                    mine -> LibraryColors.OnInverseMuted
+                    mine -> LibraryColors.OnMineMuted
                     else -> LibraryColors.Muted
                 },
                 style = LibraryType.Tiny,

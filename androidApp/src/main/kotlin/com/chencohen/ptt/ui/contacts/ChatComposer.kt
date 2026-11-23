@@ -80,7 +80,7 @@ internal fun ComposeBubble(
     change: (String) -> Unit,
     send: () -> Unit,
 ) {
-    val coral = LibraryColors.Accent
+    val coral = com.chencohen.ptt.ui.style.Pink
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         if (!editing && text.isEmpty()) {
             val hint = stringResource(R.string.chat_write_hint)
@@ -138,9 +138,9 @@ internal fun SentMorphBubble(message: TextMessage) {
     val settled = remember(message.id) { Animatable(0f) }
     LaunchedEffect(message.id) { settled.animateTo(1f, tween(MORPH_MS)) }
     val s = settled.value
-    val coral = LibraryColors.Accent
-    val fill = androidx.compose.ui.graphics.lerp(coral.copy(alpha = 0.08f), LibraryColors.Inverse, s)
-    val ink = androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.OnInverse, s)
+    val coral = com.chencohen.ptt.ui.style.Pink
+    val fill = androidx.compose.ui.graphics.lerp(coral.copy(alpha = 0.08f), LibraryColors.Mine, s)
+    val ink = androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.OnMine, s)
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Column(
             Modifier.widthIn(max = 300.dp)
@@ -153,7 +153,7 @@ internal fun SentMorphBubble(message: TextMessage) {
             Text(message.body, color = ink, style = LibraryType.Body)
             Text(
                 DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at)),
-                color = LibraryColors.OnInverseMuted.copy(alpha = s), style = LibraryType.Tiny,
+                color = LibraryColors.OnMineMuted.copy(alpha = 0.6f * s), style = LibraryType.Tiny,
                 modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
             )
         }
@@ -192,7 +192,7 @@ internal fun RecordingStrip(discard: () -> Unit) {
             Text(clipLength(elapsed), color = LibraryColors.OnBackground, style = LibraryType.Caption)
             Row(Modifier.height(28.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 @Suppress("UNUSED_EXPRESSION") tick
-                bars.forEach { b -> Box(Modifier.width(3.dp).height((4 + 24 * b.coerceIn(0f, 1f)).dp).background(LibraryColors.Accent, CircleShape)) }
+                bars.forEach { b -> Box(Modifier.width(3.dp).height((4 + 24 * b.coerceIn(0f, 1f)).dp).background(com.chencohen.ptt.ui.style.Pink, CircleShape)) }
             }
             val label = stringResource(R.string.voice_discard)
             Box(
@@ -226,7 +226,7 @@ internal fun ChatButtons(
         val talkLabel = stringResource(R.string.talk_button)
         Box(
             Modifier.size(big)
-                .background(if (talking) LibraryColors.Accent else LibraryColors.Accent.copy(alpha = 0.85f), CircleShape)
+                .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
                 .semantics { contentDescription = talkLabel }
                 .holdToTalk(onPress = { microphone(actions.startVoice) }, onRelease = { actions.finishVoice(true) }),
             contentAlignment = Alignment.Center,
@@ -244,7 +244,7 @@ internal fun ChatButtons(
 private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, size: Dp, filled: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier.size(size)
-            .background(if (filled) LibraryColors.Accent else LibraryColors.Raised, CircleShape)
+            .background(if (filled) com.chencohen.ptt.ui.style.Pink else LibraryColors.Raised, CircleShape)
             .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, label, tint = if (filled) Color.White else LibraryColors.OnBackground, modifier = Modifier.size(size * 0.45f)) }

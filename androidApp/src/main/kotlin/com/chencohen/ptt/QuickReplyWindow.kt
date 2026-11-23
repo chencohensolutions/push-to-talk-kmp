@@ -438,11 +438,11 @@ object QuickReplyWindow {
         Box(Modifier.fillMaxWidth(), contentAlignment = if (m.outgoing) Alignment.CenterEnd else Alignment.CenterStart) {
             Column(
                 Modifier.widthIn(max = 300.dp)
-                    .background(if (m.outgoing) LibraryColors.Inverse else LibraryColors.Raised, RoundedCornerShape(14.dp))
+                    .background(if (m.outgoing) LibraryColors.Mine else LibraryColors.Raised, RoundedCornerShape(14.dp))
                     .padding(horizontal = 12.dp, vertical = 7.dp),
             ) {
                 if (!m.outgoing && m.author != null) Text(m.author!!, color = LibraryColors.Accent, style = LibraryType.Small)
-                Text(text, color = if (m.outgoing) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)
+                Text(text, color = if (m.outgoing) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Body)
             }
         }
     }

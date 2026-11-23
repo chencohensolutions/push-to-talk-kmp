@@ -42,7 +42,11 @@ internal class LibraryPalette(
     val OnInverseMuted: Color,
     val Warning: Color,
     val Error: Color,
+    /** This phone's own chat bubbles (2026-11-23, hen: option C, deep teal), their text, and their time and ticks. */
+    val Mine: Color = Color(0xFF163A36),
+    val OnMine: Color = Color(0xFFDFF3EF),
 ) {
+    val OnMineMuted: Color get() = OnMine.copy(alpha = 0.6f)
     val BadgeScrim = Color(0x990F1413)
     val PillScrim = Color(0xB30F1413)
     val PhotoText = Color.White
@@ -90,6 +94,8 @@ internal val LightLibraryPalette = LibraryPalette(
     OnInverseMuted = Color(0xFFFFD1E8),
     Warning = Color(0xFFB45309),
     Error = Color(0xFFC2410C),
+    Mine = Color(0xFFD3EEE9),
+    OnMine = Color(0xFF0E2B28),
 )
 
 private val LocalLibraryPalette = staticCompositionLocalOf { DarkLibraryPalette }
