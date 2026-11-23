@@ -2,6 +2,7 @@ package com.chencohen.ptt.ui.contacts
 
 import androidx.compose.foundation.background
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.positionInWindow
@@ -11,6 +12,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.Color
 import com.chencohen.ptt.messaging.ReadMarks
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.imeAnimationSource
 import com.chencohen.ptt.talk.TalkPhase
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -160,7 +163,8 @@ internal fun ConversationScreen(
     Box(Modifier.fillMaxSize().onGloballyPositioned { flight.origin = it.positionInWindow() }) {
     Column(
         Modifier.fillMaxSize().background(LibraryColors.Background)
-            .then(if (embeddedHeader != null) Modifier.navigationBarsPadding() else Modifier.statusBarsPadding().navigationBarsPadding().imePadding()),
+            // The keyboard's room follows its animation frame by frame (2026-11-24, hen); the window grows with it.
+            .then(if (embeddedHeader != null) Modifier.navigationBarsPadding().imePadding() else Modifier.statusBarsPadding().navigationBarsPadding().imePadding()),
     ) {
         val canTalk = if (group != null) group.note == null else contact?.paired == true && !contact.blocked
         when {
@@ -257,7 +261,8 @@ internal fun ConversationScreen(
         // under them to the bottom of the screen, with room at its end so its last message clears them.
         val density = androidx.compose.ui.platform.LocalDensity.current
         var floatingHeight by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-        val floatingRoom by androidx.compose.animation.core.animateDpAsState(with(density) { floatingHeight.toDp() }, androidx.compose.animation.core.tween(200), label = "floating room")
+        // As measured, every frame (no animation of its own: it moves with the keyboard and the row).
+        val floatingRoom = with(density) { floatingHeight.toDp() }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 Modifier.fillMaxSize().pointerInput(Unit) {
@@ -365,7 +370,15 @@ internal fun ConversationScreen(
                 )
             }
             // Floating at the bottom: this phone's draft (or a voice message's recording), then the buttons.
-            val keyboardUp = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) > 0
+            // How far the keyboard is open, 0 to 1, as it animates: the button row folds away by the same amount.
+            val imeNow = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            val imeFull = maxOf(
+                androidx.compose.foundation.layout.WindowInsets.imeAnimationSource.getBottom(density),
+                androidx.compose.foundation.layout.WindowInsets.imeAnimationTarget.getBottom(density),
+                imeNow,
+            )
+            val rowShown = if (imeFull > 0) 1f - (imeNow.toFloat() / imeFull).coerceIn(0f, 1f) else 1f
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { floatingHeight = it.height }) {
                 if (canWrite) {
                     Box(Modifier.fillMaxWidth().animateContentSize(androidx.compose.animation.core.tween(200)).padding(horizontal = 12.dp, vertical = 6.dp)) {
@@ -385,11 +398,12 @@ internal fun ConversationScreen(
                     group == null && contact == null -> Note(stringResource(R.string.contact_gone))
                     group == null && contact!!.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
                     group == null && !contact!!.paired -> Note(stringResource(R.string.contact_waiting))
-                    else -> androidx.compose.animation.AnimatedVisibility(
-                        // The window doesn't see the keyboard's insets (it moves above it): writing hides the row there.
-                        !keyboardUp && !(embeddedHeader != null && draft.editing),
-                        enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(200)) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
-                        exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
+                    else -> Box(
+                        Modifier.clipToBounds().layout { measurable, constraints ->
+                            val row = measurable.measure(constraints)
+                            val height = (row.height * rowShown).toInt()
+                            layout(row.width, height) { row.placeWithLayer(0, 0) { alpha = rowShown } }
+                        },
                     ) { ChatButtons(false, talkingHere, recordingVoice, actions) }
                 }
             }
@@ -638,13 +652,15 @@ internal sealed interface LiveLine {
 
 @Composable
 private fun LiveLineView(line: LiveLine, draftUser: String?) {
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     var bubble by remember { mutableStateOf(line.takeIf { it !is LiveLine.Circle }) }
     if (line !is LiveLine.Circle) bubble = line
     val ease = androidx.compose.animation.core.tween<Float>(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)
     androidx.compose.animation.AnimatedContent(
         line is LiveLine.Circle,
         transitionSpec = {
-            (androidx.compose.animation.fadeIn(ease) + androidx.compose.animation.scaleIn(ease, initialScale = 0.6f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 1f)))
+            // From their side's bottom corner: the start, which is the right in Hebrew (TransformOrigin isn't mirrored).
+            (androidx.compose.animation.fadeIn(ease) + androidx.compose.animation.scaleIn(ease, initialScale = 0.6f, transformOrigin = sideOrigin(mine = false, rtl = rtl, y = 1f)))
                 .togetherWith(androidx.compose.animation.fadeOut(ease))
                 .using(androidx.compose.animation.SizeTransform(clip = false))
         },
@@ -804,6 +820,16 @@ internal class SendFlight {
     }
 }
 
+/**
+ * The pivot on a bubble's own side (TransformOrigin is left-based, not mirrored): theirs at the start, mine at the
+ * end; in Hebrew the start is the right.
+ */
+internal fun sideOrigin(mine: Boolean, rtl: Boolean, y: Float) = androidx.compose.ui.graphics.TransformOrigin(if (mine == rtl) 0f else 1f, y)
+
+/** Where the flying copy goes in the chat's box: window positions are left-based in either direction. */
+internal fun flightOffset(box: androidx.compose.ui.geometry.Rect, origin: androidx.compose.ui.geometry.Offset) =
+    androidx.compose.ui.unit.IntOffset((box.left - origin.x).toInt(), (box.top - origin.y).toInt())
+
 @Composable
 private fun SendFlightOverlay(flight: SendFlight) {
     val text = flight.body ?: return
@@ -821,11 +847,13 @@ private fun SendFlightOverlay(flight: SendFlight) {
     val end = with(density) { androidx.compose.ui.util.lerp(8.dp.toPx(), 14.dp.toPx(), p).toDp() }
     Box(
         Modifier
-            .layout { measurable, _ ->
+            // The whole screen, so the parent's alignment (mirrored in Hebrew) plays no part; the copy is placed at the
+            // window's own (left-based) position with place(), which isn't mirrored either.
+            .layout { measurable, constraints ->
                 val w = box.width.toInt().coerceAtLeast(1)
                 val h = box.height.toInt().coerceAtLeast(1)
                 val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
-                layout(w, h) { placeable.place((box.left - flight.origin.x).toInt(), (box.top - flight.origin.y).toInt()) }
+                layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(flightOffset(box, flight.origin)) }
             }
             .background(LibraryColors.Background.copy(alpha = 1f - p), LibraryShapes.Card)
             .background(coral.copy(alpha = 0.08f * (1f - p)), LibraryShapes.Card)
@@ -852,6 +880,7 @@ private fun SendFlightOverlay(flight: SendFlight) {
 /** The pinned draft: the empty bubble or the one being written; typing and live typing told from here. */
 @Composable
 private fun PinnedDraft(draft: ChatDraft, focus: androidx.compose.ui.focus.FocusRequester, actions: ConversationActions, sent: (String, androidx.compose.ui.geometry.Rect?) -> Unit) {
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     // After a send the bubble written in flies off as the message, and a new empty one pops up here (2026-11-24,
     // hen): from 0.85 with a fade, 200 ms; the keyboard stays and so does the focus.
     val appear = remember { androidx.compose.animation.core.Animatable(1f) }
@@ -880,7 +909,8 @@ private fun PinnedDraft(draft: ChatDraft, focus: androidx.compose.ui.focus.Focus
             val scale = 0.85f + 0.15f * appear.value
             scaleX = scale
             scaleY = scale
-            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)
+            // From my side: the end, the left in Hebrew.
+            transformOrigin = sideOrigin(mine = true, rtl = rtl, y = 0.5f)
         },
         bubbleModifier = Modifier.onGloballyPositioned { draft.bounds = it.boundsInWindow() },
         change = { value ->

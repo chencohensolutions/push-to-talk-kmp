@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -180,9 +182,13 @@ object QuickReplyWindow {
             // Above the keyboard while it shows (2026-11-23, hen): the window's frame keeps clear of it, moving up with
             // it and back down; with too little room the window gets shorter and the message list gives way.
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = android.view.WindowInsets.Type.ime()
+            // 2026-11-24 (hen): not fitted by the system (that moved it only once the keyboard was up); the window
+            // grows by the keyboard's height as it animates and its content keeps clear of it (imePadding).
+            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
             title = "Talk quick reply"
         }
+        baseHeight = params.height
+        layout = params
         try {
             wm.addView(frame, params)
             view = frame
@@ -239,6 +245,18 @@ object QuickReplyWindow {
     }
 
     private const val SLIDE_MS = 250L
+    private var baseHeight = 0
+    private var layout: WindowManager.LayoutParams? = null
+
+    /** The keyboard is [extra] pixels above the window's bottom room now: the window grows by that, upward. */
+    private fun growBy(context: Context, extra: Int) {
+        val v = view ?: return
+        val p = layout ?: return
+        val height = baseHeight + extra.coerceAtLeast(0)
+        if (p.height == height) return
+        p.height = height
+        runCatching { context.getSystemService(WindowManager::class.java).updateViewLayout(v, p) }
+    }
 
     private fun startTalk(context: Context, chat: String, video: Boolean) {
         talking.value = true
@@ -315,6 +333,10 @@ object QuickReplyWindow {
         val canVideo = context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val pushVideo = state.talkSettings.pushVideoFor(current) && canVideo
         var pulled by remember { mutableStateOf(0f) }
+        // The window grows with the keyboard, frame by frame (beyond the navigation bar's room it has already).
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val imeExtra = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) - androidx.compose.foundation.layout.WindowInsets.navigationBars.getBottom(density)
+        androidx.compose.runtime.SideEffect { growBy(context, imeExtra) }
         // The conversation screen itself (2026-11-24, hen: the same design and ways as the chat), with this window's
         // header: a swipe down closes it, the name opens the chat, × closes.
         Box(

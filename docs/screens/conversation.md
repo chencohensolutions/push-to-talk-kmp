@@ -54,6 +54,17 @@ size, "Your message" fades out and the time and status circle fade in. At the en
 the same frame. As it leaves, a new empty draft pops up in the pinned place (from 0.85 with a fade, 200 ms), the keyboard
 still up and focused on it. The same in the quick-reply window.
 
+**The keyboard** (2026-11-24, hen): the chat follows the keyboard's animation frame by frame (its insets, `imePadding`,
+with the activity edge to edge and adjustResize); the list, upside down, stays anchored at its bottom and rides up and
+down with it, with no scroll afterwards. The button row folds away by the same amount the keyboard is open (no
+animation of its own), and the room under the list is the pinned draft and the row as measured, every frame. The
+quick-reply window isn't fitted by the system any more: it grows upward by the keyboard's height as it animates.
+
+**Right to left** (2026-11-24, hen's phone is in Hebrew): pivots are left-based, so a bubble grows from its own side
+(`sideOrigin`: theirs from the start, the right in Hebrew; mine from the end); Send's flying copy covers the whole chat
+and is placed at its window position with `place()` (not mirrored), so it flies to its slot rather than to the mirror
+of it. Tested in RtlTransitionsTest.
+
 **Writing in the chat** (2026-11-23, hen, from the approved mockup "chat-typing-in-chat"): there is no line to write in
 at the bottom. The last thing in the chat is an empty dashed bubble on this phone's side, "Write a message…"; a tap
 opens the keyboard and makes it the draft: an outlined bubble (coral outline, faint fill, "Writing…") edited in place,
