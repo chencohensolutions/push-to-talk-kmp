@@ -236,8 +236,7 @@ internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment =
     var follow by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean(FOLLOW_TALK, false)) }
     var texture by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<TextureView?>(null) }
     val local = talkFace(follow && s != null, s?.clip, texture, rotation)
-    // The source's own pixels across, upright: the zoom stops where they run out (hen: "too zoomed").
-    val sourceWidth = (if (turned) s?.height else s?.width)?.toFloat() ?: 0f
+    // No closer than filling the box (2026-11-23, hen: "too zoomed"): Follow face only slides the fill crop.
     @Composable
     fun picture(w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp, framing: Modifier) {
         Box(Modifier.requiredSize(w, h).then(framing), contentAlignment = Alignment.Center) {
@@ -288,7 +287,7 @@ internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment =
             val bh = constraints.maxHeight.toFloat()
             val fit = com.chencohen.ptt.calls.CallGrid.content(bw, bh, upright, false)
             val coverRatio = maxOf(bw / fit.first, bh / fit.second)
-            val most = com.chencohen.ptt.calls.CallGrid.zoomCap(coverRatio * 1.5f, sourceWidth, fit.first, fill = coverRatio)
+            val most = coverRatio
             val pinch = com.chencohen.ptt.ui.calls.rememberPinch("zoom_talk_full", true, coverRatio, most)
             val framing = talkFraming(follow && s != null, s?.clip, local, bw, bh, fit, most, pinch.zoom)
             Box(Modifier.fillMaxSize().then(pinch.modifier), contentAlignment = Alignment.Center) {
@@ -300,7 +299,7 @@ internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment =
         FittedBox(upright, modifier, alignment) { w, h ->
             val wp = with(density) { w.toPx() }
             val hp = with(density) { h.toPx() }
-            val most = com.chencohen.ptt.calls.CallGrid.zoomCap(1.8f, sourceWidth, wp)
+            val most = 1f
             val pinch = com.chencohen.ptt.ui.calls.rememberPinch("zoom_talk", true, 1f, most)
             val framing = talkFraming(follow && s != null, s?.clip, local, wp, hp, wp to hp, most, pinch.zoom)
             Box(Modifier.fillMaxSize().clipToBounds().then(pinch.modifier), contentAlignment = Alignment.Center) {

@@ -127,14 +127,4 @@ class CallGridTest {
         assertEquals(5, CallGrid.nearest(slots, 180f, 420f))
         assertEquals(1, CallGrid.nearest(slots, 90f, 60f))
     }
-
-    @Test
-    fun zoomStopsWhereTheSourceRunsOutOfPixels() {
-        // 720 px across laid out 1080 wide, filling at 1.625: no closer than filling.
-        assertEquals(1.625f, CallGrid.zoomCap(2.4f, 720f, 1080f, fill = 1.625f))
-        // 1440 px across laid out 720 wide: up to 2x, so the wanted 1.8 stands.
-        assertEquals(1.8f, CallGrid.zoomCap(1.8f, 1440f, 720f))
-        // 960 across laid out 720 wide: 1.33 at most.
-        assertEquals(960f / 720f, CallGrid.zoomCap(1.8f, 960f, 720f), 0.001f)
-    }
 }

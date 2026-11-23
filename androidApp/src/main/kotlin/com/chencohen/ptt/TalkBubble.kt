@@ -243,9 +243,8 @@ object TalkBubble {
         val on = context.getSharedPreferences("call_view", Context.MODE_PRIVATE).getBoolean(com.chencohen.ptt.ui.talk.FOLLOW_TALK, false)
         // Where the face will be when this glide ends (the clip's own clock): no lag behind the picture.
         val face = if (on) com.chencohen.ptt.talk.AndroidTalkVideoOut.faceAt(aheadMs = 300) else null
-        val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value
-        val sourceWidth = (if ((shown?.rotation ?: 0) % 180 != 0) shown?.height else shown?.width)?.toFloat() ?: 0f
-        val most = com.chencohen.ptt.calls.CallGrid.zoomCap(1.8f, sourceWidth, w)
+        // The bubble's box is the picture's own shape: filling it is showing it whole, so no zoom, only nothing to slide.
+        val most = 1f
         val now = android.os.SystemClock.elapsedRealtime()
         if (face != null) followFaceSeen = now
         val want = if (face != null) {
