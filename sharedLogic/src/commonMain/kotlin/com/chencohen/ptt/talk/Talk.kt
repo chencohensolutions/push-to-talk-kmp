@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlin.io.encoding.Base64
 import kotlin.random.Random
 
@@ -195,6 +196,8 @@ internal class Talk(
         var granted = false
         var decided = voiceOnly
         val unsent = ArrayDeque<ClipSegment>()
+        /** One sender at a time: the segments go out in order (2026-11-23: a race sent one ahead of those waiting). */
+        val sending = kotlinx.coroutines.sync.Mutex()
         val records = mutableListOf<ByteArray>()
         var pending = mutableListOf<ByteArray>()
         var index = 0
@@ -327,10 +330,23 @@ internal class Talk(
         out.pendingBytes = 0
         out.pendingAudio = 0
         if (out.voiceOnly || out.phase == TalkPhase.OFFLINE || out.cancelled) return
-        if (out.granted) {
-            if (!sendFrame(ClipSegmentFrame(segment))) toVoice(out)
-        } else {
-            out.unsent += segment
+        out.unsent += segment
+        if (out.granted) drain(out)
+    }
+
+    /**
+     * The segments waiting, in order, while the floor is this phone's: always through [Outgoing.unsent] and one sender
+     * at a time, so a new segment never goes ahead of earlier ones still waiting (the server refuses a gap, and the
+     * burst was then stuck holding the floor; 2026-11-23, hen: "something is blocking calling and sending").
+     */
+    private suspend fun drain(out: Outgoing) {
+        out.sending.withLock {
+            while (out.granted && out.unsent.isNotEmpty()) {
+                if (!sendFrame(ClipSegmentFrame(out.unsent.removeFirst()))) {
+                    toVoice(out)
+                    return
+                }
+            }
         }
     }
 
@@ -435,10 +451,8 @@ internal class Talk(
         )
         publish()
         scope.launch {
-            // What was recorded before the grant, then the rest as it comes.
-            while (out.unsent.isNotEmpty()) {
-                if (!sendFrame(ClipSegmentFrame(out.unsent.removeFirst()))) return@launch toVoice(out)
-            }
+            // What was recorded before the grant, then the rest as it comes (in order: drain).
+            drain(out)
             if (out.finished) finish(out)
         }
         scope.launch {
@@ -499,9 +513,19 @@ internal class Talk(
         when (s.event) {
             TalkEvent.GRANTED -> out?.let { granted(it) }
             TalkEvent.BUSY -> out?.let { lost(it, TalkPhase.BUSY, busyWith = s.talkerUser) }
-            TalkEvent.REFUSED -> out?.let { lost(it, TalkPhase.REFUSED, refusal = s.refusal) }
+            TalkEvent.REFUSED -> out?.let {
+                // Refused after the floor was given (a segment the server couldn't take): let go of it at once.
+                if (it.granted) scope.launch { sendFrame(TalkEndFrame(TalkEnd(it.id))) }
+                it.granted = false
+                lost(it, TalkPhase.REFUSED, refusal = s.refusal)
+            }
             TalkEvent.STARTED -> {
                 _state.update { it.copy(talkers = it.talkers + (chat to Talker(s.talkerUser, s.talkerDevice, s.burstId, s.startedAt.takeIf { t -> t > 0 } ?: now()))) }
+                // A floor never longer than the server's limit: if its end never came (a dropped frame), it goes anyway.
+                scope.launch {
+                    delay(STALE_TALKER_MS)
+                    _state.update { st -> if (st.talkers[chat]?.clip == s.burstId) st.copy(talkers = st.talkers - chat) else st }
+                }
                 val self = me() ?: return
                 // Another phone of this user talking: shown, not played.
                 if (s.talkerUser == self.user) return
@@ -875,6 +899,9 @@ internal class Talk(
 
         /** The first segment goes after this many 20 ms frames (60 ms), the rest after a full 200 ms. */
         const val FIRST_SEGMENT_FRAMES = 3
+
+        /** Someone's floor shown at most this long (the server's 60 s limit, and some): a lost end can't block it. */
+        const val STALE_TALKER_MS = 75_000L
 
         /**
          * Push-to-video's video in one burst, at most: the server keeps a clip up to 8 MiB, and the voice and the
