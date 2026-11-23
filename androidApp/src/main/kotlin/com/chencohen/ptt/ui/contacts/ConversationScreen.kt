@@ -112,6 +112,8 @@ class ConversationActions(
     val shareCall: (String) -> Unit = {},
     /** A call the server kept: play it. */
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
+    /** Writing started (the draft opened): what they wrote counts as read (the quick-reply window). */
+    val answering: () -> Unit = {},
     /** Push-to-talk or push-to-video for this chat (remembered per contact); null: no switch. */
     val setPushVideo: ((Boolean) -> Unit)? = null,
 )
@@ -152,6 +154,8 @@ internal fun ConversationScreen(
      * system bar or keyboard room (the window keeps clear of them itself).
      */
     embeddedHeader: (@Composable () -> Unit)? = null,
+    /** The window's arrival (OverlayArrival): how solid all but a playing video is (0.5, then 1). */
+    seeThrough: Float = 1f,
 ) {
     // A video burst tapped in the chat plays full screen over it (2026-11-23, hen); Back or a tap closes it.
     var fullVideo by remember(user) { mutableStateOf<String?>(null) }
@@ -174,13 +178,13 @@ internal fun ConversationScreen(
         },
     ) {
     Column(
-        Modifier.fillMaxSize().background(LibraryColors.Background)
+        Modifier.fillMaxSize().background(LibraryColors.Background.copy(alpha = seeThrough))
             // The keyboard's room follows its animation frame by frame (2026-11-24, hen); the window grows with it.
             .then(if (embeddedHeader != null) Modifier.navigationBarsPadding().imePadding() else Modifier.statusBarsPadding().navigationBarsPadding().imePadding()),
     ) {
         val canTalk = if (group != null) group.note == null else contact?.paired == true && !contact.blocked
         when {
-            embeddedHeader != null -> embeddedHeader()
+            embeddedHeader != null -> Box(Modifier.graphicsLayer { alpha = seeThrough }) { embeddedHeader() }
             group != null -> GroupHeader(group, actions, canTalk)
             else -> Header(user, contact, header, actions, canTalk)
         }
@@ -325,7 +329,7 @@ internal fun ConversationScreen(
                 // Their draft, the message it became, and (one-to-one) their circle at the very end: one item each, so
                 // each change morphs in place: the circle grows into the draft, the draft fills into the message.
                 fun liveItem(key: String, line: LiveLine) = item(key = key) {
-                    Box(Modifier.animateItem(ease, move, ease)) { LiveLineView(line, if (group == null) user else null) }
+                    Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { LiveLineView(line, if (group == null) user else null) }
                 }
                 val circleAtEnd = reader != null && ReadMarks.atEnd(messages)
                 if (group == null) {
@@ -341,16 +345,16 @@ internal fun ConversationScreen(
                     val earlier = pairs[message.id]?.let { byId[it] }
                     if (earlier != null) {
                         item(key = "pair@" + earlier.id) {
-                            Box(Modifier.animateItem(ease, move, ease)) { VideoPair(earlier, message) { m -> Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, tick = ticks[m.id] ?: ReadMarks.Tick.NONE, compact = true) } }
+                            Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { VideoPair(earlier, message) { m -> Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, tick = ticks[m.id] ?: ReadMarks.Tick.NONE, compact = true) } }
                         }
                         return@forEach
                     }
                     if (message.id in pairedEarlier) return@forEach
                     if (reader != null && message.id == reader.id && !circleAtEnd) {
-                        item(key = "reader") { Box(Modifier.animateItem(ease, move, ease)) { ReaderCircle(user, reader.readAt, end = true) } }
+                        item(key = "reader") { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { ReaderCircle(user, reader.readAt, end = true) } }
                     }
                     groupReaders[message.id]?.let { readers ->
-                        item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease)) { GroupReaders(readers) } }
+                        item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { GroupReaders(readers) } }
                     }
                     val liveKey = live.morphed[message.id]
                     if (liveKey != null) {
@@ -371,7 +375,8 @@ internal fun ConversationScreen(
                                     (message.outgoing && talk.own?.clip == message.id && talk.own?.phase == TalkPhase.TALKING) ||
                                         (!message.outgoing && talk.playing?.clip == message.id && talk.playing?.video == true)
                                     )
-                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt)
+                                // A playing video stays solid while the window arrives (never drawn see-through).
+                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt, bubbleModifier = if (liveVideo) Modifier else Modifier.graphicsLayer { alpha = seeThrough })
                             }
                         }
                     }
@@ -398,9 +403,11 @@ internal fun ConversationScreen(
                 imeNow,
             )
             val rowShown = if (imeFull > 0) 1f - (imeNow.toFloat() / imeFull).coerceIn(0f, 1f) else 1f
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { floatingHeight = it.height }) {
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { floatingHeight = it.height }.graphicsLayer { alpha = seeThrough }) {
                 if (canWrite) {
-                    Box(Modifier.fillMaxWidth().animateContentSize(androidx.compose.animation.core.tween(200)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    // Its place comes straight from the keyboard's animated insets (the column's imePadding): no size or
+                    // position animation of its own, so it rises and sinks with the keyboard, frame by frame.
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
                         androidx.compose.animation.AnimatedContent(
                             recordingVoice,
                             transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
@@ -461,7 +468,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     back = a.back, openContact = a.openContact, send = a.send, retry = a.retry, typing = a.typing, draft = a.draft, openTalk = a.openTalk,
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
-    setPushVideo = a.setPushVideo,
+    setPushVideo = a.setPushVideo, answering = a.answering,
 )
 
 
@@ -533,7 +540,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
             bubbleModifier
-                .widthIn(max = 300.dp)
+                .widthIn(max = bubbleMaxWidth())
                 .background(if (mine) LibraryColors.Mine else LibraryColors.Raised, LibraryShapes.Card)
                 .then(if (message.status == MessageStatus.FAILED) Modifier.clickable(role = Role.Button) { retry(message.id) } else Modifier)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -601,8 +608,8 @@ internal fun DraftBubble(
 ) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
         Column(
-            Modifier.widthIn(max = 300.dp)
-                .animateContentSize(androidx.compose.animation.core.tween(250))
+            Modifier.widthIn(max = bubbleMaxWidth())
+                .then(if (settled > 0f) Modifier.animateContentSize(androidx.compose.animation.core.tween(250)) else Modifier)
                 .border(1.dp, LibraryColors.Accent.copy(alpha = 0.5f * (1f - settled)), shape)
                 .background(LibraryColors.Raised.copy(alpha = 0.5f + 0.5f * settled), shape)
                 .padding(padding),
@@ -703,8 +710,9 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
     val shape = LibraryShapes.Card
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
         Column(
-            Modifier.widthIn(max = 300.dp)
-                .animateContentSize(androidx.compose.animation.core.tween(MORPH_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            // Their writing follows the text at once; only the turn into the message eases its size.
+            Modifier.widthIn(max = bubbleMaxWidth())
+                .then(if (message != null) Modifier.animateContentSize(androidx.compose.animation.core.tween(MORPH_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) else Modifier)
                 .border(1.dp, LibraryColors.Accent.copy(alpha = 0.5f * (1f - s)), shape)
                 .background(LibraryColors.Raised.copy(alpha = 0.5f + 0.5f * s), shape)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -810,6 +818,14 @@ internal class ChatDraft {
 
 internal const val FLIGHT_MS = 300
 
+/** Bubbles, mine and theirs and the one being written: up to 78% of the screen's width (2026-11-24, hen). */
+@Composable
+internal fun bubbleMaxWidth(): androidx.compose.ui.unit.Dp = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * 0.78f).dp
+
+/** My side of the chat: the end (the left in Hebrew), where my bubbles and the one I write are anchored. */
+internal val MySide = Alignment.CenterEnd
+internal val TheirSide = Alignment.CenterStart
+
 /**
  * Send's flight (2026-11-24, hen): a copy of the draft drawn over the chat moves and resizes from the draft's place
  * to its message's slot (kept unseen), the coral outline giving way to the teal fill, the label out and the time and
@@ -913,7 +929,12 @@ private fun PinnedDraft(draft: ChatDraft, focus: androidx.compose.ui.focus.Focus
             appear.animateTo(1f, androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
         }
     }
-    LaunchedEffect(draft.editing) { if (draft.editing) runCatching { focus.requestFocus() } }
+    LaunchedEffect(draft.editing) {
+        if (draft.editing) {
+            actions.answering()
+            runCatching { focus.requestFocus() }
+        }
+    }
     LaunchedEffect(draft.text) {
         if (draft.text.isNotEmpty()) {
             // Stopped after a pause in typing.

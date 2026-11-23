@@ -483,6 +483,35 @@ class MessagingTest {
     }
 
     @Test
+    fun writingBackReadsTheirMessagesFirst() = runTest {
+        // 2026-11-24 (hen): typing or a live draft to them counts as read, the receipt before the draft.
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val first = dana.messaging.sendText("hen", "are you there?")
+        advanceUntilIdle()
+        assertEquals(MessageStatus.DELIVERED, dana.store.message(first.id)!!.status)
+        hen.messaging.sendTyping("dana", true)
+        advanceUntilIdle()
+        assertEquals(MessageStatus.READ, dana.store.message(first.id)!!.status, "typing reads")
+        assertNull(hen.state.unread["dana"])
+
+        // With live typing: the receipt is there by the time the draft shows.
+        hen.messaging.setTalkSettings(hen.messaging.talkSettings().copy(liveTyping = true, liveTypingFor = mapOf("dana" to true)))
+        val second = dana.messaging.sendText("hen", "hello?")
+        advanceUntilIdle()
+        var readWhenDraftCame: MessageStatus? = null
+        hen.messaging.draft("dana", "y")
+        while (readWhenDraftCame == null) {
+            advanceTimeBy(10)
+            if ("hen" in dana.state.drafts) readWhenDraftCame = dana.store.message(second.id)!!.status
+        }
+        assertEquals(MessageStatus.READ, readWhenDraftCame, "read before the draft")
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
     fun anOfflineTextWaitsInTheOutbox() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)

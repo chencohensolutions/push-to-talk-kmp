@@ -1336,6 +1336,9 @@ internal class Messaging(
     }
 
     suspend fun sendTyping(user: String, typing: Boolean) {
+        // Writing to them means what they wrote was read (2026-11-24, hen): the receipt goes first, so their read
+        // circle moves to the end before "typing…" or the draft shows.
+        if (typing) markRead(user)
         if (socket.state.value !is SocketState.Live) return
         Group.idOf(user)?.let { id ->
             try {
@@ -1376,6 +1379,8 @@ internal class Messaging(
         scope.launch {
             var sent: String? = null
             var sentAt = 0L
+            // Read before the draft shows (as for typing).
+            if (text.isNotEmpty()) markRead(user)
             try {
                 while (true) {
                     val want = draftWanted[user] ?: break

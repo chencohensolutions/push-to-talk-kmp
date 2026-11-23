@@ -65,8 +65,8 @@ quick-reply window isn't fitted by the system any more: it grows upward by the k
 and is placed at its window position with `place()` (not mirrored), so it flies to its slot rather than to the mirror
 of it. Tested in RtlTransitionsTest.
 
-**Voice | video** (2026-11-24, hen): right above the big push-to-talk button, centred on it, a small two-part switch,
-a microphone and a camera (icons only; the fill slides between them, start to end, mirrored in Hebrew). The big
+**Voice | video** (2026-11-24, hen): an upright two-part switch at the right edge, beside the big push-to-talk button,
+a microphone over a camera (icons only; the fill slides between them). The big
 button's icon follows it (walkie-talkie or camera, crossfading). The choice is kept per contact, the same memory as the
 reply bubble's Voice | Video, so the chat, the quick-reply window and the bubble agree. In Video the front camera
 opens as soon as the chat shows (warm, so a press sends video at once) and my picture shows small on the button's
@@ -119,3 +119,18 @@ much later it started, both a little smaller.
 **The draft is pinned** (2026-11-23, hen): this phone's draft bubble (and a voice message's recording strip) is not
 in the list: it sits fixed under the chat, above the keyboard or the buttons, and grows upwards; the chat is laid out
 above it and scrolls behind nothing. On Send the message fills in at the end of the list and the pinned draft empties.
+
+
+**The button row, on the screen itself** (2026-11-24, hen): laid out left to right the same in Hebrew and English, so
+the thumb finds it in one place: Voice message, Voice call, Video call, then the big push-to-talk button near the right
+edge and the upright Voice | video switch at the edge; my camera's thumbnail on the button's top-left corner.
+
+**The writing bubble** (2026-11-24, hen): its width follows the text at once (no easing while writing): the longest
+line's, from 120 dp up to the bubbles' width (78% of the screen, the same for every bubble), anchored on my side (the
+left in Hebrew, `MySide`) and growing toward the middle; the text wraps inside it, and past 6 lines it scrolls inside
+with the caret in view. Their live draft follows its text at once too; only its turn into the message eases. Its
+place, and the row's folding, come straight from the keyboard's animated insets, frame by frame.
+
+**Typing reads** (2026-11-24, hen): typing or a live draft to them marks what they wrote read first, the receipt before
+the draft (Messaging.sendTyping, draft). In the quick-reply window, opening the draft, talking or sending reads them;
+only showing the window doesn't.

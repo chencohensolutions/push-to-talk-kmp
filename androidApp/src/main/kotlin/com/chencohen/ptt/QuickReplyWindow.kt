@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imeAnimationSource
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -103,6 +106,8 @@ object QuickReplyWindow {
     private val chat = mutableStateOf<String?>(null)
     private val typed = mutableStateOf("")
     private val talking = mutableStateOf(false)
+    /** How solid the window is but for an incoming video (OverlayArrival: 0.5 for its first second). */
+    private val seeThrough = androidx.compose.runtime.mutableFloatStateOf(1f)
 
     /** Where unanswered messages go back to (a silent notification) and answered ones are dropped. */
     @Volatile var notifications: Notifications? = null
@@ -193,9 +198,8 @@ object QuickReplyWindow {
             wm.addView(frame, params)
             view = frame
             o.start()
-            // Slides up from the bottom edge (about 250 ms).
-            frame.translationY = params.height.toFloat()
-            frame.animate().translationY(0f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            // Slides up and fades in, gently, untouchable for 1 s (OverlayArrival); the keyboard waits for a tap.
+            OverlayArrival.arrive(wm, frame, params, frame, params.height.toFloat()) { a -> seeThrough.floatValue = a }
             Log.i(TAG, "shown for $which")
         } catch (e: Exception) {
             Log.w(TAG, "can't show the quick-reply window", e)
@@ -258,7 +262,15 @@ object QuickReplyWindow {
         runCatching { context.getSystemService(WindowManager::class.java).updateViewLayout(v, p) }
     }
 
+    /** What [chat] wrote counts as read now (writing, talking or sending from the window): the receipt goes at once. */
+    private fun readNow(context: Context, chat: String) {
+        answered = true
+        notifications?.answered(chat)
+        CoroutineScope(Dispatchers.Default).launch { runCatching { markReadFromNotification(context, chat) } }
+    }
+
     private fun startTalk(context: Context, chat: String, video: Boolean) {
+        readNow(context, chat)
         talking.value = true
         answered = true
         notifications?.answered(chat)
@@ -333,16 +345,29 @@ object QuickReplyWindow {
         val canVideo = context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val pushVideo = state.talkSettings.pushVideoFor(current) && canVideo
         var pulled by remember { mutableStateOf(0f) }
-        // The window grows with the keyboard, frame by frame (beyond the navigation bar's room it has already).
+        // The keyboard (2026-11-24, hen; a trace showed a window relayout on every frame of its animation, ~6 ms each):
+        // the window takes the keyboard's full room once as it starts, and gives it back once it has closed; the
+        // chat inside rides up and down with it frame by frame, a clear space above it filling the rest.
         val density = androidx.compose.ui.platform.LocalDensity.current
-        val imeExtra = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) - androidx.compose.foundation.layout.WindowInsets.navigationBars.getBottom(density)
-        androidx.compose.runtime.SideEffect { growBy(context, imeExtra) }
+        val nav = androidx.compose.foundation.layout.WindowInsets.navigationBars.getBottom(density)
+        val imeNow = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        val imeMost = maxOf(
+            androidx.compose.foundation.layout.WindowInsets.imeAnimationSource.getBottom(density),
+            androidx.compose.foundation.layout.WindowInsets.imeAnimationTarget.getBottom(density),
+            imeNow,
+        )
+        val roomExtra = (imeMost - nav).coerceAtLeast(0)
+        val usedExtra = (imeNow - nav).coerceAtLeast(0)
+        androidx.compose.runtime.SideEffect { growBy(context, roomExtra) }
         // The conversation screen itself (2026-11-24, hen: the same design and ways as the chat), with this window's
         // header: a swipe down closes it, the name opens the chat, × closes.
+        Column(Modifier.fillMaxSize()) {
+        Spacer(Modifier.height(with(density) { (roomExtra - usedExtra).toDp() }))
         Box(
-            Modifier.fillMaxSize()
+            Modifier.weight(1f).fillMaxWidth()
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                .background(LibraryColors.Background)
+                .background(LibraryColors.Background.copy(alpha = seeThrough.floatValue))
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
@@ -404,11 +429,15 @@ object QuickReplyWindow {
                     playKept = { openChat(context, current) },
                     // The same memory as the reply bubble's Voice | Video.
                     setPushVideo = { on -> setTalkSettings(context, state.talkSettings.withVideoFor(current, on)) },
+                    // Writing back reads them (2026-11-24, hen); only showing the window doesn't.
+                    answering = { readNow(context, current) },
                 ),
+                seeThrough = seeThrough.floatValue,
                 embeddedHeader = {
                     WindowHeader(context, current, title, typing = (typingUntil ?: 0L) > now, online = state.presence[current]?.online == true, pulled = { pulled }, pull = { pulled = it })
                 },
             )
+        }
         }
     }
 

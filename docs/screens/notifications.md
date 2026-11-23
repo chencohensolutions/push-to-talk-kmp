@@ -86,6 +86,13 @@ lifecycle on the window's root view), so it never showed; fixed.
   Voice call, Voice message). Hidden while writing. From the window, the calls and Voice message open the app (a
   voice message needs the chat), and so does anything that would ask for a permission. The header says "typing…" or
   "online" under the name. The items below that differ from this are earlier.
+- **Arrival** (2026-11-24, hen: "too sudden, people tap it by accident"; OverlayArrival, the reply bubble too): it
+  slides up gently (400 ms, decelerating) and for its first second a tap passes through to the app under it
+  (FLAG_NOT_TOUCHABLE); meanwhile all but an incoming video is see-through (50%), the video solid; then all comes to
+  full in 200 ms and it takes touches. Not again for a message while it shows. The keyboard waits for a tap.
+- **The keyboard** (2026-11-24): a trace showed the window relaid out on every frame of the keyboard's animation
+  (about 6 ms each). Now it takes the keyboard's room once as it starts and gives it back once it has closed; the chat
+  inside rides with the keyboard frame by frame, a clear space above filling the rest.
 - **Header**: a grab bar; the letter circle and the name (a group's name for a group); a tap opens the chat and
   closes the window; **×** closes it. A swipe down closes it too, and so does Back.
 - **The last messages** (up to 12), newest at the bottom, in bubbles like the chat's (a group's with who wrote each).
