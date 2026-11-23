@@ -52,6 +52,26 @@ object ReadMarks {
         return tick(messages.filter { it.status != MessageStatus.READ }, message)
     }
 
+    /**
+     * Two video bursts that overlap in time, one each side (2026-11-23, hen: "show them side by side"): by the later
+     * one's id, the earlier one's. A burst still going ([now], its length unknown) runs until now.
+     */
+    fun overlappingVideos(messages: List<TextMessage>, now: Long): Map<String, String> {
+        val videos = messages.filter { it.clip?.video == true }.sortedBy { it.at }
+        val pairs = HashMap<String, String>()
+        val used = HashSet<String>()
+        for (i in videos.indices) {
+            val a = videos[i]
+            if (a.id in used) continue
+            val aEnd = a.at + (a.clip?.durationMs?.takeIf { it > 0 } ?: (now - a.at).coerceAtLeast(0))
+            val b = videos.drop(i + 1).firstOrNull { it.id !in used && it.outgoing != a.outgoing && it.at < aEnd } ?: continue
+            pairs[b.id] = a.id
+            used += a.id
+            used += b.id
+        }
+        return pairs
+    }
+
     /** Their circle shows only when their presence isn't hidden (hidden: no circle, ticks stop at delivered). */
     fun showsReader(presence: UserPresence?): Boolean = presence == null || presence.online || presence.lastSeen != null
 }

@@ -707,6 +707,8 @@
     <string name="chat_read_up_to_here">%1$s קרא/ה עד כאן</string>
     <string name="chat_read_at">נקרא %1$s</string>
     <string name="chat_read_by">נקרא על ידי %1$s</string>
+    <string name="talk_waiting_for">ממתין ל%1$s…</string>
+    <string name="chat_suggest_call">לעבור לשיחת וידאו?</string>
     <string name="talk_quick_reply">חלון תשובה מהירה</string>
     <string name="talk_quick_reply_body">כשמגיעה הודעה בזמן שהטלפון בשימוש, חלון בתחתית המסך מראה את השיחה עם שדה לתשובה וכפתור להחזיק ולדבר.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>

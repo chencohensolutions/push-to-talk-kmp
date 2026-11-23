@@ -74,3 +74,9 @@ Push-to-video from the chat (2026-11-23, hen): with the chat's Voice | Video on 
 chat shows; holding Push-to-talk puts this phone's camera live in an outlined bubble at the end of the chat (red dot,
 time); on release the same bubble stays and becomes the sent video (first picture, length, status circle). Their
 push-to-video plays live in their bubble the same way, then stays as the video. No separate preview over the chat.
+
+**Both pushing at once** (2026-11-23, hen): a press while the other holds the floor still records ("Waiting for
+Sharon…" on the live bubble); the moment their burst ends it is asked for and sent, so both phones see the two in press
+order. Three such overlaps within a minute show a "Switch to a video call?" chip for 10 s. Two video bursts that overlap
+in time, one each side, sit side by side in one row (theirs on their side, mine on mine), the later one lower by how
+much later it started, both a little smaller.

@@ -330,7 +330,7 @@ internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-internal fun VideoClipContent(message: TextMessage, live: Boolean, onInverse: Boolean, play: (String) -> Unit, save: ((String) -> Unit)?) {
+internal fun VideoClipContent(message: TextMessage, live: Boolean, onInverse: Boolean, play: (String) -> Unit, save: ((String) -> Unit)?, compact: Boolean = false) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val clip = message.clip ?: return
     var thumb by remember(message.id) { androidx.compose.runtime.mutableStateOf(com.chencohen.ptt.ui.talk.ClipThumbs.cached(message.id)) }
@@ -339,7 +339,7 @@ internal fun VideoClipContent(message: TextMessage, live: Boolean, onInverse: Bo
     val label = stringResource(R.string.clip_play)
     val ratio = thumb?.let { it.width.toFloat() / it.height } ?: 0.75f
     Box(
-        Modifier.width(if (ratio < 1f) 168.dp else 240.dp).aspectRatio(ratio)
+        Modifier.width(if (compact) 132.dp else if (ratio < 1f) 168.dp else 240.dp).aspectRatio(ratio)
             .background(Color.Black, shape)
             .clip(shape)
             .combinedClickable(role = Role.Button, onClickLabel = label, onLongClick = save?.let { s -> { s(message.id) } }) { play(message.id) },
@@ -368,7 +368,7 @@ internal fun VideoClipContent(message: TextMessage, live: Boolean, onInverse: Bo
  * ends the bubble stays and becomes the video (first picture, length).
  */
 @Composable
-internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = true) {
+internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = true, waitingFor: String? = null) {
     var elapsed by remember { mutableLongStateOf(0L) }
     LaunchedEffect(startedAt) {
         while (true) {
@@ -381,6 +381,14 @@ internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = t
     val video = @Composable {
         Box(Modifier.width(168.dp).aspectRatio(3f / 4f).background(Color.Black, shape).clip(shape), contentAlignment = Alignment.Center) {
             if (mine) com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize()) else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
+            // Recording while their burst still goes: sent right after it.
+            androidx.compose.animation.AnimatedVisibility(waitingFor != null, modifier = Modifier.align(Alignment.TopCenter).padding(8.dp)) {
+                Text(
+                    stringResource(R.string.talk_waiting_for, waitingFor.orEmpty()),
+                    color = Color.White, style = LibraryType.Tiny,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.55f), CircleShape).padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
             Row(
                 Modifier.align(Alignment.BottomStart).padding(8.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -429,6 +437,22 @@ internal fun GroupReaders(readers: List<Pair<String, Long>>) {
                 }
             }
         }
+    }
+}
+
+/**
+ * Two video bursts at the same time, one each side (2026-11-23, hen): side by side in one row, theirs on their side and
+ * mine on mine, the one that started later lower by how much later it started (up to 120 dp); both a little smaller.
+ */
+@Composable
+internal fun VideoPair(earlier: TextMessage, later: TextMessage, bubble: @Composable (TextMessage) -> Unit) {
+    val length = earlier.clip?.durationMs?.takeIf { it > 0 } ?: 5_000L
+    val drop = (120f * ((later.at - earlier.at).toFloat() / length).coerceIn(0f, 1f)).dp
+    val theirs = if (earlier.outgoing) later else earlier
+    val mine = if (earlier.outgoing) earlier else later
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.weight(1f).padding(top = if (theirs === later) drop else 0.dp), contentAlignment = Alignment.TopStart) { bubble(theirs) }
+        Box(Modifier.weight(1f).padding(top = if (mine === later) drop else 0.dp), contentAlignment = Alignment.TopEnd) { bubble(mine) }
     }
 }
 

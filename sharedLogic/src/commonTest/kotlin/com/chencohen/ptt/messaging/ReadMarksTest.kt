@@ -57,4 +57,18 @@ class ReadMarksTest {
         assertEquals(ReadMarks.Tick.DELIVERED, ReadMarks.groupTick(listOf(a, b, c), c))
         assertNull(ReadMarks.groupReaders(listOf(a, b, c), hidden = setOf("noa"))["a"], "a hidden member shows no circle")
     }
+
+    @Test
+    fun overlappingVideosPairUpSideBySide() {
+        fun video(id: String, out: Boolean, at: Long, ms: Long) = TextMessage(id, "sharon", outgoing = out, body = "", at = at, clip = Clip(id, "", ClipKind.BURST, ms, video = true))
+        val a = video("a", false, 1_000, 5_000)
+        val b = video("b", true, 3_000, 4_000)
+        val c = video("c", true, 20_000, 2_000)
+        assertEquals(mapOf("b" to "a"), ReadMarks.overlappingVideos(listOf(a, b, c), now = 30_000))
+        // Still going: it overlaps what started after it.
+        val live = video("d", false, 40_000, 0)
+        val e = video("e", true, 41_000, 1_000)
+        assertEquals("d", ReadMarks.overlappingVideos(listOf(live, e), now = 42_000)["e"])
+        assertTrue(ReadMarks.overlappingVideos(listOf(c, video("f", true, 20_500, 1_000)), 30_000).isEmpty(), "same side: one under the other")
+    }
 }

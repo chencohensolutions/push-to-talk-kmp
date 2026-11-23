@@ -234,6 +234,7 @@ internal fun talkLine(chat: String, talk: TalkUiState, nameOf: (String) -> Strin
             TalkPhase.REFUSED -> if (own.refusal == OwnTalk.MIC) stringResource(R.string.talk_no_mic) else stringResource(R.string.talk_refused)
             TalkPhase.OFFLINE -> stringResource(R.string.talk_offline)
             TalkPhase.VOICE -> stringResource(R.string.voice_recording)
+            TalkPhase.WAITING -> stringResource(R.string.talk_waiting_for, nameOf(own.busyWith.orEmpty()))
         }
         talker != null && talker.user == me -> stringResource(R.string.talk_other_phone)
         talker != null -> stringResource(R.string.talk_someone, nameOf(talker.user))
