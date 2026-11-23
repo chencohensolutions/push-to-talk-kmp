@@ -227,7 +227,7 @@ fun HomeApp(
     val incoming = messagingState.talk.playing?.takeIf { it.live && it.from != state.device?.user }
     LaunchedEffect(incoming?.clip) {
         val chat = incoming?.chat ?: return@LaunchedEffect
-        if (messagingState.talkSettings.openOnTalk && stack.lastOrNull() != "talk/$chat") saved = "chat/$chat\ntalk/$chat"
+        if (messagingState.talkSettings.openOnTalk && stack.lastOrNull() != "chat/$chat") saved = "chat/$chat"
     }
     // Over the lock screen a press asks to unlock first (then hold again to talk).
     fun pressOrUnlock(chat: String) {
@@ -638,7 +638,6 @@ fun HomeApp(
                             retry = messaging::retry,
                             typing = { messaging.typing(user, it) },
                             draft = { text -> if (text.isEmpty()) messaging.draftDone(user) else messaging.draft(user, text) },
-                            openTalk = { push("talk/$user") },
                             playClip = messaging::playClip,
                             saveClip = { id -> saveBurst(context, id, nameOf(user), messages) },
                             stopClip = messaging::stopPlaying,
@@ -653,36 +652,6 @@ fun HomeApp(
                         ),
                         talk = messagingState.talk,
                         talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
-                    )
-                }
-                name.startsWith("talk/") && pageUser != null -> {
-                    val chat = name.removePrefix("talk/")
-                    val group = Group.idOf(chat)?.let { id -> messagingState.groups.firstOrNull { it.id == id } }
-                    val title = group?.let { groupName(it) } ?: nameOf(chat)
-                    com.chencohen.ptt.ui.talk.TalkModeScreen(
-                        chat = chat,
-                        title = title,
-                        me = state.device?.user.orEmpty(),
-                        talk = messagingState.talk,
-                        liveRoom = messagingState.live,
-                        bursts = messagingState.conversations[chat].orEmpty().filter { it.clip != null },
-                        nameOf = nameOf,
-                        press = { pressOrUnlock(chat) },
-                        release = { messaging.releaseTalk(true) },
-                        play = { id -> if (messagingState.talk.playing?.clip == id) messaging.stopPlaying() else messaging.playClip(id) },
-                        close = ::pop,
-                        micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
-                        warmMicrophone = messaging::warmMicrophone,
-                        // From its chat: back to it; otherwise the chat opens.
-                        openChat = { if (stack.getOrNull(stack.size - 2) == "chat/$chat") pop() else push("chat/$chat") },
-                        call = { video -> call(chat, video) },
-                        pushVideo = messagingState.talkSettings.pushVideoFor(chat),
-                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.withVideoFor(chat, on)) },
-                        warmCamera = messaging::warmCamera,
-                        setHere = messaging::setHere,
-                        peerHere = com.chencohen.ptt.ui.talk.rememberHere(messagingState.here, chat),
-                        fullScreenVideo = wokeForTalk,
-                        saveClip = { id -> saveBurst(context, id, title, messages) },
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -802,6 +771,14 @@ fun HomeApp(
             // The floating window is on by default (2026-11-22, hen) but needs "Display over other apps": asked once.
             OverlayAskOnce(messagingState.talkSettings.replyBubble)
             FullScreenAskOnce(messagingState.talkSettings.openOnTalk)
+            // Woken for a burst over the lock screen (2026-11-23, hen): its video fills the screen while it plays, black
+            // otherwise, never the app's own screen (the Talk screen used to carry this; it is gone).
+            if (wokeForTalk) {
+                val woken = messagingState.talk.playing?.takeIf { it.video }
+                Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+                    if (woken != null) com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
+                }
+            }
             // A call, over everything (phase 6).
             messagingState.call?.let { current ->
                 // During a call Back does nothing (the call goes on); once it has ended, Back closes "Call ended".

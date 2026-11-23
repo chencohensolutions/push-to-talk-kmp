@@ -152,7 +152,7 @@ internal fun ConversationScreen(
                 color = LibraryColors.Accent,
                 style = LibraryType.Caption,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = actions.openTalk).padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             )
         }
         if (contact?.changedKey != null) {
@@ -424,14 +424,6 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
 )
 
-/** The Talk button of the header: Talk mode. */
-@Composable
-private fun TalkButton(actions: ConversationActions) {
-    Box(
-        Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.openTalk),
-        contentAlignment = Alignment.Center,
-    ) { Icon(LibraryIcons.Talk, stringResource(R.string.talk_open), tint = LibraryColors.OnBackground) }
-}
 
 @Composable
 private fun Header(user: String, contact: Contact?, header: ConversationHeader, actions: ConversationActions, canTalk: Boolean) {
@@ -463,7 +455,6 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
                 }
             }
         }
-        if (canTalk) TalkButton(actions)
     }
 }
 
@@ -485,7 +476,6 @@ private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk:
                 Text(group.line, color = LibraryColors.Muted, style = LibraryType.Caption)
             }
         }
-        if (canTalk) TalkButton(actions)
     }
 }
 
