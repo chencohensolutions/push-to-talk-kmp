@@ -697,6 +697,10 @@
     <string name="chat_draft_by">%1$s is writing…</string>
     <string name="live_typing_contact">Live typing to them</string>
     <string name="settings_live_typing_per_contact">Each contact\'s page has its own switch; turning this on doesn\'t switch on the contacts you have now.</string>
+    <string name="chat_write_hint">Write a message…</string>
+    <string name="voice_discard">Discard the voice message</string>
+    <string name="voice_send">Send the voice message</string>
+    <string name="voice_message">Voice message</string>
     <string name="talk_quick_reply">Quick reply window</string>
     <string name="talk_quick_reply_body">When a message comes in while you use the phone, a window at the bottom shows the chat with a field to reply and a button to hold and talk.</string>
     <string name="talk_reply_bubble">Reply bubble over other apps</string>

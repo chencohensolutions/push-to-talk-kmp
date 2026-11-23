@@ -1,6 +1,10 @@
 package com.chencohen.ptt.ui.contacts
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.ime
+import com.chencohen.ptt.talk.TalkPhase
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
@@ -81,6 +85,8 @@ class ConversationActions(
     val stopClip: () -> Unit = {},
     /** The composer's microphone went down (a voice message) or up ([send] false: cancelled). */
     val startVoice: () -> Unit = {},
+    /** The Voice message button: a voice message starts recording (no floor); [finishVoice] sends or drops it. */
+    val startVoiceMessage: () -> Unit = {},
     val finishVoice: (send: Boolean) -> Unit = {},
     /** The microphone wasn't allowed. */
     val micDenied: () -> Unit = {},
@@ -157,23 +163,98 @@ internal fun ConversationScreen(
         }
         val atBottom by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
         val morph = rememberDraftMorph(user, drafts, newest)
+        // Writing in the chat (2026-11-23, hen): the draft bubble at the end of the list.
+        val canWrite = if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
+        var text by rememberSaveable(user) { mutableStateOf("") }
+        var editing by rememberSaveable(user) { mutableStateOf(false) }
+        val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+        val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+        val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+        var lastTyping by remember { mutableLongStateOf(0L) }
+        var sentBody by remember(user) { mutableStateOf<String?>(null) }
+        var sentMorph by remember(user) { mutableStateOf<String?>(null) }
+        if (newest != null && newest.outgoing && sentBody != null && newest.body == sentBody && sentMorph != newest.id) {
+            sentMorph = newest.id
+            sentBody = null
+        }
+        LaunchedEffect(sentMorph) {
+            if (sentMorph != null) {
+                delay(MORPH_MS + 50L)
+                sentMorph = null
+            }
+        }
+        LaunchedEffect(editing) { if (editing) runCatching { focus.requestFocus() } }
+        // Leaving the chat ends a live draft (it fades on the other phone).
+        androidx.compose.runtime.DisposableEffect(user) { onDispose { actions.draft("") } }
+        LaunchedEffect(text) {
+            if (text.isNotEmpty()) {
+                // Stopped after a pause in typing.
+                delay(6_000)
+                if (lastTyping != 0L) {
+                    actions.typing(false)
+                    lastTyping = 0L
+                }
+            }
+        }
+        // The draft stays in view as it grows, if the list was at the bottom.
+        LaunchedEffect(text, editing) { if (editing && list.firstVisibleItemIndex == 0) list.scrollToItem(0) }
+        fun change(value: String) {
+            text = value
+            actions.draft(text)
+            val now = System.currentTimeMillis()
+            if (text.isBlank()) {
+                if (lastTyping != 0L) actions.typing(false)
+                lastTyping = 0L
+            } else if (now - lastTyping > 4_000) {
+                actions.typing(true)
+                lastTyping = now
+            }
+        }
+        fun send() {
+            val body = text.trim()
+            if (body.isEmpty()) return
+            sentBody = body
+            actions.send(body)
+            actions.draft("")
+            text = ""
+            lastTyping = 0L
+        }
+        val recordingVoice = talk.own?.takeIf { it.chat == user && it.phase == TalkPhase.VOICE } != null
+        val talkingHere = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) } != null
         // A draft that grows (a new line) stays in view, if the list was at the bottom (2026-11-23, hen).
         val draftText = drafts.joinToString("\n") { it.second }
         LaunchedEffect(draftText) { if (draftText.isNotEmpty() && list.firstVisibleItemIndex == 0) list.scrollToItem(0) }
         LaunchedEffect(atBottom) { if (atBottom) unseen = false }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier.fillMaxSize().pointerInput(Unit) {
+                    // A tap on the chat puts the keyboard away (the draft stays).
+                    detectTapGestures(onTap = {
+                        focusManager.clearFocus()
+                        keyboard?.hide()
+                        if (text.isEmpty()) editing = false
+                    })
+                },
                 state = list,
                 reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                // The end of the chat: a voice message recording, or this phone's draft (the empty bubble at rest).
+                if (canWrite) {
+                    if (recordingVoice) {
+                        item(key = "recording") { RecordingStrip { actions.finishVoice(false) } }
+                    } else {
+                        item(key = "compose") { ComposeBubble(text, editing, focus, { editing = true }, ::change, ::send) }
+                    }
+                }
                 // Drafts written live, newest place at the bottom, until the message comes; then it turns into it.
                 items(drafts.filter { "draft/" + (it.first ?: "") != morph?.key }, key = { "draft/" + (it.first ?: "") }) { (who, text) -> DraftBubble(who, text) }
                 items(messages.asReversed(), key = { if (it.id == morph?.id) morph.key else it.id }) { message ->
                     if (message.id == morph?.id) {
                         MorphingBubble(message, if (group != null) message.author else null)
+                    } else if (message.id == sentMorph) {
+                        SentMorphBubble(message)
                     } else {
                         Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null)
                     }
@@ -191,12 +272,16 @@ internal fun ConversationScreen(
                 )
             }
         }
+        // With the keyboard up only the chat and the draft (hen: "don't show the bottom row at all"); Back puts the
+        // keyboard away (Android's own), and the row is back.
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val keyboardUp = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) > 0
         when {
-            group != null -> if (group.note != null) Note(group.note) else Composer(user, actions, talk)
+            group != null -> if (group.note != null) Note(group.note) else if (!keyboardUp) ChatButtons(false, talkingHere, recordingVoice, actions)
             contact == null -> Note(stringResource(R.string.contact_gone))
             contact.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
             !contact.paired -> Note(stringResource(R.string.contact_waiting))
-            else -> Composer(user, actions, talk)
+            else -> if (!keyboardUp) ChatButtons(false, talkingHere, recordingVoice, actions)
         }
     }
 }
@@ -240,23 +325,11 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
                 }
             }
         }
-        if (canTalk) CallButtons(actions)
         if (canTalk) TalkButton(actions)
     }
 }
 
 /** Voice call and video call, Signal's way, before Talk. */
-@Composable
-private fun CallButtons(actions: ConversationActions) {
-    val voice = stringResource(R.string.call_voice)
-    val video = stringResource(R.string.call_video)
-    Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = video) { actions.call(true) }, contentAlignment = Alignment.Center) {
-        Icon(LibraryIcons.Video, video, tint = LibraryColors.OnBackground)
-    }
-    Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = voice) { actions.call(false) }, contentAlignment = Alignment.Center) {
-        Icon(LibraryIcons.Call, voice, tint = LibraryColors.OnBackground)
-    }
-}
 
 @Composable
 private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk: Boolean) {
@@ -274,7 +347,6 @@ private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk:
                 Text(group.line, color = LibraryColors.Muted, style = LibraryType.Caption)
             }
         }
-        if (canTalk) CallButtons(actions)
         if (canTalk) TalkButton(actions)
     }
 }
@@ -335,60 +407,6 @@ private fun Note(text: String) {
     Text(text, color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(16.dp))
 }
 
-/** The line to write in, and Send. Typing is told at most every 4 seconds, and stopped when the line empties or goes. */
-@Composable
-private fun Composer(user: String, actions: ConversationActions, talk: TalkUiState) {
-    var text by rememberSaveable(user) { mutableStateOf("") }
-    var lastTyping by remember { mutableLongStateOf(0L) }
-    // Leaving the chat ends a live draft (it fades on the other phone).
-    androidx.compose.runtime.DisposableEffect(user) { onDispose { actions.draft("") } }
-    LaunchedEffect(text) {
-        if (text.isNotEmpty()) {
-            // Stopped after a pause in typing.
-            delay(6_000)
-            if (lastTyping != 0L) {
-                actions.typing(false)
-                lastTyping = 0L
-            }
-        }
-    }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { value ->
-                text = value.take(4000)
-                actions.draft(text)
-                val now = System.currentTimeMillis()
-                if (text.isBlank()) {
-                    if (lastTyping != 0L) actions.typing(false)
-                    lastTyping = 0L
-                } else if (now - lastTyping > 4_000) {
-                    actions.typing(true)
-                    lastTyping = now
-                }
-            },
-            placeholder = { Text(stringResource(R.string.chat_hint)) },
-            maxLines = 5,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
-            modifier = Modifier.weight(1f),
-        )
-        // Signal's way: the microphone while the line is empty, Send once there is text.
-        if (text.isBlank()) {
-            VoiceButton(talk.own?.takeIf { it.chat == user }, actions.startVoice, actions.finishVoice, actions.micDenied, Modifier.padding(start = 8.dp))
-        } else {
-            PrimaryButton(
-                stringResource(R.string.chat_send),
-                {
-                    actions.send(text.trim())
-                    actions.draft("")
-                    text = ""
-                    lastTyping = 0L
-                },
-                Modifier.padding(start = 8.dp),
-            )
-        }
-    }
-}
 
 /**
  * A draft someone is writing live (their Live typing; 2026-11-23, hen): their side, dimmed and outlined, the text as

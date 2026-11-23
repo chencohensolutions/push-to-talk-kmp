@@ -38,3 +38,15 @@ at the bottom as an outlined "Writing…" bubble (in a group, "Dana is writing�
 too; the message replaces it, and it fades 20 s after their last change.
 A growing draft stays in view when the list is at the bottom; when the message comes, the draft turns into it in place
 (250 ms: the outline fills, "Writing…" folds away, the time fades in), in the chat and the quick-reply window alike.
+
+**Writing in the chat** (2026-11-23, hen, from the approved mockup "chat-typing-in-chat"): there is no line to write in
+at the bottom. The last thing in the chat is an empty dashed bubble on this phone's side, "Write a message…"; a tap
+opens the keyboard and makes it the draft: an outlined bubble (coral outline, faint fill, "Writing…") edited in place,
+with a round Send inside it at the bottom end. The chat keeps it in view as it grows; Live typing, when on for the
+chat, sends this same text. Send fills it in place into the sent message (250 ms, the same turn as an incoming draft),
+and a new empty draft comes under it with the keyboard still up. With the keyboard up nothing else shows under the
+chat; Back or a tap on the chat puts the keyboard away. Under the chat, a row of round buttons, icons only (each with
+its name for TalkBack): Video call, Push-to-talk (big, hold to talk), Voice call, Voice message. Voice message: a tap
+starts recording; a strip at the end of the chat shows a red dot, the time, the voice's level and ✕ to throw it away,
+and the button is Send meanwhile. The header keeps the name, presence and Talk mode; the call buttons moved down. The
+old line had no attachments, so nothing else needed a new place.

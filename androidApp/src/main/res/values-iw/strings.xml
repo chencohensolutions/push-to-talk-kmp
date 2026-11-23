@@ -700,6 +700,10 @@
     <string name="chat_draft_by">%1$s כותב/ת…</string>
     <string name="live_typing_contact">הקלדה חיה אליהם</string>
     <string name="settings_live_typing_per_contact">בדף של כל איש קשר יש מתג משלו; הפעלה כאן לא מפעילה את אנשי הקשר הקיימים.</string>
+    <string name="chat_write_hint">כתיבת הודעה…</string>
+    <string name="voice_discard">מחיקת ההודעה הקולית</string>
+    <string name="voice_send">שליחת ההודעה הקולית</string>
+    <string name="voice_message">הודעה קולית</string>
     <string name="talk_quick_reply">חלון תשובה מהירה</string>
     <string name="talk_quick_reply_body">כשמגיעה הודעה בזמן שהטלפון בשימוש, חלון בתחתית המסך מראה את השיחה עם שדה לתשובה וכפתור להחזיק ולדבר.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>
