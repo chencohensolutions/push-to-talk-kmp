@@ -5,6 +5,15 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import com.chencohen.ptt.messaging.ReadMarks.Tick
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -249,3 +258,107 @@ private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
         contentAlignment = Alignment.Center,
     ) { Icon(icon, label, tint = if (filled) Color.White else LibraryColors.OnBackground, modifier = Modifier.size(size * 0.45f)) }
 }
+
+/**
+ * How far a message of mine got (2026-11-23, hen picked option A, "filling circle"): a ~12 dp circle beside the time,
+ * in its colour. Sending: a dashed ring, slowly turning; Sent (the server has it): an empty ring; Delivered (on their
+ * phone): a solid dot; Read: nothing (it fades as their circle glides to it). Each change eases in ~200 ms: the ring
+ * closes, then fills. The one place to swap the set.
+ */
+@Composable
+internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifier: Modifier = Modifier) {
+    val ink = LibraryColors.OnMineMuted
+    val warn = LibraryColors.Warning
+    val label = when (tick) {
+        Tick.SENDING -> stringResource(R.string.chat_status_pending)
+        Tick.SENT -> stringResource(R.string.chat_status_sent)
+        Tick.DELIVERED -> stringResource(R.string.chat_status_delivered)
+        Tick.FAILED -> stringResource(R.string.chat_status_failed)
+        Tick.NONE -> stringResource(R.string.chat_status_read)
+    }
+    val closed by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.SENDING) 0f else 1f, tween(200), label = "ring closes")
+    val filled by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.DELIVERED) 1f else 0f, tween(200), label = "dot fills")
+    val shown by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.NONE) 0f else 1f, tween(250), label = "mark fades")
+    val turning = androidx.compose.animation.core.rememberInfiniteTransition(label = "sending")
+    val turn by turning.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(1_600, easing = androidx.compose.animation.core.LinearEasing)), label = "turn")
+    if (shown <= 0f) return
+    androidx.compose.foundation.Canvas(modifier.size(12.dp).semantics { contentDescription = label }) {
+        val color = (if (tick == Tick.FAILED) warn else ink).copy(alpha = ink.alpha * shown)
+        val r = size.minDimension / 2 - 0.8.dp.toPx()
+        val w = 1.6.dp.toPx()
+        // Dashed while sending, closing into a whole ring; then filling into a dot.
+        val dash = 3.dp.toPx() * (1f - closed)
+        val effect = if (dash > 0.1f) PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), dash)) else null
+        rotate(if (tick == Tick.SENDING) turn else 0f) {
+            drawCircle(color, r, style = Stroke(width = w, pathEffect = effect))
+        }
+        if (filled > 0f) drawCircle(color, r * filled)
+    }
+}
+
+/**
+ * Their small letter circle, right after the last message of mine they read (2026-11-23, hen, from the mockups); a
+ * tap shows when they read it.
+ */
+@Composable
+internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
+    var showTime by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val label = stringResource(R.string.chat_read_up_to_here, user)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.animation.AnimatedVisibility(showTime && readAt != null) {
+                Text(
+                    stringResource(R.string.chat_read_at, DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(readAt ?: 0L))),
+                    color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(end = 6.dp),
+                )
+            }
+            Box(
+                Modifier.size(20.dp).background(LibraryColors.Mine, CircleShape)
+                    .clickable(role = Role.Button, onClickLabel = label) { showTime = !showTime }
+                    .semantics { contentDescription = label },
+                contentAlignment = Alignment.Center,
+            ) { Text(user.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.Tiny) }
+        }
+    }
+    @Suppress("UNUSED_EXPRESSION") end
+}
+
+/**
+ * A video burst in the chat (2026-11-23, hen: "every video a person sends will be in the chat"): its first picture,
+ * its length, and a play mark; a tap plays it full screen, a long press saves it as a file. Live: a "live" mark until
+ * it is whole.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+internal fun VideoClipContent(message: TextMessage, live: Boolean, onInverse: Boolean, play: (String) -> Unit, save: ((String) -> Unit)?) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clip = message.clip ?: return
+    var thumb by remember(message.id) { androidx.compose.runtime.mutableStateOf(com.chencohen.ptt.ui.talk.ClipThumbs.cached(message.id)) }
+    LaunchedEffect(message.id, clip.kept, live) { if (thumb == null && !live) thumb = com.chencohen.ptt.ui.talk.ClipThumbs.load(context, message.id) }
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    val label = stringResource(R.string.clip_play)
+    val ratio = thumb?.let { it.width.toFloat() / it.height } ?: 0.75f
+    Box(
+        Modifier.width(if (ratio < 1f) 168.dp else 240.dp).aspectRatio(ratio)
+            .background(Color.Black, shape)
+            .clip(shape)
+            .combinedClickable(role = Role.Button, onClickLabel = label, onLongClick = save?.let { s -> { s(message.id) } }) { play(message.id) },
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.animation.AnimatedVisibility(thumb != null, enter = androidx.compose.animation.fadeIn(tween(200)), modifier = Modifier.fillMaxSize()) {
+            thumb?.let { androidx.compose.foundation.Image(it.asImageBitmap(), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        }
+        Box(Modifier.size(44.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape), contentAlignment = Alignment.Center) {
+            Icon(LibraryIcons.Play, null, tint = Color.White, modifier = Modifier.size(22.dp))
+        }
+        val length = if (live) stringResource(R.string.clip_live) else clip.durationMs.takeIf { it > 0 }?.let { clipLength(it) }
+        if (length != null) {
+            Text(
+                length, color = Color.White, style = LibraryType.Tiny,
+                modifier = Modifier.align(Alignment.BottomStart).padding(8.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+    }
+    @Suppress("UNUSED_EXPRESSION") onInverse
+}
+

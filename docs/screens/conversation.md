@@ -50,3 +50,21 @@ its name for TalkBack): Video call, Push-to-talk (big, hold to talk), Voice call
 starts recording; a strip at the end of the chat shows a red dot, the time, the voice's level and ✕ to throw it away,
 and the button is Send meanwhile. The header keeps the name, presence and Talk mode; the call buttons moved down. The
 old line had no attachments, so nothing else needed a new place.
+
+**How far they read** (2026-11-23, hen, from the approved mockups; `ReadMarks`): no "Read" word. Beside the time of
+each message of mine they haven't read, one small circle (hen picked "filling circle"): a dashed ring turning slowly
+while sending, an empty ring once the server has it, a solid dot once it is on their phone, nothing once read; each
+change eases (the ring closes, then fills). Their small letter circle sits right after the last message of mine they
+read, gliding down as they read; a tap shows when they read it ("read 20:44"). When they read everything it sits at the
+very end, and when they start Live typing that circle grows into their "Writing…" bubble (and back if they clear it).
+No circle when they hide their presence (their marks stop at the dot). Groups: no circles yet (the app has no read
+receipts per member in groups).
+
+**Transitions** (2026-11-23, hen: "everything with a transition, no sharp changes"): every item in the chat fades and
+slides in and out and glides when it moves (200 ms); the marks cross-fade; the button row folds away and back with the
+keyboard.
+
+**Video bursts in the chat** (2026-11-23, hen: "every video a person sends will be in the chat"): a push-to-video burst,
+sent or received, is a video bubble at its time: its first picture (decoded from the clip kept on the phone, in
+memory only), its length ("live" while it is said), a play mark; a tap plays it full screen over the chat (Follow face
+as set), Back or a tap closes it; a long press saves it as a file. Voice bursts stay voice bubbles.

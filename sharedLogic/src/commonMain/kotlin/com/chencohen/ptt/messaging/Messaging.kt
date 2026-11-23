@@ -1483,7 +1483,9 @@ internal class Messaging(
             val status = if (receipt.read) MessageStatus.READ else MessageStatus.DELIVERED
             for (id in receipt.ids) {
                 val message = store.message(id)?.takeIf { it.outgoing && it.user == contact.user } ?: continue
-                if (message.status.ordinal < status.ordinal || message.status == MessageStatus.PENDING) store.putMessage(message.copy(status = status))
+                if (message.status.ordinal < status.ordinal || message.status == MessageStatus.PENDING) {
+                    store.putMessage(message.copy(status = status, readAt = if (status == MessageStatus.READ) now() else message.readAt))
+                }
             }
         }
         content.typing?.let { typing ->

@@ -701,6 +701,8 @@
     <string name="voice_discard">Discard the voice message</string>
     <string name="voice_send">Send the voice message</string>
     <string name="voice_message">Voice message</string>
+    <string name="chat_read_up_to_here">%1$s read up to here</string>
+    <string name="chat_read_at">read %1$s</string>
     <string name="talk_quick_reply">Quick reply window</string>
     <string name="talk_quick_reply_body">When a message comes in while you use the phone, a window at the bottom shows the chat with a field to reply and a button to hold and talk.</string>
     <string name="talk_reply_bubble">Reply bubble over other apps</string>

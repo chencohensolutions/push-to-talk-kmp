@@ -1,6 +1,9 @@
 package com.chencohen.ptt.ui.contacts
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.Color
+import com.chencohen.ptt.messaging.ReadMarks
 import androidx.compose.foundation.layout.ime
 import com.chencohen.ptt.talk.TalkPhase
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -87,6 +90,8 @@ class ConversationActions(
     val startVoice: () -> Unit = {},
     /** The Voice message button: a voice message starts recording (no floor); [finishVoice] sends or drops it. */
     val startVoiceMessage: () -> Unit = {},
+    /** A video burst's bubble tapped: it plays full screen over the chat. */
+    val playVideo: (String) -> Unit = {},
     val finishVoice: (send: Boolean) -> Unit = {},
     /** The microphone wasn't allowed. */
     val micDenied: () -> Unit = {},
@@ -125,6 +130,14 @@ internal fun ConversationScreen(
     /** Others writing live (their Live typing): who (null in a one-to-one chat) and what, as it is written. */
     drafts: List<Pair<String?, String>> = emptyList(),
 ) {
+    // A video burst tapped in the chat plays full screen over it (2026-11-23, hen); Back or a tap closes it.
+    var fullVideo by remember(user) { mutableStateOf<String?>(null) }
+    val chatActions = actions
+    val actions = ConversationActionsWith(chatActions) { id ->
+        fullVideo = id
+        chatActions.playClip(id)
+    }
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(LibraryColors.Background).statusBarsPadding().navigationBarsPadding().imePadding()) {
         val canTalk = if (group != null) group.note == null else contact?.paired == true && !contact.blocked
         if (group != null) GroupHeader(group, actions, canTalk) else Header(user, contact, header, actions, canTalk)
@@ -163,6 +176,9 @@ internal fun ConversationScreen(
         }
         val atBottom by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
         val morph = rememberDraftMorph(user, drafts, newest)
+        // How far they read: their circle after the last message of mine they read (one-to-one; not when they hide
+        // their presence).
+        val reader = if (group == null && ReadMarks.showsReader(header.presence)) ReadMarks.lastRead(messages) else null
         // Writing in the chat (2026-11-23, hen): the draft bubble at the end of the list.
         val canWrite = if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
         var text by rememberSaveable(user) { mutableStateOf("") }
@@ -240,23 +256,58 @@ internal fun ConversationScreen(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                // Every change eases in and out (2026-11-23, hen: "everything with a transition, no sharp changes").
+                val ease = androidx.compose.animation.core.tween<Float>(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                val move = androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                 // The end of the chat: a voice message recording, or this phone's draft (the empty bubble at rest).
                 if (canWrite) {
                     if (recordingVoice) {
-                        item(key = "recording") { RecordingStrip { actions.finishVoice(false) } }
+                        item(key = "recording") { Box(Modifier.animateItem(ease, move, ease)) { RecordingStrip { actions.finishVoice(false) } } }
                     } else {
-                        item(key = "compose") { ComposeBubble(text, editing, focus, { editing = true }, ::change, ::send) }
+                        item(key = "compose") { Box(Modifier.animateItem(ease, move, ease)) { ComposeBubble(text, editing, focus, { editing = true }, ::change, ::send) } }
                     }
                 }
-                // Drafts written live, newest place at the bottom, until the message comes; then it turns into it.
-                items(drafts.filter { "draft/" + (it.first ?: "") != morph?.key }, key = { "draft/" + (it.first ?: "") }) { (who, text) -> DraftBubble(who, text) }
-                items(messages.asReversed(), key = { if (it.id == morph?.id) morph.key else it.id }) { message ->
-                    if (message.id == morph?.id) {
-                        MorphingBubble(message, if (group != null) message.author else null)
-                    } else if (message.id == sentMorph) {
-                        SentMorphBubble(message)
-                    } else {
-                        Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null)
+                // One-to-one: their circle at the very end (they read everything) and their live draft share one place:
+                // the circle grows into the draft, and back if they clear it; the draft turns into the message.
+                val oneDraft = if (group == null) drafts.firstOrNull() else null
+                val circleAtEnd = reader != null && ReadMarks.atEnd(messages)
+                if (group == null && morph?.key != "draft/" && (oneDraft != null || circleAtEnd)) {
+                    item(key = "draft/") {
+                        Box(Modifier.animateItem(ease, move, ease)) {
+                            androidx.compose.animation.AnimatedContent(
+                                oneDraft,
+                                transitionSpec = {
+                                    (androidx.compose.animation.fadeIn(ease) + androidx.compose.animation.scaleIn(ease, initialScale = 0.6f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 1f)))
+                                        .togetherWith(androidx.compose.animation.fadeOut(ease))
+                                        .using(androidx.compose.animation.SizeTransform(clip = false))
+                                },
+                                contentKey = { it != null },
+                                label = "circle and draft",
+                            ) { d ->
+                                if (d != null) DraftBubble(d.first, d.second) else ReaderCircle(user, reader?.readAt, end = false)
+                            }
+                        }
+                    }
+                }
+                // Drafts written live in a group, each at the bottom until its message comes; then it turns into it.
+                if (group != null) {
+                    items(drafts.filter { "draft/" + (it.first ?: "") != morph?.key }, key = { "draft/" + (it.first ?: "") }) { (who, text) -> Box(Modifier.animateItem(ease, move, ease)) { DraftBubble(who, text) } }
+                }
+                // The messages, and their circle right after the last one of mine they read (it glides down as they read).
+                messages.asReversed().forEach { message ->
+                    if (reader != null && message.id == reader.id && !circleAtEnd) {
+                        item(key = "reader") { Box(Modifier.animateItem(ease, move, ease)) { ReaderCircle(user, reader.readAt, end = true) } }
+                    }
+                    item(key = if (message.id == morph?.id) morph.key else message.id) {
+                        Box(Modifier.animateItem(ease, move, ease)) {
+                            if (message.id == morph?.id) {
+                                MorphingBubble(message, if (group != null) message.author else null)
+                            } else if (message.id == sentMorph) {
+                                SentMorphBubble(message)
+                            } else {
+                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ReadMarks.tick(messages, message))
+                            }
+                        }
                     }
                 }
             }
@@ -277,14 +328,47 @@ internal fun ConversationScreen(
         val density = androidx.compose.ui.platform.LocalDensity.current
         val keyboardUp = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) > 0
         when {
-            group != null -> if (group.note != null) Note(group.note) else if (!keyboardUp) ChatButtons(false, talkingHere, recordingVoice, actions)
-            contact == null -> Note(stringResource(R.string.contact_gone))
-            contact.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
-            !contact.paired -> Note(stringResource(R.string.contact_waiting))
-            else -> if (!keyboardUp) ChatButtons(false, talkingHere, recordingVoice, actions)
+            group != null && group.note != null -> Note(group.note)
+            group == null && contact == null -> Note(stringResource(R.string.contact_gone))
+            group == null && contact!!.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
+            group == null && !contact!!.paired -> Note(stringResource(R.string.contact_waiting))
+            else -> androidx.compose.animation.AnimatedVisibility(
+                !keyboardUp,
+                enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(200)) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+                exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
+            ) { ChatButtons(false, talkingHere, recordingVoice, actions) }
         }
     }
+    fullVideo?.let { id ->
+        val playingIt = talk.playing?.clip == id
+        LaunchedEffect(playingIt) { if (!playingIt) { delay(400); if (talk.playing?.clip != id) fullVideo = null } }
+        androidx.activity.compose.BackHandler {
+            chatActions.stopClip()
+            fullVideo = null
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            true,
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(
+                Modifier.fillMaxSize().background(Color.Black).clickable(role = Role.Button) {
+                    chatActions.stopClip()
+                    fullVideo = null
+                },
+                contentAlignment = Alignment.Center,
+            ) { com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = false) }
+        }
+    }
+    }
 }
+
+/** [actions] with the video bubble's tap playing it full screen. */
+private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) -> Unit) = ConversationActions(
+    back = a.back, openContact = a.openContact, send = a.send, retry = a.retry, typing = a.typing, draft = a.draft, openTalk = a.openTalk,
+    playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage,
+    playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
+)
 
 /** The Talk button of the header: Talk mode. */
 @Composable
@@ -359,7 +443,7 @@ private fun lastSeen(at: Long): String {
 }
 
 @Composable
-private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false) {
+private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, tick: ReadMarks.Tick = ReadMarks.Tick.NONE) {
     val retry = actions.retry
     val mine = message.outgoing
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
@@ -375,29 +459,27 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             }
             if (message.call != null) {
                 com.chencohen.ptt.ui.calls.CallEntryContent(message, onInverse = mine, share = actions.shareCall, playKept = actions.playKept) { actions.call(message.call!!.video) }
+            } else if (message.clip?.video == true) {
+                VideoClipContent(message, live, onInverse = mine, play = actions.playVideo, save = actions.saveClip)
             } else if (message.clip != null) {
                 ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine, save = actions.saveClip)
             } else {
                 Text(message.body, color = if (mine) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Body)
             }
             val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
-            val status = if (!mine) null else when (message.status) {
-                MessageStatus.PENDING -> stringResource(R.string.chat_status_pending)
-                MessageStatus.SENT -> stringResource(R.string.chat_status_sent)
-                MessageStatus.DELIVERED -> stringResource(R.string.chat_status_delivered)
-                MessageStatus.READ -> stringResource(R.string.chat_status_read)
-                MessageStatus.FAILED -> stringResource(R.string.chat_status_failed)
+            // The time, and for mine how far it got: no "read" mark (their circle says it).
+            Row(Modifier.align(Alignment.End).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    time,
+                    color = when {
+                        message.status == MessageStatus.FAILED && mine -> LibraryColors.Warning
+                        mine -> LibraryColors.OnMineMuted
+                        else -> LibraryColors.Muted
+                    },
+                    style = LibraryType.Tiny,
+                )
+                if (mine) StatusMark(tick, Modifier.padding(start = 4.dp))
             }
-            Text(
-                listOfNotNull(time, status).joinToString(" · "),
-                color = when {
-                    message.status == MessageStatus.FAILED && mine -> LibraryColors.Warning
-                    mine -> LibraryColors.OnMineMuted
-                    else -> LibraryColors.Muted
-                },
-                style = LibraryType.Tiny,
-                modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
-            )
         }
     }
 }

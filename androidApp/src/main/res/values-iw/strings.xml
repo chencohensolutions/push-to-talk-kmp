@@ -704,6 +704,8 @@
     <string name="voice_discard">מחיקת ההודעה הקולית</string>
     <string name="voice_send">שליחת ההודעה הקולית</string>
     <string name="voice_message">הודעה קולית</string>
+    <string name="chat_read_up_to_here">%1$s קרא/ה עד כאן</string>
+    <string name="chat_read_at">נקרא %1$s</string>
     <string name="talk_quick_reply">חלון תשובה מהירה</string>
     <string name="talk_quick_reply_body">כשמגיעה הודעה בזמן שהטלפון בשימוש, חלון בתחתית המסך מראה את השיחה עם שדה לתשובה וכפתור להחזיק ולדבר.</string>
     <string name="talk_reply_bubble">בועת תשובה מעל אפליקציות אחרות</string>
