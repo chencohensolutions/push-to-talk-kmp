@@ -51,6 +51,16 @@ class AndroidTalkVideoCapture(
     private var encoder: MediaCodec? = null
     private var encoderSurface: Surface? = null
     private var preview: Surface? = null
+    /** A small copy of the camera's frames for Follow face (null: none, or the camera can't add it). */
+    private var faceReader: android.media.ImageReader? = null
+    private var faceReaderOk = true
+    @Volatile private var faceSink: ((TalkVideo.Face) -> Unit)? = null
+    @Volatile private var lastPtsMs = 0L
+    private val faceFinder by lazy {
+        com.chencohen.ptt.calls.FaceFinder("TalkFaces", everyMs = 500) { box ->
+            if (box != null) faceSink?.invoke(TalkVideo.Face(lastPtsMs, box.centerX(), box.centerY(), box.height()))
+        }
+    }
     private var codec = TalkVideo.VP8
     private var config: ByteArray? = null
     private var sink: ((TalkVideo.Frame) -> Unit)? = null
@@ -123,8 +133,47 @@ class AndroidTalkVideoCapture(
         return true
     }
 
+    override fun faces(onFace: ((TalkVideo.Face) -> Unit)?) {
+        faceSink = onFace
+    }
+
     override fun stop() {
         synchronized(lock) { sink = null }
+        faceSink = null
+    }
+
+    /** A frame for Follow face: twice a second while sending, a 320×240 copy to the face finder. */
+    private fun faceImage(reader: android.media.ImageReader) {
+        val image = runCatching { reader.acquireLatestImage() }.getOrNull() ?: return
+        try {
+            if (faceSink == null || !faceFinder.due()) return
+            val w = image.width
+            val h = image.height
+            val bytes = runCatching { nv21(image, w, h) }.onFailure { Log.w(TAG, "face image", it) }.getOrNull()
+            if (bytes != null) faceFinder.offerNv21(bytes, w, h, rotation()) else faceFinder.offerNothing()
+        } finally {
+            image.close()
+        }
+    }
+
+    private fun nv21(image: android.media.Image, w: Int, h: Int): ByteArray {
+        val out = ByteArray(w * h * 3 / 2)
+        val y = image.planes[0]
+        val yb = y.buffer
+        for (row in 0 until h) {
+            yb.position(row * y.rowStride)
+            yb.get(out, row * w, w)
+        }
+        val u = image.planes[1]
+        val v = image.planes[2]
+        var at = w * h
+        for (row in 0 until h / 2) {
+            for (col in 0 until w / 2) {
+                out[at++] = v.buffer.get(row * v.rowStride + col * v.pixelStride)
+                out[at++] = u.buffer.get(row * u.rowStride + col * u.pixelStride)
+            }
+        }
+        return out
     }
 
     @SuppressLint("MissingPermission")
@@ -247,7 +296,8 @@ class AndroidTalkVideoCapture(
         }
         // A key frame carries its parameter sets (H.265), whether the encoder put them in or not.
         val data = if (key && codec != TalkVideo.VP8 && config != null && !startsWith(bytes, config!!)) config!! + bytes else bytes
-        out(TalkVideo.Frame((info.presentationTimeUs - startUs) / 1000, key, rotation(), data, codec))
+        lastPtsMs = (info.presentationTimeUs - startUs) / 1000
+        out(TalkVideo.Frame(lastPtsMs, key, rotation(), data, codec))
     }
 
     /** How the Talk screen's preview turns the camera's frames upright (as the listener's screen will). */
@@ -285,7 +335,13 @@ class AndroidTalkVideoCapture(
         val asked = ++sessions
         runCatching { session?.close() }
         session = null
-        val targets = listOfNotNull(enc, preview)
+        if (faceReaderOk && faceReader == null) {
+            faceReader = android.media.ImageReader.newInstance(FACE_WIDTH, FACE_HEIGHT, android.graphics.ImageFormat.YUV_420_888, 2).apply {
+                setOnImageAvailableListener({ faceImage(it) }, handler)
+            }
+        }
+        val faces = faceReader?.surface?.takeIf { faceReaderOk }
+        val targets = listOfNotNull(enc, preview, faces)
         try {
             val executor = Executor { r -> handler?.post(r) }
             device.createCaptureSession(
@@ -294,7 +350,7 @@ class AndroidTalkVideoCapture(
                     targets.map { target ->
                         // The preview mirrored like a mirror; what is sent as the camera sees it.
                         OutputConfiguration(target).apply {
-                            if (android.os.Build.VERSION.SDK_INT >= 33) mirrorMode = if (target === enc) OutputConfiguration.MIRROR_MODE_NONE else OutputConfiguration.MIRROR_MODE_AUTO
+                            if (android.os.Build.VERSION.SDK_INT >= 33) mirrorMode = if (target === preview) OutputConfiguration.MIRROR_MODE_AUTO else OutputConfiguration.MIRROR_MODE_NONE
                         }
                     },
                     executor,
@@ -319,6 +375,13 @@ class AndroidTalkVideoCapture(
 
                         override fun onConfigureFailed(s: CameraCaptureSession) {
                             Log.w(TAG, "camera session failed")
+                            // The camera can't add the small copy for Follow face: on without it.
+                            if (asked == sessions && camera === device && faces != null) {
+                                Log.w(TAG, "no face copy: Follow face looks on the other phone")
+                                faceReaderOk = false
+                                configure()
+                                return
+                            }
                             // A preview that went meanwhile: go on without it, so the camera keeps sending.
                             if (asked == sessions && camera === device && preview != null) {
                                 synchronized(lock) { preview = null }
@@ -345,6 +408,8 @@ class AndroidTalkVideoCapture(
         runCatching { enc?.release() }
         runCatching { encoderSurface?.release() }
         encoderSurface = null
+        runCatching { faceReader?.close() }
+        faceReader = null
         config = null
         val t = synchronized(lock) { thread.also { thread = null; handler = null } }
         t?.quitSafely()
@@ -356,6 +421,8 @@ class AndroidTalkVideoCapture(
         const val TAG = "TalkVideo"
         const val WIDTH = 640
         const val HEIGHT = 480
+        private const val FACE_WIDTH = 320
+        private const val FACE_HEIGHT = 240
         const val FPS = 30
         const val BITRATE = 700_000
         const val FPS_60 = 60
@@ -410,6 +477,27 @@ object AndroidTalkVideoOut : TalkVideoOut {
      */
     private val sinceKey = ArrayList<TalkVideo.Frame>()
 
+    /** The sender's face positions in the clip shown (Follow face), in time order. */
+    private val faces = ArrayList<TalkVideo.Face>()
+
+    override fun face(clip: String, face: TalkVideo.Face) {
+        synchronized(lock) {
+            if (this.clip != clip) return
+            faces += face
+            if (faces.size > 1_000) faces.subList(0, 500).clear()
+        }
+    }
+
+    /** The clip shown has the sender's face positions (else Follow face looks on this phone). */
+    fun hasFaces(): Boolean = synchronized(lock) { faces.isNotEmpty() }
+
+    /** Where the sender's face is in the picture showing now; null: none for 1.5 s. */
+    fun faceNow(): TalkVideo.Face? = synchronized(lock) {
+        if (clip == null) return null
+        val at = playedMs + SystemClock.elapsedRealtime() - playedAt
+        faces.lastOrNull { it.ptsMs <= at + 100 }?.takeIf { at - it.ptsMs < 1_500 }
+    }
+
     private val _shown = MutableStateFlow<Shown?>(null)
 
     /** The clip being shown: its picture's size and rotation, for the view's shape. */
@@ -453,6 +541,7 @@ object AndroidTalkVideoOut : TalkVideoOut {
             playedAt = SystemClock.elapsedRealtime()
             waiting.clear()
             sinceKey.clear()
+            faces.clear()
             releaseDecoder()
             if (thread == null) thread = HandlerThread("talk-video-out").also { it.start(); handler = Handler(it.looper) }
             Log.i(TAG, "video burst $clip begins (view ${surface != null})")
@@ -492,6 +581,7 @@ object AndroidTalkVideoOut : TalkVideoOut {
             this.clip = null
             waiting.clear()
             sinceKey.clear()
+            faces.clear()
             releaseDecoder()
             _shown.value = null
         }

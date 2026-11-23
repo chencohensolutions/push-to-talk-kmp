@@ -730,36 +730,13 @@ private fun VideoView(
     val bw = boxSize.width.toFloat()
     val bh = boxSize.height.toFloat()
     // Pinching: the picture laid out whole (fitted), and its zoom from 1.0 up: Maximized starts at the zoom that fills.
-    val pinch = pinchKey != null && aspect > 0f && bw > 0f && bh > 0f
-    val content = if (aspect > 0f && bw > 0f && bh > 0f) com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, fill && !pinch) else null
-    val coverRatio = if (pinch) { val fit = com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, false); maxOf(bw / fit.first, bh / fit.second) } else 1f
+    val pinching = pinchKey != null && aspect > 0f && bw > 0f && bh > 0f
+    val content = if (aspect > 0f && bw > 0f && bh > 0f) com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, fill && !pinching) else null
+    val coverRatio = if (pinching) { val fit = com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, false); maxOf(bw / fit.first, bh / fit.second) } else 1f
     val zoomMost = if (fill) coverRatio * 1.5f else maxZoom
-    val prefs = remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
-    var pinched by remember(pinchKey) { androidx.compose.runtime.mutableFloatStateOf(pinchKey?.let { prefs.getFloat(it, 0f) } ?: 0f) }
-    val zoom = if (pinch) (if (pinched > 0f) pinched else if (fill) coverRatio else 1f).coerceIn(1f, zoomMost) else null
-    val framing = followFace(track, follow, fill, boxSize, content, maxZoom, faceAt, everyMs, hint, zoom)
-    val pinching = if (pinch && pinchKey != null) {
-        Modifier.pointerInput(pinchKey, zoomMost) {
-            awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false)
-                do {
-                    val event = awaitPointerEvent()
-                    if (event.changes.count { it.pressed } >= 2) {
-                        val change = event.calculateZoom()
-                        if (change != 1f) {
-                            val now = ((if (pinched > 0f) pinched else zoom ?: 1f) * change).coerceIn(1f, zoomMost)
-                            pinched = now
-                            prefs.edit().putFloat(pinchKey, now).apply()
-                            event.changes.forEach { it.consume() }
-                        }
-                    }
-                } while (event.changes.any { it.pressed })
-            }
-        }
-    } else {
-        Modifier
-    }
-    Box(modifier.clipToBounds().onSizeChanged { boxSize = it }.then(pinching), contentAlignment = Alignment.Center) {
+    val pinch = rememberPinch(pinchKey, pinching, if (fill) coverRatio else 1f, zoomMost)
+    val framing = followFace(track, follow, fill, boxSize, content, maxZoom, faceAt, everyMs, hint, pinch.zoom)
+    Box(modifier.clipToBounds().onSizeChanged { boxSize = it }.then(pinch.modifier), contentAlignment = Alignment.Center) {
         val density = androidx.compose.ui.platform.LocalDensity.current
         val shaped = if (content != null) {
             with(density) { Modifier.requiredSize(content.first.toDp(), content.second.toDp()) }
@@ -828,59 +805,14 @@ private fun followFace(
     LaunchedEffect(track, on) {
         while (on) {
             hint()?.let { h ->
-                box = android.graphics.RectF(h.x - h.h * 0.375f, h.y - h.h / 2, h.x + h.h * 0.375f, h.y + h.h / 2)
+                box = faceBox(h.x, h.y, h.h)
                 seenAt = android.os.SystemClock.elapsedRealtime()
             }
             if (box != null && android.os.SystemClock.elapsedRealtime() - seenAt > 1_500) box = null
             delay(100)
         }
     }
-    // The target: scale and offset of the picture in the box; moved only past a dead zone.
-    var target by remember(track) { androidx.compose.runtime.mutableStateOf(Triple(1f, 0f, 0f)) }
-    val b = box
-    val bw = boxSize.width.toFloat()
-    val bh = boxSize.height.toFloat()
-    if (content == null || bw <= 0f || bh <= 0f) {
-        if (target != Triple(1f, 0f, 0f)) target = Triple(1f, 0f, 0f)
-    } else if (b == null || !on) {
-        // No face: the plain picture, at the zoom pinched (centred), or as laid out.
-        val (cw, ch) = content
-        val plainAt = zoom?.let { z -> com.chencohen.ptt.calls.CallGrid.place(bw, bh, cw, ch, 0.5f, 0.5f, 0f, z, targetY = 0.5f, fixedZoom = z) }
-        val t = plainAt?.let { Triple(it.scale, it.x, it.y) } ?: Triple(1f, 0f, 0f)
-        if (target != t) target = t
-    } else {
-        val (cw, ch) = content
-        val p = com.chencohen.ptt.calls.CallGrid.place(
-            bw, bh, cw, ch, b.centerX(), b.centerY(), b.height(),
-            maxZoom = if (fill) minOf(maxZoom, 1.5f) else maxZoom, targetY = faceAt, fixedZoom = zoom,
-        )
-        val (s0, x0, y0) = target
-        // A bigger dead zone (2026-11-23, hen: "more mellow"): small head moves leave the crop where it is.
-        if (kotlin.math.abs(p.scale - s0) > 0.08f || kotlin.math.abs(p.x - x0) > bw * 0.05f || kotlin.math.abs(p.y - y0) > bh * 0.05f) {
-            target = Triple(p.scale, p.x, p.y)
-        }
-    }
-    // Straight to the face when Follow face is turned on, a call starts or a tile appears (2026-11-23, hen: "instantly,
-    // without delay"); after that one frame's smoothing, and a short ease back to the plain picture.
-    // Straight to the face the first time; after that a glide of about half a second to each new target (twice a
-    // second from the sender: key frames, not every move).
-    var placed by remember(track, on) { androidx.compose.runtime.mutableStateOf(false) }
-    val atFace = box != null && on
-    val ease: androidx.compose.animation.core.AnimationSpec<Float> = when {
-        !placed && atFace -> androidx.compose.animation.core.snap()
-        else -> androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-    }
-    LaunchedEffect(atFace) { if (atFace) placed = true }
-    val s by androidx.compose.animation.core.animateFloatAsState(target.first, ease, label = "follow zoom")
-    val x by androidx.compose.animation.core.animateFloatAsState(target.second, ease, label = "follow x")
-    val y by androidx.compose.animation.core.animateFloatAsState(target.third, ease, label = "follow y")
-    return Modifier.graphicsLayer {
-        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-        scaleX = s
-        scaleY = s
-        translationX = x
-        translationY = y
-    }
+    return faceFraming(track, on, fill, boxSize, content, maxZoom, faceAt, box, zoom)
 }
 
 /**

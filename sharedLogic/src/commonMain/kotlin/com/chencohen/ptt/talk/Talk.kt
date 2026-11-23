@@ -244,6 +244,8 @@ internal class Talk(
                 }
                 TalkVideo.pieces(out.videoNumber++ and 0xffff, frame).forEach { out.packets.trySend(Captured.Packet(it, audio = false)) }
             }
+            // Where the face is, with the pictures (Follow face on the other phones; 2026-11-23, hen).
+            if (out.video) camera.faces { face -> out.packets.trySend(Captured.Packet(TalkVideo.face(face), audio = false)) }
         }
         if (!mic.start { out.packets.trySend(Captured.Packet(if (out.video) TalkVideo.audio(it) else it)) }) {
             if (out.video) camera?.stop()
@@ -282,7 +284,10 @@ internal class Talk(
     fun release(send: Boolean = true) {
         val out = outgoing ?: return
         if (!send) out.cancelled = true
-        if (out.video) videoCapture?.stop()
+        if (out.video) {
+            videoCapture?.faces(null)
+            videoCapture?.stop()
+        }
         out.mic?.stop()
         out.packets.trySend(Captured.End)
         if (!out.voiceOnly) scope.launch { live?.talking(out.chat, false) }
@@ -451,7 +456,10 @@ internal class Talk(
         out.unsent.clear()
         if (outgoing === out) {
             outgoing = null
-            if (out.video) videoCapture?.stop()
+            if (out.video) {
+            videoCapture?.faces(null)
+            videoCapture?.stop()
+        }
             out.mic?.stop()
             out.packets.close()
             scope.launch { live?.talking(out.chat, false) }
@@ -704,7 +712,7 @@ internal class Talk(
                 break
             }
             val audio = if (burst.video) {
-                burst.splitter.split(packets) { frame -> if (burst.playing) videoOut?.frame(burst.id, frame) }
+                burst.splitter.split(packets, { frame -> if (burst.playing) videoOut?.frame(burst.id, frame) }) { face -> if (burst.playing) videoOut?.face(burst.id, face) }
             } else {
                 packets
             }
@@ -767,7 +775,7 @@ internal class Talk(
             var frames = 0
             for (segment in segments.sortedBy { it.index }) {
                 val packets = ClipCrypto.open(key, id, segment.index, segment.last, segment.ciphertext) ?: break
-                val audio = if (clip.video) splitter.split(packets) { frame -> videoOut?.frame(id, frame) } else packets
+                val audio = if (clip.video) splitter.split(packets, { frame -> videoOut?.frame(id, frame) }) { face -> videoOut?.face(id, face) } else packets
                 frames += audio.size
                 playback.write(audio)
             }
@@ -800,7 +808,7 @@ internal class Talk(
         val frames = ArrayList<TalkVideo.Frame>()
         for (segment in segments.sortedBy { it.index }) {
             val packets = ClipCrypto.open(key, id, segment.index, segment.last, segment.ciphertext) ?: break
-            audio += if (clip.video) splitter.split(packets) { frames += it } else packets
+            audio += if (clip.video) splitter.split(packets, { frames += it }) else packets
         }
         return ClipContents(audio, frames, message.at)
     }

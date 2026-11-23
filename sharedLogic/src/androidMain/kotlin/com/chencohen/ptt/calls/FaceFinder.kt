@@ -58,10 +58,37 @@ class FaceFinder(
             busy.set(false)
             return
         }
-        val rotation = frame.rotation
+        look(InputImage.fromByteArray(nv21, sw, sh, frame.rotation, InputImage.IMAGE_FORMAT_NV21), sw, sh, frame.rotation)
+    }
+
+    /** True when it is time to look again (and not still looking): the caller then makes its picture and offers it. */
+    fun due(): Boolean {
+        if (closed) return false
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastLookAt < everyMs || !busy.compareAndSet(false, true)) return false
+        lastLookAt = now
+        return true
+    }
+
+    /** After [due], nothing to look at after all. */
+    fun offerNothing() = busy.set(false)
+
+    /** A camera image's copy ([nv21], [w]×[h]) after [due]; [rotation] turns it upright. */
+    fun offerNv21(nv21: ByteArray, w: Int, h: Int, rotation: Int) =
+        look(InputImage.fromByteArray(nv21, w, h, rotation, InputImage.IMAGE_FORMAT_NV21), w, h, rotation)
+
+    /** A view's picture after [due] (a push-to-video burst as decoded); [rotation] turns it upright. */
+    fun offerBitmap(bitmap: android.graphics.Bitmap, rotation: Int) =
+        look(InputImage.fromBitmap(bitmap, rotation), bitmap.width, bitmap.height, rotation)
+
+    private fun look(image: InputImage, sw: Int, sh: Int, rotation: Int) {
+        if (closed) {
+            busy.set(false)
+            return
+        }
         work.execute {
             try {
-                val faces = com.google.android.gms.tasks.Tasks.await(detector.process(InputImage.fromByteArray(nv21, sw, sh, rotation, InputImage.IMAGE_FORMAT_NV21)))
+                val faces = com.google.android.gms.tasks.Tasks.await(detector.process(image))
                 val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                 val uw = (if (rotation % 180 == 0) sw else sh).toFloat()
                 val uh = (if (rotation % 180 == 0) sh else sw).toFloat()
