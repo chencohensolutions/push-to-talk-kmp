@@ -68,10 +68,10 @@ class FaceFramer : VideoProcessor {
             targetY = 0.5f
             targetSize = 1f
         }
-        // Eased toward the target: about half a second to settle; the zoom back out is slower.
-        val ease = if (targetSize > size) 0.04f else 0.08f
-        x += (targetX - x) * 0.08f
-        y += (targetY - y) * 0.08f
+        // Eased toward the target: about half a second to settle at 30 fps; the zoom back out is slower.
+        val ease = if (targetSize > size) 0.06f else 0.14f
+        x += (targetX - x) * 0.14f
+        y += (targetY - y) * 0.14f
         size += (targetSize - size) * ease
         val buffer = frame.buffer
         val w = buffer.width
@@ -111,6 +111,7 @@ class FaceFramer : VideoProcessor {
                 val faces = com.google.android.gms.tasks.Tasks.await(detector.process(InputImage.fromByteArray(nv21, sw, sh, rotation, InputImage.IMAGE_FORMAT_NV21)))
                 val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                 if (face != null) aim(face.boundingBox, sw, sh, rotation)
+                Log.i(TAG, "${faces.size} faces in ${sw}x$sh r$rotation${face?.let { " box ${it.boundingBox.toShortString()}" } ?: ""} -> crop ${"%.2f".format(targetSize)} at ${"%.2f".format(targetX)},${"%.2f".format(targetY)} (now ${"%.2f".format(size)})")
             } catch (e: Throwable) {
                 // Also a missing detector library (a release build on an x86_64 emulator): no framing, the call goes on.
                 Log.w(TAG, "face detection", e)
@@ -134,7 +135,10 @@ class FaceFramer : VideoProcessor {
             270 -> 1f - v to u
             else -> u to v
         }
-        val want = (faceShare * HEADROOM).coerceIn(1f / MAX_ZOOM, 1f)
+        // The face about [FACE_SHARE] of the picture's height (head and shoulders filling it): a selfie's face is often
+        // already a third of the height, so the old 3x headroom asked for no zoom at all (2026-11-23, hen: "didn't do
+        // anything").
+        val want = (faceShare / FACE_SHARE).coerceIn(1f / MAX_ZOOM, 1f)
         // A dead zone: small moves and size changes are left alone.
         if (kotlin.math.abs(bx - targetX) > 0.04f || kotlin.math.abs(by - targetY) > 0.04f || kotlin.math.abs(want - targetSize) > 0.08f) {
             targetX = bx
@@ -175,7 +179,7 @@ class FaceFramer : VideoProcessor {
         const val LOST_MS = 1_500L
         const val MAX_ZOOM = 2f
 
-        /** The crop's height for a face this tall: head and shoulders. */
-        const val HEADROOM = 3f
+        /** The face's height as a share of the framed picture's: head and shoulders fill it. */
+        const val FACE_SHARE = 0.45f
     }
 }

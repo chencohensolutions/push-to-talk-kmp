@@ -35,17 +35,15 @@ says "Calls need the microphone. Allow it in the app's settings."
   also stops by itself when the recording phone leaves the call, when the room empties, or after 4 hours, so hanging
   up sends nothing. A server that doesn't keep calls (or an older one) is ignored: the phone's own saving goes on.
 - **Video as the camera sends it** (2026-11-22, hen): each phone sends its camera's own 4:3 picture, uncropped. The
-  phone showing it has two layouts, one control: **Full screen** (the default: their video cropped to fill the whole
-  screen, the name, buttons and your preview over it) and **Fit** (2026-11-22, hen: their whole picture, uncropped, as
-  big as fits between the name and your preview, below the camera cutout; your preview under it, nothing over it).
-  The pill at the top right names the layout a tap switches to ("Fit" / "Full screen"); a double tap on the video
-  does the same; kept for next time.
-- **Follow my face** (2026-11-22, hen; a pill at the top right while your camera is on, kept for next time): on this
-  phone, before sending, the camera's picture is cropped around the biggest face, head and shoulders, at most 2x, and
-  scaled back to the camera's size (`FaceFramer`, a LiveKit VideoProcessor), so everyone in the call and your own
-  preview see it framed. ML Kit's on-phone face detector (bundled, offline) looks at a 240-wide copy four times a
-  second; the crop eases, ignores small moves, and zooms back out 1.5 s after the face is lost. Display only: nothing
-  but the picture is sent.
+  phone showing it has two layouts (2026-11-23, hen, from the approved mockups), one pill at the top that names the
+  layout a tap switches to, kept for next time:
+  - **Maximized** (the default): their video covers the whole screen, cropped, behind the camera cutout and status
+    bar too; your video is a small corner window.
+  - **Normal**: upright, their whole picture as wide as the screen at its own shape from the very top, and your video
+    in the rest, at its own shape, as wide as that allows, centred. On its side, side by side: theirs at full height
+    from the start edge, yours in the rest, as big as fits, centred.
+  The name, pills and buttons float over the video on soft shades; a single tap on the video hides or shows them all
+  (no double tap).
 - **Stats** (2026-11-22, hen; Call settings › Advanced › Show video stats, off by default): a **Stats** pill at the top
   right shows or hides, on each video and your preview, its frame rate, bit rate, size and codec from WebRTC's stats,
   once a second (your camera: all simulcast layers' bytes, the biggest layer's size and rate). Kept for next time.

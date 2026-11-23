@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -259,12 +261,13 @@ fun CallScreen(
         val remote = if (r != null && call.phase == CallPhase.ACTIVE) remoteVideo(r, changes) else emptyList()
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
-        // The others' picture comes whole (the camera's own 4:3); this phone fills the screen with it (cropped) or fits
-        // it whole. A tap on the pill, or a double tap on the video, switches; kept for next time (2026-11-22, hen).
-        var fill by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("fill", true)) }
-        fun toggleFill() {
-            fill = !fill
-            prefs.edit().putBoolean("fill", fill).apply()
+        // Two layouts (2026-11-23, hen, from the approved mockup), kept for next time. Maximized: their video covers the
+        // whole screen, cropped, under the cutout too; this phone's in a small corner window. Normal: their whole
+        // picture as wide as the screen from the very top (side by side on its side), this phone's in the rest.
+        var maximized by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("fill", true)) }
+        fun toggleLayout() {
+            maximized = !maximized
+            prefs.edit().putBoolean("fill", maximized).apply()
         }
         // The screen's orientation during a call: Auto (the phone's sensor), Portrait or Landscape; kept for next time.
         var orientation by remember { androidx.compose.runtime.mutableIntStateOf(prefs.getInt("orientation", 0)) }
@@ -279,182 +282,230 @@ fun CallScreen(
         }
         val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         var statsShown by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("stats", false)) }
+        val stats = statsAllowed && statsShown
         // Follow my face (2026-11-22, hen): framed on this phone before sending; kept for next time.
         var follow by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("follow_face", false)) }
         LaunchedEffect(transport, follow) { transport?.followFace = follow }
-        val stats = statsAllowed && statsShown
-        // Full screen: their video cropped to fill the screen, everything over it. Fit (2026-11-22, hen): their whole
-        // picture as big as fits below the camera cutout, with this phone's video under it, nothing over it.
+        val own = r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
+        val ownShape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
+        // Their pictures' shapes, from their frames: Normal sizes their video by it.
+        val shapes = remember { androidx.compose.runtime.mutableStateMapOf<String, Float>() }
+        // A tap anywhere on the video hides or shows every control; nothing to hide before the video comes.
+        val videoOn = call.phase == CallPhase.ACTIVE && (remote.isNotEmpty() || own != null)
+        var controls by remember { androidx.compose.runtime.mutableStateOf(true) }
+        val shown = controls || !videoOn
+        val normal = !maximized && remote.isNotEmpty()
+
+        // Each tile's shape and whether it is cropped go to its sender (their preview outlines the crop).
+        fun Modifier.told(user: String) = onSizeChanged { size ->
+            if (size.height > 0) actions.setView(user, maximized, size.width.toFloat() / size.height)
+        }
+
         @Composable
-        fun remoteTiles(modifier: Modifier) {
-            val tile = Modifier.pointerInput(Unit) { detectTapGestures(onDoubleTap = { toggleFill() }) }
-            // Each tile's shape and the Fill/Fit choice go to its sender (their preview outlines the crop).
-            fun Modifier.told(user: String) = onSizeChanged { size ->
-                if (size.height > 0) actions.setView(user, fill, size.width.toFloat() / size.height)
-            }
-            // Side by side in landscape, one above the other in portrait.
+        fun theirs(modifier: Modifier) {
             if (landscape) {
                 Row(modifier) {
-                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxSize().told(user), fill = fill, stats = stats) } }
+                    remote.forEach { (user, track) ->
+                        key(user, track.sid ?: track.name, maximized) {
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxSize().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it })
+                        }
+                    }
                 }
             } else {
                 Column(modifier) {
-                    remote.forEach { (user, track) -> key(user, track.sid ?: track.name, fill) { VideoView(r!!, track, tile.weight(1f).fillMaxWidth().told(user), fill = fill, stats = stats) } }
-                }
-            }
-        }
-        if (remote.isNotEmpty() && fill) remoteTiles(Modifier.fillMaxSize())
-        if (call.phase == CallPhase.ACTIVE && call.video) {
-            Row(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    stringResource(
-                        when (orientation) {
-                            1 -> R.string.call_orientation_portrait
-                            2 -> R.string.call_orientation_landscape
-                            else -> R.string.call_orientation_auto
-                        },
-                    ),
-                    color = Color.White, style = LibraryType.Small,
-                    modifier = Modifier.background(LibraryColors.PillScrim, CircleShape)
-                        .clickable(role = Role.Button) {
-                            orientation = (orientation + 1) % 3
-                            prefs.edit().putInt("orientation", orientation).apply()
+                    remote.forEach { (user, track) ->
+                        key(user, track.sid ?: track.name, maximized) {
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it })
                         }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-                if (call.camera) {
-                    Text(
-                        stringResource(R.string.call_follow_face),
-                        color = if (follow) LibraryColors.OnInverse else Color.White, style = LibraryType.Small,
-                        modifier = Modifier.background(if (follow) LibraryColors.Inverse else LibraryColors.PillScrim, CircleShape)
-                            .clickable(role = Role.Switch) {
-                                follow = !follow
-                                prefs.edit().putBoolean("follow_face", follow).apply()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
-                }
-                if (statsAllowed) {
-                    Text(
-                        stringResource(R.string.call_stats),
-                        color = if (statsShown) LibraryColors.OnInverse else Color.White, style = LibraryType.Small,
-                        modifier = Modifier.background(if (statsShown) LibraryColors.Inverse else LibraryColors.PillScrim, CircleShape)
-                            .clickable(role = Role.Switch) {
-                                statsShown = !statsShown
-                                prefs.edit().putBoolean("stats", statsShown).apply()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
-                }
-                if (remote.isNotEmpty()) {
-                    // The one layout control: shows the layout a tap switches to.
-                    Text(
-                        stringResource(if (fill) R.string.call_layout_fit else R.string.call_layout_full),
-                        color = Color.White, style = LibraryType.Small,
-                        modifier = Modifier.background(LibraryColors.PillScrim, CircleShape)
-                            .clickable(role = Role.Button) { toggleFill() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
+                    }
                 }
             }
         }
-        Column(
-            Modifier.fillMaxSize().statusBarsPadding().displayCutoutPadding().navigationBarsPadding().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            if (remote.isEmpty()) Spacer(Modifier.height(48.dp))
-            if (remote.isEmpty()) Avatar(title, size = 96.dp)
-            Spacer(Modifier.height(16.dp))
-            Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
-            Text(statusLine(call, nameOf), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
-            val recorders = call.recordingBy + listOfNotNull(call.serverRecordingBy)
-            if (recorders.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    stringResource(R.string.call_recording, recorders.joinToString { nameOf(it) }),
-                    color = Color.White, style = LibraryType.Small,
-                    modifier = Modifier.background(LibraryColors.Error, CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
-                )
+
+        @Composable
+        fun mine(modifier: Modifier) {
+            val o = own ?: return
+            Box(modifier) {
+                key(o.sid ?: o.name) { VideoView(r!!, o, Modifier.fillMaxSize(), mirror = true, fill = false, stats = stats) }
+                CropOutlines(ownShape, call.viewers.filterValues { it.fill }, nameOf, showNames = call.viewers.size > 1)
             }
-            if (call.askToSave && call.phase == CallPhase.ACTIVE) {
-                Spacer(Modifier.height(16.dp))
+        }
+
+        Box(
+            Modifier.fillMaxSize().pointerInput(videoOn) { detectTapGestures(onTap = { if (videoOn) controls = !controls }) },
+        ) {
+            when {
+                normal && landscape -> Row(Modifier.fillMaxSize()) {
+                    // Theirs at full height and its own shape from the start edge; this phone's in the rest.
+                    val shape = remote.firstOrNull()?.first?.let { shapes[it] } ?: (4f / 3f)
+                    theirs(Modifier.fillMaxHeight().aspectRatio(shape * remote.size.coerceAtLeast(1), matchHeightConstraintsFirst = true))
+                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        mine(Modifier.fillMaxSize().padding(8.dp))
+                    }
+                }
+                normal -> Column(Modifier.fillMaxSize()) {
+                    // Theirs as wide as the screen at its own shape, from the very top; this phone's in the rest.
+                    val shape = remote.firstOrNull()?.first?.let { shapes[it] } ?: (3f / 4f)
+                    theirs(Modifier.fillMaxWidth().aspectRatio(shape / remote.size.coerceAtLeast(1)))
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        mine(Modifier.fillMaxSize().padding(8.dp))
+                    }
+                }
+                else -> {
+                    if (remote.isNotEmpty()) theirs(Modifier.fillMaxSize())
+                    if (own != null) {
+                        // A small window in the corner, above the buttons while they show.
+                        val lift by androidx.compose.animation.core.animateDpAsState(if (shown) 150.dp else 16.dp, label = "own window")
+                        val window = if (ownShape >= 1f) Modifier.size(width = 160.dp, height = (160 / ownShape).dp) else Modifier.size(width = (160 * ownShape).dp, height = 160.dp)
+                        mine(
+                            Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = lift).then(window)
+                                .clip(RoundedCornerShape(12.dp)),
+                        )
+                    }
+                }
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            shown,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                val scrim = Color.Black.copy(alpha = 0.55f)
+                // The top: the pills, the name and how the call is going, over a soft shade.
                 Column(
-                    Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.12f), com.chencohen.ptt.ui.style.LibraryShapes.Card).padding(16.dp),
+                    Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(if (videoOn) scrim else Color.Transparent, Color.Transparent)))
+                        .statusBarsPadding().displayCutoutPadding().padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(stringResource(R.string.call_save_ask), color = LibraryColors.PhotoText, style = LibraryType.RowTitle)
-                    Text(stringResource(R.string.call_save_ask_body), color = LibraryColors.PhotoTextMuted, style = LibraryType.Caption, textAlign = TextAlign.Center)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    if (call.phase == CallPhase.ACTIVE && call.video) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                            Pill(
+                                stringResource(
+                                    when (orientation) {
+                                        1 -> R.string.call_orientation_portrait
+                                        2 -> R.string.call_orientation_landscape
+                                        else -> R.string.call_orientation_auto
+                                    },
+                                ),
+                            ) {
+                                orientation = (orientation + 1) % 3
+                                prefs.edit().putInt("orientation", orientation).apply()
+                            }
+                            if (call.camera) {
+                                Pill(stringResource(R.string.call_follow_face), on = follow) {
+                                    follow = !follow
+                                    prefs.edit().putBoolean("follow_face", follow).apply()
+                                }
+                            }
+                            if (statsAllowed) {
+                                Pill(stringResource(R.string.call_stats), on = statsShown) {
+                                    statsShown = !statsShown
+                                    prefs.edit().putBoolean("stats", statsShown).apply()
+                                }
+                            }
+                            // The layout a tap switches to.
+                            if (remote.isNotEmpty()) Pill(stringResource(if (maximized) R.string.call_layout_normal else R.string.call_layout_maximized)) { toggleLayout() }
+                        }
+                    }
+                    if (remote.isEmpty()) {
+                        Spacer(Modifier.height(48.dp))
+                        Avatar(title, size = 96.dp)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
+                    Text(statusLine(call, nameOf), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
+                    val recorders = call.recordingBy + listOfNotNull(call.serverRecordingBy)
+                    if (recorders.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
                         Text(
-                            stringResource(R.string.call_save_not_now), color = LibraryColors.PhotoTextMuted, style = LibraryType.RowTitle,
-                            modifier = Modifier.clickable(role = Role.Button, onClick = actions.dismissAsk).padding(8.dp),
+                            stringResource(R.string.call_recording, recorders.joinToString { nameOf(it) }),
+                            color = Color.White, style = LibraryType.Small,
+                            modifier = Modifier.background(LibraryColors.Error, CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
                         )
+                    }
+                    if (call.askToSave && call.phase == CallPhase.ACTIVE) {
+                        Spacer(Modifier.height(16.dp))
+                        Column(
+                            Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.5f), com.chencohen.ptt.ui.style.LibraryShapes.Card).padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(stringResource(R.string.call_save_ask), color = LibraryColors.PhotoText, style = LibraryType.RowTitle)
+                            Text(stringResource(R.string.call_save_ask_body), color = LibraryColors.PhotoTextMuted, style = LibraryType.Caption, textAlign = TextAlign.Center)
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                                Text(
+                                    stringResource(R.string.call_save_not_now), color = LibraryColors.PhotoTextMuted, style = LibraryType.RowTitle,
+                                    modifier = Modifier.clickable(role = Role.Button, onClick = actions.dismissAsk).padding(8.dp),
+                                )
+                                Text(
+                                    stringResource(R.string.call_save), color = LibraryColors.PhotoText, style = LibraryType.RowTitle,
+                                    modifier = Modifier.clickable(role = Role.Button) { actions.setSaving(true) }.padding(8.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                // The bottom: Save or Stop, and the call's buttons, over a soft shade.
+                Column(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, if (videoOn) scrim else Color.Transparent)))
+                        .navigationBarsPadding().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    // Stop shows for anyone while the server keeps the call; Record only where it can be saved.
+                    val stoppable = call.saving || call.serverRecordingBy != null
+                    if ((canSave || stoppable) && call.phase == CallPhase.ACTIVE) {
                         Text(
-                            stringResource(R.string.call_save), color = LibraryColors.PhotoText, style = LibraryType.RowTitle,
-                            modifier = Modifier.clickable(role = Role.Button) { actions.setSaving(true) }.padding(8.dp),
+                            stringResource(if (stoppable) R.string.call_save_stop else R.string.call_save),
+                            color = Color.White, style = LibraryType.Small,
+                            modifier = Modifier
+                                .background(if (stoppable) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
+                                .clickable(role = Role.Button) { actions.setSaving(!stoppable) }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
                         )
+                        Spacer(Modifier.height(16.dp))
+                    }
+                    when (call.phase) {
+                        CallPhase.RINGING -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            RoundButton(LibraryIcons.Close, stringResource(R.string.call_decline), LibraryColors.Error, actions.decline)
+                            RoundButton(if (call.video) LibraryIcons.Video else LibraryIcons.Call, stringResource(R.string.call_answer), LibraryColors.Accent, actions.accept)
+                        }
+                        CallPhase.ENDED -> {}
+                        else -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            RoundButton(
+                                if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff,
+                                stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute),
+                                Color.White.copy(alpha = 0.18f),
+                            ) { actions.setMicrophone(!call.microphone) }
+                            RoundButton(
+                                if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff,
+                                stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on),
+                                Color.White.copy(alpha = 0.18f),
+                            ) { actions.setCamera(!call.camera) }
+                            if (call.camera) RoundButton(LibraryIcons.Flip, stringResource(R.string.call_flip), Color.White.copy(alpha = 0.18f), actions.switchCamera)
+                            RoundButton(LibraryIcons.Call, stringResource(R.string.call_hang_up), LibraryColors.Error, actions.hangUp)
+                        }
                     }
                 }
             }
-            if (remote.isNotEmpty() && !fill) {
-                // Fit: their picture in the space between the name and this phone's video, below the cutout.
-                Spacer(Modifier.height(12.dp))
-                remoteTiles(Modifier.weight(1f).fillMaxWidth())
-                Spacer(Modifier.height(12.dp))
-            } else {
-                Spacer(Modifier.weight(1f))
-            }
-            // Stop shows for anyone while the server keeps the call; Record only where it can be saved.
-            val stoppable = call.saving || call.serverRecordingBy != null
-            if ((canSave || stoppable) && call.phase == CallPhase.ACTIVE) {
-                Text(
-                    stringResource(if (stoppable) R.string.call_save_stop else R.string.call_save),
-                    color = Color.White, style = LibraryType.Small,
-                    modifier = Modifier
-                        .background(if (stoppable) LibraryColors.Error else Color.White.copy(alpha = 0.18f), CircleShape)
-                        .clickable(role = Role.Button) { actions.setSaving(!stoppable) }
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                )
-                Spacer(Modifier.height(16.dp))
-            }
-            val own = r?.let { ownVideo(it, changes) }
-            if (own != null && call.camera) {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    // The whole picture, its own shape, with each viewer's crop outlined (2026-11-22, hen).
-                    val shape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
-                    val preview = if (shape >= 1f) Modifier.size(width = 160.dp, height = (160 / shape).dp) else Modifier.size(width = (160 * shape).dp, height = 160.dp)
-                    Box(preview) {
-                        key(own.sid ?: own.name) { VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = false, stats = stats) }
-                        CropOutlines(shape, call.viewers.filterValues { it.fill }, nameOf, showNames = call.viewers.size > 1)
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-            when (call.phase) {
-                CallPhase.RINGING -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    RoundButton(LibraryIcons.Close, stringResource(R.string.call_decline), LibraryColors.Error, actions.decline)
-                    RoundButton(if (call.video) LibraryIcons.Video else LibraryIcons.Call, stringResource(R.string.call_answer), LibraryColors.Accent, actions.accept)
-                }
-                CallPhase.ENDED -> {}
-                else -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    RoundButton(
-                        if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff,
-                        stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute),
-                        Color.White.copy(alpha = 0.18f),
-                    ) { actions.setMicrophone(!call.microphone) }
-                    RoundButton(
-                        if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff,
-                        stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on),
-                        Color.White.copy(alpha = 0.18f),
-                    ) { actions.setCamera(!call.camera) }
-                    if (call.camera) RoundButton(LibraryIcons.Flip, stringResource(R.string.call_flip), Color.White.copy(alpha = 0.18f), actions.switchCamera)
-                    RoundButton(LibraryIcons.Call, stringResource(R.string.call_hang_up), LibraryColors.Error, actions.hangUp)
-                }
-            }
-            Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+/** A small pill over the video: [on] in the inverse colour. */
+@Composable
+private fun Pill(text: String, on: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text,
+        color = if (on) LibraryColors.OnInverse else Color.White, style = LibraryType.Small,
+        modifier = Modifier.background(if (on) LibraryColors.Inverse else LibraryColors.PillScrim, CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
 
 @Composable
@@ -519,7 +570,7 @@ private fun ownVideo(room: Room, changes: Int): VideoTrack? =
  * (2026-11-22, hen: "fit and crop is not working": both cropped).
  */
 @Composable
-private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false, fill: Boolean = true, stats: Boolean = false) {
+private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false, fill: Boolean = true, stats: Boolean = false, onShape: (Float) -> Unit = {}) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
     // The picture's shape as shown (its rotation applied), from the frames themselves.
@@ -538,7 +589,10 @@ private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror:
                 if (h <= 0 || now == last) return
                 last = now
                 android.util.Log.i("CallVideo", "${if (mirror) "own" else "received"} video $now, shown ${w}x$h")
-                main.post { aspect = w.toFloat() / h }
+                main.post {
+                    aspect = w.toFloat() / h
+                    onShape(w.toFloat() / h)
+                }
             }
         }
         track.addRenderer(renderer)
