@@ -71,6 +71,8 @@ class ConversationActions(
     /** The Talk button in the header: Talk mode. */
     val openTalk: () -> Unit = {},
     val playClip: (String) -> Unit = {},
+    /** Save as file (a long press on a burst or voice message). */
+    val saveClip: ((String) -> Unit)? = null,
     val stopClip: () -> Unit = {},
     /** The composer's microphone went down (a voice message) or up ([send] false: cancelled). */
     val startVoice: () -> Unit = {},
@@ -283,7 +285,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             if (message.call != null) {
                 com.chencohen.ptt.ui.calls.CallEntryContent(message, onInverse = mine, share = actions.shareCall, playKept = actions.playKept) { actions.call(message.call!!.video) }
             } else if (message.clip != null) {
-                ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine)
+                ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine, save = actions.saveClip)
             } else {
                 Text(message.body, color = if (mine) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)
             }

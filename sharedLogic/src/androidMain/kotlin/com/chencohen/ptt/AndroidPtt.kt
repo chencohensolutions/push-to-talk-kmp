@@ -386,3 +386,9 @@ fun chatInFront(context: Context): String? = hub(context).chatInFront
 /** [chat]'s last [count] messages, oldest first (the quick-reply window). */
 fun recentMessages(context: Context, chat: String, count: Int = 12): List<com.chencohen.ptt.messaging.TextMessage> =
     hub(context).store.messagesWith(chat).takeLast(count)
+
+/** A burst or voice message opened, for Save as file. */
+suspend fun clipContents(context: Context, id: String): com.chencohen.ptt.talk.ClipContents? {
+    val messaging = hub(context)
+    return withContext(messagingWork) { messaging.talk.clipContents(id) }
+}

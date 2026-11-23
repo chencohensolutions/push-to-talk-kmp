@@ -134,6 +134,9 @@ interface TalkPrefs {
  * late phone reads from the start, catching up to live. Not connected, the press records a voice message instead,
  * which waits in the outbox. Runs on Messaging's scope (one thing at a time).
  */
+/** A kept burst opened (Save as file): its Opus packets in order (20 ms each), its video frames, and when it was sent. */
+class ClipContents(val audio: List<ByteArray>, val frames: List<TalkVideo.Frame>, val at: Long)
+
 internal class Talk(
     private val scope: CoroutineScope,
     private val store: MessagingStore,
@@ -775,6 +778,31 @@ internal class Talk(
                 publish()
             }
         }
+    }
+
+    /** [id]'s burst or voice message, from this phone's copy or the server's, opened (Save as file; 2026-11-23, hen). */
+    suspend fun clipContents(id: String): ClipContents? {
+        val message = store.message(id) ?: return null
+        val clip = message.clip ?: return null
+        val key = Base64.decode(clip.key)
+        val bytes = clips.read(id) ?: try {
+            val buffer = mutableListOf<ByteArray>()
+            blobs.read(id) { buffer += it }
+            concat(buffer).also { clips.write(id, it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return null
+        }
+        val segments = runCatching { ClipRecords.parse(bytes) }.getOrNull() ?: return null
+        val splitter = TalkVideo.Splitter()
+        val audio = ArrayList<ByteArray>()
+        val frames = ArrayList<TalkVideo.Frame>()
+        for (segment in segments.sortedBy { it.index }) {
+            val packets = ClipCrypto.open(key, id, segment.index, segment.last, segment.ciphertext) ?: break
+            audio += if (clip.video) splitter.split(packets) { frames += it } else packets
+        }
+        return ClipContents(audio, frames, message.at)
     }
 
     /** Stops what is playing (and what waits to play). */

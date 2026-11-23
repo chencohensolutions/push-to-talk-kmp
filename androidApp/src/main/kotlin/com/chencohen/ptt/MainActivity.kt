@@ -6,6 +6,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -163,7 +166,11 @@ class MainActivity : ComponentActivity() {
                         openedClip = openedClip,
                     )
                     if (afterTalk) {
-                        wokenChat?.let { chat -> com.chencohen.ptt.ui.talk.AfterTalkScreen(chat, ::openAfterTalk) }
+                        // The black curtain: nothing but black; a tap goes to the lock screen.
+                        androidx.compose.foundation.layout.Box(
+                            androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)
+                                .clickable(onClick = ::curtainTapped),
+                        )
                     }
                 }
             }
@@ -251,7 +258,7 @@ class MainActivity : ComponentActivity() {
         WakeTimeline.mark("Talk screen up")
         var quietSince = 0L
         while (wokeForTalk) {
-            kotlinx.coroutines.delay(500)
+            kotlinx.coroutines.delay(100)
             val locked = getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
             if (touched || !locked) {
                 // Touched or unlocked: it stays as the user left it.
@@ -263,7 +270,7 @@ class MainActivity : ComponentActivity() {
             if (busy) quietSince = 0L else if (quietSince == 0L) quietSince = now
             // Over (2026-11-23, hen: "close and turn off the screen immediately"): back behind the lock screen at once,
             // kept in memory (it comes back fast next time); with Turn the screen off right after talk, the screen too.
-            if (quietSince != 0L && now - quietSince > 400) {
+            if (quietSince != 0L && now - quietSince >= 0) {
                 wokeForTalk = false
                 window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 if (ScreenOff.lockNow(this)) {
@@ -273,12 +280,17 @@ class MainActivity : ComponentActivity() {
                     moveTaskToBack(true)
                     android.util.Log.i("MainActivity", "woken burst over: screen off now (device admin)")
                 } else {
-                    // The dim "after talk" screen over the lock screen until the screen goes off (2026-11-23, hen).
+                    // A black curtain over the lock screen until the screen goes off (2026-11-23, hen: "the screen
+                    // should be blank on video end"): nothing lit, the bars hidden, the brightness at its lowest.
                     setTurnScreenOn(false)
                     setShowWhenLocked(true)
-                    window.attributes = window.attributes.apply { screenBrightness = 0.05f }
+                    window.attributes = window.attributes.apply { screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_OFF }
+                    androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                        systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                    }
                     afterTalk = true
-                    android.util.Log.i("MainActivity", "woken burst over: dim after-talk screen until the screen goes off")
+                    android.util.Log.i("MainActivity", "woken burst over: black curtain until the screen goes off")
                 }
             }
         }
@@ -300,23 +312,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** The dim after-talk screen goes: normal brightness. */
+    /** The curtain goes: normal brightness and bars. */
     private fun dimEnd() {
         afterTalk = false
         window.attributes = window.attributes.apply { screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE }
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
     }
 
-    /** A tap on the dim after-talk screen: unlock, then the chat. */
-    private fun openAfterTalk() {
-        val chat = wokenChat ?: return
+    /** A tap on the curtain: the normal lock screen (the app goes behind). */
+    private fun curtainTapped() {
+        android.util.Log.i("MainActivity", "curtain tapped: to the lock screen")
         dimEnd()
         setShowWhenLocked(false)
-        val keyguard = getSystemService(android.app.KeyguardManager::class.java)
-        keyguard.requestDismissKeyguard(this, object : android.app.KeyguardManager.KeyguardDismissCallback() {
-            override fun onDismissSucceeded() {
-                openedChat = chat
-            }
-        })
+        moveTaskToBack(true)
     }
 
     override fun onStop() {

@@ -96,9 +96,19 @@ burst's own sound; messages that come meanwhile are held. When it ends:
 
 - With **Turn the screen off right after talk** (Settings › Talk, off by default; Android's device admin, force-lock
   only; turn it off before uninstalling Talk): the phone locks at once and the screen goes off.
-- Otherwise the **after talk** screen: near black at the screen's dimmest, in dim grey the letter circle, the name,
-  "Talked to you · 20:04" (or "Sent you a video") and the length. A tap unlocks and opens the chat; the power button
-  or the screen going off closes it (the app goes behind, not forward); a new burst brings the full-screen video back.
+- Otherwise a **black curtain** (2026-11-23, hen: "the screen should be blank on video end"): the moment it ends the
+  woken screen is pure black, the bars hidden, the brightness at its lowest, over the lock screen, never the app's own
+  screens; Android turns the panel off after its timeout and the app goes behind. A tap or the power button shows the
+  normal lock screen; a new burst brings the full-screen video back. Until the first picture comes, the woken screen is
+  black too.
 - In the shade, quietly (a low channel, no sound or heads-up): the burst's record and the messages held meanwhile.
 
 Each step from the push to the first decoded frame is logged as the "wake timeline", to see where the time goes.
+
+## Save as file (2026-11-23, hen)
+
+A long press on a burst or voice message (the chat's Talk bubble, or a row of Recent talk) saves it as an ordinary
+file: opened on the phone (`Talk.clipContents`), its Opus voice and, for push-to-video, its video as sent (VP8, H.264
+or H.265, not re-encoded) in Matroska (`BurstFile`, .mkv, the picture turned upright when played), named
+"<name> <date>.mkv", where saved calls go (the folder chosen in Call settings › Saving calls, or Downloads › Talk).
+"Saved to …" shows with **Share**.

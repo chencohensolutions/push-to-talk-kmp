@@ -625,6 +625,7 @@ fun HomeApp(
                             typing = { messaging.typing(user, it) },
                             openTalk = { push("talk/$user") },
                             playClip = messaging::playClip,
+                            saveClip = { id -> saveBurst(context, id, nameOf(user), messages) },
                             stopClip = messaging::stopPlaying,
                             // The chat's microphone is push-to-talk (2026-11-22, hen), not a voice message.
                             startVoice = { pressOrUnlock(user) },
@@ -641,9 +642,10 @@ fun HomeApp(
                 name.startsWith("talk/") && pageUser != null -> {
                     val chat = name.removePrefix("talk/")
                     val group = Group.idOf(chat)?.let { id -> messagingState.groups.firstOrNull { it.id == id } }
+                    val title = group?.let { groupName(it) } ?: nameOf(chat)
                     com.chencohen.ptt.ui.talk.TalkModeScreen(
                         chat = chat,
-                        title = group?.let { groupName(it) } ?: nameOf(chat),
+                        title = title,
                         me = state.device?.user.orEmpty(),
                         talk = messagingState.talk,
                         liveRoom = messagingState.live,
@@ -664,6 +666,7 @@ fun HomeApp(
                         setHere = messaging::setHere,
                         peerHere = com.chencohen.ptt.ui.talk.rememberHere(messagingState.here, chat),
                         fullScreenVideo = wokeForTalk,
+                        saveClip = { id -> saveBurst(context, id, title, messages) },
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -1171,4 +1174,36 @@ private fun FullScreenAskOnce(on: Boolean) {
         },
         dismissButton = { androidx.compose.material3.TextButton(onClick = ::done) { androidx.compose.material3.Text(stringResource(R.string.overlay_ask_later)) } },
     )
+}
+
+/** Save as file (2026-11-23, hen): the burst opened on the phone, written as .mkv where saved calls go, with Share. */
+private fun saveBurst(context: android.content.Context, id: String, title: String, messages: com.chencohen.ptt.ui.style.Messages) {
+    val app = context.applicationContext
+    messages.post(app.getString(R.string.burst_saving))
+    (app as com.chencohen.ptt.TalkApp).scope.launch {
+        val contents = com.chencohen.ptt.clipContents(app, id)
+        if (contents == null || contents.audio.isEmpty()) {
+            messages.post(app.getString(R.string.burst_save_failed))
+            return@launch
+        }
+        val made = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val scratch = java.io.File(app.cacheDir, "burst-$id.body")
+            val file = java.io.File(app.cacheDir, "burst-$id.mkv")
+            runCatching {
+                file.outputStream().use { out -> com.chencohen.ptt.talk.BurstFile.make(contents, scratch, out) }
+                file
+            }.also { scratch.delete() }.getOrNull()
+        }
+        if (made == null) {
+            messages.post(app.getString(R.string.burst_save_failed))
+            return@launch
+        }
+        when (val saved = com.chencohen.ptt.ui.calls.saveKeptCall(app, made, title, contents.at)) {
+            is com.chencohen.ptt.ui.calls.KeptSave.Saved -> messages.post(
+                app.getString(R.string.burst_saved, saved.where), app.getString(R.string.burst_share),
+            ) { com.chencohen.ptt.ui.calls.shareKeptCall(context, saved.uri) }
+            else -> messages.post(app.getString(R.string.burst_save_failed))
+        }
+        made.delete()
+    }
 }
