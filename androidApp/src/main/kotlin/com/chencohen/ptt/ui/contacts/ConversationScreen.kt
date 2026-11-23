@@ -219,8 +219,6 @@ internal fun ConversationScreen(
                 }
             }
         }
-        // The draft stays in view as it grows, if the list was at the bottom.
-        LaunchedEffect(text, editing) { if (editing && list.firstVisibleItemIndex == 0) list.scrollToItem(0) }
         fun change(value: String) {
             text = value
             actions.draft(text)
@@ -270,14 +268,6 @@ internal fun ConversationScreen(
                 // Every change eases in and out (2026-11-23, hen: "everything with a transition, no sharp changes").
                 val ease = androidx.compose.animation.core.tween<Float>(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                 val move = androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-                // The end of the chat: a voice message recording, or this phone's draft (the empty bubble at rest).
-                if (canWrite) {
-                    if (recordingVoice) {
-                        item(key = "recording") { Box(Modifier.animateItem(ease, move, ease)) { RecordingStrip { actions.finishVoice(false) } } }
-                    } else {
-                        item(key = "compose") { Box(Modifier.animateItem(ease, move, ease)) { ComposeBubble(text, editing, focus, { editing = true }, ::change, ::send) } }
-                    }
-                }
                 // Both kept pushing at once: a video call may suit them (2026-11-23, hen).
                 if (talk.suggestCall == user) {
                     item(key = "suggest-call") {
@@ -375,6 +365,22 @@ internal fun ConversationScreen(
                         .clickable(role = Role.Button) { scope.launch { list.animateScrollToItem(0) } }
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
+            }
+        }
+        // This phone's draft (or a voice message recording) pinned under the chat, above the keyboard or the buttons
+        // (2026-11-23, hen: scrolling with the draft in the list moved weirdly): the chat scrolls behind it and is
+        // laid out above it, so nothing is hidden; it grows upwards as it does.
+        if (canWrite) {
+            Box(
+                Modifier.fillMaxWidth().animateContentSize(androidx.compose.animation.core.tween(200)).padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                androidx.compose.animation.AnimatedContent(
+                    recordingVoice,
+                    transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
+                    label = "draft or recording",
+                ) { recording ->
+                    if (recording) RecordingStrip { actions.finishVoice(false) } else ComposeBubble(text, editing, focus, { editing = true }, ::change, ::send)
+                }
             }
         }
         // With the keyboard up only the chat and the draft (hen: "don't show the bottom row at all"); Back puts the

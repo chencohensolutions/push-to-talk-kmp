@@ -80,3 +80,7 @@ Sharon…" on the live bubble); the moment their burst ends it is asked for and 
 order. Three such overlaps within a minute show a "Switch to a video call?" chip for 10 s. Two video bursts that overlap
 in time, one each side, sit side by side in one row (theirs on their side, mine on mine), the later one lower by how
 much later it started, both a little smaller.
+
+**The draft is pinned** (2026-11-23, hen): this phone's draft bubble (and a voice message's recording strip) is not
+in the list: it sits fixed under the chat, above the keyboard or the buttons, and grows upwards; the chat is laid out
+above it and scrolls behind nothing. On Send the message fills in at the end of the list and the pinned draft empties.
