@@ -40,7 +40,8 @@ says "Calls need the microphone. Allow it in the app's settings."
   - **Maximized** (the default): their video covers the whole screen, cropped, behind the camera cutout and status
     bar too; your video is a small corner window.
   - **Normal**: upright, their whole picture as wide as the screen at its own shape from the very top, and your video
-    in the rest, at its own shape, as wide as that allows, centred. On its side, side by side: theirs at full height
+    in the rest, at its own shape, as big as fits there (`CallGrid.normal`; both shrink together when that would
+    leave yours under a quarter of the screen), centred, the buttons floating over it. On its side, side by side: theirs at full height
     on the camera's side, yours in the rest, as big as fits, centred.
   On its side (2026-11-23, hen), whichever way it is turned and in Hebrew too: the call's buttons are a column along
   the edge away from the camera, and in Maximized your window sits beside that column, not under it. A half turn

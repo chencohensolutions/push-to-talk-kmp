@@ -378,30 +378,37 @@ fun CallScreen(
                         }
                     }
                 }
-                normal && landscape -> Row(Modifier.fillMaxSize()) {
-                    // Theirs at full height and its own shape on the camera's side (whichever way the phone is
-                    // turned, 2026-11-23, hen); this phone's in the rest, before the buttons on the far side.
-                    val shape = remote.firstOrNull()?.first?.let { shapes[it] } ?: (4f / 3f)
-                    @Composable
-                    fun them() = theirs(Modifier.fillMaxHeight().aspectRatio(shape * remote.size.coerceAtLeast(1), matchHeightConstraintsFirst = true))
-                    @Composable
-                    fun me() = Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                        mine(Modifier.fillMaxSize().padding(start = if (cameraLeft) 8.dp else 104.dp, end = if (cameraLeft) 104.dp else 8.dp, top = 8.dp, bottom = 8.dp))
-                    }
-                    if (cameraLeft) {
-                        them()
-                        me()
+                normal -> androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                    // Theirs whole at its own shape: full height on the camera's side on its side (whichever way the
+                    // phone is turned), full width from the very top upright. This phone's as big as fits in the rest
+                    // (2026-11-23, hen: "there is more room for the video"): the buttons float over it. CallGrid.normal.
+                    val n = remote.size.coerceAtLeast(1)
+                    val shape = remote.firstOrNull()?.first?.let { shapes[it] } ?: (if (landscape) 4f / 3f else 3f / 4f)
+                    val (them, me) = com.chencohen.ptt.calls.CallGrid.normal(
+                        constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(),
+                        if (landscape) shape * n else shape / n, ownShape, landscape,
+                    )
+                    val d = androidx.compose.ui.platform.LocalDensity.current
+                    fun sized(sz: com.chencohen.ptt.calls.CallGrid.Size) = with(d) { Modifier.size(sz.width.toDp(), sz.height.toDp()) }
+                    if (landscape) {
+                        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                            @Composable
+                            fun theirSide() = Box(Modifier.fillMaxHeight(), contentAlignment = Alignment.Center) { theirs(sized(them)) }
+                            @Composable
+                            fun mySide() = Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) { mine(sized(me)) }
+                            if (cameraLeft) {
+                                theirSide()
+                                mySide()
+                            } else {
+                                mySide()
+                                theirSide()
+                            }
+                        }
                     } else {
-                        me()
-                        them()
-                    }
-                }
-                normal -> Column(Modifier.fillMaxSize()) {
-                    // Theirs as wide as the screen at its own shape, from the very top; this phone's in the rest.
-                    val shape = remote.firstOrNull()?.first?.let { shapes[it] } ?: (3f / 4f)
-                    theirs(Modifier.fillMaxWidth().aspectRatio(shape / remote.size.coerceAtLeast(1)))
-                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        mine(Modifier.fillMaxSize().padding(8.dp))
+                        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            theirs(sized(them))
+                            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { mine(sized(me)) }
+                        }
                     }
                 }
                 else -> {
