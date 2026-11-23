@@ -632,6 +632,13 @@
     <string name="overlay_ask_later">Not now</string>
     <string name="talk_unmute">Unmute for incoming talk</string>
     <string name="talk_unmute_body">When someone talks to you and the media volume is off, turn it up to 60% while they talk, then back off. Not in Do Not Disturb.</string>
+    <string name="quick_reply_open">Open the chat</string>
+    <string name="quick_reply_close">Close</string>
+    <string name="quick_reply_hint">Reply</string>
+    <string name="quick_reply_send">Send</string>
+    <string name="quick_reply_talk">Hold to talk</string>
+    <string name="talk_quick_reply">Quick reply window</string>
+    <string name="talk_quick_reply_body">When a message comes in while you use the phone, a window at the bottom shows the chat with a field to reply and a button to hold and talk.</string>
     <string name="talk_reply_bubble">Reply bubble over other apps</string>
     <string name="talk_reply_bubble_body">While you use the phone, someone talking to you shows a bar at the bottom of the screen with their name and a Talk button, for 30 seconds after they stop.</string>
     <string name="talk_allow_overlay">Allow Talk to display over other apps</string>

@@ -31,6 +31,7 @@ class Notifications(private val context: Context) : MessageNotifier {
         val style = NotificationCompat.MessagingStyle(me)
         unread.takeLast(MAX_LINES).forEach { style.addMessage(lineOf(it), it.at, sender) }
         show(contact.user, style, unread.size)
+        if (unread.isNotEmpty()) QuickReplyWindow.arrived(context, contact.user)
     }
 
     /** A group's: the group's name on top, each line with who wrote it. */
@@ -44,6 +45,7 @@ class Notifications(private val context: Context) : MessageNotifier {
             style.addMessage(lineOf(m), m.at, Person.Builder().setName(author).setKey(author).build())
         }
         show(group.chat, style, unread.size)
+        if (unread.isNotEmpty()) QuickReplyWindow.arrived(context, group.chat)
     }
 
     /** [user]: the conversation's key (a contact, or a group's chat). */

@@ -365,3 +365,10 @@ suspend fun talkWidgetChoices(context: Context): List<Pair<String, String>> {
 fun storedContacts(context: Context): List<com.chencohen.ptt.messaging.Contact> = hub(context).store.contacts()
 
 fun myUser(context: Context): String = settings(context).device?.user.orEmpty()
+
+/** The conversation open on the app's screen while it is in front (QuickReply leaves that one alone). */
+fun chatInFront(context: Context): String? = hub(context).chatInFront
+
+/** [chat]'s last [count] messages, oldest first (the quick-reply window). */
+fun recentMessages(context: Context, chat: String, count: Int = 12): List<com.chencohen.ptt.messaging.TextMessage> =
+    hub(context).store.messagesWith(chat).takeLast(count)

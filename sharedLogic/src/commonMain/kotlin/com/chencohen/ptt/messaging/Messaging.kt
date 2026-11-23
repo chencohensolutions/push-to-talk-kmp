@@ -109,6 +109,8 @@ data class TalkSettings(
     val video60: Boolean = false,
     /** Call settings › Advanced › Show video stats (off by default; 2026-11-22, hen): a Stats button in video calls. */
     val videoStats: Boolean = false,
+    /** Settings › Talk › Quick reply window (on by default; 2026-11-23, hen): a message shows its chat over other apps. */
+    val quickReply: Boolean = true,
 )
 
 /**
@@ -150,6 +152,9 @@ internal class Messaging(
 
     /** The conversation on screen, whose texts are read as they come in; null when none is. */
     var openChat: String? = null
+
+    /** The conversation open on the app's screen while the app is in front; null otherwise (QuickReply). */
+    val chatInFront: String? get() = openChat?.takeIf { foreground }
     private val _state = MutableStateFlow(MessagingState())
     val state: StateFlow<MessagingState> = _state.asStateFlow()
 
@@ -395,6 +400,7 @@ internal class Messaging(
         softMessage = settings.softMessage,
         video60 = settings.video60,
         videoStats = settings.videoStats,
+        quickReply = settings.quickReply,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -418,6 +424,7 @@ internal class Messaging(
         settings.softMessage = talk.softMessage
         settings.video60 = talk.video60
         settings.videoStats = talk.videoStats
+        settings.quickReply = talk.quickReply
         _state.update { it.copy(talkSettings = talk) }
     }
 
