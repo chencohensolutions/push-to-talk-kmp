@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
@@ -70,9 +71,13 @@ internal fun VideoLayoutScreen(back: () -> Unit) {
     var faceAt by remember { mutableFloatStateOf(prefs.getFloat("face_at", 0.33f)) }
     var slot by remember { mutableIntStateOf(prefs.getInt("own_slot", 5)) }
     // The zoom as kept by the call screen (1.0: the whole picture); 0: never pinched (Maximized fills, Normal whole).
+    // The whole screen in pixels, as a Maximized call has it (under the bars and the cutout).
     val config = LocalConfiguration.current
-    val screenW = config.screenWidthDp.toFloat().coerceAtLeast(1f)
-    val screenH = config.screenHeightDp.toFloat().coerceAtLeast(1f)
+    val activity = context as? android.app.Activity
+    val bounds = remember(config) { activity?.windowManager?.currentWindowMetrics?.bounds }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val screenW = (bounds?.width() ?: with(density) { config.screenWidthDp.dp.roundToPx() }).toFloat().coerceAtLeast(1f)
+    val screenH = (bounds?.height() ?: with(density) { config.screenHeightDp.dp.roundToPx() }).toFloat().coerceAtLeast(1f)
     val picture = 3f / 4f
     val fit = CallGrid.content(screenW, screenH, picture, false)
     val coverRatio = maxOf(screenW / fit.first, screenH / fit.second)
@@ -84,7 +89,7 @@ internal fun VideoLayoutScreen(back: () -> Unit) {
 
     SettingsScaffold(stringResource(R.string.layout_title), back) {
         Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-            MockCall(maximized, follow, faceAt, zoom.coerceIn(1f, most), slot, screenW, screenH, picture)
+            MockCall(maximized, follow, faceAt, zoom.coerceIn(1f, most), slot, screenW, screenH, picture, prefs.getFloat("face_h", TYPICAL_FACE))
         }
         SectionTitle(stringResource(R.string.layout_section))
         SettingsCard {
@@ -221,75 +226,86 @@ private fun Gesture(title: String, body: String) {
     }
 }
 
+/** A face's height in a selfie as the face finder sees it (a share of the picture), until a call measures one. */
+private const val TYPICAL_FACE = 0.33f
+
 /**
- * The little call screen: their picture (a figure) as the layout, zoom and face height place it, kept clear of this
- * phone's window as in a call, and this phone's window (a pink figure) where it rests.
+ * The little call screen, to scale (2026-11-23, hen: "the face illustration and the real face size are not accurate"):
+ * this phone's screen at its real shape, cutout and safe edges; their camera as a 3:4 picture with a face box as the
+ * face finder sees one ([faceH] of the picture tall, the size measured in the last call, or a third), placed by the
+ * call screen's own code (CallGrid.frame, windowSlots, ownWindowDp) at the zoom, face height and window place chosen;
+ * this phone's window at its size in a call; everything scaled down. The controls are hidden, as after a tap.
  */
 @Composable
-private fun MockCall(maximized: Boolean, follow: Boolean, faceAt: Float, zoom: Float, slot: Int, screenW: Float, screenH: Float, picture: Float) {
+private fun MockCall(maximized: Boolean, follow: Boolean, faceAt: Float, zoom: Float, slot: Int, screenW: Float, screenH: Float, picture: Float, faceH: Float) {
     val label = stringResource(R.string.layout_preview)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val dir = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val safe = androidx.compose.foundation.layout.WindowInsets.safeDrawing
+    val safeL = safe.getLeft(density, dir).toFloat()
+    val safeT = safe.getTop(density).toFloat()
+    val safeR = safe.getRight(density, dir).toFloat()
+    val safeB = safe.getBottom(density).toFloat()
+    val context = LocalContext.current
+    val cutouts = remember {
+        (context as? android.app.Activity)?.windowManager?.currentWindowMetrics?.windowInsets?.displayCutout?.boundingRects.orEmpty()
+    }
+    val px = with(density) { 1.dp.toPx() }
     Canvas(
-        Modifier.width(150.dp).aspectRatio(screenW / screenH).clip(RoundedCornerShape(18.dp)).background(Color(0xFF0F1413))
+        Modifier.width(170.dp).aspectRatio(screenW / screenH).clip(RoundedCornerShape(18.dp)).background(Color(0xFF0F1413))
             .semantics { contentDescription = label },
     ) {
-        val w = size.width
-        val h = size.height
-        val k = w / screenW
-        // This phone's window: 160 dp on its long side, 16 dp in from the edges, below the bar and above the buttons.
-        val ww = 120f * k
-        val wh = 160f * k
-        val m = 16f * k
-        val top = 40f * k
-        val bottom = h - wh - 40f * k
-        val xs = listOf(m, (w - ww) / 2, w - ww - m)
-        val own = if (maximized) Offset(xs[slot % 3], if (slot < 3) top else bottom) else null
+        // Worked out in the phone's own pixels, drawn at this scale.
+        val k = size.width / screenW
+        val (winWdp, winHdp) = com.chencohen.ptt.ui.calls.ownWindowDp(picture)
+        val ww = winWdp * px
+        val wh = winHdp * px
+        val face = CallGrid.Face(0.5f, 0.4f, faceH * 0.75f / picture * picture, faceH)
         if (maximized) {
-            val fit = CallGrid.content(w, h, picture, false)
-            val area = own?.let { CallGrid.Area(it.x / w, it.y / h, (it.x + ww) / w, (it.y + wh) / h) }
-            figure(0f, 0f, w, h, fit, faceAt, zoom, area, Color(0xFF3A4442), Color(0xFF8FA19D))
-            own?.let { o -> window(o, ww, wh) }
+            val fit = CallGrid.content(screenW, screenH, picture, false)
+            val slots = CallGrid.windowSlots(screenW, screenH, ww, wh, safeL, safeT, safeR, safeB, 16 * px)
+            val rest = slots[slot.coerceIn(0, 5)]
+            val area = CallGrid.Area(rest.first / screenW, rest.second / screenH, (rest.first + ww) / screenW, (rest.second + wh) / screenH)
+            val p = CallGrid.frame(screenW, screenH, fit.first, fit.second, if (follow) face else null, faceAt, zoom, 1.5f, area, pan = true)
+            picture(0f, 0f, screenW, screenH, fit, p, face, k)
+            window(Offset(rest.first * k, rest.second * k), ww * k, wh * k)
         } else {
-            val ph = w / picture
-            figure(0f, 0f, w, ph, w to ph, faceAt, zoom, null, Color(0xFF3A4442), Color(0xFF8FA19D))
-            val rest = h - ph
-            val sh = minOf(rest * 0.85f, (w * 0.6f) / picture)
-            val sw = sh * picture
-            window(Offset((w - sw) / 2, ph + (rest - sh) / 2), sw, sh)
+            val (them, me) = CallGrid.normal(screenW, screenH, picture, picture, false)
+            val p = CallGrid.frame(them.width, them.height, them.width, them.height, if (follow) face else null, 0.4f, zoom, 1.8f)
+            picture((screenW - them.width) / 2, 0f, them.width, them.height, them.width to them.height, p, face, k)
+            val top = them.height + (screenH - them.height - me.height) / 2
+            window(Offset((screenW - me.width) / 2 * k, top * k), me.width * k, me.height * k)
+        }
+        // The camera cutout, where it really is.
+        cutouts.forEach { r ->
+            drawRoundRect(Color.Black, Offset(r.left * k, r.top * k), Size(r.width() * k, r.height() * k), CornerRadius(r.height() * k / 2, r.height() * k / 2))
         }
         if (follow) {
-            // Follow face: a pink frame round the screen says it keeps the face in view.
-            drawRoundRect(Pink, Offset(6f, 6f), Size(w - 12f, h - 12f), CornerRadius(14f, 14f), style = Stroke(width = 2.dp.toPx()))
+            drawRoundRect(Pink, Offset(3f, 3f), Size(size.width - 6f, size.height - 6f), CornerRadius(14f, 14f), style = Stroke(width = 2.dp.toPx()))
         }
     }
 }
 
-/** Their picture ([cw]×[ch] laid out whole, centred in the box) zoomed and placed, with a figure in it. */
-private fun DrawScope.figure(
-    bx: Float,
-    by: Float,
-    bw: Float,
-    bh: Float,
-    content: Pair<Float, Float>,
-    faceAt: Float,
-    zoom: Float,
-    avoid: CallGrid.Area?,
-    back: Color,
-    ink: Color,
-) {
+/**
+ * Their 3:4 picture ([content], laid out centred in the box at [bx], [by], [bw]×[bh]) as placed ([p]; null: as laid
+ * out), with a figure drawn to the [face] box, all in the phone's pixels times [k].
+ */
+private fun DrawScope.picture(bx: Float, by: Float, bw: Float, bh: Float, content: Pair<Float, Float>, p: CallGrid.Placement?, face: CallGrid.Face, k: Float) {
     val (cw, ch) = content
-    val headH = 0.22f
-    val fh = headH * ch * zoom / bh
-    val ty = CallGrid.faceClearOf(faceAt, fh * 0.75f * bh / bw, fh, avoid)
-    val p = CallGrid.place(bw, bh, cw, ch, 0.5f, 0.35f, headH, zoom, targetY = ty, fixedZoom = zoom)
-    val ox = bx + (bw - cw) / 2 + p.x
-    val oy = by + (bh - ch) / 2 + p.y
-    val s = p.scale
-    clipRect(bx, by, bx + bw, by + bh) {
-        drawRect(back, Offset(ox, oy), Size(cw * s, ch * s))
-        val head = Offset(ox + 0.5f * cw * s, oy + 0.35f * ch * s)
-        val r = headH * ch * s / 2
-        drawCircle(ink, r * 0.85f, head)
-        drawRoundRect(ink, Offset(head.x - r * 1.9f, head.y + r * 1.05f), Size(r * 3.8f, r * 3f), CornerRadius(r * 1.4f, r * 1.4f))
+    val s = p?.scale ?: 1f
+    val ox = bx + (bw - cw) / 2 + (p?.x ?: 0f)
+    val oy = by + (bh - ch) / 2 + (p?.y ?: 0f)
+    clipRect(bx * k, by * k, (bx + bw) * k, (by + bh) * k) {
+        drawRect(Color(0xFF3A4442), Offset(ox * k, oy * k), Size(cw * s * k, ch * s * k))
+        val fx = (ox + face.x * cw * s) * k
+        val fy = (oy + face.y * ch * s) * k
+        val fh = face.height * ch * s * k
+        val fw = face.width * cw * s * k
+        val ink = Color(0xFF8FA19D)
+        // Shoulders below the face, then the face box as the finder sees it (forehead to chin), hair above it.
+        drawRoundRect(ink, Offset(fx - fw * 1.6f, fy + fh * 0.75f), Size(fw * 3.2f, fh * 2f), CornerRadius(fw * 0.9f, fw * 0.9f))
+        drawOval(ink.copy(alpha = 0.75f), Offset(fx - fw * 0.6f, fy - fh * 0.68f), Size(fw * 1.2f, fh * 0.75f))
+        drawOval(Color(0xFFB9C7C3), Offset(fx - fw / 2, fy - fh / 2), Size(fw, fh))
     }
 }
 

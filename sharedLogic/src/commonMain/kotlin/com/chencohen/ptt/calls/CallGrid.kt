@@ -118,6 +118,77 @@ object CallGrid {
         return listOf(below, above).filter { it in low..high }.minByOrNull { abs(it - at) } ?: at
     }
 
+    /** A face as seen in a picture: its centre and size, shares of the upright picture. */
+    data class Face(val x: Float, val y: Float, val width: Float, val height: Float)
+
+    /**
+     * Where a picture ([contentWidth]×[contentHeight], laid out centred in the box) goes in a [boxWidth]×[boxHeight]
+     * box: with [face] (Follow face on and a face seen), the face near [faceAt] down the box (clear of [avoid], this
+     * phone's window) at [zoom] or, without one, a zoom of its own up to [maxZoom]; without a face, the plain picture at
+     * [zoom], panned by [faceAt] when [pan] (as if a face a third of the picture tall were in its upper third). The
+     * call screen and Settings' picture of it both use this, so the two agree.
+     */
+    fun frame(
+        boxWidth: Float,
+        boxHeight: Float,
+        contentWidth: Float,
+        contentHeight: Float,
+        face: Face?,
+        faceAt: Float,
+        zoom: Float?,
+        maxZoom: Float,
+        avoid: Area? = null,
+        pan: Boolean = false,
+    ): Placement? {
+        val bw = boxWidth
+        val bh = boxHeight
+        val cw = contentWidth
+        val ch = contentHeight
+        if (face == null) {
+            val z = zoom ?: return null
+            if (!pan) return place(bw, bh, cw, ch, 0.5f, 0.5f, 0f, z, targetY = 0.5f, fixedZoom = z)
+            val fh = PLAIN_FACE * ch * z / bh
+            val ty = faceClearOf(faceAt, fh * 0.75f * bh / bw, fh, avoid)
+            return place(bw, bh, cw, ch, 0.5f, PLAIN_FACE_Y, 0f, z, targetY = ty, fixedZoom = z)
+        }
+        val first = place(bw, bh, cw, ch, face.x, face.y, face.height, maxZoom = maxZoom, targetY = faceAt, fixedZoom = zoom)
+        val ty = faceClearOf(faceAt, face.width * cw * first.scale / bw, face.height * ch * first.scale / bh, avoid)
+        return if (ty == faceAt) first else place(bw, bh, cw, ch, face.x, face.y, face.height, maxZoom = maxZoom, targetY = ty, fixedZoom = zoom)
+    }
+
+    /** Without a face seen: one this tall (a share of the picture), centred this far down, is assumed. */
+    const val PLAIN_FACE = 0.3f
+    const val PLAIN_FACE_Y = 0.35f
+
+    /**
+     * The six places this phone's window ([windowWidth]×[windowHeight]) rests in over a [width]×[height] screen: top
+     * left, centre, right, then bottom left, centre, right (top left corners), [margin] in from the safe area
+     * ([safeLeft]…), below [topLift] and above [bottomLift] (the controls while they show), and beside [asideLeft] or
+     * [asideRight] (the buttons' column on its side).
+     */
+    fun windowSlots(
+        width: Float,
+        height: Float,
+        windowWidth: Float,
+        windowHeight: Float,
+        safeLeft: Float,
+        safeTop: Float,
+        safeRight: Float,
+        safeBottom: Float,
+        margin: Float,
+        topLift: Float = 0f,
+        bottomLift: Float = 0f,
+        asideLeft: Float = 0f,
+        asideRight: Float = 0f,
+    ): List<Pair<Float, Float>> {
+        val top = safeTop + margin + topLift
+        val bottom = height - windowHeight - safeBottom - margin - bottomLift
+        val left = safeLeft + margin + asideLeft
+        val right = width - windowWidth - safeRight - margin - asideRight
+        val centre = (width - windowWidth) / 2
+        return listOf(left to top, centre to top, right to top, left to bottom, centre to bottom, right to bottom)
+    }
+
     /** Of [slots] (top left corners), the one nearest [x], [y]. */
     fun nearest(slots: List<Pair<Float, Float>>, x: Float, y: Float): Int =
         slots.indices.minByOrNull { (slots[it].first - x).let { d -> d * d } + (slots[it].second - y).let { d -> d * d } } ?: 0

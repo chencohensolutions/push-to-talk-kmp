@@ -114,30 +114,13 @@ internal fun faceFraming(
         if (target != Triple(1f, 0f, 0f)) target = Triple(1f, 0f, 0f)
     } else if (box == null || !on) {
         val (cw, ch) = content
-        val plainAt = zoom?.let { z ->
-            if (pan) {
-                // A face about a third of the picture tall in its upper third, kept clear of the window as a real one.
-                val fh = 0.3f * ch * z / bh
-                val ty = CallGrid.faceClearOf(faceAt, fh * 0.75f * bh / bw, fh, avoid)
-                CallGrid.place(bw, bh, cw, ch, 0.5f, 0.35f, 0f, z, targetY = ty, fixedZoom = z)
-            } else {
-                CallGrid.place(bw, bh, cw, ch, 0.5f, 0.5f, 0f, z, targetY = 0.5f, fixedZoom = z)
-            }
-        }
+        val plainAt = CallGrid.frame(bw, bh, cw, ch, null, faceAt, zoom, maxZoom, avoid, pan)
         val t = plainAt?.let { Triple(it.scale, it.x, it.y) } ?: Triple(1f, 0f, 0f)
         if (target != t) target = t
     } else {
         val (cw, ch) = content
-        val first = CallGrid.place(
-            bw, bh, cw, ch, box.centerX(), box.centerY(), box.height(),
-            maxZoom = if (fill) minOf(maxZoom, 1.5f) else maxZoom, targetY = faceAt, fixedZoom = zoom,
-        )
-        // Under this phone's window: just above or below it instead.
-        val ty = CallGrid.faceClearOf(faceAt, box.width() * cw * first.scale / bw, box.height() * ch * first.scale / bh, avoid, faceX = 0.5f)
-        val p = if (ty == faceAt) first else CallGrid.place(
-            bw, bh, cw, ch, box.centerX(), box.centerY(), box.height(),
-            maxZoom = if (fill) minOf(maxZoom, 1.5f) else maxZoom, targetY = ty, fixedZoom = zoom,
-        )
+        val face = CallGrid.Face(box.centerX(), box.centerY(), box.width(), box.height())
+        val p = CallGrid.frame(bw, bh, cw, ch, face, faceAt, zoom, if (fill) minOf(maxZoom, 1.5f) else maxZoom, avoid, pan)!!
         val (s0, x0, y0) = target
         if (abs(p.scale - s0) > 0.08f || abs(p.x - x0) > bw * 0.05f || abs(p.y - y0) > bh * 0.05f) {
             target = Triple(p.scale, p.x, p.y)

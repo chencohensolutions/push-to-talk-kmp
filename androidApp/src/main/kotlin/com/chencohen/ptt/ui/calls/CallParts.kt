@@ -614,6 +614,9 @@ private fun rememberDisplayRotation(): Int {
     return rotation
 }
 
+/** This phone's window over their video: 160 dp on its long side, at the camera's shape. */
+internal fun ownWindowDp(shape: Float): Pair<Float, Float> = if (shape >= 1f) 160f to 160f / shape else 160f * shape to 160f
+
 /**
  * This phone's window over their video (Maximized; 2026-11-23, hen): rests in one of six places (top or bottom, left,
  * centre or right; [slot] 0 to 5), clear of the bars and cutout, of the top lines and the buttons while they show, and
@@ -635,7 +638,7 @@ private fun androidx.compose.foundation.layout.BoxScope.OwnWindow(
         val d = androidx.compose.ui.platform.LocalDensity.current
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
-        val (winW, winH) = if (shape >= 1f) 160f to 160f / shape else 160f * shape to 160f
+        val (winW, winH) = ownWindowDp(shape)
         val ww = with(d) { winW.dp.toPx() }
         val wh = with(d) { winH.dp.toPx() }
         val safe = androidx.compose.foundation.layout.WindowInsets.safeDrawing
@@ -645,11 +648,13 @@ private fun androidx.compose.foundation.layout.BoxScope.OwnWindow(
         val topLift by androidx.compose.animation.core.animateDpAsState(if (shown) (if (landscape) 0.dp else 120.dp) else 0.dp, label = "own top")
         val bottomLift by androidx.compose.animation.core.animateDpAsState(if (shown && !landscape) 134.dp else 0.dp, label = "own bottom")
         val aside by androidx.compose.animation.core.animateDpAsState(if (shown && landscape) 88.dp else 0.dp, label = "own aside")
-        val top = safe.getTop(d) + m + with(d) { topLift.toPx() }
-        val bottom = h - wh - safe.getBottom(d) - m - with(d) { bottomLift.toPx() }
-        val left = safe.getLeft(d, dir) + m + (if (landscape && !cameraLeft) with(d) { aside.toPx() } else 0f)
-        val right = w - ww - safe.getRight(d, dir) - m - (if (landscape && cameraLeft) with(d) { aside.toPx() } else 0f)
-        val slots = listOf(left to top, (w - ww) / 2 to top, right to top, left to bottom, (w - ww) / 2 to bottom, right to bottom)
+        val slots = com.chencohen.ptt.calls.CallGrid.windowSlots(
+            w, h, ww, wh,
+            safe.getLeft(d, dir).toFloat(), safe.getTop(d).toFloat(), safe.getRight(d, dir).toFloat(), safe.getBottom(d).toFloat(), m,
+            topLift = with(d) { topLift.toPx() }, bottomLift = with(d) { bottomLift.toPx() },
+            asideLeft = if (landscape && !cameraLeft) with(d) { aside.toPx() } else 0f,
+            asideRight = if (landscape && cameraLeft) with(d) { aside.toPx() } else 0f,
+        )
         val rest = slots[slot.coerceIn(0, 5)]
         val at = remember { androidx.compose.animation.core.Animatable(androidx.compose.ui.geometry.Offset(rest.first, rest.second), androidx.compose.ui.geometry.Offset.VectorConverter) }
         var dragging by remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -889,6 +894,25 @@ private fun followFace(
         onDispose {
             track.removeRenderer(sink)
             finder.close()
+        }
+    }
+    // The face's real size (a share of the picture's height), kept now and then for Settings' picture of the layout.
+    val context = LocalContext.current
+    LaunchedEffect(track, on) {
+        val prefs = context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE)
+        var sum = 0f
+        var n = 0
+        while (on) {
+            delay(1_000)
+            box?.let { b ->
+                sum += b.height()
+                n++
+                if (n >= 5) {
+                    prefs.edit().putFloat("face_h", (sum / n).coerceIn(0.08f, 0.8f)).apply()
+                    sum = 0f
+                    n = 0
+                }
+            }
         }
     }
     // The sender's newest hint (twice a second); lost for 1.5 s: back to the plain picture.
