@@ -70,4 +70,23 @@ class CallGridTest {
         assertTrue(p.x <= 0f && 540f * p.scale + p.x >= 540f)
         assertTrue(p.y <= 0f && 720f * p.scale + p.y >= 720f)
     }
+
+    @Test
+    fun normalGivesThisPhonesVideoAllTheRoomLeft() {
+        // hen's landscape screen: theirs 4:3 at full height, this phone's 4:3 as big as the rest allows.
+        val (theirs, mine) = CallGrid.normal(2000f, 815f, 4f / 3f, 4f / 3f, landscape = true)
+        assertEquals(1086.7f, theirs.width, 0.5f)
+        assertEquals(815f, theirs.height)
+        assertEquals(913.3f, mine.width, 0.5f)
+        assertEquals(685f, mine.height, 0.5f)
+        // Upright: theirs 3:4 full width, this phone's 3:4 in the whole height left.
+        val (t2, m2) = CallGrid.normal(1080f, 2340f, 3f / 4f, 3f / 4f, landscape = false)
+        assertEquals(1440f, t2.height, 0.5f)
+        assertEquals(900f, m2.height, 0.5f)
+        assertEquals(675f, m2.width, 0.5f)
+        // Too little left for this phone's: both shrink together, both whole, side by side across the screen.
+        val (t3, m3) = CallGrid.normal(1600f, 900f, 16f / 9f, 4f / 3f, landscape = true)
+        assertEquals(1600f, t3.width + m3.width, 0.5f)
+        assertEquals(t3.height, m3.height, 0.01f)
+    }
 }

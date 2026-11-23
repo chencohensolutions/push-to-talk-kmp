@@ -38,6 +38,33 @@ object CallGrid {
         return best
     }
 
+    /** A video's size on the screen. */
+    data class Size(val width: Float, val height: Float)
+
+    /**
+     * Normal in a 1:1 call (2026-11-23, hen: "there is more room for the video"): theirs whole at its own shape
+     * ([theirAspect], width for 1 high), as tall as the screen on its side ([landscape]) or as wide upright; this
+     * phone's ([ownAspect]) as big as fits in the rest. When that would leave this phone's under a quarter of the
+     * screen, both shrink together so both show whole.
+     */
+    fun normal(width: Float, height: Float, theirAspect: Float, ownAspect: Float, landscape: Boolean): Pair<Size, Size> {
+        if (landscape) {
+            val theirs = Size(height * theirAspect, height)
+            val rest = width - theirs.width
+            if (rest >= width / 4) return theirs to fit(rest, height, ownAspect)
+            val f = width / (height * theirAspect + height * ownAspect)
+            return Size(height * theirAspect * f, height * f) to Size(height * ownAspect * f, height * f)
+        }
+        val theirs = Size(width, width / theirAspect)
+        val rest = height - theirs.height
+        if (rest >= height / 4) return theirs to fit(width, rest, ownAspect)
+        val f = height / (width / theirAspect + width / ownAspect)
+        return Size(width * f, width / theirAspect * f) to Size(width * f, width / ownAspect * f)
+    }
+
+    private fun fit(width: Float, height: Float, aspect: Float) =
+        if (width / height > aspect) Size(height * aspect, height) else Size(width, width / aspect)
+
     /** A view's zoom (from its top left corner) and offset, in pixels. */
     data class Placement(val scale: Float, val x: Float, val y: Float)
 
