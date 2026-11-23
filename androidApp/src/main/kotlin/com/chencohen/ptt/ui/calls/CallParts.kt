@@ -683,7 +683,7 @@ private fun VideoView(
     follow: Boolean = false,
     maxZoom: Float = 1.8f,
     faceAt: Float = 0.4f,
-    everyMs: Long = com.chencohen.ptt.calls.FaceFinder.EVERY_MS,
+    everyMs: Long = 100L,
     /** The sender's newest face hint (FaceHint), when it sends them: used instead of looking here. */
     hint: () -> com.chencohen.ptt.calls.FaceHint? = { null },
 ) {
@@ -789,7 +789,8 @@ private fun followFace(
             finder.close()
         }
     }
-    // The sender's hints, four times a second; lost for 1.5 s: back to the plain picture.
+    // The sender's newest hint, read at the frame rate (they come up to 15 a second); lost for 1.5 s: back to the
+    // plain picture.
     LaunchedEffect(track, on) {
         while (on) {
             hint()?.let { h ->
@@ -797,7 +798,7 @@ private fun followFace(
                 seenAt = android.os.SystemClock.elapsedRealtime()
             }
             if (box != null && android.os.SystemClock.elapsedRealtime() - seenAt > 1_500) box = null
-            delay(250)
+            delay(33)
         }
     }
     // The target: scale and offset of the picture in the box; moved only past a dead zone.
@@ -817,11 +818,21 @@ private fun followFace(
         val tx = p.x
         val ty = p.y
         val (s0, x0, y0) = target
-        if (kotlin.math.abs(zoom - s0) > 0.08f || kotlin.math.abs(tx - x0) > bw * 0.04f || kotlin.math.abs(ty - y0) > bh * 0.04f) {
+        // Only a small dead zone against jitter: the crop follows the face as it moves.
+        if (kotlin.math.abs(zoom - s0) > 0.03f || kotlin.math.abs(tx - x0) > bw * 0.015f || kotlin.math.abs(ty - y0) > bh * 0.015f) {
             target = Triple(zoom, tx, ty)
         }
     }
-    val ease = androidx.compose.animation.core.tween<Float>(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+    // Straight to the face when Follow face is turned on, a call starts or a tile appears (2026-11-23, hen: "instantly,
+    // without delay"); after that one frame's smoothing, and a short ease back to the plain picture.
+    var placed by remember(track, on) { androidx.compose.runtime.mutableStateOf(false) }
+    val plain = target == Triple(1f, 0f, 0f)
+    val ease: androidx.compose.animation.core.AnimationSpec<Float> = when {
+        !placed && !plain -> androidx.compose.animation.core.snap()
+        plain -> androidx.compose.animation.core.tween(250)
+        else -> androidx.compose.animation.core.tween(40)
+    }
+    LaunchedEffect(plain) { if (!plain) placed = true }
     val s by androidx.compose.animation.core.animateFloatAsState(target.first, ease, label = "follow zoom")
     val x by androidx.compose.animation.core.animateFloatAsState(target.second, ease, label = "follow x")
     val y by androidx.compose.animation.core.animateFloatAsState(target.third, ease, label = "follow y")

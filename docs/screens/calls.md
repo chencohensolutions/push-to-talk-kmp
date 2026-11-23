@@ -55,15 +55,17 @@ says "Calls need the microphone. Allow it in the app's settings."
   size, so the grid looks even; the face finder takes turns, about three looks a second in all. No layout pill.
 - **Face hints** (2026-11-23, hen: "the sender sends the face position", then "don't crop the face before
   sending"): while its camera runs, the sending phone sends its whole picture untouched and looks for the biggest face
-  about four times a second (`FaceHinter`, a LiveKit VideoProcessor, ML Kit's on-phone detector, bundled, offline). Each
+  up to 15 times a second, as fast as it keeps up (`FaceHinter`, a LiveKit VideoProcessor, ML Kit's on-phone detector, bundled, offline). Each
   face found goes to the others as a hint (`FaceHint`: centre and height as shares of the picture, the frame's time),
   sealed with the call's key, over the call's data channel (topic `face`, lossy). Receivers keep each sender's last
   few (`FaceHints`); a hint stands for 1.5 s.
 - **Follow face** (2026-11-23, hen; a pill at the top while someone's video shows, kept for next time; the one face
   option): on this phone's view of the received video only, framed by the sender's hints, or, from a sender that sends
-  none (an older app), by the same face finder here; the view pans and zooms to keep the face near the upper third, head
-  and shoulders about 45% of the height, easing in half a second, small moves left alone, back to the plain picture
-  1.5 s after the face is lost. Maximized: the picture is drawn whole and clipped to the screen, so the crop slides to
+  none (an older app), by the same face finder here (10 looks a second on the big tile); instant (2026-11-23, hen):
+  turned on, at a call's start or when a tile appears it goes straight to the face, then follows it with a small
+  jitter dead zone and one frame's smoothing, and eases back to the plain picture only when the face is lost; the view
+  pans and zooms to keep the face near the upper third, head
+  and shoulders about 45% of the height, back to the plain picture 1.5 s after the face is lost. Maximized: the picture is drawn whole and clipped to the screen, so the crop slides to
   the face, with at most 1.5x more zoom; Normal: at most 1.8x inside the tile. Only this phone's view changes.
 - **Stats** (2026-11-22, hen; Call settings › Advanced › Show video stats, off by default): a **Stats** pill at the top
   right shows or hides, on each video and your preview, its frame rate, bit rate, size and codec from WebRTC's stats,
