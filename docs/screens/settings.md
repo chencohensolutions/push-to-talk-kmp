@@ -134,3 +134,10 @@ notification, and you tap to update."), and **Check now** (asks the server, whic
   Contacts first). Android joins it with a phone contact of the same name, or
   it can be linked by hand in Contacts. Only the names go to Contacts; renames, new and removed contacts follow.
   Turning it off removes the account and its entries (`AndroidContacts`).
+
+**How should the app refer to you?** (2026-11-23, hen; under the email in the profile card): Male, Female or Not set
+(the default: the slash forms, כותב/ת). Shared with contacts end to end with the profile (ProfileContent.gender), so
+their phones write about this user in the right Hebrew form (כותב / כותבת: typing, writing, talking, read up to here,
+notifications, the widget and the car); several people at once take the plural. On Android 14+ the app's own words to
+this user follow it too (values-iw-masculine / values-iw-feminine, GrammaticalInflectionManager). English is unchanged.
+Asked once as a card on Chats for those who never chose (✕ dismisses it).

@@ -47,7 +47,11 @@ internal data class Content(
 
 /** What a user shares with their paired contacts about themselves: their email ("" none; Settings › Contacts). */
 @Serializable
-internal data class ProfileContent(@ProtoNumber(1) val email: String = "")
+internal data class ProfileContent(
+    @ProtoNumber(1) val email: String = "",
+    /** How the app should refer to the sender (Gender); older apps send none (not set). */
+    @ProtoNumber(2) val gender: Int = 0,
+)
 
 /** The sender's Talk screen or reply bubble for this chat is open ([open]); said again every 20 s while it is. */
 @Serializable

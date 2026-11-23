@@ -84,6 +84,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // The app's own Hebrew addresses this user in their form (Settings › Profile; Android 14+).
+        Gendered.applyMine(this, getSharedPreferences("ptt_prefs", MODE_PRIVATE).getString("my_gender", null)?.toIntOrNull() ?: 0)
         // Only on a fresh start: after a rotation the link was handled already.
         if (savedInstanceState == null) openLink(intent)
 

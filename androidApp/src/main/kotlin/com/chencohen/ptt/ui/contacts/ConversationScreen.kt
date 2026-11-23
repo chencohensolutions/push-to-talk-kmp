@@ -283,7 +283,7 @@ internal fun ConversationScreen(
                                 contentKey = { it != null },
                                 label = "circle and draft",
                             ) { d ->
-                                if (d != null) DraftBubble(d.first, d.second) else ReaderCircle(user, reader?.readAt, end = false)
+                                if (d != null) DraftBubble(d.first, d.second, draftUser = user) else ReaderCircle(user, reader?.readAt, end = false)
                             }
                         }
                     }
@@ -421,7 +421,7 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
                     }
                 }
                 val line = when {
-                    header.typing -> stringResource(R.string.chat_typing)
+                    header.typing -> com.chencohen.ptt.genderedString(R.string.chat_typing, user)
                     header.presence?.online == true -> stringResource(R.string.chat_online)
                     header.presence?.lastSeen != null -> stringResource(R.string.chat_last_seen, lastSeen(header.presence.lastSeen!!))
                     else -> null
@@ -528,6 +528,8 @@ internal fun DraftBubble(
     who: String?,
     text: String,
     modifier: Modifier = Modifier,
+    /** In a one-to-one chat: whose draft it is (their form of "Writing…"). */
+    draftUser: String? = null,
     settled: Float = 0f,
     time: String? = null,
     shape: androidx.compose.ui.graphics.Shape = LibraryShapes.Card,
@@ -543,7 +545,7 @@ internal fun DraftBubble(
         ) {
             if (settled < 1f) {
                 Text(
-                    if (who != null) stringResource(R.string.chat_draft_by, who) else stringResource(R.string.chat_draft),
+                    if (who != null) com.chencohen.ptt.genderedString(R.string.chat_draft_by, who, who) else com.chencohen.ptt.genderedString(R.string.chat_draft, draftUser),
                     color = LibraryColors.Accent.copy(alpha = 1f - settled), style = LibraryType.Small,
                     modifier = Modifier.padding(bottom = 2.dp),
                 )
@@ -594,7 +596,7 @@ internal fun MorphingBubble(message: TextMessage, who: String?, modifier: Modifi
     val settled = remember(message.id) { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(message.id) { settled.animateTo(1f, androidx.compose.animation.core.tween(MORPH_MS)) }
     val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
-    DraftBubble(who, message.body, modifier, settled.value, time, shape, padding)
+    DraftBubble(who, message.body, modifier, null, settled.value, time, shape, padding)
 }
 
 @Preview

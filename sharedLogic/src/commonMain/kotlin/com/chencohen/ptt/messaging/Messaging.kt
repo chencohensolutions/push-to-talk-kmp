@@ -391,7 +391,7 @@ internal class Messaging(
         foreground = true
         open()
         // Once a run: this user's email to contacts (some paired since it was last said).
-        if (!profileShared && settings.myEmail != null) {
+        if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET)) {
             profileShared = true
             scope.launch {
                 socket.state.first { it is SocketState.Live }
@@ -1139,6 +1139,15 @@ internal class Messaging(
 
     val myEmail: String? get() = settings.myEmail
 
+    /** How the app refers to this user (Gender), shared with contacts. */
+    val myGender: Int get() = settings.myGender
+
+    fun setMyGender(gender: Int) {
+        if (gender == settings.myGender) return
+        settings.myGender = gender
+        shareProfile()
+    }
+
     /** This user's own email ([email] blank: none), shared with every paired contact (ProfileContent). */
     fun setMyEmail(email: String) {
         settings.myEmail = email.trim().take(254).ifBlank { null }
@@ -1153,7 +1162,7 @@ internal class Messaging(
         scope.launch {
             for (c in contacts) {
                 try {
-                    sender.send(c.user, Content(profile = ProfileContent(email)), pushKind = PushKind.NONE)
+                    sender.send(c.user, Content(profile = ProfileContent(email, settings.myGender)), pushKind = PushKind.NONE)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -1517,8 +1526,9 @@ internal class Messaging(
         content.profile?.let { profile ->
             store.contact(contact.user)?.let { c ->
                 val email = profile.email.trim().take(254).ifBlank { null }
-                if (c.theirEmail != email) {
-                    store.putContact(c.copy(theirEmail = email))
+                val gender = profile.gender.takeIf { it == Gender.MALE || it == Gender.FEMALE } ?: Gender.NOT_SET
+                if (c.theirEmail != email || c.theirGender != gender) {
+                    store.putContact(c.copy(theirEmail = email, theirGender = gender))
                     publish()
                 }
             }

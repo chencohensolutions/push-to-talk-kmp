@@ -87,8 +87,8 @@ object TalkWidgets {
         val (circle, line) = when (view) {
             TalkWidgetView.Idle -> R.drawable.widget_circle_pink to context.getString(R.string.widget_tap)
             is TalkWidgetView.Talking -> R.drawable.widget_circle_teal to context.getString(R.string.widget_talking, "%d:%02d".format(view.seconds / 60, view.seconds % 60))
-            is TalkWidgetView.Incoming -> R.drawable.widget_circle_muted to context.getString(R.string.widget_incoming, view.user)
-            is TalkWidgetView.Busy -> R.drawable.widget_circle_muted to context.getString(R.string.widget_busy, view.user)
+            is TalkWidgetView.Incoming -> R.drawable.widget_circle_muted to Gendered.string(context, R.string.widget_incoming, view.user, view.user)
+            is TalkWidgetView.Busy -> R.drawable.widget_circle_muted to Gendered.string(context, R.string.widget_busy, view.user, view.user)
         }
         views.setInt(R.id.widget_button, "setBackgroundResource", circle)
         views.setTextViewText(R.id.widget_line, line)

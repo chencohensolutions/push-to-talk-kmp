@@ -311,7 +311,7 @@ internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifi
 @Composable
 internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
     var showTime by remember { androidx.compose.runtime.mutableStateOf(false) }
-    val label = stringResource(R.string.chat_read_up_to_here, user)
+    val label = com.chencohen.ptt.genderedString(R.string.chat_read_up_to_here, user, user)
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.animation.AnimatedVisibility(showTime && readAt != null) {

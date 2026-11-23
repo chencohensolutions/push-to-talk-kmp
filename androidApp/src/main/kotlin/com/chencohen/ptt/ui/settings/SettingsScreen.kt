@@ -64,6 +64,9 @@ internal fun SettingsScreen(
     /** This user's email, shared with their contacts (null: none). */
     myEmail: String? = null,
     setMyEmail: (String) -> Unit = {},
+    /** Settings › Profile: how the app refers to this user (Gender). */
+    myGender: Int = 0,
+    setMyGender: (Int) -> Unit = {},
     /** Settings › Notifications › Message sound: Talk's soft chime (true, the default) or the phone's sound. */
     softMessage: Boolean = true,
     setSoftMessage: (Boolean) -> Unit = {},
@@ -119,6 +122,17 @@ internal fun SettingsScreen(
         var shownEmail by androidx.compose.runtime.remember(myEmail) { androidx.compose.runtime.mutableStateOf(myEmail) }
         SettingsCard {
             InfoRow(stringResource(R.string.settings_my_email), shownEmail ?: stringResource(R.string.settings_my_email_none), onClick = { editingEmail = true })
+            RowDivider()
+            // How the app refers to this user (2026-11-23, hen).
+            var gender by androidx.compose.runtime.remember(myGender) { androidx.compose.runtime.mutableIntStateOf(myGender) }
+            androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text(stringResource(R.string.profile_gender_title), color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+                Text(stringResource(R.string.profile_gender_body), color = LibraryColors.Muted, style = LibraryType.Caption, modifier = Modifier.padding(bottom = 8.dp))
+                GenderChoice(gender, { g ->
+                    gender = g
+                    setMyGender(g)
+                })
+            }
             RowDivider()
             com.chencohen.ptt.ui.talk.SwitchRow(stringResource(R.string.settings_android_contacts), stringResource(R.string.settings_android_contacts_body), inContacts) { on ->
                 if (!on) {

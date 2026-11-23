@@ -136,6 +136,8 @@ class HomeActions(
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** Push-to-video switched on a Talk screen; the camera warm for a chat (null: none). */
     val setPushVideo: (chat: String, video: Boolean) -> Unit = { _, _ -> },
+    /** How the app refers to this user (the card on Chats). */
+    val setMyGender: (Int) -> Unit = {},
     val warmCamera: (String?) -> Unit = {},
     /** A Talk page open ("here" to its user). */
     val setHere: (String?) -> Unit = {},
@@ -300,6 +302,7 @@ fun HomeApp(
                         playKept = ::playKept,
                         saveKept = ::saveKept,
                         setPushVideo = { chat, on -> onTalkSettings(messagingState.talkSettings.withVideoFor(chat, on)) },
+                        setMyGender = { g -> messaging.setMyGender(g) },
                         warmCamera = messaging::warmCamera,
                         setHere = messaging::setHere,
                         pressTalk = { chat -> pressOrUnlock(chat) },
@@ -332,6 +335,12 @@ fun HomeApp(
                         contacts = messagingState.contacts,
                         myEmail = messaging.myEmail,
                         setMyEmail = { email -> messaging.setMyEmail(email) },
+                        myGender = messaging.myGender,
+                        setMyGender = { g ->
+                            messaging.setMyGender(g)
+                            com.chencohen.ptt.ui.settings.GenderAsked.mark(context)
+                            com.chencohen.ptt.Gendered.applyMine(context, g)
+                        },
                         softMessage = messagingState.talkSettings.softMessage,
                         setSoftMessage = { soft -> onTalkSettings(messagingState.talkSettings.copy(softMessage = soft)) },
                         presenceVisible = presenceVisible,
@@ -615,7 +624,7 @@ fun HomeApp(
                                 name = group?.let { groupName(it) } ?: resources.getString(R.string.group_unnamed),
                                 picture = group?.picture,
                                 line = when {
-                                    typers.isNotEmpty() -> resources.getString(R.string.group_typing, typers.joinToString(", "))
+                                    typers.isNotEmpty() -> com.chencohen.ptt.Gendered.stringFor(context, R.string.group_typing, typers, typers.joinToString(", "))
                                     else -> resources.getQuantityString(R.plurals.group_members, group?.readers?.size ?: 0, group?.readers?.size ?: 0)
                                 },
                                 note = when {
@@ -839,6 +848,23 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
             val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
             Column(Modifier.fillMaxSize().padding(top = insets.calculateTopPadding() + 8.dp, bottom = insets.calculateBottomPadding() + if (landscape) 60.dp else 80.dp)) {
             state.update?.let { release -> UpdateCard(release, actions.update) }
+            // Once, for those who never said how the app should refer to them (2026-11-23, hen).
+            val homeContext = androidx.compose.ui.platform.LocalContext.current
+            var genderAsked by remember { mutableStateOf(com.chencohen.ptt.ui.settings.GenderAsked.asked(homeContext)) }
+            if (!genderAsked && tab == HomeTab.CHATS) {
+                com.chencohen.ptt.ui.settings.GenderCard(
+                    choose = { g ->
+                        actions.setMyGender(g)
+                        com.chencohen.ptt.ui.settings.GenderAsked.mark(homeContext)
+                        com.chencohen.ptt.Gendered.applyMine(homeContext, g)
+                        genderAsked = true
+                    },
+                    dismiss = {
+                        com.chencohen.ptt.ui.settings.GenderAsked.mark(homeContext)
+                        genderAsked = true
+                    },
+                )
+            }
             com.chencohen.ptt.ui.talk.QuickTalkHome(
                 pages = pages,
                 startPage = com.chencohen.ptt.talk.QuickTalk.startPage(pages.map { it.chat }, chats.talkSettings.quickTalkPage),

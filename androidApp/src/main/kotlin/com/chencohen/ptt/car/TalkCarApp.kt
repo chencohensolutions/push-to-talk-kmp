@@ -84,7 +84,7 @@ class CarHomeScreen(carContext: CarContext) : Screen(carContext) {
         val list = ItemList.Builder().setNoItemsMessage(carContext.getString(R.string.car_no_chats))
         chats.forEach { (chat, name) ->
             val line = when (val v = TalkWidgetView.of(chat, talk, me, System.currentTimeMillis())) {
-                is TalkWidgetView.Incoming -> carContext.getString(R.string.car_talking, v.user)
+                is TalkWidgetView.Incoming -> com.chencohen.ptt.Gendered.string(carContext, R.string.car_talking, v.user, v.user)
                 is TalkWidgetView.Busy -> carContext.getString(R.string.car_wait)
                 else -> " "
             }

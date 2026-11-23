@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -369,6 +370,14 @@ private fun ColumnScope.InviteCodeStep(state: EnrollmentState, step: EnrollmentS
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
+        // How the app should refer to them (2026-11-23, hen): "Prefer not to say" by default (the slash forms).
+        val wizardContext = androidx.compose.ui.platform.LocalContext.current
+        var gender by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        Text(stringResource(R.string.profile_gender_title), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+        com.chencohen.ptt.ui.settings.GenderChoice(gender, { g ->
+            gender = g
+            com.chencohen.ptt.ui.settings.GenderAsked.saveEarly(wizardContext, g)
+        })
         OutlinedTextField(
             value = state.deviceName,
             onValueChange = actions.updateDeviceName,

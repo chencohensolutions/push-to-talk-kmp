@@ -77,6 +77,11 @@ class MessagingController internal constructor(
     /** This user's own email, shared with their paired contacts (blank: none). */
     fun setMyEmail(email: String) = onWork { messaging.setMyEmail(email) }
 
+    /** How the app refers to this user (Gender), shared with contacts. */
+    val myGender: Int get() = messaging.myGender
+
+    fun setMyGender(gender: Int) = onWork { messaging.setMyGender(gender) }
+
     /** Rename: this user's own name for [user] (blank: back to theirs). */
     fun renameContact(user: String, name: String) {
         scope.launch { withContext(work) { messaging.rename(user, name) } }

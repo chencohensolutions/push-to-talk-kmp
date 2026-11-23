@@ -353,7 +353,7 @@ object QuickReplyWindow {
                 val lineShape = RoundedCornerShape(14.dp)
                 val linePadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 7.dp)
                 if (draft != null && morph?.key != "draft/") {
-                    item(key = "draft/") { com.chencohen.ptt.ui.contacts.DraftBubble(null, draft.text, Modifier.animateItem(), shape = lineShape, padding = linePadding) }
+                    item(key = "draft/") { com.chencohen.ptt.ui.contacts.DraftBubble(null, draft.text, Modifier.animateItem(), draftUser = current, shape = lineShape, padding = linePadding) }
                 } else if (typingNow && draft == null) {
                     item(key = "typing") { TypingDots(Modifier.animateItem()) }
                 }
@@ -470,7 +470,7 @@ object QuickReplyWindow {
         Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
             Row(
                 Modifier.background(LibraryColors.Raised, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp)
-                    .semantics { contentDescription = context0?.getString(R.string.chat_typing).orEmpty() },
+                    .semantics { contentDescription = context0?.let { Gendered.string(it, R.string.chat_typing, chat.value) }.orEmpty() },
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 for (i in 0..2) {

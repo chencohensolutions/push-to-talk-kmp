@@ -679,9 +679,9 @@ object TalkNotifications {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val who = runCatching { chatName(context, from) }.getOrDefault(from)
         val title = if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) {
-            context.getString(R.string.talk_notify_group, who, runCatching { chatName(context, chat) }.getOrDefault(chat))
+            Gendered.string(context, R.string.talk_notify_group, from, who, runCatching { chatName(context, chat) }.getOrDefault(chat))
         } else {
-            context.getString(R.string.talk_notify, who)
+            Gendered.string(context, R.string.talk_notify, from, who)
         }
         val id = (chat.hashCode() and 0x3fffffff) * 2
         fun open(action: String, request: Int) = PendingIntent.getActivity(

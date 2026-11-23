@@ -35,6 +35,8 @@ data class Contact(
     val email: String? = null,
     /** The email their own phone shared (ProfileContent, end to end); null: not shared. */
     val theirEmail: String? = null,
+    /** How they want to be referred to (Gender), from their own phone (ProfileContent). */
+    val theirGender: Int = 0,
 ) {
     /** The email shown and put in Android Contacts: this user's, else theirs. */
     val shownEmail: String? get() = email?.takeIf { it.isNotBlank() } ?: theirEmail?.takeIf { it.isNotBlank() }

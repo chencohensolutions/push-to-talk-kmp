@@ -116,8 +116,8 @@ object TalkPlaying {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(
-                if (live) app.getString(R.string.playing_now, "%d:%02d".format(seconds / 60, seconds % 60))
-                else app.getString(R.string.playing_done),
+                if (live) Gendered.string(app, R.string.playing_now, from, "%d:%02d".format(seconds / 60, seconds % 60))
+                else Gendered.string(app, R.string.playing_done, from),
             )
             .setSubText(app.getString(R.string.playing_reply_hint))
             .setContentIntent(openTalk(app, chat))

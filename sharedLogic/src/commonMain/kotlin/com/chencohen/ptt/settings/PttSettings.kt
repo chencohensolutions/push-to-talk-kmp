@@ -214,6 +214,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_LIVE_TYPING) == "true"
         set(value) = store.putString(KEY_LIVE_TYPING, value.toString())
 
+    /** How the app refers to this user (Gender; Settings › Profile). */
+    var myGender: Int
+        get() = store.getString(KEY_MY_GENDER)?.toIntOrNull() ?: 0
+        set(value) = store.putString(KEY_MY_GENDER, value.toString())
+
     /** Live typing per contact or group (TalkSettings.liveTypingFor). */
     var liveTypingFor: Map<String, Boolean>
         get() = store.getString(KEY_LIVE_TYPING_FOR)?.let { runCatching { json.decodeFromString<Map<String, Boolean>>(it) }.getOrNull() }.orEmpty()
@@ -257,6 +262,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_VIDEO_FOR = "talk_video_for"
         private const val KEY_LIVE_TYPING = "live_typing"
         private const val KEY_LIVE_TYPING_FOR = "live_typing_for"
+        private const val KEY_MY_GENDER = "my_gender"
         private const val KEY_LIVE_TYPING_KNOWN = "live_typing_known"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"

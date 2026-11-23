@@ -522,6 +522,21 @@ class MessagingTest {
     }
 
     @Test
+    fun theGenderTravelsWithTheProfile() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        dana.messaging.setMyGender(Gender.FEMALE)
+        advanceUntilIdle()
+        assertEquals(Gender.FEMALE, hen.state.contacts.first { it.user == "dana" }.theirGender)
+        dana.messaging.setMyGender(Gender.NOT_SET)
+        advanceUntilIdle()
+        assertEquals(Gender.NOT_SET, hen.state.contacts.first { it.user == "dana" }.theirGender)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
     fun liveTypingSendsTheDraftLiveOnlyAndTheMessageReplacesIt() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)
