@@ -160,8 +160,10 @@ object QuickReplyWindow {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.BOTTOM
-            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
-            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+            // Above the keyboard while it shows (2026-11-23, hen): the window's frame keeps clear of it, moving up with
+            // it and back down; with too little room the window gets shorter and the message list gives way.
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = android.view.WindowInsets.Type.ime()
             title = "Talk quick reply"
         }
         try {
