@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -286,6 +289,8 @@ fun CallScreen(
         // Follow my face (2026-11-22, hen): framed on this phone before sending; kept for next time.
         var follow by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("follow_face", false)) }
         LaunchedEffect(transport, follow) { transport?.followFace = follow }
+        // Follow face (2026-11-23, hen): on what is received, this phone's view only; kept for next time.
+        var followThem by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("follow_remote", false)) }
         val own = r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
         val ownShape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
         // Their pictures' shapes, from their frames: Normal sizes their video by it.
@@ -307,7 +312,7 @@ fun CallScreen(
                 Row(modifier) {
                     remote.forEach { (user, track) ->
                         key(user, track.sid ?: track.name, maximized) {
-                            VideoView(r!!, track, Modifier.weight(1f).fillMaxSize().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it })
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxSize().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first)
                         }
                     }
                 }
@@ -315,7 +320,7 @@ fun CallScreen(
                 Column(modifier) {
                     remote.forEach { (user, track) ->
                         key(user, track.sid ?: track.name, maximized) {
-                            VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it })
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first)
                         }
                     }
                 }
@@ -399,6 +404,12 @@ fun CallScreen(
                                 Pill(stringResource(R.string.call_follow_face), on = follow) {
                                     follow = !follow
                                     prefs.edit().putBoolean("follow_face", follow).apply()
+                                }
+                            }
+                            if (remote.isNotEmpty()) {
+                                Pill(stringResource(R.string.call_follow_them), on = followThem) {
+                                    followThem = !followThem
+                                    prefs.edit().putBoolean("follow_remote", followThem).apply()
                                 }
                             }
                             if (statsAllowed) {
@@ -570,7 +581,18 @@ private fun ownVideo(room: Room, changes: Int): VideoTrack? =
  * (2026-11-22, hen: "fit and crop is not working": both cropped).
  */
 @Composable
-private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror: Boolean = false, fill: Boolean = true, stats: Boolean = false, onShape: (Float) -> Unit = {}) {
+private fun VideoView(
+    room: Room,
+    track: VideoTrack,
+    modifier: Modifier,
+    mirror: Boolean = false,
+    fill: Boolean = true,
+    stats: Boolean = false,
+    onShape: (Float) -> Unit = {},
+    /** Follow face (on what is received): pan and zoom the view to keep the face framed, up to [maxZoom]. */
+    follow: Boolean = false,
+    maxZoom: Float = 1.8f,
+) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
     // The picture's shape as shown (its rotation applied), from the frames themselves.
@@ -603,9 +625,25 @@ private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror:
             renderer.release()
         }
     }
-    Box(modifier, contentAlignment = Alignment.Center) {
-        val shaped = if (!fill && aspect > 0f) Modifier.aspectRatio(aspect) else Modifier.fillMaxSize()
-        AndroidView(factory = { renderer }, modifier = shaped)
+    var boxSize by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    // The whole picture: as big as covers the box (Maximized, the box clips it) or fits in it (Normal). Drawn whole,
+    // so Follow face can slide over all of it.
+    val bw = boxSize.width.toFloat()
+    val bh = boxSize.height.toFloat()
+    val content = if (aspect > 0f && bw > 0f && bh > 0f) {
+        if ((bw / bh > aspect) == fill) bw to bw / aspect else bh * aspect to bh
+    } else {
+        null
+    }
+    val framing = followFace(track, follow, fill, boxSize, content, maxZoom)
+    Box(modifier.clipToBounds().onSizeChanged { boxSize = it }, contentAlignment = Alignment.Center) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val shaped = if (content != null) {
+            with(density) { Modifier.requiredSize(content.first.toDp(), content.second.toDp()) }
+        } else {
+            Modifier.fillMaxSize()
+        }
+        AndroidView(factory = { renderer }, modifier = shaped.then(framing))
         val line = videoStats(track, stats)
         if (line != null) {
             Text(
@@ -614,6 +652,89 @@ private fun VideoView(room: Room, track: VideoTrack, modifier: Modifier, mirror:
                     .padding(horizontal = 6.dp, vertical = 3.dp),
             )
         }
+    }
+}
+
+/**
+ * Follow face (2026-11-23, hen; the call screen's pill, on the received video only): the same face finder as Frame my
+ * face looks at the frames as they come, and the view pans and zooms (at most [maxZoom]) to keep the face near the upper
+ * third, head and shoulders about 45% of the height, easing in half a second, small moves left alone, back to the plain
+ * picture 1.5 s after the face is lost. Display only. Maximized already crops: the crop slides to the face and zooms at
+ * most 1.5x; Normal pans and zooms inside the tile.
+ */
+@Composable
+private fun followFace(
+    track: VideoTrack,
+    on: Boolean,
+    fill: Boolean,
+    boxSize: androidx.compose.ui.unit.IntSize,
+    content: Pair<Float, Float>?,
+    maxZoom: Float,
+): Modifier {
+    var box by remember(track) { androidx.compose.runtime.mutableStateOf<android.graphics.RectF?>(null) }
+    var seenAt by remember(track) { androidx.compose.runtime.mutableLongStateOf(0L) }
+    DisposableEffect(track, on) {
+        if (!on) {
+            box = null
+            return@DisposableEffect onDispose {}
+        }
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val finder = com.chencohen.ptt.calls.FaceFinder("FollowFace") { found ->
+            main.post {
+                if (found != null) {
+                    box = found
+                    seenAt = android.os.SystemClock.elapsedRealtime()
+                }
+            }
+        }
+        val sink = livekit.org.webrtc.VideoSink { frame -> finder.offer(frame) }
+        track.addRenderer(sink)
+        onDispose {
+            track.removeRenderer(sink)
+            finder.close()
+        }
+    }
+    // Lost for 1.5 s: back to the plain picture.
+    LaunchedEffect(track, on) {
+        while (on) {
+            delay(300)
+            if (box != null && android.os.SystemClock.elapsedRealtime() - seenAt > 1_500) box = null
+        }
+    }
+    // The target: scale and offset of the picture in the box; moved only past a dead zone.
+    var target by remember(track) { androidx.compose.runtime.mutableStateOf(Triple(1f, 0f, 0f)) }
+    val b = box
+    val bw = boxSize.width.toFloat()
+    val bh = boxSize.height.toFloat()
+    if (b == null || content == null || bw <= 0f || bh <= 0f) {
+        if (target != Triple(1f, 0f, 0f)) target = Triple(1f, 0f, 0f)
+    } else {
+        val (cw, ch) = content
+        // Where the picture sits in the box before any follow (centred), and the face in it.
+        val ox = (bw - cw) / 2
+        val oy = (bh - ch) / 2
+        val zoom = (0.45f * bh / (b.height() * ch)).coerceIn(1f, if (fill) minOf(maxZoom, 1.5f) else maxZoom)
+        val fx = b.centerX() * cw
+        val fy = b.centerY() * ch
+        // The face to the middle, a little above it (the upper third), and the picture still covering what it covered.
+        fun span(want: Float, low: Float, high: Float) = if (low <= high) want.coerceIn(low, high) else (low + high) / 2
+        val tx = span(bw / 2 - ox - fx * zoom, minOf(bw, ox + cw) - ox - cw * zoom, maxOf(0f, ox) - ox)
+        val ty = span(bh * 0.4f - oy - fy * zoom, minOf(bh, oy + ch) - oy - ch * zoom, maxOf(0f, oy) - oy)
+        val (s0, x0, y0) = target
+        if (kotlin.math.abs(zoom - s0) > 0.08f || kotlin.math.abs(tx - x0) > bw * 0.04f || kotlin.math.abs(ty - y0) > bh * 0.04f) {
+            target = Triple(zoom, tx, ty)
+        }
+    }
+    val ease = androidx.compose.animation.core.tween<Float>(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+    val s by androidx.compose.animation.core.animateFloatAsState(target.first, ease, label = "follow zoom")
+    val x by androidx.compose.animation.core.animateFloatAsState(target.second, ease, label = "follow x")
+    val y by androidx.compose.animation.core.animateFloatAsState(target.third, ease, label = "follow y")
+    return Modifier.graphicsLayer {
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+        scaleX = s
+        scaleY = s
+        translationX = x
+        translationY = y
     }
 }
 

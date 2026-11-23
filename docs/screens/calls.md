@@ -44,6 +44,12 @@ says "Calls need the microphone. Allow it in the app's settings."
     from the start edge, yours in the rest, as big as fits, centred.
   The name, pills and buttons float over the video on soft shades; a single tap on the video hides or shows them all
   (no double tap).
+- **Follow face** (2026-11-23, hen; a pill at the top while someone's video shows, kept for next time, apart from
+  Frame my face; both may be on): on this phone's view of the received video only (the big tile in a group call), the
+  same face finder looks four times a second and the view pans and zooms to keep the face near the upper third, head
+  and shoulders about 45% of the height, easing in half a second, small moves left alone, back to the plain picture
+  1.5 s after the face is lost. Maximized: the picture is drawn whole and clipped to the screen, so the crop slides to
+  the face, with at most 1.5x more zoom; Normal: at most 1.8x inside the tile. Nothing is sent.
 - **Stats** (2026-11-22, hen; Call settings › Advanced › Show video stats, off by default): a **Stats** pill at the top
   right shows or hides, on each video and your preview, its frame rate, bit rate, size and codec from WebRTC's stats,
   once a second (your camera: all simulcast layers' bytes, the biggest layer's size and rate). Kept for next time.

@@ -162,7 +162,8 @@
     <string name="kept_whole">Whole</string>
     <string name="calls_video_stats">Show video stats</string>
     <string name="calls_video_stats_body">In video calls, a Stats button shows each video\'s frame rate, bit rate, size and codec.</string>
-    <string name="call_follow_face">Follow my face</string>
+    <string name="call_follow_face">Frame my face</string>
+    <string name="call_follow_them">Follow face</string>
     <string name="call_stats">Stats</string>
     <string name="call_layout_normal">Normal</string>
     <string name="call_layout_maximized">Maximized</string>
