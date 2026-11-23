@@ -228,7 +228,6 @@ class CallsTest {
         runCurrent()
         assertTrue(s.calls.state.value!!.saving)
         assertTrue(s.transport.recording)
-        assertTrue(s.sent.any { it.second.kind == CallContent.RECORDING && it.second.recording })
         s.calls.hangUp()
         assertFalse(s.transport.recording)
         assertEquals("call-1.mp4", s.entries.values.single().call!!.savedAs)
@@ -252,22 +251,6 @@ class CallsTest {
         s.transport.listener!!.others(emptyList())
         runCurrent()
         assertEquals("call-1.mp4", s.entries.values.single().call!!.savedAs)
-    }
-
-    @Test
-    fun theRecordingBadgeFollowsTheOthers() = runTest {
-        val s = Setup(this)
-        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
-        s.calls.accept()
-        runCurrent()
-        s.transport.listener!!.others(listOf("sharon.1"))
-        runCurrent()
-        s.calls.receive("sharon", "sharon", CallContent(CallContent.RECORDING, "a".repeat(32), recording = true), s.at(), ownCopy = false)
-        assertEquals(setOf("sharon"), s.calls.state.value!!.recordingBy)
-        s.calls.setRecording(true)
-        runCurrent()
-        assertEquals(setOf("sharon", "hen"), s.calls.state.value!!.recordingBy)
-        assertTrue(s.sent.last().second.recording)
     }
 
     /** 2026-11-22 (hen): the server keeps a call only while someone records it: Save asks, Stop and the end stop. */
@@ -296,24 +279,6 @@ class CallsTest {
     }
 
     @Test
-    fun theServersRecordingShowsAndAnyoneInTheCallCanStopIt() = runTest {
-        val s = Setup(this)
-        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
-        s.calls.accept()
-        runCurrent()
-        s.transport.listener!!.others(listOf("sharon.1"))
-        s.transport.listener!!.serverRecording("sharon.1")
-        runCurrent()
-        assertEquals("sharon", s.calls.state.value!!.serverRecordingBy)
-        s.calls.setRecording(false)
-        runCurrent()
-        assertEquals(listOf<Pair<String?, Boolean>>("sharon" to false), s.keeps, "Stop works for a recording sharon started")
-        s.transport.listener!!.serverRecording(null)
-        runCurrent()
-        assertEquals(null, s.calls.state.value!!.serverRecordingBy)
-    }
-
-    @Test
     fun roomMetadataNamesTheRecordingDevice() {
         assertEquals("sharon.1", RoomMetadata.recorderOf("""{"recording":true,"by":"sharon.1","startedAt":"2026-11-22T16:00:00Z"}"""))
         assertEquals(null, RoomMetadata.recorderOf("""{"recording":false}"""))
@@ -331,7 +296,7 @@ class CallsTest {
         runCurrent()
         s.calls.setRecording(true)
         runCurrent()
-        assertTrue(s.calls.state.value!!.saving, "the badge shows")
+        assertTrue(s.calls.state.value!!.saving, "saving is on")
         assertEquals(false, s.transport.recording, "nothing records or re-encodes on the phone")
         assertEquals(listOf<Pair<String?, Boolean>>("sharon" to true), s.keeps, "the server keeps it")
         s.calls.setRecording(false)
@@ -368,20 +333,5 @@ class CallsTest {
         s.calls.receive("sharon", "sharon", CallContent(CallContent.VIEW, s.calls.state.value!!.id, fill = true, aspect = 2f, of = "hen"), s.at(), ownCopy = false)
         runCurrent()
         assertEquals(CallView(true, 2f), s.calls.state.value!!.viewers["sharon"])
-    }
-
-    @Test
-    fun whoLeftAGroupCallIsNoLongerShownSaving() = runTest {
-        val s = Setup(this)
-        s.calls.receive("sharon", "sharon", invite(), s.at(), ownCopy = false)
-        s.calls.accept()
-        runCurrent()
-        s.transport.listener!!.others(listOf("sharon.1", "dana.1"))
-        runCurrent()
-        s.calls.receive("sharon", "dana", CallContent(CallContent.RECORDING, "a".repeat(32), recording = true), s.at(), ownCopy = false)
-        assertEquals(setOf("dana"), s.calls.state.value!!.recordingBy)
-        s.transport.listener!!.others(listOf("sharon.1"))
-        runCurrent()
-        assertEquals(emptySet(), s.calls.state.value!!.recordingBy)
     }
 }

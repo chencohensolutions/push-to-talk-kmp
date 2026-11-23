@@ -22,18 +22,15 @@ says "Calls need the microphone. Allow it in the app's settings."
   for a voice call), with the length "1:24" (and who is in it, in a group). This phone's own camera sits in a
   corner, mirrored. Round buttons: **Mute** / Unmute, **Camera off** / Camera on, **Flip** (front and back camera,
   while the camera is on), and **Hang up** in red.
-- The red **Recording · Dana** badge under the name while someone in the call saves it, on this phone or on the
-  server. The server's part comes from the LiveKit room's metadata (`{"recording":true,"by":"user.device",…}`, read
-  on joining and on every change), so every phone in the call shows it, also one that missed the chat message.
 - **Saving** (Save calls on, or a server that keeps calls (`serverInfo.keepsCalls`), in a running call): a **Save**
   pill above the buttons starts saving, **Stop saving** (red) stops it. With Ask each time, a card "Save this call?"
-  ("Everyone in the call will see that you're recording.", **Not now** and **Save**) shows once the call is on; with
-  Always saving starts by itself.
+  (**Not now** and **Save**) shows once the call is on; with Always saving starts by itself. Nothing is shown to the
+  others that the call is being saved.
 - **Kept on the server only while someone records** (2026-11-22, hen): Save also asks the server to keep the call
-  (`recordCall`), encrypted end to end so only the people in the call can open it. **Stop saving** shows for anyone in
-  the call while the server keeps it, also for a recording someone else started (`stopRecordingCall`). The server
-  also stops by itself when the recording phone leaves the call, when the room empties, or after 4 hours, so hanging
-  up sends nothing. A server that doesn't keep calls (or an older one) is ignored: the phone's own saving goes on.
+  (`recordCall`), encrypted end to end so only the people in the call can open it. **Stop saving** on the phone that
+  started it ends it (`stopRecordingCall`). The server also stops by itself when the recording phone leaves the call,
+  when the room empties, or after 4 hours, so hanging up sends nothing. A server that doesn't keep calls (or an older
+  one) is ignored: the phone's own saving goes on.
 - **Video as the camera sends it** (2026-11-22, hen): each phone sends its camera's own 4:3 picture, uncropped. The
   phone showing it has two layouts (2026-11-23, hen, from the approved mockups), one pill at the top that names the
   layout a tap switches to, kept for next time:

@@ -81,7 +81,7 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
 
 A row, "Save calls · Save calls on this phone", opens Settings › Calls (`CallSettingsScreen.kt`): **Save calls**, Off
 (the default), Ask each time, or Always, with a line under each, and a note that a saved call stays in the app's own
-storage, leaves it only through Share, and that everyone in the call sees the Recording badge.
+storage and leaves it only through Share.
 
 ## Your server
 
