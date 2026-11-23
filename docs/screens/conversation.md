@@ -143,7 +143,7 @@ bubble's look, the caret where the finger was (the text's own layout, right to l
 keeps the bubble's bounds: the same width, place and lines; only its colour and outline turn (teal to coral, no
 label), and ✓ takes the place of the time and its mark at the bottom, so the height doesn't change either. It widens
 only when the typed text no longer fits, toward the middle (the right in Hebrew), up to 85% of the row, then wraps
-(`editBoxWidth`, RtlTransitionsTest). ✓ saves; Back or a tap outside turn it back unchanged (no ✕). The edit goes end to end like
+(`editBoxWidth`, RtlTransitionsTest). A tap on (or focus in) the writing bubble ends the edit unchanged, the focus moving there with the keyboard staying up; a double tap on another of my texts ends the first and starts the new one (`EditSession`, EditSessionTest). ✓ saves; Back or a tap outside turn it back unchanged (no ✕). The edit goes end to end like
 a text (`EditContent` in Content field 19, kept and pushed silently, also to my other phones; in a group through the
 group's Send); every phone replaces the text and shows "edited" by the time. Only the author's edit of their own text
 counts; an id a phone doesn't have is ignored; older apps skip the field. While I edit, live only like live typing

@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -96,6 +97,8 @@ internal fun ComposeBubble(
     modifier: Modifier = Modifier,
     /** On the bubble being written (its place on the screen, for Send's flight). */
     bubbleModifier: Modifier = Modifier,
+    /** Its field took the focus. */
+    focused: () -> Unit = {},
 ) {
     val coral = com.chencohen.ptt.ui.style.Pink
     Box(modifier.fillMaxWidth(), contentAlignment = MySide) {
@@ -144,7 +147,8 @@ internal fun ComposeBubble(
                         cursorBrush = SolidColor(coral),
                         maxLines = 6,
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
-                        modifier = Modifier.weight(1f).padding(bottom = 6.dp).focusRequester(focus),
+                        modifier = Modifier.weight(1f).padding(bottom = 6.dp).focusRequester(focus)
+                            .onFocusChanged { if (it.isFocused) focused() },
                     )
                     Spacer(Modifier.width(8.dp))
                     Box(

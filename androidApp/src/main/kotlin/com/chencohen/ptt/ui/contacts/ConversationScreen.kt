@@ -177,7 +177,8 @@ internal fun ConversationScreen(
     // Send (2026-11-24, hen): the pinned draft flies into its place at the end of the chat.
     val flight = remember(user) { SendFlight() }
     // Editing one of my sent texts (2026-11-24, hen): a double tap on it.
-    var editing by remember(user) { mutableStateOf<Editing?>(null) }
+    val edits = remember(user) { EditSession() }
+    val editing = edits.editing
     Box(
         Modifier.fillMaxSize().onGloballyPositioned { flight.origin = it.positionInWindow() }.pointerInput(Unit) {
             // Every touch counts (the camera's idle time).
@@ -307,7 +308,7 @@ internal fun ConversationScreen(
                         keyboard?.hide()
                         if (draft.text.isEmpty()) draft.editing = false
                         // A tap outside the edit cancels it (it turns back unchanged).
-                        editing?.let { it.leaving = true }
+                        edits.abort()
                     })
                 },
                 state = list,
@@ -320,7 +321,7 @@ internal fun ConversationScreen(
                 // While a bubble changes its size in place (an edit, Send's flight, a live draft growing), the others follow
                 // it in the same frame: no placement animation of their own trailing it (2026-11-24, hen: "don't make
                 // the surrounding objects move with delay"). Otherwise (one added or gone) they glide.
-                val morphing = editing != null || flight.body != null || shownDrafts.isNotEmpty() || liveEdits.isNotEmpty()
+                val morphing = editing != null || edits.closing.isNotEmpty() || flight.body != null || shownDrafts.isNotEmpty() || liveEdits.isNotEmpty()
                 val move = if (morphing) null else androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                 // Both kept pushing at once: a video call may suit them (2026-11-23, hen).
                 if (talk.suggestCall == user) {
@@ -381,8 +382,8 @@ internal fun ConversationScreen(
                     }
                     item(key = message.id) {
                         Box(Modifier.animateItem(ease, move, ease)) {
-                            val edit = editing
-                            if (edit != null && edit.id == message.id) {
+                            val edit = edits.of(message.id)
+                            if (edit != null) {
                                 EditBubble(
                                     edit,
                                     change = { v ->
@@ -392,7 +393,7 @@ internal fun ConversationScreen(
                                     done = { save ->
                                         if (save) actions.edit(message.id, edit.value.text) else actions.editLive(message.id, null)
                                     },
-                                    gone = { editing = null },
+                                    gone = { edits.gone(edit) },
                                 )
                             } else if (message.id == sentMorph) {
                                 Bubble(
@@ -411,7 +412,7 @@ internal fun ConversationScreen(
                                     message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
                                     bubbleModifier = if (liveVideo) Modifier else Modifier.graphicsLayer { alpha = seeThrough },
                                     liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
-                                    startEdit = if (message.outgoing && message.clip == null && message.call == null && canWrite && editing == null) { offset, width -> editing = Editing(message.id, message.body, offset, width) } else null,
+                                    startEdit = if (message.outgoing && message.clip == null && message.call == null && canWrite) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
                                 )
                             }
                         }
@@ -449,7 +450,7 @@ internal fun ConversationScreen(
                             transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
                             label = "draft or recording",
                         ) { recording ->
-                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions) { body, from -> flight.start(body, from, newest?.id) }
+                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions, writing = { edits.abort() }) { body, from -> flight.start(body, from, newest?.id) }
                         }
                     }
                 }
@@ -473,7 +474,7 @@ internal fun ConversationScreen(
     }
     SendFlightOverlay(flight)
     if (editing != null && androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current != null) {
-        androidx.activity.compose.BackHandler { editing?.let { it.leaving = true } }
+        androidx.activity.compose.BackHandler { edits.abort() }
     }
     fullVideo?.let { id ->
         val playingIt = talk.playing?.clip == id
@@ -880,6 +881,41 @@ internal class ChatDraft {
 internal const val FLIGHT_MS = 300
 
 /**
+ * The chat's edits (2026-11-24, hen): the one in progress ([editing]) and those turning back ([closing]). A new
+ * double tap, a tap or focus on the writing bubble, Back or a tap outside end the one in progress unchanged (it turns
+ * back, and its cancel goes to them).
+ */
+internal class EditSession {
+    var editing by mutableStateOf<Editing?>(null)
+        private set
+    val closing = androidx.compose.runtime.mutableStateListOf<Editing>()
+
+    /** Edit [next]; one in progress turns back first. */
+    fun start(next: Editing) {
+        if (editing?.id == next.id) return
+        abort()
+        editing = next
+    }
+
+    /** The edit in progress ends unchanged (it turns back; its cancel is sent as it does). */
+    fun abort() {
+        val e = editing ?: return
+        e.leaving = true
+        closing += e
+        editing = null
+    }
+
+    /** The edit for message [id], in progress or turning back. */
+    fun of(id: String): Editing? = editing?.takeIf { it.id == id } ?: closing.lastOrNull { it.id == id }
+
+    /** [e] has turned back (or was saved). */
+    fun gone(e: Editing) {
+        closing.remove(e)
+        if (editing === e) editing = null
+    }
+}
+
+/**
  * One of my texts being edited: [value] as it stands, the caret first at [caret]; [width] the bubble's width as it
  * was (its text keeps that wrap until the first change); [leaving] asks it to turn back.
  */
@@ -1088,7 +1124,14 @@ private fun SendFlightOverlay(flight: SendFlight) {
 
 /** The pinned draft: the empty bubble or the one being written; typing and live typing told from here. */
 @Composable
-private fun PinnedDraft(draft: ChatDraft, focus: androidx.compose.ui.focus.FocusRequester, actions: ConversationActions, sent: (String, androidx.compose.ui.geometry.Rect?) -> Unit) {
+private fun PinnedDraft(
+    draft: ChatDraft,
+    focus: androidx.compose.ui.focus.FocusRequester,
+    actions: ConversationActions,
+    /** The writing bubble was tapped or took the focus: an edit in progress ends unchanged. */
+    writing: () -> Unit = {},
+    sent: (String, androidx.compose.ui.geometry.Rect?) -> Unit,
+) {
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     // After a send the bubble written in flies off as the message, and a new empty one pops up here (2026-11-24,
     // hen): from 0.85 with a fade, 200 ms; the keyboard stays and so does the focus.
@@ -1102,6 +1145,7 @@ private fun PinnedDraft(draft: ChatDraft, focus: androidx.compose.ui.focus.Focus
     }
     LaunchedEffect(draft.editing) {
         if (draft.editing) {
+            writing()
             actions.answering()
             runCatching { focus.requestFocus() }
         }
@@ -1117,7 +1161,11 @@ private fun PinnedDraft(draft: ChatDraft, focus: androidx.compose.ui.focus.Focus
         }
     }
     ComposeBubble(
-        draft.text, draft.editing, focus, { draft.editing = true },
+        draft.text, draft.editing, focus, {
+            writing()
+            draft.editing = true
+        },
+        focused = writing,
         modifier = Modifier.graphicsLayer {
             alpha = appear.value
             val scale = 0.85f + 0.15f * appear.value
