@@ -272,6 +272,39 @@ internal fun TalkModeScreen(
     /** This screen open tells the other user ("here"); and whether they are here now. */
     setHere: (String?) -> Unit = {},
     peerHere: Boolean = false,
+    /** Opened over the lock screen for a burst: its video fills the whole screen while it plays (2026-11-23, hen). */
+    fullScreenVideo: Boolean = false,
+) {
+    Box(Modifier.fillMaxSize()) {
+    TalkModeContent(chat, title, me, talk, liveRoom, bursts, nameOf, press, release, play, close, micDenied, warmMicrophone, openChat, call, pushVideo, setPushVideo, warmCamera, setHere, peerHere)
+    if (fullScreenVideo && talk.playing?.let { it.chat == chat && it.video } == true) {
+        TalkVideoView(Modifier.fillMaxSize(), cover = true)
+    }
+    }
+}
+
+@Composable
+private fun TalkModeContent(
+    chat: String,
+    title: String,
+    me: String,
+    talk: TalkUiState,
+    liveRoom: com.chencohen.ptt.talk.LiveState,
+    bursts: List<TextMessage>,
+    nameOf: (String) -> String,
+    press: () -> Unit,
+    release: () -> Unit,
+    play: (String) -> Unit,
+    close: () -> Unit,
+    micDenied: () -> Unit,
+    warmMicrophone: (Boolean) -> Unit,
+    openChat: () -> Unit,
+    call: (video: Boolean) -> Unit,
+    pushVideo: Boolean,
+    setPushVideo: (Boolean) -> Unit,
+    warmCamera: (String?) -> Unit,
+    setHere: (String?) -> Unit,
+    peerHere: Boolean,
 ) {
     WarmMicrophone(warmMicrophone)
     WarmCamera(chat, pushVideo, warmCamera)

@@ -32,7 +32,9 @@ class TalkApp : Application() {
         super.onCreate()
         Notifications.createChannel(this)
         TalkNotifications.createChannels(this)
-        setMessageNotifier(this, Notifications(this))
+        val notifications = Notifications(this)
+        setMessageNotifier(this, notifications)
+        QuickReplyWindow.notifications = notifications
         setTalkHost(this, AndroidTalkHost(this))
         CallNotifications.createChannels(this)
         AppUpdates.createChannel(this)

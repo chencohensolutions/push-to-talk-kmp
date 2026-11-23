@@ -61,7 +61,12 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
 `QuickReplyWindow` (Android), `QuickReply` (shared; 2026-11-23, hen; Settings › Talk › Quick reply window, on by
 default; needs "Display over other apps"). A message (or a voice message) that comes in while the phone is in use, its
 screen on, shows its conversation in a window at the bottom of the screen, full width, 40% of its height, over other
-apps; the notification shows as well. Not for the conversation open in the app while it is in front.
+apps, sliding up from the bottom edge (250 ms) and down off it when it closes; a swipe down follows the finger. While it
+shows a message there is no notification, only the message sound (`MessageAlert`); if it closes unanswered (×, swipe,
+Back, by itself, or switching away) the notification is posted then, silently, so the message stays unread. Not for
+the conversation open in the app while it is in front; skipped (off, not allowed, screen off) the notification shows as
+always. Every decision is logged (QuickReply). 2026-11-23: it crashed the app as it attached (Compose found no
+lifecycle on the window's root view), so it never showed; fixed.
 
 - **Header**: a grab bar; the letter circle and the name (a group's name for a group); a tap opens the chat and
   closes the window; **×** closes it. A swipe down closes it too, and so does Back.

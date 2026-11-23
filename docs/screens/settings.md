@@ -56,7 +56,12 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
   (2026-11-22: without it nothing opened). "Display over other apps" (the floating window's) does as well: with it the
   Talk screen is started straight away, which Android allows such apps from the background; else a new notification
   of its own carries the full-screen intent (one only fires when its notification is new, and the playing
-  notification is updated in place, so it never fired; 2026-11-22, hen).
+  notification is updated in place, so it never fired; 2026-11-22, hen). 2026-11-23 (hen: "when the phone is sleeping I
+  don't see the PTT screen"): the app's screen, on composing, set show-over-lock-screen and turn-the-screen-on back to
+  false unless a call rang, undoing the wake-up; and Android 15+ starts an activity from the background for an app
+  that may draw over others only while one of its windows shows: a tiny invisible one is shown for it. With
+  full-screen notifications allowed, one is posted as well; the app asks once for them while this is on, and a row
+  shows until they are. A video burst that woke the phone fills the Talk screen (cropped to fill) while it plays.
 - **In the background › Reply bubble over other apps** (on by default since 2026-11-22, hen; a phone that had it off
   before that, most likely never chosen, starts with it on once; since then only a changed setting is stored): the bar at the bottom of the screen with a
   Talk button while the phone is in use ([notifications.md](notifications.md), "Reply bubble"). Turning it on opens

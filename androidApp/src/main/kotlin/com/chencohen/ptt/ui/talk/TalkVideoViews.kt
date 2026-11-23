@@ -149,6 +149,20 @@ internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignmen
     }
 }
 
+/** A box of [shape] (width for 1 high) as big as covers the space given, clipped to it; [content] gets its size. */
+@Composable
+internal fun CoverBox(shape: Float, modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, content: @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit) {
+    BoxWithConstraints(modifier.clipToBounds().background(Color.Black), contentAlignment = alignment) {
+        val density = LocalDensity.current
+        val w = constraints.maxWidth.toFloat()
+        val h = constraints.maxHeight.toFloat()
+        val (bw, bh) = if (w / h > shape) w to (w / shape) else (h * shape) to h
+        with(density) {
+            Box(Modifier.requiredSize(bw.toDp(), bh.toDp()), contentAlignment = Alignment.Center) { content(bw.toDp(), bh.toDp()) }
+        }
+    }
+}
+
 /** A rounded box of [shape] (width for 1 high), as big as fits, centred in the space given; [content] gets its size. */
 @Composable
 internal fun FittedBox(shape: Float, modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, content: @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit) {
@@ -206,14 +220,17 @@ private const val SMALL_SHARE = 0.32f
  * AndroidTalkVideoOut in step with the voice.
  */
 @Composable
-internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
+internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false) {
     val shown by AndroidTalkVideoOut.shown.collectAsStateWithLifecycle()
     val s = shown
     val rotation = s?.rotation ?: 0
     val frameAspect = if (s != null && s.width > 0 && s.height > 0) s.width.toFloat() / s.height else 4f / 3f
     val turned = rotation % 180 != 0
     // The box is the picture's upright shape: no bars.
-    FittedBox(if (turned) 1f / frameAspect else frameAspect, modifier, alignment) { w, h ->
+    // Cover (the Talk screen woken for a video burst, 2026-11-23, hen): the picture fills the screen, cropped.
+    val place: @Composable (Float, Modifier, Alignment, @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit) -> Unit =
+        if (cover) { shape, m, a, content -> CoverBox(shape, m, a, content) } else { shape, m, a, content -> FittedBox(shape, m, a, content) }
+    place(if (turned) 1f / frameAspect else frameAspect, modifier, alignment) { w, h ->
         AndroidView(
             factory = { context ->
                 TextureView(context).apply {

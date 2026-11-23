@@ -635,6 +635,8 @@
     <string name="bubble_send">שליחה</string>
     <string name="bubble_talk_hint">להחזיק כדי לענות, לשחרר כדי לשלוח</string>
     <string name="bubble_close">סגירה</string>
+    <string name="full_screen_ask_title">להדליק את המסך כשמדברים אליכם?</string>
+    <string name="full_screen_ask_body">כדי להציג את מסך הדיבור מעל מסך הנעילה כשמדברים אליכם בזמן שהטלפון ישן, Android מבקש לאשר פעם אחת התראות במסך מלא של Talk.</string>
     <string name="overlay_ask_title">להציג את Talk מעל אפליקציות אחרות?</string>
     <string name="overlay_ask_body">כשהטלפון בשימוש, החלון הצף מראה מי מדבר אליכם עם כפתור "לדבר", ו־Talk יכול להדליק את המסך כשמדברים אליכם. Android מבקש לאשר פעם אחת ש־Talk יוצג מעל אפליקציות אחרות.</string>
     <string name="overlay_ask_allow">לאשר</string>

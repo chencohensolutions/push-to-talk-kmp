@@ -67,9 +67,10 @@ internal fun TalkSettingsScreen(
                 change(settings.copy(openOnTalk = on))
                 // Turning it on asks Android for full-screen notifications when it needs to (Android 14+).
                 // Either permission turns the screen on: over other apps (the floating window's), or full-screen intents.
-                if (on && !fullScreenAllowed && !overlayAllowed) openFullScreenSetting()
+                if (on && !fullScreenAllowed) openFullScreenSetting()
             }
-            if (settings.openOnTalk && !fullScreenAllowed && !overlayAllowed) {
+            // Full-screen notifications turn the screen on over the lock screen most surely (2026-11-23).
+            if (settings.openOnTalk && !fullScreenAllowed) {
                 RowDivider()
                 AllowRow(stringResource(R.string.talk_allow_full_screen)) { openFullScreenSetting() }
             }
