@@ -32,3 +32,7 @@ A group's chat uses this screen with a group header and authors on the bubbles: 
 
 - **The microphone by the text field is push-to-talk** (2026-11-22, hen): hold it to talk live to them, as on the Talk
   screen (the floor, the burst in the chat); slide away to cancel. It no longer records a voice message.
+
+**Live drafts** (2026-11-23, hen): when the contact uses Live typing (Settings › Privacy), what they are writing shows
+at the bottom as an outlined "Writing…" bubble (in a group, "Dana is writing…"), updated as they write, deletions
+too; the message replaces it, and it fades 20 s after their last change.

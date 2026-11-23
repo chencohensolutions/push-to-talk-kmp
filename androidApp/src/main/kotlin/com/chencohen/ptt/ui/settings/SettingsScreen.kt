@@ -49,6 +49,9 @@ internal fun SettingsScreen(
     /** Show when I'm online: on, off, or null while it is being changed. */
     presenceVisible: Boolean? = true,
     setPresenceVisible: (Boolean) -> Unit = {},
+    /** Privacy › Live typing (off by default). */
+    liveTyping: Boolean = false,
+    setLiveTyping: (Boolean) -> Unit = {},
     /** Settings › App updates (docs/design.md, "App updates"). */
     updates: com.chencohen.ptt.UpdateState = com.chencohen.ptt.UpdateState.Latest(0),
     checkUpdates: () -> Unit = {},
@@ -98,6 +101,9 @@ internal fun SettingsScreen(
                 ),
                 onClick = { presenceVisible?.let { setPresenceVisible(!it) } },
             )
+            com.chencohen.ptt.ui.style.RowDivider()
+            // Live typing (2026-11-23, hen): the contact sees every letter, even what is deleted.
+            com.chencohen.ptt.ui.talk.SwitchRow(stringResource(R.string.settings_live_typing), stringResource(R.string.settings_live_typing_body), liveTyping, setLiveTyping)
         }
         // Show in Android Contacts (2026-11-22, hen): asks for Contacts first.
         val context = androidx.compose.ui.platform.LocalContext.current

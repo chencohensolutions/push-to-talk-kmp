@@ -188,6 +188,8 @@ internal data class Send(
     @ProtoNumber(4) val group: String = "",
     /** In a group Send: the devices it is for, by user (exactly the server's, or STALE_DEVICES). */
     @ProtoNumber(5) val groupDevices: List<UserDevices> = emptyList(),
+    /** Only to the devices connected now: never queued, never pushed (live typing's drafts). Older servers ignore it. */
+    @ProtoNumber(6) val ephemeral: Boolean = false,
 )
 
 /** ptt.proto's PushKind: which FCM push a recipient without an open /ws gets. */

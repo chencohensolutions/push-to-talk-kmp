@@ -690,6 +690,10 @@
     <string name="burst_save_failed">Couldn\'t save it</string>
     <string name="talk_follow_face">Follow face in video talk</string>
     <string name="talk_follow_face_body">Keeps the sender\'s face in view in push-to-video</string>
+    <string name="settings_live_typing">Live typing</string>
+    <string name="settings_live_typing_body">Your contact sees what you write as you write it, letter by letter, even what you delete, before you send. Off: they see only that you\'re typing.</string>
+    <string name="chat_draft">Writing…</string>
+    <string name="chat_draft_by">%1$s is writing…</string>
     <string name="talk_quick_reply">Quick reply window</string>
     <string name="talk_quick_reply_body">When a message comes in while you use the phone, a window at the bottom shows the chat with a field to reply and a button to hold and talk.</string>
     <string name="talk_reply_bubble">Reply bubble over other apps</string>

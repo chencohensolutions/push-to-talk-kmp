@@ -65,6 +65,8 @@ internal class FakeServer {
     val presenceHidden = mutableSetOf<String>()
     /** The push kind of each accepted Send, in order. */
     val pushKinds = mutableListOf<Int>()
+    /** Whether each Send was ephemeral (live only). */
+    val ephemeral = mutableListOf<Boolean>()
 
     /** Link codes (createLinkCode) and whose they are. */
     val linkCodes = mutableMapOf<String, String>()
@@ -357,6 +359,7 @@ internal class FakeServer {
             id
         }
         pushKinds += send.pushKind
+        ephemeral += send.ephemeral
         return SendResult(send.clientId, SendStatus.ACCEPTED, envelopeIds = ids)
     }
 
@@ -385,6 +388,7 @@ internal class FakeServer {
             id
         }
         pushKinds += send.pushKind
+        ephemeral += send.ephemeral
         return SendResult(send.clientId, SendStatus.ACCEPTED, envelopeIds = ids)
     }
 

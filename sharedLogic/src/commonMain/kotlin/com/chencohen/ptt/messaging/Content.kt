@@ -194,7 +194,14 @@ internal data class CallContent(
 }
 
 @Serializable
-internal data class TypingContent(@ProtoNumber(1) val typing: Boolean = false)
+internal data class TypingContent(
+    @ProtoNumber(1) val typing: Boolean = false,
+    /**
+     * Live typing (2026-11-23, hen; the sender's setting, off by default): what is in the sender's line right now, as
+     * written, deletions included; "" when it was emptied. Older apps skip it and see only "typing".
+     */
+    @ProtoNumber(2) val draft: String? = null,
+)
 
 /**
  * A group as its owner's devices say it is (docs/design.md, "Groups"): [version] goes up with every change, and a

@@ -64,6 +64,11 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
 
 ## Quick reply window
 
+- **2026-11-23 (hen):** only the message that opens the window sounds; the ones that come while it shows are
+  quiet (until it closes). A new message glides into view and slides in. "typing…" shows as three rising dots at the
+  bottom while the contact types, or their draft as they write it when they use Live typing. Typing in the window's
+  line tells the contact "typing" (and, with Live typing on, the draft).
+
 `QuickReplyWindow` (Android), `QuickReply` (shared; 2026-11-23, hen; Settings › Talk › Quick reply window, on by
 default; needs "Display over other apps"). A message (or a voice message) that comes in while the phone is in use, its
 screen on, shows its conversation in a window at the bottom of the screen, full width, 40% of its height, over other

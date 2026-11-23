@@ -331,6 +331,8 @@ fun HomeApp(
                         softMessage = messagingState.talkSettings.softMessage,
                         setSoftMessage = { soft -> onTalkSettings(messagingState.talkSettings.copy(softMessage = soft)) },
                         presenceVisible = presenceVisible,
+                        liveTyping = messagingState.talkSettings.liveTyping,
+                        setLiveTyping = { on -> onTalkSettings(messagingState.talkSettings.copy(liveTyping = on)) },
                         setPresenceVisible = { visible ->
                             presenceVisible = null
                             messaging.setPresenceVisible(visible) { shown ->
@@ -596,6 +598,7 @@ fun HomeApp(
                         contact = messagingState.contacts.firstOrNull { it.user == user },
                         messages = messagingState.conversations[user].orEmpty(),
                         header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
+                        drafts = liveDrafts(messagingState.drafts, user, now, Group.idOf(user) != null),
                         group = Group.idOf(user)?.let { id ->
                             val me = state.device?.user.orEmpty()
                             val typers = groupTyping.filterValues { it > now }.keys.map { it.substringAfter('/') }
@@ -625,6 +628,7 @@ fun HomeApp(
                             },
                             retry = messaging::retry,
                             typing = { messaging.typing(user, it) },
+                            draft = { text -> if (text.isEmpty()) messaging.draftDone(user) else messaging.draft(user, text) },
                             openTalk = { push("talk/$user") },
                             playClip = messaging::playClip,
                             saveClip = { id -> saveBurst(context, id, nameOf(user), messages) },
@@ -1212,3 +1216,12 @@ private fun saveBurst(context: android.content.Context, id: String, title: Strin
         made.delete()
     }
 }
+
+/** Live drafts in [chat] still fresh at [now]: (who, text); who is null in a one-to-one chat. */
+internal fun liveDrafts(drafts: Map<String, com.chencohen.ptt.messaging.Draft>, chat: String, now: Long, group: Boolean): List<Pair<String?, String>> =
+    if (group) {
+        drafts.filter { (k, d) -> k.startsWith("$chat/") && now - d.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }
+            .map { (k, d) -> k.substringAfter('/') to d.text }
+    } else {
+        listOfNotNull(drafts[chat]?.takeIf { now - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }?.let { null as String? to it.text })
+    }

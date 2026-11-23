@@ -16,6 +16,12 @@ and each time the connection's state changes.
 
 ## Privacy
 
+- **Live typing** (2026-11-23, hen; off by default): what you write in a chat (or the quick-reply window) goes to the
+  contact as you write it, letter by letter, deletions too, before Send; they see it as an outlined "Writing…" bubble
+  that the message replaces. End to end encrypted like a message, live only: an ephemeral Send (never stored on the
+  server, never pushed, missed by a phone that isn't connected), about ten updates a second at most, and again every
+  ten seconds while it stays. Off: the contact sees only "typing…".
+
 - **Show when I’m online:** "On: your contacts see when you’re online and when you were last seen. Tap to turn off."
   or "Off: nobody sees when you’re online, and you don’t see theirs. …"; a tap switches it (`setPresenceVisible`);
   "Couldn’t change it: the server didn’t answer." when it can't.

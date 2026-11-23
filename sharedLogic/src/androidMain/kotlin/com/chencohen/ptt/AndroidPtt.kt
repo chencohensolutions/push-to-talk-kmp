@@ -274,6 +274,18 @@ fun setHere(context: Context, chat: String?) = hub(context).setHere(chat, com.ch
 /** The camera kept warm for push-to-video to [chat] from outside the screens (the reply bubble); null: let go. */
 fun warmTalkCamera(context: Context, chat: String?) = hub(context).warmCamera(chat)
 
+/** Typing to [chat] started or stopped, from outside the screens (the quick-reply window). */
+fun sendTyping(context: Context, chat: String, typing: Boolean) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.sendTyping(chat, typing) }
+}
+
+/** Live typing from the quick-reply window: its line to [chat] is [text] now ("" when sent or emptied). */
+fun sendDraft(context: Context, chat: String, text: String) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { if (text.isEmpty()) messaging.draftDone(chat) else messaging.draft(chat, text) }
+}
+
 /** Changes Talk's settings from outside the screens (the reply bubble's Video). */
 fun setTalkSettings(context: Context, talk: com.chencohen.ptt.messaging.TalkSettings) = hub(context).setTalkSettings(talk)
 

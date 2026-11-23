@@ -38,6 +38,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -101,7 +105,13 @@ object QuickReplyWindow {
      * A message came into [chat] (Notifications): shows, updates or queues the window; true when the window has it (no
      * notification then).
      */
-    fun takes(context: Context, chat: String): Boolean {
+    fun takes(context: Context, chat: String): Boolean = arrive(context, chat) != QuickReply.Step.None
+
+    /**
+     * As [takes], and what it did: [QuickReply.Step.Show] opens the window (the message's sound plays, 2026-11-23,
+     * hen: "only on the first"); [QuickReply.Step.Update] (open already) and [QuickReply.Step.Wait] are silent.
+     */
+    fun arrive(context: Context, chat: String): QuickReply.Step {
         val app = context.applicationContext
         val setting = messagingState(app).value.talkSettings.quickReply
         val overlay = android.provider.Settings.canDrawOverlays(app)
@@ -112,7 +122,7 @@ object QuickReplyWindow {
         Log.i(TAG, "quick reply for $chat: $step (setting $setting, over other apps $overlay, screen on $screenOn, open in front $inFront, busy $busy)")
         if (step is QuickReply.Step.Show) main.post { show(app, step.chat) }
         if (step is QuickReply.Step.Update) main.post { answered = false }
-        return step != QuickReply.Step.None
+        return step
     }
 
     /** Debug builds: as [takes] for a message from [chat]. */
@@ -188,6 +198,7 @@ object QuickReplyWindow {
         if (talking.value) endTalk(app, send = false)
         val v = view ?: return@post
         val leaving = chat.value
+        leaving?.let { if (typed.value.isNotBlank()) typingFrom(app, it, "") }
         if (leaving != null && !answered) notifications?.unanswered(leaving)
         Log.i(TAG, "closed $leaving (answered $answered)")
         view = null
@@ -249,8 +260,11 @@ object QuickReplyWindow {
         close(context)
     }
 
+    private var context0: Context? = null
+
     @Composable
     private fun Window(context: Context) {
+        context0 = context
         val current = chat.value ?: return
         val state by messagingState(context).collectAsStateWithLifecycle()
         var title by remember(current) { mutableStateOf(current) }
@@ -320,19 +334,32 @@ object QuickReplyWindow {
                 }
             }
             val list = rememberLazyListState()
-            LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.scrollToItem(0) }
+            // A new message: the list glides to it (2026-11-23, hen: "show a scroll transition").
+            LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.animateScrollToItem(0) }
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth().padding(vertical = 6.dp),
                 state = list,
                 reverseLayout = true,
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(messages.asReversed(), key = { it.id }) { m -> Line(context, m) }
+                // Typing, or what they write live (their Live typing), at the bottom.
+                val now = System.currentTimeMillis()
+                val draft = state.drafts[current]?.takeIf { now - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }
+                val typingNow = (state.typing[current] ?: 0L) > now
+                if (draft != null) {
+                    item(key = "draft") { com.chencohen.ptt.ui.contacts.DraftBubble(null, draft.text, Modifier.animateItem()) }
+                } else if (typingNow) {
+                    item(key = "typing") { TypingDots(Modifier.animateItem()) }
+                }
+                items(messages.asReversed(), key = { it.id }) { m -> Box(Modifier.animateItem()) { Line(context, m) } }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = typed.value,
-                    onValueChange = { typed.value = it.take(4_000) },
+                    onValueChange = {
+                        typed.value = it.take(4_000)
+                        typingFrom(context, current, typed.value)
+                    },
                     placeholder = { Text(stringResource(R.string.quick_reply_hint)) },
                     modifier = Modifier.weight(1f),
                     maxLines = 3,
@@ -343,6 +370,7 @@ object QuickReplyWindow {
                         Modifier.size(52.dp).background(LibraryColors.Accent, CircleShape).clickable(role = Role.Button, onClickLabel = stringResource(R.string.quick_reply_send)) {
                             val body = typed.value.trim()
                             typed.value = ""
+                            typingFrom(context, current, "")
                             answered = true
                             notifications?.answered(current)
                             CoroutineScope(Dispatchers.Default).launch { runCatching { replyFromNotification(context, current, body) } }
@@ -403,6 +431,40 @@ object QuickReplyWindow {
             ) {
                 if (!m.outgoing && m.author != null) Text(m.author!!, color = LibraryColors.Accent, style = LibraryType.Small)
                 Text(text, color = if (m.outgoing) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)
+            }
+        }
+    }
+
+    private var typingSaidAt = 0L
+
+    /** The line to [chat] is [text] now: "typing" at most every 4 s (stopped when emptied), and the live draft. */
+    private fun typingFrom(context: Context, chat: String, text: String) {
+        val now = System.currentTimeMillis()
+        if (text.isBlank()) {
+            if (typingSaidAt != 0L) sendTyping(context, chat, false)
+            typingSaidAt = 0L
+        } else if (now - typingSaidAt > 4_000) {
+            sendTyping(context, chat, true)
+            typingSaidAt = now
+        }
+        sendDraft(context, chat, text)
+    }
+
+    /** "typing…": three dots that rise in turn, on their side. */
+    @Composable
+    private fun TypingDots(modifier: Modifier = Modifier) {
+        val t = androidx.compose.animation.core.rememberInfiniteTransition(label = "typing")
+        val phase by t.animateFloat(0f, 3f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.LinearEasing)), label = "dots")
+        Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+            Row(
+                Modifier.background(LibraryColors.Raised, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp)
+                    .semantics { contentDescription = context0?.getString(R.string.chat_typing).orEmpty() },
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                for (i in 0..2) {
+                    val up = (1f - kotlin.math.abs(phase - i - 0.5f).coerceAtMost(1f))
+                    Box(Modifier.size(7.dp).graphicsLayer { translationY = -4.dp.toPx() * up }.background(LibraryColors.Muted.copy(alpha = 0.5f + 0.5f * up), CircleShape))
+                }
             }
         }
     }

@@ -51,6 +51,11 @@ data class MessagingState(
     val presence: Map<String, UserPresence> = emptyMap(),
     /** Contacts typing to this user now: until when, milliseconds since 1970. */
     val typing: Map<String, Long> = emptyMap(),
+    /**
+     * Live typing from others (their setting): what each is writing now, by the same keys as [typing]; gone when the
+     * message comes, the line is emptied, or after [Messaging.DRAFT_FOR] without a word.
+     */
+    val drafts: Map<String, Draft> = emptyMap(),
     /** Contacts whose Talk screen or reply bubble for this chat is open now (HereContent): until when. */
     val here: Map<String, Long> = emptyMap(),
     /** How many texts from each contact aren't read yet. */
@@ -120,6 +125,11 @@ data class TalkSettings(
     /** Settings › Talk › Don't turn the screen on when battery is low (on by default; 2026-11-23, hen): under 20%, not charging. */
     val lowBatteryNoWake: Boolean = true,
     /**
+     * Settings › Privacy › Live typing (2026-11-23, hen; off by default): what is written in a chat goes to the
+     * contact as it is written, deletions too, before Send.
+     */
+    val liveTyping: Boolean = false,
+    /**
      * Voice or Video per contact or group (2026-11-23, hen: "remember that setting for that contact"): what the Talk
      * screen's and the reply bubble's Voice | Video chose last for it; [pushVideo] for one never chosen.
      */
@@ -130,6 +140,14 @@ data class TalkSettings(
 
     /** [chat]'s Voice | Video set to [video]. */
     fun withVideoFor(chat: String, video: Boolean): TalkSettings = copy(videoFor = videoFor + (chat to video))
+}
+
+/** A draft written live by someone ([MessagingState.drafts]): its text and when it last changed. */
+data class Draft(val text: String, val at: Long) {
+    companion object {
+        /** A live draft fades this long after its last word. */
+        const val FRESH_MS = 20_000L
+    }
 }
 
 /**
@@ -217,7 +235,7 @@ internal class Messaging(
         onText = { group, message ->
             val read = message.outgoing || (openChat == group.chat && foreground)
             store.putMessage(message.copy(read = read))
-            _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty())) }
+            _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty()), drafts = it.drafts - typingKey(group.chat, message.author.orEmpty())) }
             if (!read) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
         },
         onClip = { group, author, clip, at ->
@@ -231,9 +249,9 @@ internal class Messaging(
         },
         onTalkKey = { identity, key -> live.takeKey(identity, key) },
         onCall = { group, author, call, at -> calls.receive(group.chat, author, call, at, ownCopy = author == device()?.user) },
-        onTyping = { group, author, typing ->
+        onTyping = { group, author, typing, draft ->
             val key = typingKey(group.chat, author)
-            _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key) }
+            _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing, draft)) }
         },
     )
 
@@ -425,6 +443,7 @@ internal class Messaging(
         quickReply = settings.quickReply,
         lowBatteryNoWake = settings.lowBatteryNoWake,
         videoFor = settings.videoFor,
+        liveTyping = settings.liveTyping,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -454,6 +473,7 @@ internal class Messaging(
         settings.quickReply = talk.quickReply
         settings.lowBatteryNoWake = talk.lowBatteryNoWake
         if (talk.videoFor != before.videoFor) settings.videoFor = talk.videoFor
+        settings.liveTyping = talk.liveTyping
         _state.update { it.copy(talkSettings = talk) }
     }
 
@@ -1291,6 +1311,70 @@ internal class Messaging(
         }
     }
 
+    private fun withDraft(drafts: Map<String, Draft>, key: String, typing: Boolean, draft: String?): Map<String, Draft> = when {
+        !typing || draft?.isEmpty() == true -> drafts - key
+        draft != null -> drafts + (key to Draft(draft.take(4_000), now()))
+        else -> drafts
+    }
+
+    private val draftWanted = HashMap<String, String>()
+    private val draftSending = HashSet<String>()
+
+    /**
+     * Live typing (when on): [text] is what is in the line to [user] now. Sent end to end, live only (an ephemeral
+     * Send: never stored, never pushed), at most every [DRAFT_EVERY] with the latest text; again every few seconds
+     * while it stays, so it doesn't fade on the other phone.
+     */
+    fun draft(user: String, text: String) {
+        if (!talkSettings().liveTyping) return
+        draftWanted[user] = text
+        if (!draftSending.add(user)) return
+        scope.launch {
+            var sent: String? = null
+            var sentAt = 0L
+            try {
+                while (true) {
+                    val want = draftWanted[user] ?: break
+                    if (want != sent || (want.isNotEmpty() && now() - sentAt > DRAFT_FOR / 2)) {
+                        sendDraft(user, want)
+                        sent = want
+                        sentAt = now()
+                    }
+                    if (want.isEmpty()) break
+                    kotlinx.coroutines.delay(DRAFT_EVERY)
+                    if (draftWanted[user] == sent && now() - sentAt < DRAFT_FOR / 2) {
+                        // Nothing new: wait for a change (or the keep-alive).
+                        kotlinx.coroutines.delay(DRAFT_EVERY)
+                    }
+                }
+            } finally {
+                draftSending.remove(user)
+                draftWanted.remove(user)
+            }
+        }
+    }
+
+    /** The line to [user] was sent or left: no more drafts. */
+    fun draftDone(user: String) {
+        draftWanted.remove(user)
+    }
+
+    private suspend fun sendDraft(user: String, text: String) {
+        if (socket.state.value !is SocketState.Live) return
+        val content = Content(typing = TypingContent(typing = text.isNotEmpty(), draft = text))
+        try {
+            Group.idOf(user)?.let { id ->
+                groups.send(id, content, PushKind.NONE, ephemeral = true)
+                return
+            }
+            val contact = store.contact(user)?.takeIf { it.paired && !it.blocked } ?: return
+            sender.send(contact.user, content, pushKind = PushKind.NONE, ephemeral = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
     private fun newId(): String = random.nextBytes(12).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 
     /** One envelope from /ws; true once it is handled (stored, or dropped for good), so it is acknowledged. */
@@ -1356,7 +1440,7 @@ internal class Messaging(
             if (store.message(id) != null) return
             val read = openChat == contact.user && foreground
             store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read))
-            _state.update { it.copy(typing = it.typing - contact.user) }
+            _state.update { it.copy(typing = it.typing - contact.user, drafts = it.drafts - contact.user) }
             scope.launch {
                 sendReceipt(contact.user, read = false, listOf(id))
                 if (read) sendReceipt(contact.user, read = true, listOf(id))
@@ -1384,7 +1468,10 @@ internal class Messaging(
         }
         content.typing?.let { typing ->
             _state.update {
-                it.copy(typing = if (typing.typing) it.typing + (contact.user to now() + TYPING_FOR) else it.typing - contact.user)
+                it.copy(
+                    typing = if (typing.typing) it.typing + (contact.user to now() + TYPING_FOR) else it.typing - contact.user,
+                    drafts = withDraft(it.drafts, contact.user, typing.typing, typing.draft),
+                )
             }
         }
         content.profile?.let { profile ->
@@ -1455,6 +1542,12 @@ internal class Messaging(
 
         /** How long "typing…" shows after the last typing message, unless a text or a stop comes first. */
         const val TYPING_FOR = 8_000L
+
+        /** Live typing: at most one draft this often (about ten a second), the newest text. */
+        const val DRAFT_EVERY = 100L
+
+        /** A live draft fades this long after its last word. */
+        const val DRAFT_FOR = Draft.FRESH_MS
 
         /** The key in [MessagingState.typing] of [author] typing in a group's chat. */
         /** "Here" lasts this long after the last word of it; it is said again every HERE_EVERY. */

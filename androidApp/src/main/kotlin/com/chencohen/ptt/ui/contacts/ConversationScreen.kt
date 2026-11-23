@@ -1,6 +1,8 @@
 package com.chencohen.ptt.ui.contacts
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +70,8 @@ class ConversationActions(
     val retry: (String) -> Unit = {},
     /** Typing started (true) or stopped; already throttled here. */
     val typing: (Boolean) -> Unit = {},
+    /** Live typing (the setting): the line now, as written ("" when sent or emptied). */
+    val draft: (String) -> Unit = {},
     /** The Talk button in the header: Talk mode. */
     val openTalk: () -> Unit = {},
     val playClip: (String) -> Unit = {},
@@ -111,6 +115,8 @@ internal fun ConversationScreen(
     talk: TalkUiState = TalkUiState(),
     /** What the Talk button's line says ("Dana is talking"); null hides it. */
     talkLine: String? = null,
+    /** Others writing live (their Live typing): who (null in a one-to-one chat) and what, as it is written. */
+    drafts: List<Pair<String?, String>> = emptyList(),
 ) {
     Column(Modifier.fillMaxSize().background(LibraryColors.Background).statusBarsPadding().navigationBarsPadding().imePadding()) {
         val canTalk = if (group != null) group.note == null else contact?.paired == true && !contact.blocked
@@ -158,6 +164,8 @@ internal fun ConversationScreen(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                // Drafts written live, newest place at the bottom, until the message comes.
+                items(drafts, key = { "draft/" + (it.first ?: "") }) { (who, text) -> DraftBubble(who, text) }
                 items(messages.asReversed(), key = { it.id }) { message -> Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null) }
             }
             if (unseen) {
@@ -321,6 +329,8 @@ private fun Note(text: String) {
 private fun Composer(user: String, actions: ConversationActions, talk: TalkUiState) {
     var text by rememberSaveable(user) { mutableStateOf("") }
     var lastTyping by remember { mutableLongStateOf(0L) }
+    // Leaving the chat ends a live draft (it fades on the other phone).
+    androidx.compose.runtime.DisposableEffect(user) { onDispose { actions.draft("") } }
     LaunchedEffect(text) {
         if (text.isNotEmpty()) {
             // Stopped after a pause in typing.
@@ -336,6 +346,7 @@ private fun Composer(user: String, actions: ConversationActions, talk: TalkUiSta
             value = text,
             onValueChange = { value ->
                 text = value.take(4000)
+                actions.draft(text)
                 val now = System.currentTimeMillis()
                 if (text.isBlank()) {
                     if (lastTyping != 0L) actions.typing(false)
@@ -358,11 +369,34 @@ private fun Composer(user: String, actions: ConversationActions, talk: TalkUiSta
                 stringResource(R.string.chat_send),
                 {
                     actions.send(text.trim())
+                    actions.draft("")
                     text = ""
                     lastTyping = 0L
                 },
                 Modifier.padding(start = 8.dp),
             )
+        }
+    }
+}
+
+/**
+ * A draft someone is writing live (their Live typing; 2026-11-23, hen): their side, dimmed and outlined, the text as
+ * it is now with a caret, "writing" above it; it turns into the message when they send it.
+ */
+@Composable
+internal fun DraftBubble(who: String?, text: String, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+        Column(
+            Modifier.widthIn(max = 300.dp)
+                .border(1.dp, LibraryColors.Accent.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                .background(LibraryColors.Raised.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+        ) {
+            Text(
+                if (who != null) stringResource(R.string.chat_draft_by, who) else stringResource(R.string.chat_draft),
+                color = LibraryColors.Accent, style = LibraryType.Small,
+            )
+            Text("$text▏", color = LibraryColors.OnBackground.copy(alpha = 0.75f), style = LibraryType.Body)
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.chencohen.ptt
 
+import com.chencohen.ptt.messaging.QuickReply
+
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -46,10 +48,12 @@ class Notifications(private val context: Context) : MessageNotifier {
             android.util.Log.i(TAG, "message for $chat: held while a woken burst plays")
             return
         }
-        if (QuickReplyWindow.takes(context, chat)) {
+        val step = QuickReplyWindow.arrive(context, chat)
+        if (step != QuickReply.Step.None) {
             synchronized(held) { held[chat] = style to count }
             android.util.Log.i(TAG, "message for $chat: in the quick-reply window, no notification")
-            MessageAlert.play(context)
+            // Only the message that opens the window sounds; the ones after come in quietly.
+            if (step is QuickReply.Step.Show) MessageAlert.play(context)
         } else {
             android.util.Log.i(TAG, "message for $chat: notification")
             show(chat, style, count)
