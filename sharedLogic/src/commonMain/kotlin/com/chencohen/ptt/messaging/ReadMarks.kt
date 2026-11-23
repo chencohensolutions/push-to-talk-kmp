@@ -17,6 +17,24 @@ object ReadMarks {
         return messages.lastOrNull()?.id == read.id
     }
 
+    /** Every message's mark at once (one pass for the whole chat). */
+    fun ticks(messages: List<TextMessage>): Map<String, Tick> {
+        val read = lastRead(messages)
+        return messages.associate { m ->
+            m.id to when {
+                !m.outgoing -> Tick.NONE
+                read != null && m.at <= read.at -> Tick.NONE
+                else -> when (m.status) {
+                    MessageStatus.PENDING -> Tick.SENDING
+                    MessageStatus.SENT -> Tick.SENT
+                    MessageStatus.DELIVERED -> Tick.DELIVERED
+                    MessageStatus.READ -> Tick.NONE
+                    MessageStatus.FAILED -> Tick.FAILED
+                }
+            }
+        }
+    }
+
     /** The mark under [message]: nothing once read (it or a later one), else how far it got. */
     fun tick(messages: List<TextMessage>, message: TextMessage): Tick {
         if (!message.outgoing) return Tick.NONE

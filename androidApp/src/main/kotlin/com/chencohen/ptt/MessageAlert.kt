@@ -25,10 +25,10 @@ object MessageAlert {
             audio.ringerMode == AudioManager.RINGER_MODE_VIBRATE -> vibrate(app)
             else -> runCatching {
                 val soft = messagingState(app).value.talkSettings.softMessage
-                val uri = if (soft) Uri.parse("android.resource://${app.packageName}/${R.raw.message_soft}") else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val uri = if (soft) Uri.parse("android.resource://${app.packageName}/${R.raw.message_calm}") else RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
                 RingtoneManager.getRingtone(app, uri)?.apply {
                     audioAttributes = AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 }?.play()

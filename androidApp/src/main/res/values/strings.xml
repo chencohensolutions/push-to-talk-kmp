@@ -706,6 +706,7 @@
     <string name="chat_read_by">Read by %1$s</string>
     <string name="talk_waiting_for">Waiting for %1$s…</string>
     <string name="chat_suggest_call">Switch to a video call?</string>
+    <string name="chat_my_draft">Your message</string>
     <string name="talk_quick_reply">Quick reply window</string>
     <string name="talk_quick_reply_body">When a message comes in while you use the phone, a window at the bottom shows the chat with a field to reply and a button to hold and talk.</string>
     <string name="talk_reply_bubble">Reply bubble over other apps</string>

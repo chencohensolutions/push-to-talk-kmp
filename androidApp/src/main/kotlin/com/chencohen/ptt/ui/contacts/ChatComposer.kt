@@ -5,6 +5,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.draw.shadow
 import com.chencohen.ptt.messaging.ReadMarks.Tick
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.animation.core.animateFloat
@@ -106,6 +108,8 @@ internal fun ComposeBubble(
                             style = Stroke(width = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))),
                         )
                     }
+                    .shadow(6.dp, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                    .background(LibraryColors.Background.copy(alpha = 0.92f), androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
                     .clickable(role = Role.Button, onClickLabel = hint, onClick = startEditing)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             )
@@ -113,11 +117,13 @@ internal fun ComposeBubble(
             Column(
                 Modifier.widthIn(min = 120.dp, max = 300.dp)
                     .animateContentSize(tween(200))
+                    .shadow(8.dp, LibraryShapes.Card)
+                    .background(LibraryColors.Background, LibraryShapes.Card)
                     .border(1.5.dp, coral, LibraryShapes.Card)
                     .background(coral.copy(alpha = 0.08f), LibraryShapes.Card)
                     .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
             ) {
-                Text(stringResource(R.string.chat_draft), color = coral, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
+                Text(stringResource(R.string.chat_my_draft), color = coral, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     BasicTextField(
                         value = text,
@@ -158,7 +164,7 @@ internal fun SentMorphBubble(message: TextMessage) {
                 .background(fill, LibraryShapes.Card)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
-            if (s < 1f) Text(stringResource(R.string.chat_draft), color = coral.copy(alpha = 1f - s), style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
+            if (s < 1f) Text(stringResource(R.string.chat_my_draft), color = coral.copy(alpha = 1f - s), style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
             Text(message.body, color = ink, style = LibraryType.Body)
             Text(
                 DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at)),
@@ -227,7 +233,7 @@ internal fun ChatButtons(
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
     val big by animateDpAsState(if (compact) 48.dp else 84.dp, label = "talk button")
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (compact) 6.dp else 12.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -235,6 +241,7 @@ internal fun ChatButtons(
         val talkLabel = stringResource(R.string.talk_button)
         Box(
             Modifier.size(big)
+                .shadow(10.dp, CircleShape)
                 .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
                 .semantics { contentDescription = talkLabel }
                 .holdToTalk(onPress = { microphone(actions.startVoice) }, onRelease = { actions.finishVoice(true) }),
@@ -253,6 +260,7 @@ internal fun ChatButtons(
 private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, size: Dp, filled: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier.size(size)
+            .shadow(6.dp, CircleShape)
             .background(if (filled) com.chencohen.ptt.ui.style.Pink else LibraryColors.Raised, CircleShape)
             .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,

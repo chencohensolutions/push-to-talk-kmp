@@ -162,8 +162,12 @@ class Notifications(private val context: Context) : MessageNotifier {
 
         /** The phone's notification sound (the first channel; a channel's sound can't change afterwards). */
         const val CHANNEL = "messages"
-        /** Talk's soft chime, res/raw/message_soft.ogg (tools/ringtone/make_message.py): the default (2026-11-22, hen). */
-        const val SOFT_CHANNEL = "messages_soft"
+        /**
+         * Talk's calm chime, res/raw/message_calm.ogg (tools/ringtone/make_message_calm.py): the default. A new channel id
+         * (2026-11-23, hen: "too alarming"), since a channel's sound can't change; the old one's settings carry over.
+         */
+        const val SOFT_CHANNEL = "messages_calm"
+        private const val OLD_SOFT_CHANNEL = "messages_soft"
         const val ACTION_OPEN = "com.chencohen.ptt.OPEN_CHAT"
         const val ACTION_REPLY = "com.chencohen.ptt.REPLY"
         const val ACTION_READ = "com.chencohen.ptt.MARK_READ"
@@ -180,18 +184,28 @@ class Notifications(private val context: Context) : MessageNotifier {
             val channel = NotificationChannel(CHANNEL, context.getString(R.string.notify_channel_phone), NotificationManager.IMPORTANCE_HIGH)
                 .apply { description = context.getString(R.string.notify_channel_description) }
             manager.createNotificationChannel(channel)
-            val sound = android.net.Uri.parse("android.resource://${context.packageName}/${R.raw.message_soft}")
-            val soft = NotificationChannel(SOFT_CHANNEL, context.getString(R.string.notify_channel), NotificationManager.IMPORTANCE_HIGH).apply {
+            val sound = android.net.Uri.parse("android.resource://${context.packageName}/${R.raw.message_calm}")
+            val old = manager.getNotificationChannel(OLD_SOFT_CHANNEL)
+            val soft = NotificationChannel(SOFT_CHANNEL, context.getString(R.string.notify_channel), old?.importance ?: NotificationManager.IMPORTANCE_HIGH).apply {
                 description = context.getString(R.string.notify_channel_description)
+                // The notification volume (USAGE_NOTIFICATION), so Do Not Disturb, silent and vibrate apply as for any app.
                 setSound(
                     sound,
                     android.media.AudioAttributes.Builder()
-                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
                         .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build(),
                 )
+                // What the user set on the old channel carries over.
+                if (old != null) {
+                    enableVibration(old.shouldVibrate())
+                    old.vibrationPattern?.let { vibrationPattern = it }
+                    setShowBadge(old.canShowBadge())
+                    lockscreenVisibility = old.lockscreenVisibility
+                }
             }
             manager.createNotificationChannel(soft)
+            if (old != null) manager.deleteNotificationChannel(OLD_SOFT_CHANNEL)
         }
     }
 }

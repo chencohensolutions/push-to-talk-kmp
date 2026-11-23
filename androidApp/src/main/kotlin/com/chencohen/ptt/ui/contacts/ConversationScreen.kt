@@ -1,6 +1,7 @@
 package com.chencohen.ptt.ui.contacts
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.Color
 import com.chencohen.ptt.messaging.ReadMarks
@@ -183,17 +184,15 @@ internal fun ConversationScreen(
         val morph = rememberDraftMorph(user, drafts, newest)
         // How far they read: their circle after the last message of mine they read (one-to-one; not when they hide
         // their presence).
-        val reader = if (group == null && ReadMarks.showsReader(header.presence)) ReadMarks.lastRead(messages) else null
+        val reader = remember(messages, header.presence, group != null) { if (group == null && ReadMarks.showsReader(header.presence)) ReadMarks.lastRead(messages) else null }
         // In a group: each member's circle under the last message of mine they read (2026-11-23, hen).
-        val groupReaders = if (group != null) ReadMarks.groupReaders(messages, presences.filterValues { !ReadMarks.showsReader(it) }.keys) else emptyMap()
+        val groupReaders = remember(messages, presences, group != null) { if (group != null) ReadMarks.groupReaders(messages, presences.filterValues { !ReadMarks.showsReader(it) }.keys) else emptyMap() }
         // Writing in the chat (2026-11-23, hen): the draft bubble at the end of the list.
         val canWrite = if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
-        var text by rememberSaveable(user) { mutableStateOf("") }
-        var editing by rememberSaveable(user) { mutableStateOf(false) }
+        val draft = remember(user) { ChatDraft() }
         val focus = remember { androidx.compose.ui.focus.FocusRequester() }
         val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
         val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-        var lastTyping by remember { mutableLongStateOf(0L) }
         var sentBody by remember(user) { mutableStateOf<String?>(null) }
         var sentMorph by remember(user) { mutableStateOf<String?>(null) }
         if (newest != null && newest.outgoing && sentBody != null && newest.body == sentBody && sentMorph != newest.id) {
@@ -206,40 +205,8 @@ internal fun ConversationScreen(
                 sentMorph = null
             }
         }
-        LaunchedEffect(editing) { if (editing) runCatching { focus.requestFocus() } }
         // Leaving the chat ends a live draft (it fades on the other phone).
         androidx.compose.runtime.DisposableEffect(user) { onDispose { actions.draft("") } }
-        LaunchedEffect(text) {
-            if (text.isNotEmpty()) {
-                // Stopped after a pause in typing.
-                delay(6_000)
-                if (lastTyping != 0L) {
-                    actions.typing(false)
-                    lastTyping = 0L
-                }
-            }
-        }
-        fun change(value: String) {
-            text = value
-            actions.draft(text)
-            val now = System.currentTimeMillis()
-            if (text.isBlank()) {
-                if (lastTyping != 0L) actions.typing(false)
-                lastTyping = 0L
-            } else if (now - lastTyping > 4_000) {
-                actions.typing(true)
-                lastTyping = now
-            }
-        }
-        fun send() {
-            val body = text.trim()
-            if (body.isEmpty()) return
-            sentBody = body
-            actions.send(body)
-            actions.draft("")
-            text = ""
-            lastTyping = 0L
-        }
         // Push-to-video from the chat (2026-11-23, hen): the camera kept open while the chat shows, so a press sends
         // it at once; what this phone sends shows live in its bubble at the end of the chat, and stays as the video.
         com.chencohen.ptt.ui.talk.WarmCamera(user, pushVideo && canWrite, warmCamera)
@@ -250,6 +217,15 @@ internal fun ConversationScreen(
         val draftText = drafts.joinToString("\n") { it.second }
         LaunchedEffect(draftText) { if (draftText.isNotEmpty() && list.firstVisibleItemIndex == 0) list.scrollToItem(0) }
         LaunchedEffect(atBottom) { if (atBottom) unseen = false }
+        val pairs = remember(messages, talk.own?.clip, talk.playing?.clip) { ReadMarks.overlappingVideos(messages, System.currentTimeMillis()) }
+        val pairedEarlier = remember(pairs) { pairs.values.toSet() }
+        val byId = remember(messages) { messages.associateBy { it.id } }
+        val ticks = remember(messages, group != null) { if (group != null) messages.associate { it.id to ReadMarks.groupTick(messages, it) } else ReadMarks.ticks(messages) }
+        // The draft and the buttons float over the chat (2026-11-23, hen: no band behind them): the list scrolls
+        // under them to the bottom of the screen, with room at its end so its last message clears them.
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        var floatingHeight by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+        val floatingRoom by androidx.compose.animation.core.animateDpAsState(with(density) { floatingHeight.toDp() }, androidx.compose.animation.core.tween(200), label = "floating room")
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 Modifier.fillMaxSize().pointerInput(Unit) {
@@ -257,12 +233,12 @@ internal fun ConversationScreen(
                     detectTapGestures(onTap = {
                         focusManager.clearFocus()
                         keyboard?.hide()
-                        if (text.isEmpty()) editing = false
+                        if (draft.text.isEmpty()) draft.editing = false
                     })
                 },
                 state = list,
                 reverseLayout = true,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 8.dp + floatingRoom),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 // Every change eases in and out (2026-11-23, hen: "everything with a transition, no sharp changes").
@@ -318,14 +294,11 @@ internal fun ConversationScreen(
                 }
                 // The messages, and their circle right after the last one of mine they read (it glides down as they read).
                 // Two videos at once, one each side: side by side, the later one lower by when it started.
-                val pairs = ReadMarks.overlappingVideos(messages, System.currentTimeMillis())
-                val pairedEarlier = pairs.values.toSet()
-                val byId = messages.associateBy { it.id }
                 messages.asReversed().forEach { message ->
                     val earlier = pairs[message.id]?.let { byId[it] }
                     if (earlier != null) {
                         item(key = "pair@" + earlier.id) {
-                            Box(Modifier.animateItem(ease, move, ease)) { VideoPair(earlier, message) { m -> Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, tick = ReadMarks.tick(messages, m), compact = true) } }
+                            Box(Modifier.animateItem(ease, move, ease)) { VideoPair(earlier, message) { m -> Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, tick = ticks[m.id] ?: ReadMarks.Tick.NONE, compact = true) } }
                         }
                         return@forEach
                     }
@@ -349,7 +322,7 @@ internal fun ConversationScreen(
                                     (message.outgoing && talk.own?.clip == message.id && talk.own?.phase == TalkPhase.TALKING) ||
                                         (!message.outgoing && talk.playing?.clip == message.id && talk.playing?.video == true)
                                     )
-                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = if (group != null) ReadMarks.groupTick(messages, message) else ReadMarks.tick(messages, message), liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt)
+                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt)
                             }
                         }
                     }
@@ -366,37 +339,34 @@ internal fun ConversationScreen(
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
-        }
-        // This phone's draft (or a voice message recording) pinned under the chat, above the keyboard or the buttons
-        // (2026-11-23, hen: scrolling with the draft in the list moved weirdly): the chat scrolls behind it and is
-        // laid out above it, so nothing is hidden; it grows upwards as it does.
-        if (canWrite) {
-            Box(
-                Modifier.fillMaxWidth().animateContentSize(androidx.compose.animation.core.tween(200)).padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                androidx.compose.animation.AnimatedContent(
-                    recordingVoice,
-                    transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
-                    label = "draft or recording",
-                ) { recording ->
-                    if (recording) RecordingStrip { actions.finishVoice(false) } else ComposeBubble(text, editing, focus, { editing = true }, ::change, ::send)
+            // Floating at the bottom: this phone's draft (or a voice message's recording), then the buttons.
+            val keyboardUp = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) > 0
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { floatingHeight = it.height }) {
+                if (canWrite) {
+                    Box(Modifier.fillMaxWidth().animateContentSize(androidx.compose.animation.core.tween(200)).padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        androidx.compose.animation.AnimatedContent(
+                            recordingVoice,
+                            transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
+                            label = "draft or recording",
+                        ) { recording ->
+                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions) { body -> sentBody = body }
+                        }
+                    }
+                }
+                // With the keyboard up only the chat and the draft (hen: "don't show the bottom row at all"); Back puts
+                // the keyboard away (Android's own), and the row is back.
+                when {
+                    group != null && group.note != null -> Note(group.note)
+                    group == null && contact == null -> Note(stringResource(R.string.contact_gone))
+                    group == null && contact!!.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
+                    group == null && !contact!!.paired -> Note(stringResource(R.string.contact_waiting))
+                    else -> androidx.compose.animation.AnimatedVisibility(
+                        !keyboardUp,
+                        enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(200)) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+                        exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
+                    ) { ChatButtons(false, talkingHere, recordingVoice, actions) }
                 }
             }
-        }
-        // With the keyboard up only the chat and the draft (hen: "don't show the bottom row at all"); Back puts the
-        // keyboard away (Android's own), and the row is back.
-        val density = androidx.compose.ui.platform.LocalDensity.current
-        val keyboardUp = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density) > 0
-        when {
-            group != null && group.note != null -> Note(group.note)
-            group == null && contact == null -> Note(stringResource(R.string.contact_gone))
-            group == null && contact!!.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
-            group == null && !contact!!.paired -> Note(stringResource(R.string.contact_waiting))
-            else -> androidx.compose.animation.AnimatedVisibility(
-                !keyboardUp,
-                enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(200)) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
-                exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
-            ) { ChatButtons(false, talkingHere, recordingVoice, actions) }
         }
     }
     fullVideo?.let { id ->
@@ -643,4 +613,53 @@ private fun ConversationPreview() {
             ConversationActions(),
         )
     }
+}
+
+
+/** This phone's draft: what is written, whether it is open, and when typing was last told (no recomposition of the chat). */
+internal class ChatDraft {
+    var text by mutableStateOf("")
+    var editing by mutableStateOf(false)
+    var lastTyping = 0L
+}
+
+/** The pinned draft: the empty bubble or the one being written; typing and live typing told from here. */
+@Composable
+private fun PinnedDraft(draft: ChatDraft, focus: androidx.compose.ui.focus.FocusRequester, actions: ConversationActions, sent: (String) -> Unit) {
+    LaunchedEffect(draft.editing) { if (draft.editing) runCatching { focus.requestFocus() } }
+    LaunchedEffect(draft.text) {
+        if (draft.text.isNotEmpty()) {
+            // Stopped after a pause in typing.
+            delay(6_000)
+            if (draft.lastTyping != 0L) {
+                actions.typing(false)
+                draft.lastTyping = 0L
+            }
+        }
+    }
+    ComposeBubble(
+        draft.text, draft.editing, focus, { draft.editing = true },
+        change = { value ->
+            draft.text = value
+            actions.draft(value)
+            val now = System.currentTimeMillis()
+            if (value.isBlank()) {
+                if (draft.lastTyping != 0L) actions.typing(false)
+                draft.lastTyping = 0L
+            } else if (now - draft.lastTyping > 4_000) {
+                actions.typing(true)
+                draft.lastTyping = now
+            }
+        },
+        send = {
+            val body = draft.text.trim()
+            if (body.isNotEmpty()) {
+                sent(body)
+                actions.send(body)
+                actions.draft("")
+                draft.text = ""
+                draft.lastTyping = 0L
+            }
+        },
+    )
 }
