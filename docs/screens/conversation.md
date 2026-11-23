@@ -125,7 +125,7 @@ above it and scrolls behind nothing. On Send the message fills in at the end of 
 the thumb finds it in one place: Voice message, Voice call, Video call, then the big push-to-talk button near the right
 edge and the upright Voice | video switch at the edge; my camera's thumbnail on the button's top-left corner.
 
-**The writing bubble** (2026-11-24, hen: "a bit wider"): the empty "Write a message" one is 65% of the row; writing,
+**The writing bubble** (2026-11-24, hen: "a bit wider"): the empty "Write a message" one is 38.2% of the row (1 − 0.618, the golden ratio); writing,
 it starts at that width (nothing shrinks as the first letter goes in) and grows with the text, at once, up to 85%,
 then wraps (`draftWidth`); anchored on my side (the left in Hebrew, `MySide`). Sent bubbles keep their 78% at most, and
 Send's flight eases the width from one to the other. The edit box takes the same widths, never narrower than the

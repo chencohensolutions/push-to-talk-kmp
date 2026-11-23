@@ -916,7 +916,7 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
     val density = androidx.compose.ui.platform.LocalDensity.current
     val pad = 14.dp
     val from = with(density) { edit.width.toDp() }.coerceAtLeast(pad * 2 + 24.dp)
-    // The box: the writing bubble's widths (65% to 85% of the row, by the text), never narrower than the bubble was.
+    // The box: the writing bubble's widths (38.2% to 85% of the row, by the text), never narrower than the bubble was.
     val style = LibraryType.Body
     val target = maxOf(draftWidth(edit.value.text, style, chrome = pad * 2), from)
     val full by androidx.compose.animation.core.animateDpAsState(target, androidx.compose.animation.core.tween(150), label = "edit width")
