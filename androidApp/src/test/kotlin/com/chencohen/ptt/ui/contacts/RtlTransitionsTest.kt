@@ -32,6 +32,24 @@ class RtlTransitionsTest {
     }
 
     @Test
+    fun theEditBoxKeepsTheBubblesWidthWhileTheTextFits() {
+        val bubble = androidx.compose.ui.unit.Dp(180f)
+        val most = androidx.compose.ui.unit.Dp(300f)
+        // Fits: the same width on the first frame, so the words and their lines don't move (either direction: the
+        // box is anchored on my side, MySide, and its text keeps its width).
+        assertEquals(bubble, editBoxWidth(bubble, androidx.compose.ui.unit.Dp(150f), most))
+        assertEquals(bubble, editBoxWidth(bubble, bubble, most))
+        // Typed past it: wider, toward the middle, up to the most, then it wraps.
+        assertEquals(androidx.compose.ui.unit.Dp(240f), editBoxWidth(bubble, androidx.compose.ui.unit.Dp(240f), most))
+        assertEquals(most, editBoxWidth(bubble, androidx.compose.ui.unit.Dp(500f), most))
+        // In Hebrew my side is the left: anchored there, a wider box grows to the right (toward the middle).
+        val row = androidx.compose.ui.unit.IntSize(1000, 100)
+        val narrow = MySide.align(androidx.compose.ui.unit.IntSize(180, 100), row, androidx.compose.ui.unit.LayoutDirection.Rtl)
+        val wide = MySide.align(androidx.compose.ui.unit.IntSize(240, 100), row, androidx.compose.ui.unit.LayoutDirection.Rtl)
+        assertEquals(narrow.x, wide.x)
+    }
+
+    @Test
     fun theFlightLandsWhereTheSlotIsInEitherDirection() {
         // Window positions are left-based: a slot on the left (mine, in Hebrew) is placed on the left, not mirrored.
         val chat = Offset(0f, 200f)
