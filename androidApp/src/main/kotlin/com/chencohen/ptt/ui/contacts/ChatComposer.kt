@@ -399,3 +399,36 @@ internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = t
     }
 }
 
+/**
+ * In a group, the members who read up to here (2026-11-23, hen): their letter circles, at most 3 then "+N"; a tap
+ * lists who read and when.
+ */
+@Composable
+internal fun GroupReaders(readers: List<Pair<String, Long>>) {
+    var open by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val label = stringResource(R.string.chat_read_by, readers.joinToString(", ") { it.first })
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        Column(horizontalAlignment = Alignment.End) {
+            Row(
+                Modifier.clickable(role = Role.Button, onClickLabel = label) { open = !open }.semantics { contentDescription = label },
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                readers.take(3).forEach { (who, _) ->
+                    Box(Modifier.size(20.dp).background(LibraryColors.Mine, CircleShape), contentAlignment = Alignment.Center) {
+                        Text(who.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.Tiny)
+                    }
+                }
+                if (readers.size > 3) Text("+${readers.size - 3}", color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(start = 2.dp))
+            }
+            androidx.compose.animation.AnimatedVisibility(open) {
+                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(top = 4.dp)) {
+                    readers.forEach { (who, at) ->
+                        Text("$who · " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(at)), color = LibraryColors.Muted, style = LibraryType.Tiny)
+                    }
+                }
+            }
+        }
+    }
+}
+

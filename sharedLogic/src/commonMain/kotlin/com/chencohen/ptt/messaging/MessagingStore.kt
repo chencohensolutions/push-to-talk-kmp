@@ -93,6 +93,8 @@ data class TextMessage(
     val call: CallEntry? = null,
     /** When the other user read it (this phone's clock as their receipt came; 2026-11-23, hen: a tap on their circle). */
     val readAt: Long? = null,
+    /** In a group: who has read it (mine only), and when (this phone's clock as each receipt came). */
+    val readBy: Map<String, Long> = emptyMap(),
 )
 
 /** How a call went, for the chat and the Calls tab. */

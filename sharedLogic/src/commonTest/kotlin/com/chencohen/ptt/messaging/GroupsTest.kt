@@ -142,6 +142,10 @@ class GroupsTest {
         assertEquals(2, dana.state.unread[Group.chatOf(id)])
         dana.messaging.markRead(Group.chatOf(id))
         assertNull(dana.state.unread[Group.chatOf(id)])
+        advanceUntilIdle()
+        // Dana's read receipt reaches Hen through the group: her circle under Hen's message.
+        assertTrue("dana" in hen.chat(id).first { it.outgoing }.readBy, "a member's read receipt in the group")
+        assertFalse("hen" in hen.chat(id).first { it.outgoing }.readBy)
 
         // Rename: everyone takes the owner's newer change.
         hen.messaging.groups.rename(id, "Trip 2026", null)

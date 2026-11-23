@@ -606,6 +606,7 @@ fun HomeApp(
                         header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
                         drafts = liveDrafts(messagingState.drafts, user, now, Group.idOf(user) != null),
                         pushVideo = messagingState.talkSettings.pushVideoFor(user),
+                        presences = messagingState.presence,
                         warmCamera = messaging::warmCamera,
                         group = Group.idOf(user)?.let { id ->
                             val me = state.device?.user.orEmpty()

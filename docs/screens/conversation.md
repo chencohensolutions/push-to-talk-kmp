@@ -57,8 +57,10 @@ while sending, an empty ring once the server has it, a solid dot once it is on t
 change eases (the ring closes, then fills). Their small letter circle sits right after the last message of mine they
 read, gliding down as they read; a tap shows when they read it ("read 20:44"). When they read everything it sits at the
 very end, and when they start Live typing that circle grows into their "Writing…" bubble (and back if they clear it).
-No circle when they hide their presence (their marks stop at the dot). Groups: no circles yet (the app has no read
-receipts per member in groups).
+No circle when they hide their presence (their marks stop at the dot). In a group (2026-11-23, hen) each member's
+phone sends one read receipt to the group (end to end, through the group Send, no push), and each member's circle
+sits under the last message of mine they read: at most 3 in one place, then "+N"; a tap lists who read and when. A
+member who hides their presence shows no circle; a message of mine counts as read once anyone read it or a later one.
 
 **Transitions** (2026-11-23, hen: "everything with a transition, no sharp changes"): every item in the chat fades and
 slides in and out and glides when it moves (200 ms); the marks cross-fade; the button row folds away and back with the

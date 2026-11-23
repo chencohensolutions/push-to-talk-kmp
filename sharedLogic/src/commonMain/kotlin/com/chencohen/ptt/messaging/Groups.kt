@@ -53,6 +53,8 @@ internal class Groups(
     private val onTalkKey: (identity: String, key: TalkKeyContent) -> Unit = { _, _ -> },
     /** A call's signalling in the group, from [author]. */
     private val onCall: (group: Group, author: String, call: CallContent, at: Long) -> Unit = { _, _, _, _ -> },
+    /** A member read messages in the group (2026-11-23, hen: read circles in groups). */
+    private val onRead: (group: Group, author: String, ids: List<String>) -> Unit = { _, _, _ -> },
     private val attempts: Int = 3,
 ) {
     private fun self(): EnrolledDevice = me() ?: throw IllegalStateException("This phone isn't registered")
@@ -419,6 +421,7 @@ internal class Groups(
             onText(group, message)
         }
         content.typing?.let { if (author != self.user) onTyping(group, author, it.typing, it.draft) }
+        content.receipt?.takeIf { it.read && author != self.user }?.let { onRead(group, author, it.ids) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }
         content.talkKey?.let { onTalkKey("$author.${envelope.senderDevice}", it) }
         content.call?.let { onCall(group, author, it, envelope.serverTimestamp) }

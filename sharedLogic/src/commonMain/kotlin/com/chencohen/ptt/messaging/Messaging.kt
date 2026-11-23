@@ -259,6 +259,16 @@ internal class Messaging(
         },
         onTalkKey = { identity, key -> live.takeKey(identity, key) },
         onCall = { group, author, call, at -> calls.receive(group.chat, author, call, at, ownCopy = author == device()?.user) },
+        onRead = { group, author, ids ->
+            var changed = false
+            val at = now()
+            for (id in ids) {
+                val m = store.message(id)?.takeIf { it.outgoing && it.user == group.chat && author !in it.readBy } ?: continue
+                store.putMessage(m.copy(readBy = m.readBy + (author to at)))
+                changed = true
+            }
+            if (changed) publish()
+        },
         onTyping = { group, author, typing, draft ->
             val key = typingKey(group.chat, author)
             _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing, draft)) }
@@ -1241,8 +1251,16 @@ internal class Messaging(
         unread.forEach { store.putMessage(it.copy(read = true)) }
         publish()
         notifier?.read(user)
-        // Groups have no receipts yet.
-        if (Group.idOf(user) != null) return
+        // In a group: one receipt to the members, end to end, no push (their circles; 2026-11-23, hen).
+        Group.idOf(user)?.let { id ->
+            try {
+                groups.send(id, Content(receipt = ReceiptContent(true, unread.map { it.id })), PushKind.NONE)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+            return
+        }
         sendReceipt(user, read = true, unread.map { it.id })
     }
 

@@ -42,4 +42,19 @@ class ReadMarksTest {
         assertTrue(ReadMarks.showsReader(UserPresence("sharon", online = false, lastSeen = 5)))
         assertTrue(ReadMarks.showsReader(null))
     }
+
+    @Test
+    fun groupCirclesSitAtEachMembersLastRead() {
+        val g = "group:x"
+        val a = TextMessage("a", g, outgoing = true, body = "a", at = 1, readBy = mapOf("dana" to 10L, "noa" to 11L))
+        val b = TextMessage("b", g, outgoing = true, body = "b", at = 2, readBy = mapOf("dana" to 12L))
+        val c = TextMessage("c", g, outgoing = true, body = "c", at = 3, status = MessageStatus.DELIVERED)
+        val readers = ReadMarks.groupReaders(listOf(a, b, c))
+        assertEquals(listOf("noa" to 11L), readers["a"])
+        assertEquals(listOf("dana" to 12L), readers["b"])
+        assertNull(readers["c"])
+        assertEquals(ReadMarks.Tick.NONE, ReadMarks.groupTick(listOf(a, b, c), b))
+        assertEquals(ReadMarks.Tick.DELIVERED, ReadMarks.groupTick(listOf(a, b, c), c))
+        assertNull(ReadMarks.groupReaders(listOf(a, b, c), hidden = setOf("noa"))["a"], "a hidden member shows no circle")
+    }
 }

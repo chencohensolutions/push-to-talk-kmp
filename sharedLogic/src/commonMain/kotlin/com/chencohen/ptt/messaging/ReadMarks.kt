@@ -31,6 +31,27 @@ object ReadMarks {
         }
     }
 
+    /**
+     * In a group: where each member's circle sits, by message id: the last message of mine each has read, with who
+     * and when, newest reader first ([hidden]: members whose circle isn't shown).
+     */
+    fun groupReaders(messages: List<TextMessage>, hidden: Set<String> = emptySet()): Map<String, List<Pair<String, Long>>> {
+        val last = HashMap<String, Pair<TextMessage, Long>>()
+        for (m in messages) {
+            if (!m.outgoing) continue
+            for ((who, at) in m.readBy) if (who !in hidden) last[who] = m to at
+        }
+        return last.entries.groupBy({ it.value.first.id }, { it.key to it.value.second }).mapValues { (_, v) -> v.sortedByDescending { it.second } }
+    }
+
+    /** A group message of mine counts as read once anyone read it or a later one. */
+    fun groupTick(messages: List<TextMessage>, message: TextMessage): Tick {
+        if (!message.outgoing) return Tick.NONE
+        val lastReadAt = messages.lastOrNull { it.outgoing && it.readBy.isNotEmpty() }?.at
+        if (lastReadAt != null && message.at <= lastReadAt) return Tick.NONE
+        return tick(messages.filter { it.status != MessageStatus.READ }, message)
+    }
+
     /** Their circle shows only when their presence isn't hidden (hidden: no circle, ticks stop at delivered). */
     fun showsReader(presence: UserPresence?): Boolean = presence == null || presence.online || presence.lastSeen != null
 }

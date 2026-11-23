@@ -132,6 +132,8 @@ internal fun ConversationScreen(
     /** This chat's Voice | Video is Video: a press sends the camera too, so it is kept open here. */
     pushVideo: Boolean = false,
     warmCamera: (String?) -> Unit = {},
+    /** Everyone's presence: a member who hides theirs shows no read circle. */
+    presences: Map<String, UserPresence> = emptyMap(),
 ) {
     // A video burst tapped in the chat plays full screen over it (2026-11-23, hen); Back or a tap closes it.
     var fullVideo by remember(user) { mutableStateOf<String?>(null) }
@@ -182,6 +184,8 @@ internal fun ConversationScreen(
         // How far they read: their circle after the last message of mine they read (one-to-one; not when they hide
         // their presence).
         val reader = if (group == null && ReadMarks.showsReader(header.presence)) ReadMarks.lastRead(messages) else null
+        // In a group: each member's circle under the last message of mine they read (2026-11-23, hen).
+        val groupReaders = if (group != null) ReadMarks.groupReaders(messages, presences.filterValues { !ReadMarks.showsReader(it) }.keys) else emptyMap()
         // Writing in the chat (2026-11-23, hen): the draft bubble at the end of the list.
         val canWrite = if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
         var text by rememberSaveable(user) { mutableStateOf("") }
@@ -311,6 +315,9 @@ internal fun ConversationScreen(
                     if (reader != null && message.id == reader.id && !circleAtEnd) {
                         item(key = "reader") { Box(Modifier.animateItem(ease, move, ease)) { ReaderCircle(user, reader.readAt, end = true) } }
                     }
+                    groupReaders[message.id]?.let { readers ->
+                        item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease)) { GroupReaders(readers) } }
+                    }
                     item(key = if (message.id == morph?.id) morph.key else message.id) {
                         Box(Modifier.animateItem(ease, move, ease)) {
                             if (message.id == morph?.id) {
@@ -324,7 +331,7 @@ internal fun ConversationScreen(
                                     (message.outgoing && talk.own?.clip == message.id && talk.own?.phase == TalkPhase.TALKING) ||
                                         (!message.outgoing && talk.playing?.clip == message.id && talk.playing?.video == true)
                                     )
-                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ReadMarks.tick(messages, message), liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt)
+                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = if (group != null) ReadMarks.groupTick(messages, message) else ReadMarks.tick(messages, message), liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt)
                             }
                         }
                     }
