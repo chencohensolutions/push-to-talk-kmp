@@ -141,6 +141,12 @@ class MessagingController internal constructor(
     /** The line to [user] was sent: no more drafts for it. */
     fun draftDone(user: String) = onWork { messaging.draftDone(user) }
 
+    /** Edit my sent text [id] (2026-11-24, hen). */
+    fun editText(id: String, body: String) = onWork { messaging.editText(id, body) }
+
+    /** Editing [id] live (null: cancelled). */
+    fun editLive(id: String, text: String?) = onWork { messaging.editLive(id, text) }
+
     /** Typing to [user] started or stopped (the screen throttles it). */
     fun typing(user: String, typing: Boolean) {
         scope.launch { withContext(work) { messaging.sendTyping(user, typing) } }

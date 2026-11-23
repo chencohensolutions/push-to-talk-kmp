@@ -134,3 +134,15 @@ place, and the row's folding, come straight from the keyboard's animated insets,
 **Typing reads** (2026-11-24, hen): typing or a live draft to them marks what they wrote read first, the receipt before
 the draft (Messaging.sendTyping, draft). In the quick-reply window, opening the draft, talking or sending reads them;
 only showing the window doesn't.
+
+
+**Editing a sent text** (2026-11-24, hen): a double tap on one of my texts turns it in place (200 ms) into the writing
+bubble's look, "Editing your message", the caret where the finger was (the text's own layout, right to left too), the
+keyboard up, ✓ and ✕ inside. ✓ saves; ✕, Back or a tap outside turn it back unchanged. The edit goes end to end like
+a text (`EditContent` in Content field 19, kept and pushed silently, also to my other phones; in a group through the
+group's Send); every phone replaces the text and shows "edited" by the time. Only the author's edit of their own text
+counts; an id a phone doesn't have is ignored; older apps skip the field. While I edit, live only like live typing
+(ephemeral): with Live typing on for the chat they see that message's text change letter by letter in place, else
+only that it is being edited; either way their bubble gets a soft outline and "Editing…", and its size eases. A cancel
+puts it back; it also goes 20 s after the last word. No server change: live-only sends exist. Messaging.editText,
+editLive; MessagingTest covers the edit, the author check, an unknown id, and the live view on cancel and timeout.

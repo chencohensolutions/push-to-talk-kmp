@@ -616,6 +616,7 @@ fun HomeApp(
                         drafts = liveDrafts(messagingState.drafts, user, now, Group.idOf(user) != null),
                         pushVideo = messagingState.talkSettings.pushVideoFor(user),
                         presences = messagingState.presence,
+                        liveEdits = messagingState.liveEdits,
                         warmCamera = messaging::warmCamera,
                         group = Group.idOf(user)?.let { id ->
                             val me = state.device?.user.orEmpty()
@@ -659,6 +660,8 @@ fun HomeApp(
                             shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                             playKept = ::playKept,
                             setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.withVideoFor(user, on)) },
+                            edit = { id, body -> messaging.editText(id, body) },
+                            editLive = { id, text -> messaging.editLive(id, text) },
                         ),
                         talk = messagingState.talk,
                         talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),

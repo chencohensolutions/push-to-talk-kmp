@@ -97,6 +97,8 @@ data class TextMessage(
     val readAt: Long? = null,
     /** In a group: who has read it (mine only), and when (this phone's clock as each receipt came). */
     val readBy: Map<String, Long> = emptyMap(),
+    /** Edited by its author (2026-11-24, hen): when, on the author's clock; the chat says "edited". */
+    val editedAt: Long? = null,
 )
 
 /** How a call went, for the chat and the Calls tab. */

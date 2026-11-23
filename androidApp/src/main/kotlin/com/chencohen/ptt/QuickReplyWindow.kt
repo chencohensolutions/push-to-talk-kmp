@@ -385,6 +385,7 @@ object QuickReplyWindow {
                 drafts = liveDrafts(state.drafts, current, now, Group.idOf(current) != null),
                 pushVideo = pushVideo,
                 presences = state.presence,
+                liveEdits = state.liveEdits,
                 warmCamera = { which -> preview(context, which) },
                 group = Group.idOf(current)?.let {
                     GroupChat(
@@ -431,6 +432,8 @@ object QuickReplyWindow {
                     setPushVideo = { on -> setTalkSettings(context, state.talkSettings.withVideoFor(current, on)) },
                     // Writing back reads them (2026-11-24, hen); only showing the window doesn't.
                     answering = { readNow(context, current) },
+                    edit = { id, body -> editText(context, id, body) },
+                    editLive = { id, text -> editLive(context, id, text) },
                 ),
                 seeThrough = seeThrough.floatValue,
                 embeddedHeader = {

@@ -43,6 +43,8 @@ internal data class Content(
     @ProtoNumber(17) val here: HereContent? = null,
     /** The sender's own profile for a paired contact (their email, which they chose to share). */
     @ProtoNumber(18) val profile: ProfileContent? = null,
+    /** A sent text edited (2026-11-24, hen), or being edited live. Older apps skip the field. */
+    @ProtoNumber(19) val edit: EditContent? = null,
 )
 
 /** What a user shares with their paired contacts about themselves: their email ("" none; Settings › Contacts). */
@@ -54,6 +56,27 @@ internal data class ProfileContent(
 )
 
 /** The sender's Talk screen or reply bubble for this chat is open ([open]); said again every 20 s while it is. */
+/**
+ * An edit of the author's own text [id] (2026-11-24, hen). [stage] FINAL: its text is [body] now, edited at [editedAt]
+ * (sent like any text, kept and pushed silently). LIVE: being edited, [body] as it stands (empty and [hidden] when the
+ * author's Live typing is off: only that it is being edited); live only, never kept. CANCEL: the live edit ended
+ * unchanged.
+ */
+@Serializable
+internal data class EditContent(
+    @ProtoNumber(1) val id: String = "",
+    @ProtoNumber(2) val body: String = "",
+    @ProtoNumber(3) val editedAt: Long = 0,
+    @ProtoNumber(4) val stage: Int = FINAL,
+    @ProtoNumber(5) val hidden: Boolean = false,
+) {
+    companion object {
+        const val FINAL = 0
+        const val LIVE = 1
+        const val CANCEL = 2
+    }
+}
+
 @Serializable
 internal data class HereContent(@ProtoNumber(1) val open: Boolean = false)
 

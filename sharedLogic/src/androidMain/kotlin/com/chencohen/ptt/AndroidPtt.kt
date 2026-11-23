@@ -286,6 +286,18 @@ fun sendDraft(context: Context, chat: String, text: String) {
     kotlinx.coroutines.CoroutineScope(messagingWork).launch { if (text.isEmpty()) messaging.draftDone(chat) else messaging.draft(chat, text) }
 }
 
+/** Edit my sent text from the quick-reply window (2026-11-24, hen). */
+fun editText(context: Context, id: String, body: String) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editText(id, body) }
+}
+
+/** Editing live from the quick-reply window (null: cancelled). */
+fun editLive(context: Context, id: String, text: String?) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editLive(id, text) }
+}
+
 /** Changes Talk's settings from outside the screens (the reply bubble's Video). */
 fun setTalkSettings(context: Context, talk: com.chencohen.ptt.messaging.TalkSettings) = hub(context).setTalkSettings(talk)
 

@@ -707,6 +707,11 @@
     <string name="talk_waiting_for">Waiting for %1$s…</string>
     <string name="chat_suggest_call">Switch to a video call?</string>
     <string name="chat_my_draft">Your message</string>
+    <string name="chat_edited">edited</string>
+    <string name="chat_editing">Editing…</string>
+    <string name="chat_edit_save">Save the edit</string>
+    <string name="chat_edit_cancel">Cancel the edit</string>
+    <string name="chat_edit_label">Editing your message</string>
     <string name="talk_busy_m">%1$s is talking. Try when they let go.</string>
     <string name="talk_busy_f">%1$s is talking. Try when they let go.</string>
     <string name="talk_notify_m">%1$s is talking</string>

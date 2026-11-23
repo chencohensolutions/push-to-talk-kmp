@@ -20,6 +20,7 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -112,6 +113,10 @@ class ConversationActions(
     val shareCall: (String) -> Unit = {},
     /** A call the server kept: play it. */
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
+    /** My sent text [id] edited to the new text (2026-11-24, hen). */
+    val edit: (id: String, body: String) -> Unit = { _, _ -> },
+    /** Editing [id] live: the text as it stands (null: cancelled). */
+    val editLive: (id: String, text: String?) -> Unit = { _, _ -> },
     /** Writing started (the draft opened): what they wrote counts as read (the quick-reply window). */
     val answering: () -> Unit = {},
     /** Push-to-talk or push-to-video for this chat (remembered per contact); null: no switch. */
@@ -156,6 +161,8 @@ internal fun ConversationScreen(
     embeddedHeader: (@Composable () -> Unit)? = null,
     /** The window's arrival (OverlayArrival): how solid all but a playing video is (0.5, then 1). */
     seeThrough: Float = 1f,
+    /** Their texts being edited live (MessagingState.liveEdits). */
+    liveEdits: Map<String, com.chencohen.ptt.messaging.LiveEdit> = emptyMap(),
 ) {
     // A video burst tapped in the chat plays full screen over it (2026-11-23, hen); Back or a tap closes it.
     var fullVideo by remember(user) { mutableStateOf<String?>(null) }
@@ -166,6 +173,8 @@ internal fun ConversationScreen(
     }
     // Send (2026-11-24, hen): the pinned draft flies into its place at the end of the chat.
     val flight = remember(user) { SendFlight() }
+    // Editing one of my sent texts (2026-11-24, hen): a double tap on it.
+    var editing by remember(user) { mutableStateOf<Editing?>(null) }
     Box(
         Modifier.fillMaxSize().onGloballyPositioned { flight.origin = it.positionInWindow() }.pointerInput(Unit) {
             // Every touch counts (the camera's idle time).
@@ -294,6 +303,8 @@ internal fun ConversationScreen(
                         focusManager.clearFocus()
                         keyboard?.hide()
                         if (draft.text.isEmpty()) draft.editing = false
+                        // A tap outside the edit cancels it (it turns back unchanged).
+                        editing?.let { it.leaving = true }
                     })
                 },
                 state = list,
@@ -363,7 +374,20 @@ internal fun ConversationScreen(
                     }
                     item(key = message.id) {
                         Box(Modifier.animateItem(ease, move, ease)) {
-                            if (message.id == sentMorph) {
+                            val edit = editing
+                            if (edit != null && edit.id == message.id) {
+                                EditBubble(
+                                    edit,
+                                    change = { v ->
+                                        edit.value = v
+                                        actions.editLive(message.id, v.text)
+                                    },
+                                    done = { save ->
+                                        if (save) actions.edit(message.id, edit.value.text) else actions.editLive(message.id, null)
+                                    },
+                                    gone = { editing = null },
+                                )
+                            } else if (message.id == sentMorph) {
                                 Bubble(
                                     message, actions, talk.playing, tick = ticks[message.id] ?: ReadMarks.Tick.NONE,
                                     bubbleModifier = Modifier.onGloballyPositioned { flight.to = it.boundsInWindow() }.graphicsLayer { alpha = 0f },
@@ -376,7 +400,12 @@ internal fun ConversationScreen(
                                         (!message.outgoing && talk.playing?.clip == message.id && talk.playing?.video == true)
                                     )
                                 // A playing video stays solid while the window arrives (never drawn see-through).
-                                Bubble(message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt, bubbleModifier = if (liveVideo) Modifier else Modifier.graphicsLayer { alpha = seeThrough })
+                                Bubble(
+                                    message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
+                                    bubbleModifier = if (liveVideo) Modifier else Modifier.graphicsLayer { alpha = seeThrough },
+                                    liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
+                                    startEdit = if (message.outgoing && message.clip == null && message.call == null && canWrite && editing == null) { offset -> editing = Editing(message.id, message.body, offset) } else null,
+                                )
                             }
                         }
                     }
@@ -436,6 +465,9 @@ internal fun ConversationScreen(
         }
     }
     SendFlightOverlay(flight)
+    if (editing != null && androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current != null) {
+        androidx.activity.compose.BackHandler { editing?.let { it.leaving = true } }
+    }
     fullVideo?.let { id ->
         val playingIt = talk.playing?.clip == id
         LaunchedEffect(playingIt) { if (!playingIt) { delay(400); if (talk.playing?.clip != id) fullVideo = null } }
@@ -468,7 +500,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     back = a.back, openContact = a.openContact, send = a.send, retry = a.retry, typing = a.typing, draft = a.draft, openTalk = a.openTalk,
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
-    setPushVideo = a.setPushVideo, answering = a.answering,
+    setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive,
 )
 
 
@@ -534,13 +566,20 @@ private fun lastSeen(at: Long): String {
 }
 
 @Composable
-private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, tick: ReadMarks.Tick = ReadMarks.Tick.NONE, liveVideo: Boolean = false, liveSince: Long? = null, compact: Boolean = false, bubbleModifier: Modifier = Modifier) {
+private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, tick: ReadMarks.Tick = ReadMarks.Tick.NONE, liveVideo: Boolean = false, liveSince: Long? = null, compact: Boolean = false, bubbleModifier: Modifier = Modifier,
+    /** Their text being edited live: its text as it stands (null: hidden), shown in place with a soft mark. */
+    liveEdit: com.chencohen.ptt.messaging.LiveEdit? = null,
+    /** Mine: a double tap edits it, the caret at the tapped character. */
+    startEdit: ((Int) -> Unit)? = null,
+) {
     val retry = actions.retry
     val mine = message.outgoing
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
             bubbleModifier
                 .widthIn(max = bubbleMaxWidth())
+                .animateContentSize(androidx.compose.animation.core.tween(MORPH_MS))
+                .then(if (liveEdit != null) Modifier.border(1.dp, LibraryColors.Accent.copy(alpha = 0.6f), LibraryShapes.Card) else Modifier)
                 .background(if (mine) LibraryColors.Mine else LibraryColors.Raised, LibraryShapes.Card)
                 .then(if (message.status == MessageStatus.FAILED) Modifier.clickable(role = Role.Button) { retry(message.id) } else Modifier)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -562,11 +601,24 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             } else if (message.clip != null) {
                 ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine, save = actions.saveClip)
             } else {
-                Text(message.body, color = if (mine) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Body)
+                if (liveEdit != null) Text(stringResource(R.string.chat_editing), color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
+                var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+                Text(
+                    liveEdit?.text ?: message.body,
+                    color = if (mine) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Body,
+                    onTextLayout = { layout = it },
+                    modifier = if (startEdit != null) Modifier.pointerInput(message.id) {
+                        // The caret where the finger was (the text's own layout; right to left too).
+                        detectTapGestures(onDoubleTap = { at -> startEdit(layout?.getOffsetForPosition(at) ?: message.body.length) })
+                    } else Modifier,
+                )
             }
             val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
             // The time, and for mine how far it got: no "read" mark (their circle says it).
             Row(Modifier.align(Alignment.End).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (message.editedAt != null) {
+                    Text(stringResource(R.string.chat_edited), color = if (mine) LibraryColors.OnMineMuted else LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(end = 4.dp))
+                }
                 Text(
                     time,
                     color = when {
@@ -817,6 +869,76 @@ internal class ChatDraft {
 }
 
 internal const val FLIGHT_MS = 300
+
+/** One of my texts being edited: [value] as it stands, the caret first at [caret]; [leaving] asks it to turn back. */
+internal class Editing(val id: String, val original: String, caret: Int) {
+    var value by mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(original, androidx.compose.ui.text.TextRange(caret.coerceIn(0, original.length))))
+    var leaving by mutableStateOf(false)
+}
+
+/**
+ * My sent text, edited in place (2026-11-24, hen): the teal bubble turns into the writing bubble's look (coral outline,
+ * "Editing your message", ✓ and ✕), the text where it was, the keyboard up; ✓ saves, ✕, Back or a tap outside turn
+ * it back unchanged. 200 ms each way, eased.
+ */
+@Composable
+private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit) {
+    val open = remember(edit.id) { androidx.compose.animation.core.Animatable(0f) }
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var saving by remember(edit.id) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(edit.id) {
+        // They see it is being edited from the first moment.
+        change(edit.value)
+        open.animateTo(1f, androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        runCatching { focus.requestFocus() }
+    }
+    LaunchedEffect(edit.leaving) { if (edit.leaving && saving == null) saving = false }
+    LaunchedEffect(saving) {
+        val save = saving ?: return@LaunchedEffect
+        done(save)
+        open.animateTo(0f, androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        gone()
+    }
+    val p = open.value
+    val coral = com.chencohen.ptt.ui.style.Pink
+    Box(Modifier.fillMaxWidth(), contentAlignment = MySide) {
+        Column(
+            Modifier.widthIn(max = bubbleMaxWidth())
+                .animateContentSize(androidx.compose.animation.core.tween(200))
+                .border(1.5.dp, coral.copy(alpha = p), LibraryShapes.Card)
+                .background(androidx.compose.ui.graphics.lerp(LibraryColors.Mine, LibraryColors.Background, p), LibraryShapes.Card)
+                .background(coral.copy(alpha = 0.08f * p), LibraryShapes.Card)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+        ) {
+            if (p > 0f) Text(stringResource(R.string.chat_edit_label), color = coral.copy(alpha = p), style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
+            androidx.compose.foundation.text.BasicTextField(
+                value = edit.value,
+                onValueChange = { v -> change(v.copy(text = v.text.take(4_000))) },
+                textStyle = LibraryType.Body.copy(color = androidx.compose.ui.graphics.lerp(LibraryColors.OnMine, LibraryColors.OnBackground, p)),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(coral),
+                maxLines = 6,
+                modifier = Modifier.focusRequester(focus),
+            )
+            if (p > 0f) {
+                Row(Modifier.align(Alignment.End).padding(top = 6.dp).graphicsLayer { alpha = p }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val cancel = stringResource(R.string.chat_edit_cancel)
+                    val save = stringResource(R.string.chat_edit_save)
+                    Box(
+                        Modifier.size(32.dp).background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
+                            .clickable(role = Role.Button, onClickLabel = cancel) { if (saving == null) saving = false },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(LibraryIcons.Close, cancel, tint = LibraryColors.OnBackground, modifier = Modifier.size(16.dp)) }
+                    val can = edit.value.text.isNotBlank()
+                    Box(
+                        Modifier.size(32.dp).background(if (can) coral else coral.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape)
+                            .clickable(enabled = can, role = Role.Button, onClickLabel = save) { if (saving == null) saving = true },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(16.dp)) }
+                }
+            }
+        }
+    }
+}
 
 /** Bubbles, mine and theirs and the one being written: up to 78% of the screen's width (2026-11-24, hen). */
 @Composable

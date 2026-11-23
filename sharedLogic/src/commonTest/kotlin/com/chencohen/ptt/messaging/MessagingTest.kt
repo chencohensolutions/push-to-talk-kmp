@@ -483,6 +483,62 @@ class MessagingTest {
     }
 
     @Test
+    fun anEditReplacesTheTextOnTheirPhoneAndOnlyTheAuthorCanEdit() = runTest {
+        // 2026-11-24 (hen): editing a sent text.
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val sent = hen.messaging.sendText("dana", "see you at 5")
+        val theirs = dana.messaging.sendText("hen", "ok")
+        advanceUntilIdle()
+        assertTrue(hen.messaging.editText(sent.id, "see you at 6"))
+        advanceUntilIdle()
+        assertEquals("see you at 6", hen.store.message(sent.id)!!.body)
+        assertNotNull(hen.store.message(sent.id)!!.editedAt)
+        assertEquals("see you at 6", dana.store.message(sent.id)!!.body, "their phone has the new text")
+        assertEquals(hen.store.message(sent.id)!!.editedAt, dana.store.message(sent.id)!!.editedAt, "and \"edited\"")
+        // Not mine: hen can't edit dana's text, and dana can't edit hen's.
+        assertFalse(hen.messaging.editText(theirs.id, "nope"))
+        dana.messaging.editText(sent.id, "hacked")
+        advanceUntilIdle()
+        assertEquals("see you at 6", hen.store.message(sent.id)!!.body)
+        assertEquals("see you at 6", dana.store.message(sent.id)!!.body)
+        // An id nobody has: nothing changes.
+        assertFalse(hen.messaging.editText("no-such-id", "x"))
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun aLiveEditShowsAndGoesOnCancelOrAfterAWhile() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val sent = hen.messaging.sendText("dana", "hello")
+        advanceUntilIdle()
+        // Live typing off: only that it is being edited.
+        hen.messaging.editLive(sent.id, "hello th")
+        advanceTimeBy(500)
+        assertTrue(sent.id in dana.state.liveEdits)
+        assertNull(dana.state.liveEdits[sent.id]!!.text, "no letters with Live typing off")
+        assertTrue(server.ephemeral.last(), "live only")
+        hen.messaging.editLive(sent.id, null)
+        advanceTimeBy(500)
+        assertFalse(sent.id in dana.state.liveEdits, "a cancel clears it")
+        assertEquals("hello", dana.store.message(sent.id)!!.body)
+        // Live typing on: the letters, then gone after a while without a word.
+        hen.messaging.setTalkSettings(hen.messaging.talkSettings().copy(liveTyping = true, liveTypingFor = mapOf("dana" to true)))
+        hen.messaging.editLive(sent.id, "hello there")
+        advanceTimeBy(500)
+        assertEquals("hello there", dana.state.liveEdits[sent.id]?.text)
+        hen.stop()
+        advanceTimeBy(Draft.FRESH_MS + 1_000)
+        assertFalse(sent.id in dana.state.liveEdits, "it fades")
+        dana.stop()
+    }
+
+    @Test
     fun writingBackReadsTheirMessagesFirst() = runTest {
         // 2026-11-24 (hen): typing or a live draft to them counts as read, the receipt before the draft.
         val server = FakeServer()

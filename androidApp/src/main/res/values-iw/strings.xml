@@ -710,6 +710,11 @@
     <string name="talk_waiting_for">בהמתנה ל%1$s…</string>
     <string name="chat_suggest_call">לעבור לשיחת וידאו?</string>
     <string name="chat_my_draft">ההודעה שלך</string>
+    <string name="chat_edited">נערכה</string>
+    <string name="chat_editing">בעריכה…</string>
+    <string name="chat_edit_save">שמירת העריכה</string>
+    <string name="chat_edit_cancel">ביטול העריכה</string>
+    <string name="chat_edit_label">עריכת ההודעה שלך</string>
     <string name="talk_busy_m">%1$s מדבר. אפשר לנסות כשישחרר.</string>
     <string name="talk_busy_f">%1$s מדברת. אפשר לנסות כשתשחרר.</string>
     <string name="talk_notify_m">%1$s מדבר</string>
