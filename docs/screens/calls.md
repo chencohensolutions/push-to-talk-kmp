@@ -59,9 +59,13 @@ says "Calls need the microphone. Allow it in the app's settings."
   few (`FaceHints`); a hint stands for 1.5 s.
 - **Follow face** (2026-11-23, hen; a pill at the top while someone's video shows, kept for next time; the one face
   option): on this phone's view of the received video only, framed by the sender's hints, or, from a sender that sends
-  none (an older app), by the same face finder here (10 looks a second on the big tile); instant (2026-11-23, hen):
-  turned on, at a call's start or when a tile appears it goes straight to the face, then follows it with a small
-  jitter dead zone and one frame's smoothing, and eases back to the plain picture only when the face is lost; the view
+  none (an older app), by the same face finder here (2 looks a second, shared across the tiles in the group grid); calm (2026-11-23,
+  hen: "more mellow, 2 key frames a second"): the sender sends a hint twice a second; turned on, at a call's start or
+  when a tile appears it goes straight to the face, then glides to each new hint over about half a second, ignoring
+  small head moves (5% of the view, 0.08 of zoom), and eases back to the plain picture when the face is lost. **Pinch
+  to zoom** (2026-11-23, hen) on the one big remote video: from the whole picture fitted (letterboxed, even in
+  Maximized) up to Follow face's most (Maximized: the fill zoom × 1.5; Normal: 1.8); Follow face keeps the face centred
+  at the zoom pinched; the zoom is kept per layout for next time; a single tap still only shows or hides the controls; the view
   pans and zooms to keep the face near the upper third, head
   and shoulders about 45% of the height, back to the plain picture 1.5 s after the face is lost. Maximized: the picture is drawn whole and clipped to the screen, so the crop slides to
   the face, with at most 1.5x more zoom; Normal: at most 1.8x inside the tile. Only this phone's view changes.

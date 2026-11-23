@@ -86,10 +86,13 @@ object CallGrid {
         targetX: Float = 0.5f,
         targetY: Float = 0.45f,
         faceShare: Float = 0.45f,
+        /** The zoom the user pinched (Follow face keeps the face centred at it); null: Follow face picks it. */
+        fixedZoom: Float? = null,
     ): Placement {
         val ox = (boxWidth - contentWidth) / 2
         val oy = (boxHeight - contentHeight) / 2
-        val zoom = if (faceHeight > 0f) (faceShare * boxHeight / (faceHeight * contentHeight)).coerceIn(1f, max(1f, maxZoom)) else 1f
+        val zoom = fixedZoom?.coerceAtLeast(1f)
+            ?: if (faceHeight > 0f) (faceShare * boxHeight / (faceHeight * contentHeight)).coerceIn(1f, max(1f, maxZoom)) else 1f
         val x = span(boxWidth * targetX - ox - faceX * contentWidth * zoom, min(boxWidth, ox + contentWidth) - ox - contentWidth * zoom, max(0f, ox) - ox)
         val y = span(boxHeight * targetY - oy - faceY * contentHeight * zoom, min(boxHeight, oy + contentHeight) - oy - contentHeight * zoom, max(0f, oy) - oy)
         return Placement(zoom, x, y)

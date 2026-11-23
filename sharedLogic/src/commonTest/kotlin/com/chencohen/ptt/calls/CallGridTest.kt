@@ -89,4 +89,13 @@ class CallGridTest {
         assertEquals(1600f, t3.width + m3.width, 0.5f)
         assertEquals(t3.height, m3.height, 0.01f)
     }
+
+    @Test
+    fun aPinchedZoomIsKeptAndTheFaceStillCentred() {
+        val p = CallGrid.place(540f, 960f, 540f, 720f, faceX = 0.4f, faceY = 0.5f, faceHeight = 0.1f, maxZoom = 3f, targetX = 0.5f, targetY = 0.5f, fixedZoom = 1.3f)
+        assertEquals(1.3f, p.scale)
+        // the face moved toward the middle (from 54 px left of it)
+        assertTrue(kotlin.math.abs(p.x) > 0f)
+        assertEquals(1f, CallGrid.place(540f, 960f, 540f, 720f, 0.5f, 0.5f, 0.1f, 3f, fixedZoom = 0.5f).scale)
+    }
 }
