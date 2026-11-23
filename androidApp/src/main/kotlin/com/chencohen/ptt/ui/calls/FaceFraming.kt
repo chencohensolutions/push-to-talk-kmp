@@ -33,7 +33,16 @@ internal class Pinch(val zoom: Float?, val modifier: Modifier)
  * [start]; kept under [key] for next time. Null [key] (or not [active]): no pinching.
  */
 @Composable
-internal fun rememberPinch(key: String?, active: Boolean, start: Float, most: Float): Pinch {
+internal fun rememberPinch(
+    key: String?,
+    active: Boolean,
+    start: Float,
+    most: Float,
+    /** One finger dragged up or down (2026-11-23, hen: the face's height), in pixels; not during a pinch. */
+    onDrag: ((Float) -> Unit)? = null,
+): Pinch {
+    val slop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
+    val dragNow = androidx.compose.runtime.rememberUpdatedState(onDrag)
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
     var pinched by remember(key) { mutableFloatStateOf(key?.let { prefs.getFloat(it, 0f) } ?: 0f) }
@@ -42,9 +51,25 @@ internal fun rememberPinch(key: String?, active: Boolean, start: Float, most: Fl
     val modifier = Modifier.pointerInput(key, most) {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false)
+            var pinchedHere = false
+            var pulled = 0f
+            var dragging = false
             do {
                 val event = awaitPointerEvent()
-                if (event.changes.count { it.pressed } >= 2) {
+                val fingers = event.changes.count { it.pressed }
+                if (fingers == 1 && !pinchedHere && dragNow.value != null) {
+                    val c = event.changes.first { it.pressed }
+                    val dy = c.position.y - c.previousPosition.y
+                    val dx = c.position.x - c.previousPosition.x
+                    pulled += dy
+                    if (!dragging && kotlin.math.abs(pulled) > slop && kotlin.math.abs(dy) >= kotlin.math.abs(dx)) dragging = true
+                    if (dragging) {
+                        dragNow.value?.invoke(dy)
+                        c.consume()
+                    }
+                }
+                if (fingers >= 2) {
+                    pinchedHere = true
                     val change = event.calculateZoom()
                     if (change != 1f) {
                         val now = ((if (pinched > 0f) pinched else start) * change).coerceIn(1f, most)
@@ -77,6 +102,10 @@ internal fun faceFraming(
     faceAt: Float,
     box: RectF?,
     zoom: Float?,
+    /** This phone's own window over the box (shares of it): the face is kept out from under it. */
+    avoid: CallGrid.Area? = null,
+    /** Without a face, [faceAt] pans the picture up and down too (as if a face were in its upper third). */
+    pan: Boolean = false,
 ): Modifier {
     var target by remember(key) { mutableStateOf(Triple(1f, 0f, 0f)) }
     val bw = boxSize.width.toFloat()
@@ -85,14 +114,29 @@ internal fun faceFraming(
         if (target != Triple(1f, 0f, 0f)) target = Triple(1f, 0f, 0f)
     } else if (box == null || !on) {
         val (cw, ch) = content
-        val plainAt = zoom?.let { z -> CallGrid.place(bw, bh, cw, ch, 0.5f, 0.5f, 0f, z, targetY = 0.5f, fixedZoom = z) }
+        val plainAt = zoom?.let { z ->
+            if (pan) {
+                // A face about a third of the picture tall in its upper third, kept clear of the window as a real one.
+                val fh = 0.3f * ch * z / bh
+                val ty = CallGrid.faceClearOf(faceAt, fh * 0.75f * bh / bw, fh, avoid)
+                CallGrid.place(bw, bh, cw, ch, 0.5f, 0.35f, 0f, z, targetY = ty, fixedZoom = z)
+            } else {
+                CallGrid.place(bw, bh, cw, ch, 0.5f, 0.5f, 0f, z, targetY = 0.5f, fixedZoom = z)
+            }
+        }
         val t = plainAt?.let { Triple(it.scale, it.x, it.y) } ?: Triple(1f, 0f, 0f)
         if (target != t) target = t
     } else {
         val (cw, ch) = content
-        val p = CallGrid.place(
+        val first = CallGrid.place(
             bw, bh, cw, ch, box.centerX(), box.centerY(), box.height(),
             maxZoom = if (fill) minOf(maxZoom, 1.5f) else maxZoom, targetY = faceAt, fixedZoom = zoom,
+        )
+        // Under this phone's window: just above or below it instead.
+        val ty = CallGrid.faceClearOf(faceAt, box.width() * cw * first.scale / bw, box.height() * ch * first.scale / bh, avoid, faceX = 0.5f)
+        val p = if (ty == faceAt) first else CallGrid.place(
+            bw, bh, cw, ch, box.centerX(), box.centerY(), box.height(),
+            maxZoom = if (fill) minOf(maxZoom, 1.5f) else maxZoom, targetY = ty, fixedZoom = zoom,
         )
         val (s0, x0, y0) = target
         if (abs(p.scale - s0) > 0.08f || abs(p.x - x0) > bw * 0.05f || abs(p.y - y0) > bh * 0.05f) {

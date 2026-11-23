@@ -98,6 +98,30 @@ object CallGrid {
         return Placement(zoom, x, y)
     }
 
+    /** A part of a box, as shares of its width and height. */
+    data class Area(val left: Float, val top: Float, val right: Float, val bottom: Float)
+
+    /**
+     * Where a face [faceWidth]×[faceHeight] (shares of the box), centred at [faceX] across, goes down the box (its
+     * centre, a share of the height): at [want] (the user's face height, 2026-11-23, hen), unless that puts it under
+     * [window] (this phone's own video); then the nearest place just above or below the window that is still in the box.
+     */
+    fun faceClearOf(want: Float, faceWidth: Float, faceHeight: Float, window: Area?, faceX: Float = 0.5f, margin: Float = 0.02f): Float {
+        val low = faceHeight / 2
+        val high = 1f - faceHeight / 2
+        val at = if (low <= high) want.coerceIn(low, high) else 0.5f
+        if (window == null) return at
+        if (faceX + faceWidth / 2 <= window.left || faceX - faceWidth / 2 >= window.right) return at
+        if (at + faceHeight / 2 <= window.top || at - faceHeight / 2 >= window.bottom) return at
+        val below = window.bottom + margin + faceHeight / 2
+        val above = window.top - margin - faceHeight / 2
+        return listOf(below, above).filter { it in low..high }.minByOrNull { abs(it - at) } ?: at
+    }
+
+    /** Of [slots] (top left corners), the one nearest [x], [y]. */
+    fun nearest(slots: List<Pair<Float, Float>>, x: Float, y: Float): Int =
+        slots.indices.minByOrNull { (slots[it].first - x).let { d -> d * d } + (slots[it].second - y).let { d -> d * d } } ?: 0
+
     /** The size a picture of [aspect] takes to cover ([cover]) or fit in a [width]×[height] box. */
     fun content(width: Float, height: Float, aspect: Float, cover: Boolean): Pair<Float, Float> =
         if ((width / height > aspect) == cover) width to width / aspect else height * aspect to height

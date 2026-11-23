@@ -35,7 +35,15 @@ says "Calls need the microphone. Allow it in the app's settings."
   phone showing it has two layouts (2026-11-23, hen, from the approved mockups), one pill at the top that names the
   layout a tap switches to, kept for next time:
   - **Maximized** (the default): their video covers the whole screen, cropped, behind the camera cutout and status
-    bar too; your video is a small corner window.
+    bar too; your video is a small window. One-on-one (2026-11-23, hen):
+    - **Face height**: one finger up or down on their video moves where their face sits (default just below the
+      cutout, about the upper third); with Follow face off the same drag pans the picture up and down. Kept.
+    - **Your window** rests in one of six places (top or bottom; left, centre or right), clear of the bars and the
+      cutout, of the top lines and buttons while they show, and on its side of the buttons' column. Drag it and it
+      follows the finger; let go and it slides to the nearest place, kept for next time.
+    - **Not over their face**: when your window would cover their face at the chosen height, the face goes just below
+      it (or above, whichever is nearer and still on screen), with Follow face on or off.
+    - A tap still shows or hides the controls; a pinch still zooms.
   - **Normal**: upright, their whole picture as wide as the screen at its own shape from the very top, and your video
     in the rest, at its own shape, as big as fits there (`CallGrid.normal`; both shrink together when that would
     leave yours under a quarter of the screen), centred, the buttons floating over it. On its side, side by side: theirs at full height

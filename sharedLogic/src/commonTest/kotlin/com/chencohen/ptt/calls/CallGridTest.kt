@@ -98,4 +98,33 @@ class CallGridTest {
         assertTrue(kotlin.math.abs(p.x) > 0f)
         assertEquals(1f, CallGrid.place(540f, 960f, 540f, 720f, 0.5f, 0.5f, 0.1f, 3f, fixedZoom = 0.5f).scale)
     }
+
+    @Test
+    fun theFaceStaysWhereChosenWhenTheWindowIsElsewhere() {
+        val window = CallGrid.Area(0.6f, 0.75f, 0.96f, 0.95f)
+        assertEquals(0.33f, CallGrid.faceClearOf(0.33f, 0.25f, 0.3f, window))
+        assertEquals(0.33f, CallGrid.faceClearOf(0.33f, 0.25f, 0.3f, null))
+    }
+
+    @Test
+    fun aWindowOverTheFaceMovesItJustBelow() {
+        // This phone's window at the top centre, where the face would be.
+        val window = CallGrid.Area(0.3f, 0.05f, 0.7f, 0.3f)
+        val at = CallGrid.faceClearOf(0.33f, 0.25f, 0.3f, window)
+        assertEquals(0.3f + 0.02f + 0.15f, at, 0.001f)
+    }
+
+    @Test
+    fun aWindowBelowTheChosenPlaceMovesTheFaceAboveIt() {
+        val window = CallGrid.Area(0.3f, 0.6f, 0.7f, 0.85f)
+        val at = CallGrid.faceClearOf(0.7f, 0.25f, 0.3f, window)
+        assertEquals(0.6f - 0.02f - 0.15f, at, 0.001f)
+    }
+
+    @Test
+    fun theNearestSlotIsPicked() {
+        val slots = listOf(0f to 0f, 100f to 0f, 200f to 0f, 0f to 500f, 100f to 500f, 200f to 500f)
+        assertEquals(5, CallGrid.nearest(slots, 180f, 420f))
+        assertEquals(1, CallGrid.nearest(slots, 90f, 60f))
+    }
 }

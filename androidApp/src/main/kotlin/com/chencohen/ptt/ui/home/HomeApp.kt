@@ -355,7 +355,9 @@ fun HomeApp(
                     back = ::pop,
                     change = { new -> onTalkSettings(new) },
                     openSaving = { push("savingcalls") },
+                    openLayout = { push("videolayout") },
                 )
+                name == "videolayout" -> com.chencohen.ptt.ui.settings.VideoLayoutScreen(back = ::pop)
                 name == "savingcalls" -> com.chencohen.ptt.ui.settings.SavingCallsScreen(
                     settings = messagingState.talkSettings,
                     back = ::pop,
