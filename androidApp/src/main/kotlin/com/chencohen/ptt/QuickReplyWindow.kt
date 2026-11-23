@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -90,19 +91,39 @@ object QuickReplyWindow {
     private val typed = mutableStateOf("")
     private val talking = mutableStateOf(false)
 
-    /** A message came into [chat] (Notifications): shows, updates or queues the window. */
-    fun arrived(context: Context, chat: String) = main.post {
+    /** Where unanswered messages go back to (a silent notification) and answered ones are dropped. */
+    @Volatile var notifications: Notifications? = null
+
+    /** The conversation shown was answered (a reply, a burst, or the chat opened): no notification for it after. */
+    private var answered = false
+
+    /**
+     * A message came into [chat] (Notifications): shows, updates or queues the window; true when the window has it (no
+     * notification then).
+     */
+    fun takes(context: Context, chat: String): Boolean {
         val app = context.applicationContext
-        val on = messagingState(app).value.talkSettings.quickReply && android.provider.Settings.canDrawOverlays(app) &&
-            app.getSystemService(android.os.PowerManager::class.java).isInteractive
+        val setting = messagingState(app).value.talkSettings.quickReply
+        val overlay = android.provider.Settings.canDrawOverlays(app)
+        val screenOn = app.getSystemService(android.os.PowerManager::class.java).isInteractive
+        val inFront = chatInFront(app)
         val busy = typed.value.isNotBlank() || talking.value
-        when (val step = logic.arrived(chat, on, chatInFront(app), busy)) {
-            is QuickReply.Step.Show -> show(app, step.chat)
-            else -> Log.i(TAG, "$chat: $step")
-        }
+        val step = synchronized(logic) { logic.arrived(chat, setting && overlay && screenOn, inFront, busy) }
+        Log.i(TAG, "quick reply for $chat: $step (setting $setting, over other apps $overlay, screen on $screenOn, open in front $inFront, busy $busy)")
+        if (step is QuickReply.Step.Show) main.post { show(app, step.chat) }
+        if (step is QuickReply.Step.Update) main.post { answered = false }
+        return step != QuickReply.Step.None
+    }
+
+    /** Debug builds: as [takes] for a message from [chat]. */
+    fun arrived(context: Context, chat: String) {
+        takes(context, chat)
     }
 
     private fun show(context: Context, which: String) {
+        // Switching away from one left unanswered: its notification, silent.
+        chat.value?.takeIf { it != which && !answered }?.let { notifications?.unanswered(it) }
+        answered = false
         typed.value = ""
         chat.value = which
         if (view != null) return
@@ -125,6 +146,11 @@ object QuickReplyWindow {
                 return super.dispatchKeyEvent(event)
             }
         }
+        // Compose looks for its lifecycle from the window's root view: set on the ComposeView alone, it crashed the
+        // app as the window attached (2026-11-23, hen: "the window doesn't appear").
+        frame.setViewTreeLifecycleOwner(o)
+        frame.setViewTreeSavedStateRegistryOwner(o)
+        frame.setViewTreeViewModelStoreOwner(o)
         frame.addView(compose)
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -134,14 +160,19 @@ object QuickReplyWindow {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.BOTTOM
-            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
-            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+            // Above the keyboard while it shows (2026-11-23, hen): the window's frame keeps clear of it, moving up with
+            // it and back down; with too little room the window gets shorter and the message list gives way.
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = android.view.WindowInsets.Type.ime()
             title = "Talk quick reply"
         }
         try {
             wm.addView(frame, params)
             view = frame
             o.start()
+            // Slides up from the bottom edge (about 250 ms).
+            frame.translationY = params.height.toFloat()
+            frame.animate().translationY(0f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
             Log.i(TAG, "shown for $which")
         } catch (e: Exception) {
             Log.w(TAG, "can't show the quick-reply window", e)
@@ -151,21 +182,45 @@ object QuickReplyWindow {
         }
     }
 
-    /** Closes the window; the next conversation waiting shows. */
+    /** Closes the window, sliding it down off the screen; the next conversation waiting shows. */
     fun close(context: Context) = main.post {
         val app = context.applicationContext
         if (talking.value) endTalk(app, send = false)
-        view?.let { v -> runCatching { app.getSystemService(WindowManager::class.java).removeView(v) } }
+        val v = view ?: return@post
+        val leaving = chat.value
+        if (leaving != null && !answered) notifications?.unanswered(leaving)
+        Log.i(TAG, "closed $leaving (answered $answered)")
         view = null
-        owner?.stop()
-        owner = null
-        chat.value = null
-        typed.value = ""
-        logic.closed(chatInFront(app))?.let { show(app, it) }
+        v.animate().translationY(v.height.toFloat()).setDuration(SLIDE_MS).setInterpolator(android.view.animation.AccelerateInterpolator())
+            .withEndAction {
+                runCatching { app.getSystemService(WindowManager::class.java).removeView(v) }
+                owner?.stop()
+                owner = null
+                chat.value = null
+                typed.value = ""
+                answered = false
+                synchronized(logic) { logic.closed(chatInFront(app)) }?.let { show(app, it) }
+            }.start()
     }
+
+    /** Follows a swipe down by [dy] pixels so far; [done]: let go (slides out past a third of its height, else back). */
+    private fun drag(context: Context, dy: Float, done: Boolean) {
+        val v = view ?: return
+        if (!done) {
+            v.translationY = dy.coerceAtLeast(0f)
+        } else if (dy > v.height / 3f) {
+            close(context)
+        } else {
+            v.animate().translationY(0f).setDuration(SLIDE_MS).start()
+        }
+    }
+
+    private const val SLIDE_MS = 250L
 
     private fun startTalk(context: Context, chat: String) {
         talking.value = true
+        answered = true
+        notifications?.answered(chat)
         runCatching {
             context.startForegroundService(Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_TALK_BACK).putExtra(TalkReadyService.EXTRA_CHAT, chat))
         }.onFailure {
@@ -183,6 +238,8 @@ object QuickReplyWindow {
     }
 
     private fun openChat(context: Context, chat: String) {
+        answered = true
+        notifications?.answered(chat)
         runCatching {
             context.startActivity(
                 Intent(context, MainActivity::class.java).setAction(Notifications.ACTION_OPEN).putExtra(Notifications.EXTRA_USER, chat)
@@ -225,6 +282,7 @@ object QuickReplyWindow {
                         }
                     }
                 }
+                .navigationBarsPadding()
                 .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
         ) {
             // The grab bar and the header: a swipe down closes it; the name opens the chat.
@@ -232,10 +290,17 @@ object QuickReplyWindow {
                 Modifier.fillMaxWidth().pointerInput(Unit) {
                     detectVerticalDragGestures(
                         onDragEnd = {
-                            if (pulled > 120f) close(context)
+                            drag(context, pulled, done = true)
                             pulled = 0f
                         },
-                    ) { _, dy -> pulled = (pulled + dy).coerceAtLeast(0f) }
+                        onDragCancel = {
+                            drag(context, 0f, done = true)
+                            pulled = 0f
+                        },
+                    ) { _, dy ->
+                        pulled = (pulled + dy).coerceAtLeast(0f)
+                        drag(context, pulled, done = false)
+                    }
                 },
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -278,6 +343,8 @@ object QuickReplyWindow {
                         Modifier.size(52.dp).background(LibraryColors.Accent, CircleShape).clickable(role = Role.Button, onClickLabel = stringResource(R.string.quick_reply_send)) {
                             val body = typed.value.trim()
                             typed.value = ""
+                            answered = true
+                            notifications?.answered(current)
                             CoroutineScope(Dispatchers.Default).launch { runCatching { replyFromNotification(context, current, body) } }
                         },
                         contentAlignment = Alignment.Center,

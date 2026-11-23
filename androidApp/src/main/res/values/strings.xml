@@ -632,6 +632,8 @@
     <string name="bubble_send">Send</string>
     <string name="bubble_talk_hint">Hold to talk back, let go to send</string>
     <string name="bubble_close">Close</string>
+    <string name="full_screen_ask_title">Turn the screen on for talk?</string>
+    <string name="full_screen_ask_body">To show the Talk screen over the lock screen when someone talks to you while the phone sleeps, Android asks you to allow Talk\'s full-screen notifications once.</string>
     <string name="overlay_ask_title">Show Talk over other apps?</string>
     <string name="overlay_ask_body">While you use the phone, the floating window shows who is talking to you with a Talk button, and Talk can turn the screen on when someone talks. Android asks you to allow Talk over other apps once.</string>
     <string name="overlay_ask_allow">Allow</string>

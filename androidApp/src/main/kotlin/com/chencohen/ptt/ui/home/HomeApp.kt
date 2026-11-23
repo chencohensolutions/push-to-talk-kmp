@@ -177,6 +177,8 @@ fun HomeApp(
     onCallTaken: () -> Unit = {},
     /** The activity is the small floating call window (picture-in-picture): the call screen shows its videos only. */
     inPip: Boolean = false,
+    /** Opened over the lock screen for a burst: a video burst fills the Talk screen. */
+    wokeForTalk: Boolean = false,
     /** Settings › Talk changed: kept, and Stay connected's service started or stopped (MainActivity). */
     onTalkSettings: (com.chencohen.ptt.messaging.TalkSettings) -> Unit = { messaging.setTalkSettings(it) },
     /** A talk notification's Play: the clip to play once home shows its chat. */
@@ -661,6 +663,7 @@ fun HomeApp(
                         warmCamera = messaging::warmCamera,
                         setHere = messaging::setHere,
                         peerHere = com.chencohen.ptt.ui.talk.rememberHere(messagingState.here, chat),
+                        fullScreenVideo = wokeForTalk,
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -777,6 +780,7 @@ fun HomeApp(
             MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarRoom().imePadding().padding(bottom = if (page == null) 88.dp else 16.dp))
             // The floating window is on by default (2026-11-22, hen) but needs "Display over other apps": asked once.
             OverlayAskOnce(messagingState.talkSettings.replyBubble)
+            FullScreenAskOnce(messagingState.talkSettings.openOnTalk)
             // A call, over everything (phase 6).
             messagingState.call?.let { current ->
                 BackHandler {}
@@ -1127,6 +1131,40 @@ private fun OverlayAskOnce(on: Boolean) {
                 runCatching {
                     context.startActivity(
                         android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:${context.packageName}")),
+                    )
+                }
+            }) { androidx.compose.material3.Text(stringResource(R.string.overlay_ask_allow)) }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = ::done) { androidx.compose.material3.Text(stringResource(R.string.overlay_ask_later)) } },
+    )
+}
+
+/**
+ * Asks once for full-screen notifications while Open Talk when someone talks to me is on without them: on Android 14+
+ * they are what surely turns the screen on over the lock screen for a burst (2026-11-23, hen).
+ */
+@Composable
+private fun FullScreenAskOnce(on: Boolean) {
+    if (android.os.Build.VERSION.SDK_INT < 34) return
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("asked", android.content.Context.MODE_PRIVATE) }
+    val allowed = remember { context.getSystemService(android.app.NotificationManager::class.java).canUseFullScreenIntent() }
+    var asking by remember { mutableStateOf(on && !allowed && !prefs.getBoolean("full_screen", false)) }
+    if (!asking) return
+    fun done() {
+        prefs.edit().putBoolean("full_screen", true).apply()
+        asking = false
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = ::done,
+        title = { androidx.compose.material3.Text(stringResource(R.string.full_screen_ask_title)) },
+        text = { androidx.compose.material3.Text(stringResource(R.string.full_screen_ask_body)) },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                done()
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, android.net.Uri.parse("package:${context.packageName}")),
                     )
                 }
             }) { androidx.compose.material3.Text(stringResource(R.string.overlay_ask_allow)) }

@@ -30,9 +30,39 @@ class Notifications(private val context: Context) : MessageNotifier {
         val me = Person.Builder().setName(context.getString(R.string.notify_you)).build()
         val style = NotificationCompat.MessagingStyle(me)
         unread.takeLast(MAX_LINES).forEach { style.addMessage(lineOf(it), it.at, sender) }
-        show(contact.user, style, unread.size)
-        if (unread.isNotEmpty()) QuickReplyWindow.arrived(context, contact.user)
+        showOrHold(contact.user, style, unread.size)
     }
+
+    /**
+     * The quick-reply window takes the message when it shows it (2026-11-23, hen): then no notification, only its sound
+     * (MessageAlert); one is posted, silently, if the window closes without a reply or the chat opened. Otherwise (the
+     * window off, not allowed, the chat open in front, the screen off) the notification as always.
+     */
+    private fun showOrHold(chat: String, style: NotificationCompat.MessagingStyle, count: Int) {
+        if (count == 0) return
+        if (QuickReplyWindow.takes(context, chat)) {
+            synchronized(held) { held[chat] = style to count }
+            android.util.Log.i(TAG, "message for $chat: in the quick-reply window, no notification")
+            MessageAlert.play(context)
+        } else {
+            android.util.Log.i(TAG, "message for $chat: notification")
+            show(chat, style, count)
+        }
+    }
+
+    /** The window closed with [chat] unanswered: its notification now, silent. */
+    fun unanswered(chat: String) {
+        val (style, count) = synchronized(held) { held.remove(chat) } ?: return
+        android.util.Log.i(TAG, "message for $chat: left unanswered in the window, silent notification")
+        show(chat, style, count, silent = true)
+    }
+
+    /** [chat] was answered or opened from the window: nothing to post. */
+    fun answered(chat: String) {
+        synchronized(held) { held.remove(chat) }
+    }
+
+    private val held = HashMap<String, Pair<NotificationCompat.MessagingStyle, Int>>()
 
     /** A group's: the group's name on top, each line with who wrote it. */
     override fun incomingGroup(group: Group, unread: List<TextMessage>) {
@@ -44,12 +74,11 @@ class Notifications(private val context: Context) : MessageNotifier {
             val author = m.author.orEmpty()
             style.addMessage(lineOf(m), m.at, Person.Builder().setName(author).setKey(author).build())
         }
-        show(group.chat, style, unread.size)
-        if (unread.isNotEmpty()) QuickReplyWindow.arrived(context, group.chat)
+        showOrHold(group.chat, style, unread.size)
     }
 
     /** [user]: the conversation's key (a contact, or a group's chat). */
-    private fun show(user: String, style: NotificationCompat.MessagingStyle, count: Int) {
+    private fun show(user: String, style: NotificationCompat.MessagingStyle, count: Int, silent: Boolean = false) {
         if (count == 0) return
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val id = idOf(user)
@@ -72,6 +101,7 @@ class Notifications(private val context: Context) : MessageNotifier {
             .addAction(reply)
             .addAction(read)
             .setNumber(count)
+            .setSilent(silent)
             .build()
         NotificationManagerCompat.from(context).notify(TAG, id, notification)
     }

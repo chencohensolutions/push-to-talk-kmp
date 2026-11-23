@@ -114,16 +114,19 @@ object TalkPlaying {
      */
     private fun wake(app: TalkApp, chat: String, title: String) {
         val intent = wakeIntent(app, chat)
-        if (android.provider.Settings.canDrawOverlays(app)) {
-            val started = runCatching { app.startActivity(intent) }.onFailure { Log.w(TAG, "can't open the Talk screen", it) }.isSuccess
-            if (started) {
-                Log.i(TAG, "opened the Talk screen for $chat")
-                return
-            }
-        }
         val nm = app.getSystemService(android.app.NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 34 && !nm.canUseFullScreenIntent()) {
-            Log.i(TAG, "can't turn the screen on: neither over other apps nor full-screen intents are allowed")
+        val fullScreen = Build.VERSION.SDK_INT < 34 || nm.canUseFullScreenIntent()
+        if (android.provider.Settings.canDrawOverlays(app)) {
+            // Android 15+ lets an app that may draw over others start an activity from the background only while one
+            // of its windows shows: a tiny invisible one for a few seconds (2026-11-23).
+            val shim = showShim(app)
+            val started = runCatching { app.startActivity(intent) }.onFailure { Log.w(TAG, "can't open the Talk screen", it) }.isSuccess
+            Log.i(TAG, "wake for $chat: started the Talk screen $started (window to allow it ${shim != null}), full-screen intents allowed $fullScreen")
+            shim?.let { v -> android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ runCatching { app.getSystemService(android.view.WindowManager::class.java).removeView(v) } }, 3_000) }
+            if (started && !fullScreen) return
+        }
+        if (!fullScreen) {
+            Log.i(TAG, "wake for $chat: can't turn the screen on: neither over other apps nor full-screen intents are allowed")
             return
         }
         NotificationManagerCompat.from(app).cancel(WAKE_ID)
@@ -150,13 +153,35 @@ object TalkPlaying {
      * Open Talk when someone talks to me (Settings › Talk, off by default): only with the screen off, when Android
      * allows full-screen intents, Do Not Disturb is off, and the chat isn't muted.
      */
+    /** A 1-pixel, untouchable, invisible window over other apps (see [wake]); null when it can't be shown. */
+    private fun showShim(app: TalkApp): android.view.View? = runCatching {
+        val v = android.view.View(app)
+        val p = android.view.WindowManager.LayoutParams(
+            1, 1, android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            android.graphics.PixelFormat.TRANSPARENT,
+        ).apply { title = "Talk wake" }
+        app.getSystemService(android.view.WindowManager::class.java).addView(v, p)
+        v
+    }.onFailure { Log.w(TAG, "no window for the wake-up", it) }.getOrNull()
+
+    /** Debug builds (DebugTriggers): the wake-up as a burst from [chat] would run it. */
+    fun debugWake(app: TalkApp, chat: String) {
+        Log.i(TAG, "debug wake for $chat: wakes ${wakes(app, chat)}")
+        wake(app, chat, chat)
+    }
+
     private fun wakes(app: TalkApp, chat: String): Boolean {
-        if (!messagingState(app).value.talkSettings.openOnTalk) return false
-        // Only when the screen was off: in use (even on the lock screen) the heads-up is enough (hen, 17:07).
-        if (app.getSystemService(android.os.PowerManager::class.java).isInteractive) return false
-        val nm = app.getSystemService(android.app.NotificationManager::class.java)
-        if (nm.currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL) return false
-        return !muted(app, chat)
+        val why = when {
+            !messagingState(app).value.talkSettings.openOnTalk -> "Open Talk when someone talks to me is off"
+            // Only when the screen was off: in use (even on the lock screen) the heads-up is enough (hen, 17:07).
+            app.getSystemService(android.os.PowerManager::class.java).isInteractive -> "the screen is on"
+            app.getSystemService(android.app.NotificationManager::class.java).currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL -> "Do Not Disturb"
+            muted(app, chat) -> "muted"
+            else -> null
+        }
+        Log.i(TAG, "wake for $chat: ${why?.let { "skipped, $it" } ?: "yes"}")
+        return why == null
     }
 
     private fun wakeIntent(context: Context, chat: String) =

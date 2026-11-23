@@ -61,7 +61,12 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
 `QuickReplyWindow` (Android), `QuickReply` (shared; 2026-11-23, hen; Settings › Talk › Quick reply window, on by
 default; needs "Display over other apps"). A message (or a voice message) that comes in while the phone is in use, its
 screen on, shows its conversation in a window at the bottom of the screen, full width, 40% of its height, over other
-apps; the notification shows as well. Not for the conversation open in the app while it is in front.
+apps, sliding up from the bottom edge (250 ms) and down off it when it closes; a swipe down follows the finger. While it
+shows a message there is no notification, only the message sound (`MessageAlert`); if it closes unanswered (×, swipe,
+Back, by itself, or switching away) the notification is posted then, silently, so the message stays unread. Not for
+the conversation open in the app while it is in front; skipped (off, not allowed, screen off) the notification shows as
+always. Every decision is logged (QuickReply). 2026-11-23: it crashed the app as it attached (Compose found no
+lifecycle on the window's root view), so it never showed; fixed.
 
 - **Header**: a grab bar; the letter circle and the name (a group's name for a group); a tap opens the chat and
   closes the window; **×** closes it. A swipe down closes it too, and so does Back.
@@ -69,6 +74,8 @@ apps; the notification shows as well. Not for the conversation open in the app w
 - **A field** ("Reply") and, while it is empty, a round **hold-to-talk** button: hold to talk to them (or the group),
   let go to send, slide away to cancel (the button shows ×), as the chat's microphone. With text typed it is **Send**:
   the text goes end to end like any other.
+- **The keyboard**: while it is open the window sits right above it, moving with it (its frame keeps clear of
+  it); with too little room the window gets shorter and the message list gives way.
 - **Closing by itself**: untouched for 20 s with nothing typed and nobody talking. A new message from them keeps it.
 - **Someone else writes**: the window switches to them, unless you are typing or talking, then they wait and show when
   the window closes (once each, in order; one opened in the app meanwhile is skipped).

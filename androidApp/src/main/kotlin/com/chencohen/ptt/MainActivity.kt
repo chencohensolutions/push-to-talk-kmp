@@ -103,9 +103,11 @@ class MainActivity : ComponentActivity() {
                 // A call rings or runs: the app shows over the lock screen and wakes the screen for it.
                 val ringing by viewModel.messaging.state.collectAsStateWithLifecycle()
                 val callOn = ringing.call != null
-                LaunchedEffect(callOn) {
-                    setShowWhenLocked(callOn)
-                    setTurnScreenOn(callOn)
+                // Also while woken for a burst: this used to set both back to false as soon as the screen composed,
+                // undoing the wake-up's (2026-11-23, hen: "when the phone is sleeping I don't see the PTT screen").
+                LaunchedEffect(callOn, wokeForTalk) {
+                    setShowWhenLocked(callOn || wokeForTalk)
+                    setTurnScreenOn(callOn || wokeForTalk)
                 }
                 // A video call goes on in a small floating window (picture-in-picture) when the app is left: it can be
                 // dragged and resized, and Hang up is on it (2026-11-22, hen).
@@ -148,6 +150,7 @@ class MainActivity : ComponentActivity() {
                         openedCall = openedCall,
                         onCallTaken = { openedCall = null },
                         inPip = inPip,
+                        wokeForTalk = wokeForTalk,
                         onTalkSettings = { new ->
                             viewModel.messaging.setTalkSettings(new)
                             StayConnectedService.set(this@MainActivity, new.stayConnected)
