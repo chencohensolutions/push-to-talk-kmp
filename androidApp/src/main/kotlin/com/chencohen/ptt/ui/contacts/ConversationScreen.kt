@@ -582,6 +582,9 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     startEdit: ((Int, Int) -> Unit)? = null,
 ) {
     var bubbleWidth by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    // Where the text lies in the bubble and its layout: a double tap anywhere on the bubble finds its character.
+    val textPlace = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(2) }
+    var textLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     val retry = actions.retry
     val mine = message.outgoing
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
@@ -589,6 +592,24 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             bubbleModifier
                 .widthIn(max = bubbleMaxWidth())
                 .onSizeChanged { bubbleWidth = it.width }
+                .onGloballyPositioned { textPlace[0] = it }
+                .then(
+                    if (startEdit != null) Modifier.pointerInput(message.id) {
+                        // Anywhere on the bubble (2026-11-24, hen: a one-letter message is a small target): on the
+                        // text, the caret at that character; elsewhere, the nearest place, its end.
+                        detectTapGestures(onDoubleTap = { at ->
+                            val bubble = textPlace[0]
+                            val text = textPlace[1]
+                            val layout = textLayout
+                            val offset = if (bubble != null && text != null && layout != null && bubble.isAttached && text.isAttached) {
+                                val p = text.localPositionOf(bubble, at)
+                                val inside = p.x >= 0f && p.y >= 0f && p.x <= text.size.width && p.y <= text.size.height
+                                if (inside) layout.getOffsetForPosition(p) else message.body.length
+                            } else message.body.length
+                            startEdit(offset, bubbleWidth)
+                        })
+                    } else Modifier,
+                )
                 .animateContentSize(androidx.compose.animation.core.tween(MORPH_MS))
                 .then(if (liveEdit != null) Modifier.border(1.dp, LibraryColors.Accent.copy(alpha = 0.6f), LibraryShapes.Card) else Modifier)
                 .background(if (mine) LibraryColors.Mine else LibraryColors.Raised, LibraryShapes.Card)
@@ -613,15 +634,11 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine, save = actions.saveClip)
             } else {
                 if (liveEdit != null) Text(stringResource(R.string.chat_editing), color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
-                var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
                 Text(
                     liveEdit?.text ?: message.body,
                     color = if (mine) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Body,
-                    onTextLayout = { layout = it },
-                    modifier = if (startEdit != null) Modifier.pointerInput(message.id) {
-                        // The caret where the finger was (the text's own layout; right to left too).
-                        detectTapGestures(onDoubleTap = { at -> startEdit(layout?.getOffsetForPosition(at) ?: message.body.length, bubbleWidth) })
-                    } else Modifier,
+                    onTextLayout = { textLayout = it },
+                    modifier = Modifier.onGloballyPositioned { textPlace[1] = it },
                 )
             }
             val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
