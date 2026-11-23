@@ -7,7 +7,7 @@ import livekit.org.webrtc.VideoSink
 /**
  * The sending side of Follow face (2026-11-23, hen: "the sender sends the face position", then "don't crop the face
  * before sending"): between the camera and the encoder, every frame goes on untouched, and [FaceFinder] looks for the
- * biggest face up to 15 times a second while the camera runs; each one found goes to [onFace] as a hint (FaceHint,
+ * biggest face twice a second while the camera runs; each one found goes to [onFace] as a hint (FaceHint,
  * shares of the whole upright picture as sent) for the receivers to frame it their own way.
  */
 class FaceHinter : VideoProcessor {
@@ -16,9 +16,9 @@ class FaceHinter : VideoProcessor {
 
     private var sink: VideoSink? = null
     @Volatile private var frameAtMs = 0L
-    // As often as it keeps up, up to 15 times a second (2026-11-23, hen: "instantly, without delay"): a look at a
-    // 240-wide copy takes a few milliseconds, and one waits for the last to finish.
-    private val finder = FaceFinder(TAG, everyMs = 66) { box ->
+    // Twice a second (2026-11-23, hen: "too aggressive, make it more mellow: 2 key frames a second"): receivers glide
+    // between them.
+    private val finder = FaceFinder(TAG, everyMs = 500) { box ->
         if (box != null) onFace?.invoke(FaceHint(box.centerX(), box.centerY(), box.height(), frameAtMs))
     }
 

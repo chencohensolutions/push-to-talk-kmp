@@ -271,6 +271,21 @@ suspend fun stopTalkPlayback(context: Context) {
 /** The reply bubble for [chat] is open (null: closed): the other user's phone is told ("here"). */
 fun setHere(context: Context, chat: String?) = hub(context).setHere(chat, com.chencohen.ptt.messaging.Messaging.HERE_BUBBLE)
 
+/** The camera kept warm for push-to-video to [chat] from outside the screens (the reply bubble); null: let go. */
+fun warmTalkCamera(context: Context, chat: String?) = hub(context).warmCamera(chat)
+
+/** Typing to [chat] started or stopped, from outside the screens (the quick-reply window). */
+fun sendTyping(context: Context, chat: String, typing: Boolean) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.sendTyping(chat, typing) }
+}
+
+/** Live typing from the quick-reply window: its line to [chat] is [text] now ("" when sent or emptied). */
+fun sendDraft(context: Context, chat: String, text: String) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { if (text.isEmpty()) messaging.draftDone(chat) else messaging.draft(chat, text) }
+}
+
 /** Changes Talk's settings from outside the screens (the reply bubble's Video). */
 fun setTalkSettings(context: Context, talk: com.chencohen.ptt.messaging.TalkSettings) = hub(context).setTalkSettings(talk)
 
@@ -386,3 +401,9 @@ fun chatInFront(context: Context): String? = hub(context).chatInFront
 /** [chat]'s last [count] messages, oldest first (the quick-reply window). */
 fun recentMessages(context: Context, chat: String, count: Int = 12): List<com.chencohen.ptt.messaging.TextMessage> =
     hub(context).store.messagesWith(chat).takeLast(count)
+
+/** A burst or voice message opened, for Save as file. */
+suspend fun clipContents(context: Context, id: String): com.chencohen.ptt.talk.ClipContents? {
+    val messaging = hub(context)
+    return withContext(messagingWork) { messaging.talk.clipContents(id) }
+}

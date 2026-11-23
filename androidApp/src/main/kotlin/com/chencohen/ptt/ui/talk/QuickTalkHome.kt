@@ -67,9 +67,9 @@ internal fun QuickTalkHome(
     warmMicrophone: (Boolean) -> Unit = {},
     /** A voice or video call in a page's chat. */
     call: (chat: String, video: Boolean) -> Unit = { _, _ -> },
-    /** Push-to-video: on, switched here; the camera kept warm for the page shown. */
-    pushVideo: Boolean = false,
-    setPushVideo: (Boolean) -> Unit = {},
+    /** Push-to-video per chat (TalkSettings.videoFor), switched here; the camera kept warm for the page shown. */
+    pushVideoFor: (String) -> Boolean = { false },
+    setPushVideoFor: (chat: String, video: Boolean) -> Unit = { _, _ -> },
     warmCamera: (String?) -> Unit = {},
     /** The page on screen tells its user ("here"); who is here now, until when. */
     setHere: (String?) -> Unit = {},
@@ -98,6 +98,8 @@ internal fun QuickTalkHome(
             key = { pages[it].chat },
         ) { i ->
             val page = pages[i]
+            val pushVideo = pushVideoFor(page.chat)
+            val setPushVideo: (Boolean) -> Unit = { on -> setPushVideoFor(page.chat, on) }
             val own = talk.own?.takeIf { it.chat == page.chat }
             val live = own?.phase == TalkPhase.TALKING
             val someone = talk.talkers[page.chat]?.takeIf { it.user != me }

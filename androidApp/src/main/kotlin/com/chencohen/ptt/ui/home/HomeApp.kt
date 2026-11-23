@@ -135,7 +135,7 @@ class HomeActions(
     /** A call the server kept: play it. */
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** Push-to-video switched on a Talk screen; the camera warm for a chat (null: none). */
-    val setPushVideo: (Boolean) -> Unit = {},
+    val setPushVideo: (chat: String, video: Boolean) -> Unit = { _, _ -> },
     val warmCamera: (String?) -> Unit = {},
     /** A Talk page open ("here" to its user). */
     val setHere: (String?) -> Unit = {},
@@ -295,7 +295,7 @@ fun HomeApp(
                         shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                         playKept = ::playKept,
                         saveKept = ::saveKept,
-                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
+                        setPushVideo = { chat, on -> onTalkSettings(messagingState.talkSettings.withVideoFor(chat, on)) },
                         warmCamera = messaging::warmCamera,
                         setHere = messaging::setHere,
                         pressTalk = { chat -> pressOrUnlock(chat) },
@@ -331,6 +331,8 @@ fun HomeApp(
                         softMessage = messagingState.talkSettings.softMessage,
                         setSoftMessage = { soft -> onTalkSettings(messagingState.talkSettings.copy(softMessage = soft)) },
                         presenceVisible = presenceVisible,
+                        liveTyping = messagingState.talkSettings.liveTyping,
+                        setLiveTyping = { on -> onTalkSettings(messagingState.talkSettings.copy(liveTyping = on)) },
                         setPresenceVisible = { visible ->
                             presenceVisible = null
                             messaging.setPresenceVisible(visible) { shown ->
@@ -355,7 +357,9 @@ fun HomeApp(
                     back = ::pop,
                     change = { new -> onTalkSettings(new) },
                     openSaving = { push("savingcalls") },
+                    openLayout = { push("videolayout") },
                 )
+                name == "videolayout" -> com.chencohen.ptt.ui.settings.VideoLayoutScreen(back = ::pop)
                 name == "savingcalls" -> com.chencohen.ptt.ui.settings.SavingCallsScreen(
                     settings = messagingState.talkSettings,
                     back = ::pop,
@@ -594,6 +598,7 @@ fun HomeApp(
                         contact = messagingState.contacts.firstOrNull { it.user == user },
                         messages = messagingState.conversations[user].orEmpty(),
                         header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
+                        drafts = liveDrafts(messagingState.drafts, user, now, Group.idOf(user) != null),
                         group = Group.idOf(user)?.let { id ->
                             val me = state.device?.user.orEmpty()
                             val typers = groupTyping.filterValues { it > now }.keys.map { it.substringAfter('/') }
@@ -623,8 +628,10 @@ fun HomeApp(
                             },
                             retry = messaging::retry,
                             typing = { messaging.typing(user, it) },
+                            draft = { text -> if (text.isEmpty()) messaging.draftDone(user) else messaging.draft(user, text) },
                             openTalk = { push("talk/$user") },
                             playClip = messaging::playClip,
+                            saveClip = { id -> saveBurst(context, id, nameOf(user), messages) },
                             stopClip = messaging::stopPlaying,
                             // The chat's microphone is push-to-talk (2026-11-22, hen), not a voice message.
                             startVoice = { pressOrUnlock(user) },
@@ -641,9 +648,10 @@ fun HomeApp(
                 name.startsWith("talk/") && pageUser != null -> {
                     val chat = name.removePrefix("talk/")
                     val group = Group.idOf(chat)?.let { id -> messagingState.groups.firstOrNull { it.id == id } }
+                    val title = group?.let { groupName(it) } ?: nameOf(chat)
                     com.chencohen.ptt.ui.talk.TalkModeScreen(
                         chat = chat,
-                        title = group?.let { groupName(it) } ?: nameOf(chat),
+                        title = title,
                         me = state.device?.user.orEmpty(),
                         talk = messagingState.talk,
                         liveRoom = messagingState.live,
@@ -658,12 +666,13 @@ fun HomeApp(
                         // From its chat: back to it; otherwise the chat opens.
                         openChat = { if (stack.getOrNull(stack.size - 2) == "chat/$chat") pop() else push("chat/$chat") },
                         call = { video -> call(chat, video) },
-                        pushVideo = messagingState.talkSettings.pushVideo,
-                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.copy(pushVideo = on)) },
+                        pushVideo = messagingState.talkSettings.pushVideoFor(chat),
+                        setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.withVideoFor(chat, on)) },
                         warmCamera = messaging::warmCamera,
                         setHere = messaging::setHere,
                         peerHere = com.chencohen.ptt.ui.talk.rememberHere(messagingState.here, chat),
                         fullScreenVideo = wokeForTalk,
+                        saveClip = { id -> saveBurst(context, id, title, messages) },
                     )
                 }
                 name.startsWith("contact/") && pageUser != null -> {
@@ -783,7 +792,10 @@ fun HomeApp(
             FullScreenAskOnce(messagingState.talkSettings.openOnTalk)
             // A call, over everything (phase 6).
             messagingState.call?.let { current ->
-                BackHandler {}
+                // During a call Back does nothing (the call goes on); once it has ended, Back closes "Call ended".
+                BackHandler { if (current.phase == com.chencohen.ptt.calls.CallPhase.ENDED) messaging.dismissEndedCall() }
+                // Opening the app on an ended call: it goes at once.
+                LaunchedEffect(Unit) { if (current.phase == com.chencohen.ptt.calls.CallPhase.ENDED) messaging.dismissEndedCall() }
                 com.chencohen.ptt.ui.calls.CallScreen(
                     call = current,
                     title = chatName(current.chat),
@@ -853,8 +865,8 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 modifier = Modifier.weight(1f),
                 warmMicrophone = actions.warmMicrophone,
                 call = actions.call,
-                pushVideo = chats.talkSettings.pushVideo,
-                setPushVideo = actions.setPushVideo,
+                pushVideoFor = chats.talkSettings::pushVideoFor,
+                setPushVideoFor = actions.setPushVideo,
                 warmCamera = actions.warmCamera,
                 setHere = actions.setHere,
                 here = chats.here,
@@ -1172,3 +1184,44 @@ private fun FullScreenAskOnce(on: Boolean) {
         dismissButton = { androidx.compose.material3.TextButton(onClick = ::done) { androidx.compose.material3.Text(stringResource(R.string.overlay_ask_later)) } },
     )
 }
+
+/** Save as file (2026-11-23, hen): the burst opened on the phone, written as .mkv where saved calls go, with Share. */
+private fun saveBurst(context: android.content.Context, id: String, title: String, messages: com.chencohen.ptt.ui.style.Messages) {
+    val app = context.applicationContext
+    messages.post(app.getString(R.string.burst_saving))
+    (app as com.chencohen.ptt.TalkApp).scope.launch {
+        val contents = com.chencohen.ptt.clipContents(app, id)
+        if (contents == null || contents.audio.isEmpty()) {
+            messages.post(app.getString(R.string.burst_save_failed))
+            return@launch
+        }
+        val made = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val scratch = java.io.File(app.cacheDir, "burst-$id.body")
+            val file = java.io.File(app.cacheDir, "burst-$id.mkv")
+            runCatching {
+                file.outputStream().use { out -> com.chencohen.ptt.talk.BurstFile.make(contents, scratch, out) }
+                file
+            }.also { scratch.delete() }.getOrNull()
+        }
+        if (made == null) {
+            messages.post(app.getString(R.string.burst_save_failed))
+            return@launch
+        }
+        when (val saved = com.chencohen.ptt.ui.calls.saveKeptCall(app, made, title, contents.at)) {
+            is com.chencohen.ptt.ui.calls.KeptSave.Saved -> messages.post(
+                app.getString(R.string.burst_saved, saved.where), app.getString(R.string.burst_share),
+            ) { com.chencohen.ptt.ui.calls.shareKeptCall(context, saved.uri) }
+            else -> messages.post(app.getString(R.string.burst_save_failed))
+        }
+        made.delete()
+    }
+}
+
+/** Live drafts in [chat] still fresh at [now]: (who, text); who is null in a one-to-one chat. */
+internal fun liveDrafts(drafts: Map<String, com.chencohen.ptt.messaging.Draft>, chat: String, now: Long, group: Boolean): List<Pair<String?, String>> =
+    if (group) {
+        drafts.filter { (k, d) -> k.startsWith("$chat/") && now - d.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }
+            .map { (k, d) -> k.substringAfter('/') to d.text }
+    } else {
+        listOfNotNull(drafts[chat]?.takeIf { now - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }?.let { null as String? to it.text })
+    }

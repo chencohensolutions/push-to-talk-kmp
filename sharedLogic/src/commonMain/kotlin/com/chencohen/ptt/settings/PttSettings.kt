@@ -209,6 +209,21 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_QUICK_REPLY) != "false"
         set(value) = store.putString(KEY_QUICK_REPLY, value.toString())
 
+    /** Settings › Privacy › Live typing: off unless turned on. */
+    var liveTyping: Boolean
+        get() = store.getString(KEY_LIVE_TYPING) == "true"
+        set(value) = store.putString(KEY_LIVE_TYPING, value.toString())
+
+    /** Voice or Video per contact or group (TalkSettings.videoFor). */
+    var videoFor: Map<String, Boolean>
+        get() = store.getString(KEY_VIDEO_FOR)?.let { runCatching { json.decodeFromString<Map<String, Boolean>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_VIDEO_FOR, json.encodeToString(value))
+
+    /** Settings › Talk › Don't turn the screen on when battery is low: on unless turned off. */
+    var lowBatteryNoWake: Boolean
+        get() = store.getString(KEY_LOW_BATTERY_NO_WAKE) != "false"
+        set(value) = store.putString(KEY_LOW_BATTERY_NO_WAKE, value.toString())
+
     /** This user's email, shared with their paired contacts (Settings › Contacts › Your email); null: none. */
     var myEmail: String?
         get() = store.getString(KEY_MY_EMAIL)
@@ -229,6 +244,8 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_CALL_VIDEO = "call_video"
         private const val KEY_MY_EMAIL = "my_email"
         private const val KEY_PUSH_VIDEO = "talk_push_video"
+        private const val KEY_VIDEO_FOR = "talk_video_for"
+        private const val KEY_LIVE_TYPING = "live_typing"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
         private const val KEY_SOFT_RING = "call_soft_ring"
@@ -236,6 +253,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_VIDEO_60 = "video_60fps"
         private const val KEY_VIDEO_STATS = "video_stats"
         private const val KEY_QUICK_REPLY = "quick_reply"
+        private const val KEY_LOW_BATTERY_NO_WAKE = "low_battery_no_wake"
         private const val KEY_QUICK_TALK_PAGE = "talk_quick_page"
         private const val KEY_CATCH_UP = "talk_catch_up"
         private const val KEY_STAY_CONNECTED = "talk_stay_connected"

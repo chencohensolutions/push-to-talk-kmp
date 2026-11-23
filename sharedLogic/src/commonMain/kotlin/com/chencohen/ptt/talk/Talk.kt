@@ -134,6 +134,9 @@ interface TalkPrefs {
  * late phone reads from the start, catching up to live. Not connected, the press records a voice message instead,
  * which waits in the outbox. Runs on Messaging's scope (one thing at a time).
  */
+/** A kept burst opened (Save as file): its Opus packets in order (20 ms each), its video frames, and when it was sent. */
+class ClipContents(val audio: List<ByteArray>, val frames: List<TalkVideo.Frame>, val at: Long)
+
 internal class Talk(
     private val scope: CoroutineScope,
     private val store: MessagingStore,
@@ -167,7 +170,7 @@ internal class Talk(
 
     /** Push-to-video: the camera, whether a press sends it (the Talk screen's Video), and where bursts' video shows. */
     var videoCapture: TalkVideoCapture? = null
-    var sendVideo: () -> Boolean = { false }
+    var sendVideo: (chat: String) -> Boolean = { false }
 
     /** The chat whose Talk screen keeps the camera warm (push-to-video); null: none. */
     var videoChat: String? = null
@@ -231,7 +234,7 @@ internal class Talk(
         out.mic = mic
         stopPlaying()
         // The camera first, so the voice's packets are tagged from the first one.
-        val camera = videoCapture?.takeIf { !voiceOnly && sendVideo() }
+        val camera = videoCapture?.takeIf { !voiceOnly && sendVideo(chat) }
         if (camera != null) {
             out.video = camera.start { frame ->
                 out.videoBytes += frame.data.size
@@ -241,6 +244,8 @@ internal class Talk(
                 }
                 TalkVideo.pieces(out.videoNumber++ and 0xffff, frame).forEach { out.packets.trySend(Captured.Packet(it, audio = false)) }
             }
+            // Where the face is, with the pictures (Follow face on the other phones; 2026-11-23, hen).
+            if (out.video) camera.faces { face -> out.packets.trySend(Captured.Packet(TalkVideo.face(face), audio = false)) }
         }
         if (!mic.start { out.packets.trySend(Captured.Packet(if (out.video) TalkVideo.audio(it) else it)) }) {
             if (out.video) camera?.stop()
@@ -279,7 +284,10 @@ internal class Talk(
     fun release(send: Boolean = true) {
         val out = outgoing ?: return
         if (!send) out.cancelled = true
-        if (out.video) videoCapture?.stop()
+        if (out.video) {
+            videoCapture?.faces(null)
+            videoCapture?.stop()
+        }
         out.mic?.stop()
         out.packets.trySend(Captured.End)
         if (!out.voiceOnly) scope.launch { live?.talking(out.chat, false) }
@@ -448,7 +456,10 @@ internal class Talk(
         out.unsent.clear()
         if (outgoing === out) {
             outgoing = null
-            if (out.video) videoCapture?.stop()
+            if (out.video) {
+            videoCapture?.faces(null)
+            videoCapture?.stop()
+        }
             out.mic?.stop()
             out.packets.close()
             scope.launch { live?.talking(out.chat, false) }
@@ -701,7 +712,7 @@ internal class Talk(
                 break
             }
             val audio = if (burst.video) {
-                burst.splitter.split(packets) { frame -> if (burst.playing) videoOut?.frame(burst.id, frame) }
+                burst.splitter.split(packets, { frame -> if (burst.playing) videoOut?.frame(burst.id, frame) }) { face -> if (burst.playing) videoOut?.face(burst.id, face) }
             } else {
                 packets
             }
@@ -764,7 +775,7 @@ internal class Talk(
             var frames = 0
             for (segment in segments.sortedBy { it.index }) {
                 val packets = ClipCrypto.open(key, id, segment.index, segment.last, segment.ciphertext) ?: break
-                val audio = if (clip.video) splitter.split(packets) { frame -> videoOut?.frame(id, frame) } else packets
+                val audio = if (clip.video) splitter.split(packets, { frame -> videoOut?.frame(id, frame) }) { face -> videoOut?.face(id, face) } else packets
                 frames += audio.size
                 playback.write(audio)
             }
@@ -775,6 +786,31 @@ internal class Talk(
                 publish()
             }
         }
+    }
+
+    /** [id]'s burst or voice message, from this phone's copy or the server's, opened (Save as file; 2026-11-23, hen). */
+    suspend fun clipContents(id: String): ClipContents? {
+        val message = store.message(id) ?: return null
+        val clip = message.clip ?: return null
+        val key = Base64.decode(clip.key)
+        val bytes = clips.read(id) ?: try {
+            val buffer = mutableListOf<ByteArray>()
+            blobs.read(id) { buffer += it }
+            concat(buffer).also { clips.write(id, it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return null
+        }
+        val segments = runCatching { ClipRecords.parse(bytes) }.getOrNull() ?: return null
+        val splitter = TalkVideo.Splitter()
+        val audio = ArrayList<ByteArray>()
+        val frames = ArrayList<TalkVideo.Frame>()
+        for (segment in segments.sortedBy { it.index }) {
+            val packets = ClipCrypto.open(key, id, segment.index, segment.last, segment.ciphertext) ?: break
+            audio += if (clip.video) splitter.split(packets, { frames += it }) else packets
+        }
+        return ClipContents(audio, frames, message.at)
     }
 
     /** Stops what is playing (and what waits to play). */

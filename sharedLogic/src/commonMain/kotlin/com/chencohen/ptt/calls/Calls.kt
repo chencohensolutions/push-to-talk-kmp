@@ -246,13 +246,13 @@ internal class Calls(
 
     fun setMicrophone(on: Boolean) {
         current ?: return
-        _state.update { it?.copy(microphone = on) }
+        live { it.copy(microphone = on) }
         scope.launch { runCatching { transport?.setMicrophone(on) } }
     }
 
     fun setCamera(on: Boolean) {
         current ?: return
-        _state.update { it?.copy(camera = on) }
+        live { it.copy(camera = on) }
         scope.launch { runCatching { transport?.setCamera(on) } }
     }
 
@@ -271,7 +271,7 @@ internal class Calls(
             if (savingHere) transport?.stopRecording()?.let { savedAs = it }
             savingHere = false
         }
-        _state.update { it?.copy(saving = on, askToSave = false) }
+        live { it.copy(saving = on, askToSave = false) }
         scope.launch { keepOnServer(call, on) }
     }
 
@@ -302,7 +302,7 @@ internal class Calls(
     }
 
     /** "Save this call?" answered Not now. */
-    fun dismissAsk() = _state.update { it?.copy(askToSave = false) }
+    fun dismissAsk() = live { it.copy(askToSave = false) }
 
     /**
      * Call signalling in [chat] from [from] (a user; [ownCopy]: another phone of this user), at the server's [at].
@@ -362,7 +362,7 @@ internal class Calls(
             CallContent.VIEW -> {
                 here ?: return
                 if (ownCopy || call.of != me()) return
-                _state.update { it?.copy(viewers = it.viewers + (from to CallView(call.fill, call.aspect))) }
+                live { it.copy(viewers = it.viewers + (from to CallView(call.fill, call.aspect))) }
             }
         }
     }
@@ -391,6 +391,12 @@ internal class Calls(
             // Offline: the other side's ringing times out by itself.
         }
     }
+
+    /** Changes the call on screen while it is on; an ended one stays as it ended, and goes on time. */
+    private fun live(change: (CallUi) -> CallUi) = _state.update { c -> if (c == null || c.phase == CallPhase.ENDED) c else change(c) }
+
+    /** An ended call's "Call ended" goes now (Back, the app opening) or when its time is up ([id]: only that one). */
+    fun dismissEnded(id: String? = null) = _state.update { c -> if (c != null && c.phase == CallPhase.ENDED && (id == null || c.id == id)) null else c }
 
     private fun show(call: CallUi) {
         clearing?.cancel()
@@ -422,7 +428,9 @@ internal class Calls(
         if (outcome == CallOutcome.MISSED) host?.missed(call.chat, call.caller, call.video)
         clearing = scope.launch {
             delay(SHOW_ENDED)
-            if (_state.value === ended) _state.value = null
+            // By its id: anything that changed it meanwhile (a camera turn, a view) must not keep it up forever
+            // (2026-11-23, hen: "the screen stayed on Call ended and Back doesn't work").
+            dismissEnded(ended.id)
         }
     }
 
@@ -483,7 +491,7 @@ internal class Calls(
                 if (camera == event) return@launch
                 camera = event
                 val turned = rotation == 90 || rotation == 270
-                if (height > 0 && width > 0) _state.update { it?.copy(ownAspect = if (turned) height.toFloat() / width else width.toFloat() / height) }
+                if (height > 0 && width > 0) live { it.copy(ownAspect = if (turned) height.toFloat() / width else width.toFloat() / height) }
                 val call = current ?: return@launch
                 if (serverKeeping) log(call, event)
             }
@@ -508,7 +516,7 @@ internal class Calls(
         const val RING_IF_NEWER = 30_000L
 
         /** How long the call screen shows how it ended. */
-        const val SHOW_ENDED = 2_000L
+        const val SHOW_ENDED = 1_500L
 
         private fun ByteArray.toHex(): String = joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
     }

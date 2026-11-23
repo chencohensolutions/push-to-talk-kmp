@@ -16,8 +16,13 @@ import com.chencohen.ptt.ui.talk.ChoiceRow
 
 /** Settings › Call settings (docs/screens/settings.md): Ringtone, Video, Advanced, and a row to Saving calls. */
 @Composable
-internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change: (TalkSettings) -> Unit, openSaving: () -> Unit = {}) {
+internal fun CallSettingsScreen(settings: TalkSettings, back: () -> Unit, change: (TalkSettings) -> Unit, openSaving: () -> Unit = {}, openLayout: () -> Unit = {}) {
     SettingsScaffold(stringResource(R.string.settings_calls_title), back) {
+        // How a video call looks (2026-11-23, hen): its own screen with a small picture of it.
+        SectionTitle(stringResource(R.string.layout_section_calls))
+        SettingsCard {
+            com.chencohen.ptt.ui.style.InfoRow(stringResource(R.string.layout_title), stringResource(R.string.layout_row_body), onClick = openLayout)
+        }
         // How an incoming call rings: Talk's soft chime (the default) or the phone's ringtone (2026-11-22, hen).
         SectionTitle(stringResource(R.string.calls_ring_title))
         SettingsCard {

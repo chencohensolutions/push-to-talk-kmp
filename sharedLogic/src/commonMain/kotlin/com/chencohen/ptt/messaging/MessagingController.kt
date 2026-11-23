@@ -130,6 +130,12 @@ class MessagingController internal constructor(
         }
     }
 
+    /** Live typing: the line to [user] is [text] now (sent only when the setting is on; throttled there). */
+    fun draft(user: String, text: String) = onWork { messaging.draft(user, text) }
+
+    /** The line to [user] was sent: no more drafts for it. */
+    fun draftDone(user: String) = onWork { messaging.draftDone(user) }
+
     /** Typing to [user] started or stopped (the screen throttles it). */
     fun typing(user: String, typing: Boolean) {
         scope.launch { withContext(work) { messaging.sendTyping(user, typing) } }
@@ -281,6 +287,9 @@ class MessagingController internal constructor(
 
     /** "Save this call?" answered Not now. */
     fun dismissSaveAsk() = onWork { messaging.calls.dismissAsk() }
+
+    /** "Call ended" goes now (Back, or the app opening on it). */
+    fun dismissEndedCall() = onWork { messaging.calls.dismissEnded() }
 
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     fun pressTalk(chat: String) = onWork { messaging.talk.press(chat) }

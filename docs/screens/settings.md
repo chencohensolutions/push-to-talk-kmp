@@ -16,6 +16,12 @@ and each time the connection's state changes.
 
 ## Privacy
 
+- **Live typing** (2026-11-23, hen; off by default): what you write in a chat (or the quick-reply window) goes to the
+  contact as you write it, letter by letter, deletions too, before Send; they see it as an outlined "Writing…" bubble
+  that the message replaces. End to end encrypted like a message, live only: an ephemeral Send (never stored on the
+  server, never pushed, missed by a phone that isn't connected), about ten updates a second at most, and again every
+  ten seconds while it stays. Off: the contact sees only "typing…".
+
 - **Show when I’m online:** "On: your contacts see when you’re online and when you were last seen. Tap to turn off."
   or "Off: nobody sees when you’re online, and you don’t see theirs. …"; a tap switches it (`setPresenceVisible`);
   "Couldn’t change it: the server didn’t answer." when it can't.
@@ -30,7 +36,13 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
   `res/raw/message_soft.ogg`, made by `tools/ringtone/make_message.py`, on the `messages_soft` channel) or **Phone's
   sound** (the first `messages` channel, "Messages (phone's sound)"). Each is its own channel because a channel's sound
   can't change once made; Android's own settings for each still apply.
-- **Call settings** ("Ringtone, video quality, saving calls"; 2026-11-22, hen: not only recording): Ringtone,
+- **Call settings** ("Ringtone, video quality, saving calls"; 2026-11-22, hen: not only recording): first a
+  **Video call layout** row (2026-11-23, hen, from the approved mockup) opening its own screen (`VideoLayoutScreen`):
+  a small call screen at the top that shows the choices as they change (their figure, your window, the face kept
+  below your window when it is at the top), then **Layout** (Maximized | Normal), **Follow face**, **Face height**
+  (Higher to Lower), **Zoom** (Whole to Close, for the layout chosen) and **Your video** (six places, three across and
+  two down, drawn mirrored in Hebrew), and **In a call**: Tap, Pinch, Drag up or down, Drag your video. The values are
+  the call screen's own, so a change in a call shows here and the other way round. Then Ringtone,
   Video, Advanced, then a **Saving calls** row (showing Off, Ask each time or Always) that opens its own screen
   (`SavingCallsScreen`): Off, Ask, Always, with the note on who keeps a saved call, then Save calls to.
 - **Calls › Ringtone** (2026-11-22, hen): **Talk soft chime** (the default: a rising pentatonic chime in a 4-second

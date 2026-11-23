@@ -13,6 +13,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.random.Random
@@ -517,6 +518,37 @@ class MessagingTest {
         advanceUntilIdle()
         assertEquals("wake up", hen.store.messagesWith("dana").single().body)
         assertEquals(com.chencohen.ptt.relay.SocketState.Stopped, hen.state.socket, "closed again after the wake-up")
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun liveTypingSendsTheDraftLiveOnlyAndTheMessageReplacesIt() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+
+        // Off (the default): nothing is sent.
+        val before = server.ephemeral.size
+        dana.messaging.draft("hen", "Hel")
+        advanceTimeBy(500)
+        assertEquals(before, server.ephemeral.size)
+        assertFalse("dana" in hen.state.drafts)
+
+        dana.messaging.setTalkSettings(dana.messaging.talkSettings().copy(liveTyping = true))
+        dana.messaging.draft("hen", "Hel")
+        dana.messaging.draft("hen", "Hello")
+        advanceTimeBy(500)
+        assertEquals("Hello", hen.state.drafts["dana"]?.text, "the newest text, coalesced")
+        assertTrue(server.ephemeral.last(), "live only: never queued")
+        assertEquals(PushKind.NONE, server.pushKinds.last())
+        dana.messaging.draft("hen", "Hell")
+        advanceTimeBy(500)
+        assertEquals("Hell", hen.state.drafts["dana"]?.text, "a deletion shows too")
+        dana.messaging.draftDone("hen")
+        dana.messaging.sendText("hen", "Hello there")
+        advanceUntilIdle()
+        assertFalse("dana" in hen.state.drafts, "the message replaces the draft")
         listOf(hen, dana).forEach { it.stop() }
     }
 

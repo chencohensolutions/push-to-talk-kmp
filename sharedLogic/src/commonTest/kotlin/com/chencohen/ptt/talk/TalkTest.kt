@@ -251,7 +251,7 @@ class TalkTest {
     @Test
     fun withVideoTheCameraGoesInTheBurstAndShowsBesideTheVoice() = runTest {
         val (server, hen, dana) = paired()
-        hen.talk.sendVideo = { true }
+        hen.talk.sendVideo = { _ -> true }
         hen.work.launch { hen.talk.press("dana") }
         advanceUntilIdle()
         // A big key frame (more than one segment's worth) and small ones, between the voice's packets.
@@ -282,7 +282,7 @@ class TalkTest {
     @Test
     fun severalVideoBurstsInARowEachShowTheirPictures() = runTest {
         val (_, hen, dana) = paired()
-        hen.talk.sendVideo = { true }
+        hen.talk.sendVideo = { _ -> true }
         repeat(3) { n ->
             hen.work.launch { hen.talk.press("dana") }
             advanceUntilIdle()

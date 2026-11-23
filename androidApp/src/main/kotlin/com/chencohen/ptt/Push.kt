@@ -35,6 +35,8 @@ class TalkApp : Application() {
         val notifications = Notifications(this)
         setMessageNotifier(this, notifications)
         QuickReplyWindow.notifications = notifications
+        TalkPlaying.onQuietEnd = { notifications.postQuietly() }
+        com.chencohen.ptt.talk.AndroidTalkVideoOut.onStep = { WakeTimeline.mark(it) }
         setTalkHost(this, AndroidTalkHost(this))
         CallNotifications.createChannels(this)
         AppUpdates.createChannel(this)
@@ -103,6 +105,7 @@ class TalkMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val kind = message.data["kind"] ?: return
         Log.i("Push", "woken: $kind (priority ${message.priority})")
+        WakeTimeline.begin("push ($kind)")
         val app = applicationContext as TalkApp
         // A new app release on the server's GitHub watch: no queue to take (docs/design.md, "App updates").
         if (kind == "app_update") {

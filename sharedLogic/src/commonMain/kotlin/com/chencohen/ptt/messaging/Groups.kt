@@ -48,7 +48,7 @@ internal class Groups(
     private val onText: (Group, TextMessage) -> Unit,
     /** A clip's key in a group (a burst or a voice message): from [author], at the server's time. */
     private val onClip: (group: Group, author: String, clip: ClipContent, at: Long) -> Unit = { _, _, _, _ -> },
-    private val onTyping: (Group, String, Boolean) -> Unit,
+    private val onTyping: (Group, String, Boolean, String?) -> Unit,
     /** A member device's live talk key in the group's room. */
     private val onTalkKey: (identity: String, key: TalkKeyContent) -> Unit = { _, _ -> },
     /** A call's signalling in the group, from [author]. */
@@ -298,7 +298,7 @@ internal class Groups(
      * devices are kept, readers' new devices get the key over their pairwise sessions, and it goes again; a device
      * that is gone means a new key for everyone.
      */
-    suspend fun send(id: String, content: Content, pushKind: Int) {
+    suspend fun send(id: String, content: Content, pushKind: Int, ephemeral: Boolean = false) {
         val self = self()
         repeat(attempts) {
             var group = store.group(id) ?: throw GroupUnavailableException("No such group")
@@ -317,6 +317,7 @@ internal class Groups(
                 Send(
                     envelopes = listOf(Envelope(type = EnvelopeType.SENDER_KEY_MESSAGE, ciphertext = ciphertext)),
                     pushKind = pushKind,
+                    ephemeral = ephemeral,
                     group = id,
                     groupDevices = devices.entries.sortedBy { it.key }.map { (user, numbers) ->
                         UserDevices(user, numbers.sorted().map { n -> ActiveDevice(n, group.keyHolders["$user.$n"] ?: 0) })
@@ -417,7 +418,7 @@ internal class Groups(
             )
             onText(group, message)
         }
-        content.typing?.let { if (author != self.user) onTyping(group, author, it.typing) }
+        content.typing?.let { if (author != self.user) onTyping(group, author, it.typing, it.draft) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }
         content.talkKey?.let { onTalkKey("$author.${envelope.senderDevice}", it) }
         content.call?.let { onCall(group, author, it, envelope.serverTimestamp) }

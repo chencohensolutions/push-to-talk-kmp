@@ -9,10 +9,17 @@ package com.chencohen.ptt.talk
  * bytes), the piece's index and the count (1 byte each), its time from the press in milliseconds (4 bytes), flags (1
  * byte: 1 a key frame, carrying its parameter sets; the codec in bits 4-5: [VP8], [H265] or [H264]), the rotation in quarter turns clockwise to show it upright (1 byte),
  * then the bytes. A frame is cut into pieces of at most [PIECE] bytes, so a segment stays under the server's 16 KB.
+ *
+ * Follow face in push-to-video (2026-11-23, hen): [FACE] then where the sender's face is, twice a second: its time
+ * from the press in milliseconds (4 bytes), then its centre and height as shares of the upright picture (2 bytes each,
+ * 0 to 65535). It travels inside the encrypted clip, so a replay has it too. Apps before 1.4.14 skip any first byte
+ * they don't know (their Splitter takes only [AUDIO] and [VIDEO]), so they play such a clip as before.
  */
 object TalkVideo {
     const val AUDIO: Byte = 0
     const val VIDEO: Byte = 1
+    const val FACE: Byte = 2
+    private const val FACE_SIZE = 1 + 4 + 2 + 2 + 2
     const val PIECE = 3000
     private const val HEADER = 1 + 2 + 1 + 1 + 4 + 1 + 1
 
@@ -24,6 +31,33 @@ object TalkVideo {
     class Frame(val ptsMs: Long, val key: Boolean, val rotation: Int, val data: ByteArray, val codec: Int = VP8)
 
     fun audio(opus: ByteArray): ByteArray = byteArrayOf(AUDIO) + opus
+
+    /** Where the sender's face is at [ptsMs]: its centre ([x], [y]) and [h]eight, shares of the upright picture. */
+    data class Face(val ptsMs: Long, val x: Float, val y: Float, val h: Float)
+
+    fun face(face: Face): ByteArray {
+        fun share(v: Float) = (v.coerceIn(0f, 1f) * 65535f + 0.5f).toInt()
+        val out = ByteArray(FACE_SIZE)
+        out[0] = FACE
+        val pts = face.ptsMs.toInt()
+        out[1] = (pts ushr 24).toByte()
+        out[2] = (pts ushr 16).toByte()
+        out[3] = (pts ushr 8).toByte()
+        out[4] = pts.toByte()
+        listOf(face.x, face.y, face.h).forEachIndexed { i, v ->
+            val n = share(v)
+            out[5 + 2 * i] = (n ushr 8).toByte()
+            out[6 + 2 * i] = n.toByte()
+        }
+        return out
+    }
+
+    private fun readFace(p: ByteArray): Face? {
+        if (p.size < FACE_SIZE) return null
+        fun u16(at: Int) = ((p[at].toInt() and 0xff) shl 8 or (p[at + 1].toInt() and 0xff)) / 65535f
+        val pts = ((p[1].toLong() and 0xff) shl 24) or ((p[2].toLong() and 0xff) shl 16) or ((p[3].toLong() and 0xff) shl 8) or (p[4].toLong() and 0xff)
+        return Face(pts, u16(5), u16(7), u16(9))
+    }
 
     /** [frame] as packets of at most [PIECE] bytes of it each. */
     fun pieces(number: Int, frame: Frame): List<ByteArray> {
@@ -56,13 +90,15 @@ object TalkVideo {
         private val pieces = HashMap<Int, ByteArray>()
         private var count = 0
 
-        fun split(packets: List<ByteArray>, frames: (Frame) -> Unit): List<ByteArray> {
+        /** [faces] gets the sender's face positions (Follow face); anything else unknown is skipped. */
+        fun split(packets: List<ByteArray>, frames: (Frame) -> Unit, faces: (Face) -> Unit = {}): List<ByteArray> {
             val audio = ArrayList<ByteArray>(packets.size)
             for (p in packets) {
                 if (p.isEmpty()) continue
                 when (p[0]) {
                     AUDIO -> audio += p.copyOfRange(1, p.size)
                     VIDEO -> piece(p)?.let(frames)
+                    FACE -> readFace(p)?.let(faces)
                 }
             }
             return audio
@@ -102,6 +138,9 @@ interface TalkVideoCapture {
      */
     fun start(onFrame: (TalkVideo.Frame) -> Unit): Boolean
 
+    /** While sending: where the face is, twice a second (Follow face); null: stop looking. */
+    fun faces(onFace: ((TalkVideo.Face) -> Unit)?) {}
+
     fun stop()
 }
 
@@ -111,6 +150,9 @@ interface TalkVideoOut {
     fun begin(clip: String)
 
     fun frame(clip: String, frame: TalkVideo.Frame)
+
+    /** Where the sender's face is in [clip]'s pictures at a moment (Follow face). */
+    fun face(clip: String, face: TalkVideo.Face) {}
 
     /** How far [clip]'s audio has played, so the pictures keep with the voice. */
     fun position(clip: String, playedMs: Long) {}

@@ -13,6 +13,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.animation.core.VectorConverter
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clipToBounds
@@ -291,6 +299,18 @@ fun CallScreen(
         val stats = statsAllowed && statsShown
         // Follow face (2026-11-23, hen): on what is received, this phone's view only; kept for next time.
         var followThem by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("follow_remote", false)) }
+        // Maximized 1:1 (2026-11-23, hen): where their face sits (a share of the height; one finger up or down on their
+        // video), where this phone's window rests (one of six places), and the part of the screen it covers.
+        var faceAt by remember { androidx.compose.runtime.mutableFloatStateOf(prefs.getFloat("face_at", 0.33f)) }
+        var ownSlot by remember { androidx.compose.runtime.mutableIntStateOf(prefs.getInt("own_slot", 5)) }
+        var ownArea by remember { androidx.compose.runtime.mutableStateOf<com.chencohen.ptt.calls.CallGrid.Area?>(null) }
+        var screenHeight by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+        val dragFace: (Float) -> Unit = { dy ->
+            if (screenHeight > 0f) {
+                faceAt = (faceAt + dy / screenHeight).coerceIn(0.15f, 0.85f)
+                prefs.edit().putFloat("face_at", faceAt).apply()
+            }
+        }
         val own = r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
         val ownShape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
         // Their pictures' shapes, from their frames: Normal sizes their video by it.
@@ -302,6 +322,8 @@ fun CallScreen(
         // Three or more in the call: everyone, this phone too, in equal tiles (2026-11-23, hen).
         val group = call.phase == CallPhase.ACTIVE && remote.size >= 2
         val normal = !maximized && remote.isNotEmpty() && !group
+        // Their one video over the whole screen: the face height and this phone's window places apply.
+        val solo = maximized && remote.size == 1 && !group
 
         // Each tile's shape and whether it is cropped go to its sender (their preview outlines the crop).
         fun Modifier.told(user: String) = onSizeChanged { size ->
@@ -314,7 +336,7 @@ fun CallScreen(
                 Row(modifier) {
                     remote.forEach { (user, track) ->
                         key(user, track.sid ?: track.name, maximized) {
-                            VideoView(r!!, track, Modifier.weight(1f).fillMaxSize().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first, hint = { transport?.faceHint(user) })
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxSize().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first, hint = { transport?.faceHint(user) }, pinchKey = if (remote.size == 1) (if (maximized) "zoom_maximized" else "zoom_normal") else null, faceAt = if (solo) faceAt else 0.4f, dragFace = if (solo) dragFace else null, avoid = if (solo) ownArea else null, pan = solo)
                         }
                     }
                 }
@@ -322,7 +344,7 @@ fun CallScreen(
                 Column(modifier) {
                     remote.forEach { (user, track) ->
                         key(user, track.sid ?: track.name, maximized) {
-                            VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first, hint = { transport?.faceHint(user) })
+                            VideoView(r!!, track, Modifier.weight(1f).fillMaxWidth().told(user), fill = maximized, stats = stats, onShape = { shapes[user] = it }, follow = followThem && user == remote.first().first, hint = { transport?.faceHint(user) }, pinchKey = if (remote.size == 1) (if (maximized) "zoom_maximized" else "zoom_normal") else null, faceAt = if (solo) faceAt else 0.4f, dragFace = if (solo) dragFace else null, avoid = if (solo) ownArea else null, pan = solo)
                         }
                     }
                 }
@@ -353,7 +375,7 @@ fun CallScreen(
                     val tiles = remote + listOfNotNull(own?.let { "" to it })
                     val grid = com.chencohen.ptt.calls.CallGrid.shape(tiles.size, constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
                     // About three looks a second in all, shared out among the tiles.
-                    val every = (1_000L * tiles.size / 3).coerceAtLeast(com.chencohen.ptt.calls.FaceFinder.EVERY_MS)
+                    val every = 500L * tiles.size
                     Column(Modifier.fillMaxSize()) {
                         for (row in 0 until grid.rows) {
                             Row(Modifier.weight(1f).fillMaxWidth()) {
@@ -414,17 +436,15 @@ fun CallScreen(
                 else -> {
                     if (remote.isNotEmpty()) theirs(Modifier.fillMaxSize())
                     if (own != null && !group) {
-                        // A small window in the corner, above the buttons while they show.
-                        val lift by androidx.compose.animation.core.animateDpAsState(if (shown) 150.dp else 16.dp, label = "own window")
-                        val aside by androidx.compose.animation.core.animateDpAsState(if (shown) 104.dp else 16.dp, label = "own window aside")
-                        val window = if (ownShape >= 1f) Modifier.size(width = 160.dp, height = (160 / ownShape).dp) else Modifier.size(width = (160 * ownShape).dp, height = 160.dp)
-                        // On its side: away from the camera, beside the buttons' column, not under it.
-                        val place = when {
-                            !landscape -> Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = lift)
-                            cameraLeft -> Modifier.align(Alignment.BottomEnd).padding(end = aside, bottom = 16.dp)
-                            else -> Modifier.align(Alignment.BottomStart).padding(start = aside, bottom = 16.dp)
-                        }
-                        mine(place.then(window).clip(RoundedCornerShape(12.dp)))
+                        OwnWindow(ownShape, shown, landscape, cameraLeft, ownSlot, { slot ->
+                            ownSlot = slot
+                            prefs.edit().putInt("own_slot", slot).apply()
+                        }, { area, height ->
+                            ownArea = area
+                            screenHeight = height
+                        }) { m -> mine(m) }
+                    } else {
+                        androidx.compose.runtime.SideEffect { ownArea = null }
                     }
                 }
             }
@@ -594,6 +614,76 @@ private fun rememberDisplayRotation(): Int {
     return rotation
 }
 
+/** This phone's window over their video: 160 dp on its long side, at the camera's shape. */
+internal fun ownWindowDp(shape: Float): Pair<Float, Float> = if (shape >= 1f) 160f to 160f / shape else 160f * shape to 160f
+
+/**
+ * This phone's window over their video (Maximized; 2026-11-23, hen): rests in one of six places (top or bottom, left,
+ * centre or right; [slot] 0 to 5), clear of the bars and cutout, of the top lines and the buttons while they show, and
+ * on its side of the buttons' column. A drag moves it with the finger; let go, it slides to the nearest place, kept for
+ * next time. [area] gets the part of the screen it covers when resting (shares), and the screen's height.
+ */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.OwnWindow(
+    shape: Float,
+    shown: Boolean,
+    landscape: Boolean,
+    cameraLeft: Boolean,
+    slot: Int,
+    setSlot: (Int) -> Unit,
+    area: (com.chencohen.ptt.calls.CallGrid.Area, Float) -> Unit,
+    content: @Composable (Modifier) -> Unit,
+) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.matchParentSize()) {
+        val d = androidx.compose.ui.platform.LocalDensity.current
+        val w = constraints.maxWidth.toFloat()
+        val h = constraints.maxHeight.toFloat()
+        val (winW, winH) = ownWindowDp(shape)
+        val ww = with(d) { winW.dp.toPx() }
+        val wh = with(d) { winH.dp.toPx() }
+        val safe = androidx.compose.foundation.layout.WindowInsets.safeDrawing
+        val dir = androidx.compose.ui.platform.LocalLayoutDirection.current
+        val m = with(d) { 16.dp.toPx() }
+        // While the controls show: below the top lines, above the buttons; on its side, beside the buttons' column.
+        val topLift by androidx.compose.animation.core.animateDpAsState(if (shown) (if (landscape) 0.dp else 120.dp) else 0.dp, label = "own top")
+        val bottomLift by androidx.compose.animation.core.animateDpAsState(if (shown && !landscape) 134.dp else 0.dp, label = "own bottom")
+        val aside by androidx.compose.animation.core.animateDpAsState(if (shown && landscape) 88.dp else 0.dp, label = "own aside")
+        val slots = com.chencohen.ptt.calls.CallGrid.windowSlots(
+            w, h, ww, wh,
+            safe.getLeft(d, dir).toFloat(), safe.getTop(d).toFloat(), safe.getRight(d, dir).toFloat(), safe.getBottom(d).toFloat(), m,
+            topLift = with(d) { topLift.toPx() }, bottomLift = with(d) { bottomLift.toPx() },
+            asideLeft = if (landscape && !cameraLeft) with(d) { aside.toPx() } else 0f,
+            asideRight = if (landscape && cameraLeft) with(d) { aside.toPx() } else 0f,
+        )
+        val rest = slots[slot.coerceIn(0, 5)]
+        val at = remember { androidx.compose.animation.core.Animatable(androidx.compose.ui.geometry.Offset(rest.first, rest.second), androidx.compose.ui.geometry.Offset.VectorConverter) }
+        var dragging by remember { androidx.compose.runtime.mutableStateOf(false) }
+        LaunchedEffect(rest, dragging) {
+            if (!dragging) at.animateTo(androidx.compose.ui.geometry.Offset(rest.first, rest.second), androidx.compose.animation.core.tween(250))
+        }
+        androidx.compose.runtime.SideEffect { area(com.chencohen.ptt.calls.CallGrid.Area(rest.first / w, rest.second / h, (rest.first + ww) / w, (rest.second + wh) / h), h) }
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        content(
+            Modifier.absoluteOffset { androidx.compose.ui.unit.IntOffset(at.value.x.toInt(), at.value.y.toInt()) }
+                .size(winW.dp, winH.dp)
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { dragging = true },
+                        onDragEnd = {
+                            setSlot(com.chencohen.ptt.calls.CallGrid.nearest(slots, at.value.x, at.value.y))
+                            dragging = false
+                        },
+                        onDragCancel = { dragging = false },
+                    ) { change, amount ->
+                        change.consume()
+                        scope.launch { at.snapTo(at.value + amount) }
+                    }
+                }
+                .clip(RoundedCornerShape(12.dp)),
+        )
+    }
+}
+
 /** A small pill over the video: [on] in the inverse colour. */
 @Composable
 private fun Pill(text: String, on: Boolean = false, onClick: () -> Unit) {
@@ -680,9 +770,20 @@ private fun VideoView(
     follow: Boolean = false,
     maxZoom: Float = 1.8f,
     faceAt: Float = 0.4f,
-    everyMs: Long = 100L,
+    everyMs: Long = 500L,
     /** The sender's newest face hint (FaceHint), when it sends them: used instead of looking here. */
     hint: () -> com.chencohen.ptt.calls.FaceHint? = { null },
+    /**
+     * Pinch to zoom (2026-11-23, hen), kept under this name: from the whole picture fitted (1.0) up to Follow face's
+     * most; Follow face keeps the face centred at the zoom pinched. Null: no pinching here.
+     */
+    pinchKey: String? = null,
+    /** One finger up or down on it moves where the face sits (Maximized 1:1), in pixels. */
+    dragFace: ((Float) -> Unit)? = null,
+    /** This phone's window over it (shares of it): the face is kept clear of it. */
+    avoid: com.chencohen.ptt.calls.CallGrid.Area? = null,
+    /** Follow face off: the face height pans the picture instead. */
+    pan: Boolean = false,
 ) {
     val context = LocalContext.current
     val renderer = remember(track) { TextureViewRenderer(context).also { room.initVideoRenderer(it); it.setMirror(mirror) } }
@@ -721,9 +822,14 @@ private fun VideoView(
     // so Follow face can slide over all of it.
     val bw = boxSize.width.toFloat()
     val bh = boxSize.height.toFloat()
-    val content = if (aspect > 0f && bw > 0f && bh > 0f) com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, fill) else null
-    val framing = followFace(track, follow, fill, boxSize, content, maxZoom, faceAt, everyMs, hint)
-    Box(modifier.clipToBounds().onSizeChanged { boxSize = it }, contentAlignment = Alignment.Center) {
+    // Pinching: the picture laid out whole (fitted), and its zoom from 1.0 up: Maximized starts at the zoom that fills.
+    val pinching = pinchKey != null && aspect > 0f && bw > 0f && bh > 0f
+    val content = if (aspect > 0f && bw > 0f && bh > 0f) com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, fill && !pinching) else null
+    val coverRatio = if (pinching) { val fit = com.chencohen.ptt.calls.CallGrid.content(bw, bh, aspect, false); maxOf(bw / fit.first, bh / fit.second) } else 1f
+    val zoomMost = if (fill) coverRatio * 1.5f else maxZoom
+    val pinch = rememberPinch(pinchKey, pinching, if (fill) coverRatio else 1f, zoomMost, dragFace)
+    val framing = followFace(track, follow, fill, boxSize, content, maxZoom, faceAt, everyMs, hint, pinch.zoom, avoid, pan)
+    Box(modifier.clipToBounds().onSizeChanged { boxSize = it }.then(pinch.modifier), contentAlignment = Alignment.Center) {
         val density = androidx.compose.ui.platform.LocalDensity.current
         val shaped = if (content != null) {
             with(density) { Modifier.requiredSize(content.first.toDp(), content.second.toDp()) }
@@ -761,6 +867,10 @@ private fun followFace(
     faceAt: Float = 0.4f,
     everyMs: Long = com.chencohen.ptt.calls.FaceFinder.EVERY_MS,
     hint: () -> com.chencohen.ptt.calls.FaceHint? = { null },
+    /** The zoom pinched (null: no pinching here; Follow face picks it). */
+    zoom: Float? = null,
+    avoid: com.chencohen.ptt.calls.CallGrid.Area? = null,
+    pan: Boolean = false,
 ): Modifier {
     var box by remember(track) { androidx.compose.runtime.mutableStateOf<android.graphics.RectF?>(null) }
     var seenAt by remember(track) { androidx.compose.runtime.mutableLongStateOf(0L) }
@@ -786,60 +896,37 @@ private fun followFace(
             finder.close()
         }
     }
-    // The sender's newest hint, read at the frame rate (they come up to 15 a second); lost for 1.5 s: back to the
-    // plain picture.
+    // The face's real size (a share of the picture's height), kept now and then for Settings' picture of the layout.
+    val context = LocalContext.current
+    LaunchedEffect(track, on) {
+        val prefs = context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE)
+        var sum = 0f
+        var n = 0
+        while (on) {
+            delay(1_000)
+            box?.let { b ->
+                sum += b.height()
+                n++
+                if (n >= 5) {
+                    prefs.edit().putFloat("face_h", (sum / n).coerceIn(0.08f, 0.8f)).apply()
+                    sum = 0f
+                    n = 0
+                }
+            }
+        }
+    }
+    // The sender's newest hint (twice a second); lost for 1.5 s: back to the plain picture.
     LaunchedEffect(track, on) {
         while (on) {
             hint()?.let { h ->
-                box = android.graphics.RectF(h.x - h.h * 0.375f, h.y - h.h / 2, h.x + h.h * 0.375f, h.y + h.h / 2)
+                box = faceBox(h.x, h.y, h.h)
                 seenAt = android.os.SystemClock.elapsedRealtime()
             }
             if (box != null && android.os.SystemClock.elapsedRealtime() - seenAt > 1_500) box = null
-            delay(33)
+            delay(100)
         }
     }
-    // The target: scale and offset of the picture in the box; moved only past a dead zone.
-    var target by remember(track) { androidx.compose.runtime.mutableStateOf(Triple(1f, 0f, 0f)) }
-    val b = box
-    val bw = boxSize.width.toFloat()
-    val bh = boxSize.height.toFloat()
-    if (b == null || content == null || bw <= 0f || bh <= 0f) {
-        if (target != Triple(1f, 0f, 0f)) target = Triple(1f, 0f, 0f)
-    } else {
-        val (cw, ch) = content
-        val p = com.chencohen.ptt.calls.CallGrid.place(
-            bw, bh, cw, ch, b.centerX(), b.centerY(), b.height(),
-            maxZoom = if (fill) minOf(maxZoom, 1.5f) else maxZoom, targetY = faceAt,
-        )
-        val zoom = p.scale
-        val tx = p.x
-        val ty = p.y
-        val (s0, x0, y0) = target
-        // Only a small dead zone against jitter: the crop follows the face as it moves.
-        if (kotlin.math.abs(zoom - s0) > 0.03f || kotlin.math.abs(tx - x0) > bw * 0.015f || kotlin.math.abs(ty - y0) > bh * 0.015f) {
-            target = Triple(zoom, tx, ty)
-        }
-    }
-    // Straight to the face when Follow face is turned on, a call starts or a tile appears (2026-11-23, hen: "instantly,
-    // without delay"); after that one frame's smoothing, and a short ease back to the plain picture.
-    var placed by remember(track, on) { androidx.compose.runtime.mutableStateOf(false) }
-    val plain = target == Triple(1f, 0f, 0f)
-    val ease: androidx.compose.animation.core.AnimationSpec<Float> = when {
-        !placed && !plain -> androidx.compose.animation.core.snap()
-        plain -> androidx.compose.animation.core.tween(250)
-        else -> androidx.compose.animation.core.tween(40)
-    }
-    LaunchedEffect(plain) { if (!plain) placed = true }
-    val s by androidx.compose.animation.core.animateFloatAsState(target.first, ease, label = "follow zoom")
-    val x by androidx.compose.animation.core.animateFloatAsState(target.second, ease, label = "follow x")
-    val y by androidx.compose.animation.core.animateFloatAsState(target.third, ease, label = "follow y")
-    return Modifier.graphicsLayer {
-        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-        scaleX = s
-        scaleY = s
-        translationX = x
-        translationY = y
-    }
+    return faceFraming(track, on, fill, boxSize, content, maxZoom, faceAt, box, zoom, avoid, pan)
 }
 
 /**

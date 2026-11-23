@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -274,11 +275,19 @@ internal fun TalkModeScreen(
     peerHere: Boolean = false,
     /** Opened over the lock screen for a burst: its video fills the whole screen while it plays (2026-11-23, hen). */
     fullScreenVideo: Boolean = false,
+    /** Save as file (a long press on a burst). */
+    saveClip: ((String) -> Unit)? = null,
 ) {
     Box(Modifier.fillMaxSize()) {
-    TalkModeContent(chat, title, me, talk, liveRoom, bursts, nameOf, press, release, play, close, micDenied, warmMicrophone, openChat, call, pushVideo, setPushVideo, warmCamera, setHere, peerHere)
-    if (fullScreenVideo && talk.playing?.let { it.chat == chat && it.video } == true) {
-        TalkVideoView(Modifier.fillMaxSize(), cover = true)
+    TalkModeContent(chat, title, me, talk, liveRoom, bursts, nameOf, press, release, play, close, micDenied, warmMicrophone, openChat, call, pushVideo, setPushVideo, warmCamera, setHere, peerHere, saveClip)
+    // Woken for a burst: its video, or black, never the app's own screen (2026-11-23, hen: "the screen should be
+    // blank").
+    if (fullScreenVideo) {
+        if (talk.playing?.let { it.chat == chat && it.video } == true) {
+            TalkVideoView(Modifier.fillMaxSize(), cover = true)
+        } else {
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black))
+        }
     }
     }
 }
@@ -305,6 +314,7 @@ private fun TalkModeContent(
     warmCamera: (String?) -> Unit,
     setHere: (String?) -> Unit,
     peerHere: Boolean,
+    saveClip: ((String) -> Unit)?,
 ) {
     WarmMicrophone(warmMicrophone)
     WarmCamera(chat, pushVideo, warmCamera)
@@ -384,7 +394,7 @@ private fun TalkModeContent(
             ) {
                 items(bursts.takeLast(10).asReversed(), key = { it.id }) { m ->
                     val who = if (m.outgoing) stringResource(R.string.talk_you) else nameOf(m.author ?: m.user)
-                    ClipRow(m, who, talk.playing, play)
+                    ClipRow(m, who, talk.playing, play, saveClip)
                 }
             }
         }
@@ -393,11 +403,11 @@ private fun TalkModeContent(
 
 /** A clip in a list: play, who, how long, when. */
 @Composable
-private fun ClipRow(message: TextMessage, who: String, playing: NowPlaying?, play: (String) -> Unit) {
+private fun ClipRow(message: TextMessage, who: String, playing: NowPlaying?, play: (String) -> Unit, save: ((String) -> Unit)? = null) {
     val clip = message.clip ?: return
     val now = playing?.clip == message.id
     Row(
-        Modifier.fillMaxWidth().background(LibraryColors.Raised, LibraryShapes.Tile).clickable(role = Role.Button) { play(message.id) }
+        Modifier.fillMaxWidth().background(LibraryColors.Raised, LibraryShapes.Tile).combinedClickable(role = Role.Button, onLongClick = save?.let { s -> { s(message.id) } }) { play(message.id) }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -412,13 +422,14 @@ private fun ClipRow(message: TextMessage, who: String, playing: NowPlaying?, pla
 
 /** A clip inside a chat bubble: Play or Pause, a bar while it plays, its length, and "Talk" for a burst. */
 @Composable
-internal fun ClipContent(message: TextMessage, playing: NowPlaying?, live: Boolean, play: (String) -> Unit, stop: () -> Unit, onInverse: Boolean) {
+internal fun ClipContent(message: TextMessage, playing: NowPlaying?, live: Boolean, play: (String) -> Unit, stop: () -> Unit, onInverse: Boolean, save: ((String) -> Unit)? = null) {
     val clip = message.clip ?: return
     val now = playing?.clip == message.id
     val ink = if (onInverse) LibraryColors.OnInverse else LibraryColors.OnBackground
     val muted = if (onInverse) LibraryColors.OnInverseMuted else LibraryColors.Muted
     Row(
-        Modifier.clickable(role = Role.Button) { if (now) stop() else play(message.id) }.padding(vertical = 2.dp),
+        // A long press saves it as a file (2026-11-23, hen).
+        Modifier.combinedClickable(role = Role.Button, onLongClick = save?.let { s -> { s(message.id) } }) { if (now) stop() else play(message.id) }.padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(36.dp).background(if (onInverse) LibraryColors.OnInverse.copy(alpha = 0.15f) else LibraryColors.Accent.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {

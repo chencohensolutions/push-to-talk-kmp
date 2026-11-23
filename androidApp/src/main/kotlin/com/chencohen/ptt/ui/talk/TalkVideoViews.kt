@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -222,38 +223,197 @@ private const val SMALL_SHARE = 0.32f
 @Composable
 internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false) {
     val shown by AndroidTalkVideoOut.shown.collectAsStateWithLifecycle()
-    val s = shown
+    // When the burst ends its shape goes before this view does: kept, so no frame is drawn sideways (2026-11-23, hen:
+    // "a one-frame glitch, some horizontal video for a blink").
+    var lastShown by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<AndroidTalkVideoOut.Shown?>(null) }
+    if (shown != null && shown != lastShown) lastShown = shown
+    val s = shown ?: lastShown
     val rotation = s?.rotation ?: 0
     val frameAspect = if (s != null && s.width > 0 && s.height > 0) s.width.toFloat() / s.height else 4f / 3f
     val turned = rotation % 180 != 0
-    // The box is the picture's upright shape: no bars.
-    // Cover (the Talk screen woken for a video burst, 2026-11-23, hen): the picture fills the screen, cropped.
-    val place: @Composable (Float, Modifier, Alignment, @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit) -> Unit =
-        if (cover) { shape, m, a, content -> CoverBox(shape, m, a, content) } else { shape, m, a, content -> FittedBox(shape, m, a, content) }
-    place(if (turned) 1f / frameAspect else frameAspect, modifier, alignment) { w, h ->
-        AndroidView(
-            factory = { context ->
-                TextureView(context).apply {
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        private var surface: Surface? = null
-                        override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
-                            surface = Surface(texture).also { AndroidTalkVideoOut.attach(it) }
-                        }
+    val upright = if (turned) 1f / frameAspect else frameAspect
+    // Follow face (2026-11-23, hen: "in push-to-video too"; then "optional, off by default"): its own choice, also in
+    // Settings › Talk; the sender's face positions (inside the clip) by the clip's own clock, or a look here twice a
+    // second when it sends none (an older app).
+    val context = LocalContext.current
+    val prefs = androidx.compose.runtime.remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
+    var follow by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean(FOLLOW_TALK, false)) }
+    var texture by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<TextureView?>(null) }
+    val local = talkFace(follow && s != null, s?.clip, texture, rotation)
+    // No closer than filling the box (2026-11-23, hen: "too zoomed"): Follow face only slides the fill crop.
+    @Composable
+    fun picture(w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp, framing: Modifier) {
+        Box(Modifier.requiredSize(w, h).then(framing), contentAlignment = Alignment.Center) {
+            AndroidView(
+                factory = { c ->
+                    TextureView(c).apply {
+                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                            private var surface: Surface? = null
+                            override fun onSurfaceTextureAvailable(t: SurfaceTexture, width: Int, height: Int) {
+                                surface = Surface(t).also { AndroidTalkVideoOut.attach(it) }
+                            }
 
-                        override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {}
-                        override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
-                            surface?.let { AndroidTalkVideoOut.detach(it); it.release() }
-                            return true
-                        }
+                            override fun onSurfaceTextureSizeChanged(t: SurfaceTexture, width: Int, height: Int) {}
+                            override fun onSurfaceTextureDestroyed(t: SurfaceTexture): Boolean {
+                                surface?.let { AndroidTalkVideoOut.detach(it); it.release() }
+                                return true
+                            }
 
-                        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {}
-                    }
+                            override fun onSurfaceTextureUpdated(t: SurfaceTexture) {}
+                        }
+                    }.also { texture = it }
+                },
+                // The frames as captured, turned upright by the sender's rotation.
+                modifier = Modifier.requiredSize(if (turned) h else w, if (turned) w else h).graphicsLayer { rotationZ = rotation.toFloat() },
+            )
+        }
+    }
+    @Composable
+    fun followPill(m: Modifier) {
+        Text(
+            stringResource(R.string.call_follow_them),
+            color = if (follow) com.chencohen.ptt.ui.style.LibraryColors.OnInverse else Color.White,
+            style = com.chencohen.ptt.ui.style.LibraryType.Small,
+            modifier = m.background(if (follow) com.chencohen.ptt.ui.style.LibraryColors.Inverse else com.chencohen.ptt.ui.style.LibraryColors.PillScrim, CircleShape)
+                .clickable(role = Role.Switch) {
+                    follow = !follow
+                    prefs.edit().putBoolean(FOLLOW_TALK, follow).apply()
                 }
-            },
-            // The frames as captured, turned upright by the sender's rotation.
-            modifier = Modifier.requiredSize(if (turned) h else w, if (turned) w else h).graphicsLayer { rotationZ = rotation.toFloat() },
+                .padding(horizontal = 12.dp, vertical = 6.dp),
         )
     }
+    val density = LocalDensity.current
+    if (cover) {
+        // The whole screen: the picture laid out whole and zoomed to fill it, from the whole picture (pinched out) to
+        // half as close again.
+        BoxWithConstraints(modifier.clipToBounds().background(Color.Black), contentAlignment = Alignment.Center) {
+            val bw = constraints.maxWidth.toFloat()
+            val bh = constraints.maxHeight.toFloat()
+            val fit = com.chencohen.ptt.calls.CallGrid.content(bw, bh, upright, false)
+            val coverRatio = maxOf(bw / fit.first, bh / fit.second)
+            val most = coverRatio
+            val pinch = com.chencohen.ptt.ui.calls.rememberPinch("zoom_talk_full", true, coverRatio, most)
+            val framing = talkFraming(follow && s != null, s?.clip, local, bw, bh, fit, most, pinch.zoom)
+            Box(Modifier.fillMaxSize().then(pinch.modifier), contentAlignment = Alignment.Center) {
+                with(density) { picture(fit.first.toDp(), fit.second.toDp(), framing) }
+            }
+            followPill(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(12.dp))
+        }
+    } else {
+        FittedBox(upright, modifier, alignment) { w, h ->
+            val wp = with(density) { w.toPx() }
+            val hp = with(density) { h.toPx() }
+            val most = 1f
+            val pinch = com.chencohen.ptt.ui.calls.rememberPinch("zoom_talk", true, 1f, most)
+            val framing = talkFraming(follow && s != null, s?.clip, local, wp, hp, wp to hp, most, pinch.zoom)
+            Box(Modifier.fillMaxSize().clipToBounds().then(pinch.modifier), contentAlignment = Alignment.Center) {
+                picture(w, h, framing)
+                followPill(Modifier.align(Alignment.TopStart).padding(8.dp))
+            }
+        }
+    }
+}
+
+/** Follow face for push-to-video (its own choice, off by default; Settings › Talk and the pill on the video). */
+internal const val FOLLOW_TALK = "follow_talk"
+
+/**
+ * Follow face on a push-to-video burst, frame by frame: the face at the picture showing (the sender's positions by the
+ * clip's own clock, between its two-a-second positions; or [local], found here) placed by CallGrid.frame as in calls,
+ * with only a light smoothing (80 ms; 250 ms for a face found here, which comes twice a second); the first frame is
+ * already framed.
+ */
+@Composable
+private fun talkFraming(
+    on: Boolean,
+    clip: String?,
+    local: android.graphics.RectF?,
+    bw: Float,
+    bh: Float,
+    content: Pair<Float, Float>,
+    maxZoom: Float,
+    zoom: Float?,
+): Modifier {
+    var now by androidx.compose.runtime.remember(clip) { androidx.compose.runtime.mutableStateOf<Triple<Float, Float, Float>?>(null) }
+    val localNow by androidx.compose.runtime.rememberUpdatedState(local)
+    androidx.compose.runtime.LaunchedEffect(on, clip, bw, bh, content, maxZoom, zoom) {
+        var last = 0L
+        while (true) {
+            androidx.compose.runtime.withFrameNanos { t ->
+                val dt = if (last == 0L) 0f else (t - last) / 1_000_000f
+                last = t
+                val sent = if (on) AndroidTalkVideoOut.faceAt() else null
+                val face = sent?.let { com.chencohen.ptt.calls.CallGrid.Face(it.x, it.y, it.h * 0.75f, it.h) }
+                    ?: localNow?.takeIf { on }?.let { com.chencohen.ptt.calls.CallGrid.Face(it.centerX(), it.centerY(), it.width(), it.height()) }
+                val p = com.chencohen.ptt.calls.CallGrid.frame(bw, bh, content.first, content.second, face, 0.4f, zoom?.coerceAtMost(maxZoom), maxZoom)
+                val target = p?.let { Triple(it.scale, it.x, it.y) } ?: Triple(1f, 0f, 0f)
+                val was = now
+                now = if (was == null || dt <= 0f) {
+                    target
+                } else {
+                    val k = 1f - kotlin.math.exp(-dt / (if (sent != null) 80f else 250f))
+                    Triple(was.first + (target.first - was.first) * k, was.second + (target.second - was.second) * k, was.third + (target.third - was.third) * k)
+                }
+            }
+        }
+    }
+    return Modifier.graphicsLayer {
+        val n = now ?: return@graphicsLayer
+        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+        scaleX = n.first
+        scaleY = n.first
+        translationX = n.second
+        translationY = n.third
+    }
+}
+
+/**
+ * Where the face is in the push-to-video burst showing ([clip]): the sender's positions in step with the voice, or,
+ * from a sender that sends none, a look at [view]'s picture here twice a second. Gone 1.5 s after the last one.
+ */
+@Composable
+private fun talkFace(on: Boolean, clip: String?, view: TextureView?, rotation: Int): android.graphics.RectF? {
+    var box by androidx.compose.runtime.remember(clip) { androidx.compose.runtime.mutableStateOf<android.graphics.RectF?>(null) }
+    var seenAt by androidx.compose.runtime.remember(clip) { androidx.compose.runtime.mutableLongStateOf(0L) }
+    DisposableEffect(on, clip, view, rotation) {
+        if (!on || clip == null) {
+            box = null
+            return@DisposableEffect onDispose {}
+        }
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val finder = com.chencohen.ptt.calls.FaceFinder("TalkFollow", 500) { found ->
+            main.post {
+                if (found != null) {
+                    box = found
+                    seenAt = android.os.SystemClock.elapsedRealtime()
+                }
+            }
+        }
+        val look = object : Runnable {
+            override fun run() {
+                val v = view
+                if (!AndroidTalkVideoOut.hasFaces() && v != null && v.isAvailable && v.width > 0 && finder.due()) {
+                    val w = 240
+                    val h = (w * v.height / v.width).coerceAtLeast(2)
+                    val bitmap = runCatching { v.getBitmap(w, h) }.getOrNull()
+                    if (bitmap != null) finder.offerBitmap(bitmap, rotation) else finder.offerNothing()
+                }
+                main.postDelayed(this, 500)
+            }
+        }
+        main.post(look)
+        onDispose {
+            main.removeCallbacks(look)
+            finder.close()
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(on, clip) {
+        while (on) {
+            if (box != null && android.os.SystemClock.elapsedRealtime() - seenAt > 1_500) box = null
+            kotlinx.coroutines.delay(250)
+        }
+    }
+    return box
 }
 
 /**
