@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -993,11 +994,13 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
                 val save = stringResource(R.string.chat_edit_save)
                 val can = edit.value.text.isNotBlank()
                 Box(
-                    Modifier.requiredSize(26.dp).graphicsLayer { alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p }
+                    // 6 dp clear of the text above (2026-11-24, hen): smaller, and lowered into the box's bottom padding,
+                    // so neither the height nor the lines change.
+                    Modifier.offset(y = 5.dp).requiredSize(20.dp).graphicsLayer { alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p }
                         .background(if (can) coral else coral.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape)
                         .clickable(enabled = can && p > 0.5f, role = Role.Button, onClickLabel = save) { if (saving == null) saving = true },
                     contentAlignment = Alignment.Center,
-                ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(14.dp)) }
+                ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(12.dp)) }
             }
         }
     }
