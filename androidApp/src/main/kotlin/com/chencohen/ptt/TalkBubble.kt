@@ -32,6 +32,8 @@ import com.chencohen.ptt.messaging.Group
 object TalkBubble {
     private const val TAG = "TalkBubble"
     private const val SLIDE_MS = 250L
+    /** Their picture's area: at most this share of the screen's height. */
+    private const val MAX_SHARE = 0.45f
     private const val HOLD_MS = 350L
 
     private val main = Handler(Looper.getMainLooper())
@@ -55,6 +57,7 @@ object TalkBubble {
     private var videoTab: android.widget.ImageView? = null
     /** This phone's camera while it sends video from here. */
     private var ownView: android.view.TextureView? = null
+    private var ownBox: android.widget.FrameLayout? = null
     private var ownSurface: android.view.Surface? = null
     /** A word after the time while talking ("camera busy"). */
     private var note: String? = null
@@ -212,82 +215,109 @@ object TalkBubble {
      * size and nothing under the finger moves.
      */
     private fun showVideo(context: Context) {
-        val on = messagingState(context).value.talkSettings.bubbleVideo
-        videoSwitch?.visibility = if (burstVideo) View.VISIBLE else View.GONE
-        videoSwitch?.setImageResource(if (on) R.drawable.ic_bubble_video else R.drawable.ic_bubble_video_off)
-        videoSwitch?.contentDescription = context.getString(if (on) R.string.talk_video_on else R.string.talk_video_off)
+        videoSwitch?.visibility = View.GONE
         if (burstVideo) seenVideo = true
         val camera = context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val callOn = messagingState(context).value.call != null
-        val theirs = burstVideo && on && !sendingVideo
-        val mine = sendingVideo || (!theirs && videoMode(context) && camera && !callOn && ringing == null)
-        // The camera kept open for the preview (the service holds it while the app is in the background).
-        if (mine && !sendingVideo && !previewOn) preview(context, true) else if (!mine && previewOn) preview(context, false)
-        val box = videoBox ?: return
-        // Voice: compact, the video area opens upwards (200 ms) while a video shows and closes after; Video: it stays.
-        val reserve = videoMode(context)
-        when {
-            theirs || mine -> if (box.visibility != View.VISIBLE) {
-                val grow = box.visibility == View.GONE
-                box.visibility = View.VISIBLE
-                fit(animate = grow)
-            }
-            reserve -> if (box.visibility != View.INVISIBLE) {
-                val grow = box.visibility == View.GONE
-                box.visibility = View.INVISIBLE
-                fit(animate = grow)
-            }
-            box.visibility != View.GONE -> {
-                // Hidden first, then the window closes over it (200 ms), then it goes.
-                val root = view
-                val holder = frame
-                val lp = holder?.layoutParams as? WindowManager.LayoutParams
-                if (root != null && lp != null) {
-                    val from = lp.height
-                    box.visibility = View.INVISIBLE
-                    resizing?.cancel()
-                    root.measure(View.MeasureSpec.makeMeasureSpec(lp.width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-                    // Measured with the box: shrink to the height without it.
-                    val boxH = box.measuredHeight + ((box.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let { it.topMargin + it.bottomMargin } ?: 0)
-                    val to = from - boxH
-                    val wm = holder.context.getSystemService(WindowManager::class.java)
-                    resizing = android.animation.ValueAnimator.ofInt(from, to).apply {
-                        duration = 200
-                        interpolator = android.view.animation.DecelerateInterpolator()
-                        addUpdateListener {
-                            if (frame !== holder) return@addUpdateListener
-                            lp.height = it.animatedValue as Int
-                            runCatching { wm.updateViewLayout(holder, lp) }
-                        }
-                        addListener(object : android.animation.AnimatorListenerAdapter() {
-                            override fun onAnimationEnd(animation: android.animation.Animator) {
-                                if (videoBox === box && box.visibility == View.INVISIBLE) {
-                                    box.visibility = View.GONE
-                                    fit()
-                                }
-                            }
-                        })
-                        start()
-                    }
-                } else {
-                    fit()
-                }
-            }
-        }
-        val burstView = box.findViewWithTag<View>("video")
-        fun fade(v: View?, to: Float) {
-            v ?: return
-            if (v.visibility != View.VISIBLE) {
-                v.visibility = View.VISIBLE
-                v.alpha = 0f
-            }
-            if (v.alpha != to) v.animate().alpha(to).setDuration(180).start()
-        }
-        fade(burstView, if (theirs) 1f else 0f)
-        fade(ownView, if (mine) 1f else 0f)
+        // Their video burst, always (2026-11-23, hen: the bubble's own Video switch went, it was redundant).
+        val theirs = burstVideo
+        // This phone's camera, small beside the button, in Video (and while it sends).
+        val mine = sendingVideo || (videoMode(context) && camera && !callOn && ringing == null)
+        if (mine && !previewOn) preview(context, true) else if (!mine && previewOn && !sendingVideo) preview(context, false)
+        ownBox?.visibility = if (mine) View.VISIBLE else View.INVISIBLE
         if (mine) ownSurface?.let { com.chencohen.ptt.talkVideoCapture?.setPreview(it) } else ownSurface?.let { s -> com.chencohen.ptt.talkVideoCapture?.clearPreview(s) {} }
-        main.removeCallbacks(turn)
-        if (theirs) main.post(turn)
+        val box = videoBox ?: return
+        if (theirs) {
+            // Opens upwards (about 200 ms), the buttons where they are.
+            shapeBox(box)
+            if (box.visibility != View.VISIBLE) {
+                box.visibility = View.VISIBLE
+                fit(animate = true)
+            }
+            main.removeCallbacks(turn)
+            main.post(turn)
+        } else if (box.visibility == View.VISIBLE) {
+            main.removeCallbacks(turn)
+            closeBox(box)
+        }
+    }
+
+    /**
+     * Their picture's area: as wide as the window, as tall as its shape (2026-11-23, hen: "no black bars, only video"),
+     * at most [MAX_SHARE] of the screen's height; then the picture fills it, cropped a little. Rounded, nothing behind.
+     * True when its size changed.
+     */
+    private fun shapeBox(box: android.widget.FrameLayout): Boolean {
+        val video = box.findViewWithTag<View>("video") ?: return false
+        val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
+        lastShown = shown
+        val rotation = shown?.rotation ?: 0
+        val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 4f / 3f
+        val turned = rotation % 180 != 0
+        val upright = if (turned) 1f / aspect else aspect
+        val holder = frame ?: return false
+        val lp = holder.layoutParams as? WindowManager.LayoutParams ?: return false
+        val pad = (view?.paddingLeft ?: 0) + (view?.paddingRight ?: 0)
+        val w = (lp.width - pad).coerceAtLeast(1)
+        val most = (box.resources.displayMetrics.heightPixels * MAX_SHARE).toInt()
+        val h = minOf((w / upright).toInt(), most)
+        // The picture covers the area: as wide, and as tall as its shape (cropped top and bottom past the cap).
+        val cw = maxOf(w.toFloat(), h * upright)
+        val ch = cw / upright
+        contentSize = cw to ch
+        val (vw, vh) = if (turned) ch.toInt() to cw.toInt() else cw.toInt() to ch.toInt()
+        val vp = video.layoutParams
+        if (vp.width != vw || vp.height != vh) {
+            vp.width = vw
+            vp.height = vh
+            video.layoutParams = vp
+        }
+        video.rotation = rotation.toFloat()
+        val bp = box.layoutParams
+        if (bp.width != w || bp.height != h) {
+            bp.width = w
+            bp.height = h
+            box.layoutParams = bp
+            return true
+        }
+        return false
+    }
+
+    /** The picture's size as laid out (it may be bigger than the area: cropped). */
+    private var contentSize = 0f to 0f
+
+    /** Closes their picture's area: the window shrinks over it (200 ms), then it goes. */
+    private fun closeBox(box: android.widget.FrameLayout) {
+        val holder = frame
+        val lp = holder?.layoutParams as? WindowManager.LayoutParams
+        if (lp == null) {
+            box.visibility = View.GONE
+            fit()
+            return
+        }
+        val from = lp.height
+        box.visibility = View.INVISIBLE
+        resizing?.cancel()
+        val boxH = box.height + ((box.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let { it.topMargin + it.bottomMargin } ?: 0)
+        val wm = holder.context.getSystemService(WindowManager::class.java)
+        resizing = android.animation.ValueAnimator.ofInt(from, from - boxH).apply {
+            duration = 200
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener {
+                if (frame !== holder) return@addUpdateListener
+                lp.height = it.animatedValue as Int
+                runCatching { wm.updateViewLayout(holder, lp) }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (videoBox === box && box.visibility == View.INVISIBLE) {
+                        box.visibility = View.GONE
+                        fit()
+                    }
+                }
+            })
+            start()
+        }
     }
 
     /** Asks Talk's service to keep the camera open for the window's preview ([on]) or let it go. */
@@ -308,26 +338,10 @@ object TalkBubble {
             val box = videoBox ?: return
             if (box.visibility != View.VISIBLE) return
             val video = box.findViewWithTag<View>("video") ?: return
-            val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
-            lastShown = shown
-            val rotation = shown?.rotation ?: 0
-            val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 4f / 3f
-            // The box takes the picture's upright shape (tall for a phone held upright, wide on its side), at most
-            // 240 dp on its long side.
-            val side = (240 * box.resources.displayMetrics.density).toInt()
-            val turned = rotation % 180 != 0
-            val shownAspect = if (turned) 1f / aspect else aspect
-            val (w, h) = if (shownAspect >= 1f) side to (side / shownAspect).toInt() else (side * shownAspect).toInt() to side
-            // The box itself keeps its size (240 dp square): the window never changes size for the picture's shape.
-            val (vw, vh) = if (turned) h to w else w to h
-            val lp = video.layoutParams
-            if (lp.width != vw || lp.height != vh) {
-                lp.width = vw
-                lp.height = vh
-                video.layoutParams = lp
-            }
-            video.rotation = rotation.toFloat()
-            follow(box.context, video, w.toFloat(), h.toFloat())
+            // A new shape (the next video, or the phone turned there): the window follows, over 200 ms.
+            if (shapeBox(box)) fit(animate = true)
+            val bp = box.layoutParams
+            follow(box.context, video, bp.width.toFloat(), bp.height.toFloat(), contentSize.first, contentSize.second)
             main.postDelayed(this, 300)
         }
     }
@@ -340,18 +354,18 @@ object TalkBubble {
      * Follow face in the bubble (2026-11-23, hen; the same choice as in calls and on the Talk screen): the sender's face
      * positions keep the face near the upper third, head and shoulders about 45% of the height, small moves left alone.
      */
-    private fun follow(context: Context, video: View, w: Float, h: Float) {
+    private fun follow(context: Context, video: View, w: Float, h: Float, cw: Float, ch: Float) {
         val on = context.getSharedPreferences("call_view", Context.MODE_PRIVATE).getBoolean(com.chencohen.ptt.ui.talk.FOLLOW_TALK, false)
         // Where the face will be when this glide ends (the clip's own clock): no lag behind the picture.
         val face = if (on) com.chencohen.ptt.talk.AndroidTalkVideoOut.faceAt(aheadMs = 300) else null
-        // The bubble's box is the picture's own shape: filling it is showing it whole, so no zoom, only nothing to slide.
+        // No closer than filling the area: Follow face only slides the crop (when the picture is cropped to fit).
         val most = 1f
         val now = android.os.SystemClock.elapsedRealtime()
         if (face != null) followFaceSeen = now
         val want = if (face != null) {
-            val p = com.chencohen.ptt.calls.CallGrid.place(w, h, w, h, face.x, face.y, face.h, maxZoom = most, targetY = 0.4f)
+            val p = com.chencohen.ptt.calls.CallGrid.place(w, h, cw, ch, face.x, face.y, face.h, maxZoom = most, targetY = 0.4f, fixedZoom = 1f)
             // From the top left corner (CallGrid) to the view's own pivot, its centre.
-            Triple(p.scale, p.x - (1 - p.scale) * w / 2, p.y - (1 - p.scale) * h / 2)
+            Triple(p.scale, p.x - (1 - p.scale) * cw / 2, p.y - (1 - p.scale) * ch / 2)
         } else if (on && now - followFaceSeen < 1_500) {
             followAt
         } else {
@@ -421,7 +435,10 @@ object TalkBubble {
         // The burst's picture, drawn in step with the voice (AndroidTalkVideoOut).
         videoBox = android.widget.FrameLayout(context).apply {
             visibility = View.GONE
-            background = GradientDrawable().apply { cornerRadius = dp(16).toFloat(); setColor(Color.BLACK) }
+            // Rounded, nothing behind the picture.
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, outline: android.graphics.Outline) = outline.setRoundRect(0, 0, v.width, v.height, dp(16).toFloat())
+            }
             clipToOutline = true
             addView(
                 android.view.TextureView(context).apply {
@@ -444,33 +461,8 @@ object TalkBubble {
                 },
                 android.widget.FrameLayout.LayoutParams(dp(240), dp(180), Gravity.CENTER),
             )
-            ownView = android.view.TextureView(context).apply {
-                visibility = View.GONE
-                surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
-                    override fun onSurfaceTextureAvailable(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {
-                        texture.setDefaultBufferSize(com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH, com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT)
-                        ownSurface = android.view.Surface(texture).also { if (sendingVideo) com.chencohen.ptt.talkVideoCapture?.setPreview(it) }
-                    }
-
-                    override fun onSurfaceTextureSizeChanged(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
-                    override fun onSurfaceTextureDestroyed(texture: android.graphics.SurfaceTexture): Boolean {
-                        val gone = ownSurface ?: return true
-                        ownSurface = null
-                        val capture = com.chencohen.ptt.talkVideoCapture ?: run { gone.release(); return true }
-                        capture.clearPreview(gone) {
-                            gone.release()
-                            texture.release()
-                        }
-                        return false
-                    }
-
-                    override fun onSurfaceTextureUpdated(texture: android.graphics.SurfaceTexture) {}
-                }
-            }
-            // Upright, 3:4, as the camera draws it.
-            addView(ownView, android.widget.FrameLayout.LayoutParams(dp(180), dp(240), Gravity.CENTER))
         }
-        root.addView(videoBox, LinearLayout.LayoutParams(dp(240), dp(240)).apply { bottomMargin = dp(8) })
+        root.addView(videoBox, LinearLayout.LayoutParams(dp(240), dp(240)).apply { bottomMargin = dp(8); gravity = Gravity.CENTER_HORIZONTAL })
         root.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         button = android.widget.ImageView(context).apply {
             setImageResource(R.drawable.ic_bubble_mic)
@@ -499,9 +491,41 @@ object TalkBubble {
         modes.addView(voiceTab, LinearLayout.LayoutParams(dp(38), dp(38)))
         modes.addView(videoTab, LinearLayout.LayoutParams(dp(38), dp(38)).apply { topMargin = dp(2) })
         val buttonRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        buttonRow.addView(modes, LinearLayout.LayoutParams(dp(44), LinearLayout.LayoutParams.WRAP_CONTENT))
+        buttonRow.addView(modes, LinearLayout.LayoutParams(dp(54), LinearLayout.LayoutParams.WRAP_CONTENT).apply { }.also { modes.gravity = Gravity.CENTER })
         buttonRow.addView(button, LinearLayout.LayoutParams(dp(96), dp(96)).apply { marginStart = dp(20); marginEnd = dp(20) })
-        buttonRow.addView(View(context), LinearLayout.LayoutParams(dp(44), dp(44)))
+        // This phone's camera, small, on the other side of the button (in Video): 3:4 upright, rounded.
+        ownBox = android.widget.FrameLayout(context).apply {
+            visibility = View.INVISIBLE
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, outline: android.graphics.Outline) = outline.setRoundRect(0, 0, v.width, v.height, dp(10).toFloat())
+            }
+            clipToOutline = true
+                ownView = android.view.TextureView(context).apply {
+                    surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                            texture.setDefaultBufferSize(com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH, com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT)
+                            ownSurface = android.view.Surface(texture).also { if (previewOn || sendingVideo) com.chencohen.ptt.talkVideoCapture?.setPreview(it) }
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
+                        override fun onSurfaceTextureDestroyed(texture: android.graphics.SurfaceTexture): Boolean {
+                            val gone = ownSurface ?: return true
+                            ownSurface = null
+                            val capture = com.chencohen.ptt.talkVideoCapture ?: run { gone.release(); return true }
+                            capture.clearPreview(gone) {
+                                gone.release()
+                                texture.release()
+                            }
+                            return false
+                        }
+
+                        override fun onSurfaceTextureUpdated(texture: android.graphics.SurfaceTexture) {}
+                    }
+                }
+                // Upright, 3:4, as the camera draws it.
+            addView(ownView, android.widget.FrameLayout.LayoutParams(dp(54), dp(72), Gravity.CENTER))
+        }
+        buttonRow.addView(ownBox, LinearLayout.LayoutParams(dp(54), dp(72)))
         root.addView(buttonRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         // Under the button, icons only: Video (the burst's pictures), Chat, Voice call, Video call.
         fun small(icon: Int, label: Int, onClick: () -> Unit) = android.widget.ImageView(context).apply {
@@ -514,7 +538,6 @@ object TalkBubble {
         actions = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         val gap = LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(8); marginEnd = dp(8) }
         videoSwitch!!.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
-        actions!!.addView(videoSwitch, LinearLayout.LayoutParams(gap))
         actions!!.addView(small(R.drawable.ic_bubble_chat, R.string.talk_action_chat) { chat?.let { openChat(context, it) }; dismissNow() }, LinearLayout.LayoutParams(gap))
         actions!!.addView(small(R.drawable.ic_bubble_call, R.string.call_voice) { chat?.let { call(context, it, false) }; dismissNow() }, LinearLayout.LayoutParams(gap))
         videoCall = small(R.drawable.ic_bubble_video, R.string.call_video) { chat?.let { call(context, it, true) }; dismissNow() }
@@ -782,6 +805,7 @@ object TalkBubble {
         previewOn = false
         seenVideo = false
         ownView = null
+        ownBox = null
         sendingVideo = false
         note = null
         title = null
