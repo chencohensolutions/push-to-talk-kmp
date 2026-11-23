@@ -336,6 +336,10 @@ object QuickReplyWindow {
             val list = rememberLazyListState()
             // A new message: the list glides to it (2026-11-23, hen: "show a scroll transition").
             LaunchedEffect(messages.size) { if (messages.isNotEmpty()) list.animateScrollToItem(0) }
+            val liveDraft = state.drafts[current]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }
+            val morph = com.chencohen.ptt.ui.contacts.rememberDraftMorph(current, listOfNotNull(liveDraft?.let { null as String? to it.text }), messages.lastOrNull())
+            // A draft that grows stays in view, if the list was at the bottom.
+            LaunchedEffect(liveDraft?.text) { if (liveDraft != null && list.firstVisibleItemIndex == 0) list.scrollToItem(0) }
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth().padding(vertical = 6.dp),
                 state = list,
@@ -346,12 +350,20 @@ object QuickReplyWindow {
                 val now = System.currentTimeMillis()
                 val draft = state.drafts[current]?.takeIf { now - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }
                 val typingNow = (state.typing[current] ?: 0L) > now
-                if (draft != null) {
-                    item(key = "draft") { com.chencohen.ptt.ui.contacts.DraftBubble(null, draft.text, Modifier.animateItem()) }
-                } else if (typingNow) {
+                val lineShape = RoundedCornerShape(14.dp)
+                val linePadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 7.dp)
+                if (draft != null && morph?.key != "draft/") {
+                    item(key = "draft/") { com.chencohen.ptt.ui.contacts.DraftBubble(null, draft.text, Modifier.animateItem(), shape = lineShape, padding = linePadding) }
+                } else if (typingNow && draft == null) {
                     item(key = "typing") { TypingDots(Modifier.animateItem()) }
                 }
-                items(messages.asReversed(), key = { it.id }) { m -> Box(Modifier.animateItem()) { Line(context, m) } }
+                items(messages.asReversed(), key = { if (it.id == morph?.id) morph.key else it.id }) { m ->
+                    if (m.id == morph?.id) {
+                        com.chencohen.ptt.ui.contacts.MorphingBubble(m, null, shape = lineShape, padding = linePadding)
+                    } else {
+                        Box(Modifier.animateItem()) { Line(context, m) }
+                    }
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -426,11 +438,11 @@ object QuickReplyWindow {
         Box(Modifier.fillMaxWidth(), contentAlignment = if (m.outgoing) Alignment.CenterEnd else Alignment.CenterStart) {
             Column(
                 Modifier.widthIn(max = 300.dp)
-                    .background(if (m.outgoing) LibraryColors.Inverse else LibraryColors.Raised, RoundedCornerShape(14.dp))
+                    .background(if (m.outgoing) LibraryColors.Mine else LibraryColors.Raised, RoundedCornerShape(14.dp))
                     .padding(horizontal = 12.dp, vertical = 7.dp),
             ) {
                 if (!m.outgoing && m.author != null) Text(m.author!!, color = LibraryColors.Accent, style = LibraryType.Small)
-                Text(text, color = if (m.outgoing) LibraryColors.OnInverse else LibraryColors.OnBackground, style = LibraryType.Body)
+                Text(text, color = if (m.outgoing) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Body)
             }
         }
     }

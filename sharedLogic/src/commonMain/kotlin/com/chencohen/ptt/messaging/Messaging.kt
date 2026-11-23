@@ -129,12 +129,22 @@ data class TalkSettings(
      * contact as it is written, deletions too, before Send.
      */
     val liveTyping: Boolean = false,
+    /** Live typing to each contact or group, its own switch (2026-11-23, hen; off unless turned on there). */
+    val liveTypingFor: Map<String, Boolean> = emptyMap(),
+    /** The chats there were when [liveTyping] (the default for new ones) was turned on: they keep their own choice. */
+    val liveTypingKnown: Set<String> = emptySet(),
     /**
      * Voice or Video per contact or group (2026-11-23, hen: "remember that setting for that contact"): what the Talk
      * screen's and the reply bubble's Voice | Video chose last for it; [pushVideo] for one never chosen.
      */
     val videoFor: Map<String, Boolean> = emptyMap(),
 ) {
+    /**
+     * Whether what is written to [chat] goes live: its own switch; one never set follows Settings › Privacy › Live
+     * typing only if it came after that was turned on (turning it on never switches on the chats there were).
+     */
+    fun liveTypingTo(chat: String): Boolean = liveTypingFor[chat] ?: (liveTyping && chat !in liveTypingKnown)
+
     /** Whether a press to [chat] sends the camera too. */
     fun pushVideoFor(chat: String?): Boolean = chat?.let { videoFor[it] } ?: pushVideo
 
@@ -249,6 +259,16 @@ internal class Messaging(
         },
         onTalkKey = { identity, key -> live.takeKey(identity, key) },
         onCall = { group, author, call, at -> calls.receive(group.chat, author, call, at, ownCopy = author == device()?.user) },
+        onRead = { group, author, ids ->
+            var changed = false
+            val at = now()
+            for (id in ids) {
+                val m = store.message(id)?.takeIf { it.outgoing && it.user == group.chat && author !in it.readBy } ?: continue
+                store.putMessage(m.copy(readBy = m.readBy + (author to at)))
+                changed = true
+            }
+            if (changed) publish()
+        },
         onTyping = { group, author, typing, draft ->
             val key = typingKey(group.chat, author)
             _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing, draft)) }
@@ -444,6 +464,8 @@ internal class Messaging(
         lowBatteryNoWake = settings.lowBatteryNoWake,
         videoFor = settings.videoFor,
         liveTyping = settings.liveTyping,
+        liveTypingFor = settings.liveTypingFor,
+        liveTypingKnown = settings.liveTypingKnown,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -474,6 +496,11 @@ internal class Messaging(
         settings.lowBatteryNoWake = talk.lowBatteryNoWake
         if (talk.videoFor != before.videoFor) settings.videoFor = talk.videoFor
         settings.liveTyping = talk.liveTyping
+        if (talk.liveTypingFor != before.liveTypingFor) settings.liveTypingFor = talk.liveTypingFor
+        // The default turned on: the chats there are now keep theirs (off unless set), only new ones follow it.
+        val known = if (talk.liveTyping && !before.liveTyping) knownChats() else talk.liveTypingKnown
+        if (known != before.liveTypingKnown) settings.liveTypingKnown = known
+        val talk = talk.copy(liveTypingKnown = known)
         _state.update { it.copy(talkSettings = talk) }
     }
 
@@ -1224,8 +1251,16 @@ internal class Messaging(
         unread.forEach { store.putMessage(it.copy(read = true)) }
         publish()
         notifier?.read(user)
-        // Groups have no receipts yet.
-        if (Group.idOf(user) != null) return
+        // In a group: one receipt to the members, end to end, no push (their circles; 2026-11-23, hen).
+        Group.idOf(user)?.let { id ->
+            try {
+                groups.send(id, Content(receipt = ReceiptContent(true, unread.map { it.id })), PushKind.NONE)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+            return
+        }
         sendReceipt(user, read = true, unread.map { it.id })
     }
 
@@ -1326,7 +1361,7 @@ internal class Messaging(
      * while it stays, so it doesn't fade on the other phone.
      */
     fun draft(user: String, text: String) {
-        if (!talkSettings().liveTyping) return
+        if (!talkSettings().liveTypingTo(user)) return
         draftWanted[user] = text
         if (!draftSending.add(user)) return
         scope.launch {
@@ -1353,6 +1388,9 @@ internal class Messaging(
             }
         }
     }
+
+    /** Every contact and group chat this phone has now. */
+    private fun knownChats(): Set<String> = (store.contacts().map { it.user } + store.groups().map { it.chat }).toSet()
 
     /** The line to [user] was sent or left: no more drafts. */
     fun draftDone(user: String) {
@@ -1463,7 +1501,9 @@ internal class Messaging(
             val status = if (receipt.read) MessageStatus.READ else MessageStatus.DELIVERED
             for (id in receipt.ids) {
                 val message = store.message(id)?.takeIf { it.outgoing && it.user == contact.user } ?: continue
-                if (message.status.ordinal < status.ordinal || message.status == MessageStatus.PENDING) store.putMessage(message.copy(status = status))
+                if (message.status.ordinal < status.ordinal || message.status == MessageStatus.PENDING) {
+                    store.putMessage(message.copy(status = status, readAt = if (status == MessageStatus.READ) now() else message.readAt))
+                }
             }
         }
         content.typing?.let { typing ->

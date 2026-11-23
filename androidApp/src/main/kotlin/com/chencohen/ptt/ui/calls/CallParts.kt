@@ -161,20 +161,20 @@ fun CallEntryContent(message: TextMessage, onInverse: Boolean, share: (String) -
     Row(Modifier.clickable(role = Role.Button, onClick = callBack).padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(
             if (call.video) LibraryIcons.Video else LibraryIcons.Call, null,
-            tint = if (missed) LibraryColors.Error else if (onInverse) LibraryColors.OnInverse else LibraryColors.OnBackground,
+            tint = if (missed) LibraryColors.Error else if (onInverse) LibraryColors.OnMine else LibraryColors.OnBackground,
             modifier = Modifier.size(20.dp),
         )
         Spacer(Modifier.width(8.dp))
         Text(
             callLine(message),
-            color = if (missed) LibraryColors.Error else if (onInverse) LibraryColors.OnInverse else LibraryColors.OnBackground,
+            color = if (missed) LibraryColors.Error else if (onInverse) LibraryColors.OnMine else LibraryColors.OnBackground,
             style = LibraryType.Body,
         )
     }
     call.savedAs?.let { file ->
         Text(
             stringResource(R.string.call_share_saved),
-            color = if (onInverse) LibraryColors.OnInverse else LibraryColors.Accent,
+            color = if (onInverse) LibraryColors.OnMine else LibraryColors.Accent,
             style = LibraryType.Caption,
             modifier = Modifier.clickable(role = Role.Button) { share(file) }.padding(vertical = 4.dp),
         )
@@ -182,7 +182,7 @@ fun CallEntryContent(message: TextMessage, onInverse: Boolean, share: (String) -
     if (call.keptKey != null) {
         Text(
             stringResource(R.string.kept_open),
-            color = if (onInverse) LibraryColors.OnInverse else LibraryColors.Accent,
+            color = if (onInverse) LibraryColors.OnMine else LibraryColors.Accent,
             style = LibraryType.Caption,
             modifier = Modifier.clickable(role = Role.Button) { playKept(message) }.padding(vertical = 4.dp),
         )

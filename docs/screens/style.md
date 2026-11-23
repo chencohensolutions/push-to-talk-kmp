@@ -25,6 +25,12 @@ system's light or dark theme.
 Material mapping: primary = Inverse (onPrimary = OnInverse), secondary and tertiary = Accent, surface and background
 = Background, surfaceContainer* = Raised, onSurface = OnBackground, onSurfaceVariant and outline = Muted, error = Error.
 
+- **My chat bubbles** (2026-11-23, hen: option C, deep teal; `LibraryColors.Mine`/`OnMine`): `#163A36` with text
+  `#DFF3EF` in the dark theme, `#D3EEE9` with `#0E2B28` in the light one; their time and ticks at 60%. In the
+  conversation and the quick-reply window; received bubbles stay as they are. A draft (mine or theirs, live typing)
+  keeps its outline (mine coral), and mine fills into the teal bubble on Send. Coral stays for the talk button and
+  actions.
+
 ## Buttons
 
 - **PrimaryButton**: filled ink, full pill. One per screen or card: Get started, Continue, Register phone, Open

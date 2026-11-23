@@ -103,7 +103,7 @@ internal fun SettingsScreen(
             )
             com.chencohen.ptt.ui.style.RowDivider()
             // Live typing (2026-11-23, hen): the contact sees every letter, even what is deleted.
-            com.chencohen.ptt.ui.talk.SwitchRow(stringResource(R.string.settings_live_typing), stringResource(R.string.settings_live_typing_body), liveTyping, setLiveTyping)
+            com.chencohen.ptt.ui.talk.SwitchRow(stringResource(R.string.settings_live_typing_default), stringResource(R.string.settings_live_typing_body) + "\n" + stringResource(R.string.settings_live_typing_per_contact), liveTyping, setLiveTyping)
         }
         // Show in Android Contacts (2026-11-22, hen): asks for Contacts first.
         val context = androidx.compose.ui.platform.LocalContext.current

@@ -16,7 +16,9 @@ and each time the connection's state changes.
 
 ## Privacy
 
-- **Live typing** (2026-11-23, hen; off by default): what you write in a chat (or the quick-reply window) goes to the
+- **Live typing for new contacts** (2026-11-23, hen; off by default; each contact's and group's page has its own
+  **Live typing to them** switch, off unless turned on there; turning this default on doesn't switch on the contacts
+  there are, only new ones follow it): what you write in a chat (or the quick-reply window) goes to the
   contact as you write it, letter by letter, deletions too, before Send; they see it as an outlined "Writing…" bubble
   that the message replaces. End to end encrypted like a message, live only: an ephemeral Send (never stored on the
   server, never pushed, missed by a phone that isn't connected), about ten updates a second at most, and again every

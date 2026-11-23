@@ -3,32 +3,15 @@
 `ui/talk/TalkParts.kt`. Push-to-talk's screens and pieces; how talk works is in [design.md](../design.md),
 "Phase 5a".
 
-## Talk mode
+## Talk mode (removed)
 
-`TalkModeScreen`, opened by the **Talk button** (a walkie-talkie) at the right of a [conversation](conversation.md)'s
-header, or by a talk notification's **Reply**. A full-screen walkie-talkie:
-
-- On top: a back arrow at the start (mirrored in Hebrew; the same as the system back) and the conversation's name. It
-  is a screen, not a sheet (2026-11-22, hen): no swipe down.
-- The line under it says what the floor is doing: "Hold the button to talk" (muted); "Connecting…" while the
-  server's answer is coming; "Live" (teal) while the floor is this phone's; "Dana is talking" (teal) while someone
-  else holds it; "Dana is talking. Try when they let go." when a press found the floor busy; "Not connected: it goes
-  as a voice message"; "Talking on your other phone"; "The microphone isn’t free"; "Talk isn’t possible here".
-  Busy and refusals show for 2.5 seconds.
-- A debug build adds the catch-up readout under it while a burst plays live: "Catch-up: 230 ms behind"; and, while
-  the phone is in the conversation's live room (phase 5b), "Live: in the room" or "Live: heard 230 ms after the press".
-- The **hold-to-talk circle**: ink, 220 dp, with a microphone and "Hold to talk"; a teal ring while live, a faded
-  teal ring and a muted circle while someone else talks. Recording starts on the press (before the floor is
-  granted: the plan's catch-up) and stops on release. While a Talk screen (Talk mode, or a page of the Talk tab) is on
-  screen, the microphone is already open (`TalkCapture.warm`; Android shows its microphone indicator): nothing is
-  sent, only the last 300 ms are kept, and a press sends those first, so it transmits at once without cutting the
-  first syllable. It closes when the screen leaves, turns off or the app goes to the background. While it is held the microphone works like a speakerphone's
-  (it hears a voice at arm's length), unless a headset is connected.
-- **Recent talk (N)**: a row with a chevron, folded by default (2026-11-22, hen); a tap opens it to show the last ten bursts and voice messages of the conversation, newest first: Play (or Pause while it
-  plays), who ("You" for ours), length and time.
-
-The first press asks for the microphone; if it is refused, the message bar says "Talk needs the microphone. Allow it
-in the app’s settings."
+Removed 2026-11-23 (hen): there is no per-contact Talk screen any more. Push-to-talk lives in the
+[conversation](conversation.md)'s bottom row (hold the big button; Video sends the camera too, live in the chat).
+What opened it now opens the conversation: a talk notification's tap and Talk back, the reply bubble's name and its
+"allow the camera" step, Android Contacts' Talk action, and Open Talk when someone talks (in the app). A phone woken for
+a video burst opens the conversation under a full-screen layer over the lock screen: the video while it plays, black
+otherwise (then the black curtain, as before). Hardware buttons, the Talk tab's pages, the reply bubble and the talk
+session (Telecom) work as before.
 
 ## Clips in the chat
 

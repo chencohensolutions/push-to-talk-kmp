@@ -57,6 +57,12 @@ enum class TalkPhase {
 
     /** Recording a voice message (the composer's microphone): no floor. */
     VOICE,
+
+    /**
+     * Someone else held the floor at the press (2026-11-23, hen: both pushing at once): still recording, sent right
+     * after their burst ends, so both phones see them in press order ([OwnTalk.busyWith]: whom it waits for).
+     */
+    WAITING,
 }
 
 /** This phone talking, or recording a voice message, in [chat]. */
@@ -99,6 +105,8 @@ data class TalkUiState(
     val playing: NowPlaying? = null,
     /** Clips waiting to play after [playing], oldest first. */
     val queued: List<String> = emptyList(),
+    /** Both kept pushing at once (3 times within a minute) in this chat: a video call may suit them better. */
+    val suggestCall: String? = null,
 )
 
 /** The platform's part in playing talk when the app isn't on screen (Android: Telecom, notifications). */
@@ -196,6 +204,8 @@ internal class Talk(
         var granted = false
         var decided = voiceOnly
         val unsent = ArrayDeque<ClipSegment>()
+        /** Waiting for someone else's floor to end ([TalkPhase.WAITING]). */
+        var waiting = false
         /** One sender at a time: the segments go out in order (2026-11-23: a race sent one ahead of those waiting). */
         val sending = kotlinx.coroutines.sync.Mutex()
         val records = mutableListOf<ByteArray>()
@@ -269,7 +279,7 @@ internal class Talk(
                 // No answer in a few seconds: the connection is gone in all but name.
                 scope.launch {
                     delay(GRANT_WAIT)
-                    if (!out.decided) toVoice(out)
+                    if (!out.decided && !out.waiting) toVoice(out)
                 }
             } else {
                 toVoice(out)
@@ -277,6 +287,27 @@ internal class Talk(
         }
         showOwn(out)
     }
+
+    private val overlaps = HashMap<String, MutableList<Long>>()
+
+    /** A press waited for someone else's: three within a minute in one chat suggests a video call. */
+    private fun noteOverlap(chat: String) {
+        val now = now()
+        val times = overlaps.getOrPut(chat) { mutableListOf() }
+        times += now
+        times.removeAll { now - it > 60_000 }
+        if (times.size >= 3) {
+            times.clear()
+            _state.update { it.copy(suggestCall = chat) }
+            scope.launch {
+                delay(10_000)
+                _state.update { if (it.suggestCall == chat) it.copy(suggestCall = null) else it }
+            }
+        }
+    }
+
+    /** The video call suggestion was answered or dismissed. */
+    fun dismissCallSuggestion() = _state.update { it.copy(suggestCall = null) }
 
     private fun refuse(chat: String, refusal: Int) {
         _state.update { it.copy(own = OwnTalk(chat, "", TalkPhase.REFUSED, now(), refusal = refusal)) }
@@ -512,7 +543,23 @@ internal class Talk(
         val out = outgoing?.takeIf { it.id == s.burstId }
         when (s.event) {
             TalkEvent.GRANTED -> out?.let { granted(it) }
-            TalkEvent.BUSY -> out?.let { lost(it, TalkPhase.BUSY, busyWith = s.talkerUser) }
+            TalkEvent.BUSY -> out?.let { o ->
+                if (o.voiceOnly || o.waiting) return@let lost(o, TalkPhase.BUSY, busyWith = s.talkerUser)
+                // Their floor: keep recording, and ask again the moment it ends.
+                o.waiting = true
+                o.phase = TalkPhase.WAITING
+                _state.update { it.copy(own = OwnTalk(o.chat, o.id, TalkPhase.WAITING, o.startedAt, s.talkerUser)) }
+                scope.launch { live?.talking(o.chat, false) }
+                noteOverlap(o.chat)
+                scope.launch {
+                    // Their floor can't outlast the server's limit; if no end comes, it goes as a voice message.
+                    delay(STALE_TALKER_MS)
+                    if (o.waiting) {
+                        o.waiting = false
+                        toVoice(o)
+                    }
+                }
+            }
             TalkEvent.REFUSED -> out?.let {
                 // Refused after the floor was given (a segment the server couldn't take): let go of it at once.
                 if (it.granted) scope.launch { sendFrame(TalkEndFrame(TalkEnd(it.id))) }
@@ -548,6 +595,17 @@ internal class Talk(
                             store.putMessage(m.copy(read = m.read || heardLive, clip = c.copy(durationMs = length, heard = c.heard || heardLive)))
                             publish()
                         }
+                    }
+                }
+                // Someone else's floor ended: a burst waiting for it asks now (sent right after theirs).
+                outgoing?.takeIf { it.waiting && it.chat == chat && it.id != s.burstId }?.let { w ->
+                    w.waiting = false
+                    w.phase = TalkPhase.REQUESTING
+                    showOwn(w)
+                    scope.launch { if (!sendFrame(TalkStartFrame(talkStart(w.chat, w.id)))) toVoice(w) }
+                    scope.launch {
+                        delay(GRANT_WAIT)
+                        if (!w.decided && !w.waiting) toVoice(w)
                     }
                 }
                 if (out != null && s.endReason != TalkEndReason.RELEASED) {

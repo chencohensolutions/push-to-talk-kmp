@@ -366,8 +366,8 @@ class MainActivity : ComponentActivity() {
         AndroidContacts.opened(this, intent)?.let { (user, kind) ->
             when (kind) {
                 AndroidContacts.MESSAGE -> openedChat = user
-                // Their push-to-talk screen, over their chat.
-                AndroidContacts.TALK -> openedChat = "$user\ntalk/$user"
+                // Their chat: push-to-talk lives there now (2026-11-23, hen: no Talk screen).
+                AndroidContacts.TALK -> openedChat = user
                 else -> openedCall = user to (kind == AndroidContacts.VIDEO)
             }
             return
@@ -390,7 +390,8 @@ class MainActivity : ComponentActivity() {
                 WakeTimeline.mark("Talk screen opening")
                 TalkPlaying.wokenShown(this)
             }
-            openedChat = if (intent.action == TalkNotifications.ACTION_TALK) "$chat\ntalk/$chat" else chat
+            // Talk back from a notification or the bubble: the chat, where push-to-talk is (no Talk screen any more).
+            openedChat = chat
             // The reply bubble's Video without the camera allowed yet: Android asks here.
             if (intent.getBooleanExtra(EXTRA_ASK_CAMERA, false) && checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(android.Manifest.permission.CAMERA), 41)

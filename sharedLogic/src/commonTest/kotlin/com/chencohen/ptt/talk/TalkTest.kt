@@ -395,18 +395,35 @@ class TalkTest {
     }
 
     @Test
-    fun theFloorIsBusyWhileTheOtherTalks() = runTest {
+    fun aPressWhileTheOtherTalksWaitsAndGoesRightAfter() = runTest {
+        // 2026-11-23 (hen): both pushing at once; the second press records, waits, and is sent right after.
         val (server, hen, dana) = paired()
-        dana.work.launch { dana.talk.press("hen") }
-        advanceUntilIdle()
-        hen.work.launch { hen.talk.press("dana") }
+        dana.work.launch {
+            dana.talk.press("hen")
+            dana.mic.say(0, 20)
+        }
         advanceTimeBy(1_000)
-        assertEquals(TalkPhase.BUSY, hen.state.talk.own?.phase)
+        hen.work.launch {
+            hen.talk.press("dana")
+            hen.mic.say(100, 15)
+        }
+        advanceTimeBy(1_000)
+        assertEquals(TalkPhase.WAITING, hen.state.talk.own?.phase)
         assertEquals("dana", hen.state.talk.own?.busyWith)
         assertTrue(server.talkStates.any { it.first == hen.address && it.second.event == TalkEvent.BUSY })
-        advanceUntilIdle()
-        assertNull(hen.state.talk.own, "Busy shows for a moment")
-        assertTrue(hen.chat("dana").none { it.outgoing }, "nothing of hen's was kept")
+        // Dana lets go: hen's burst is asked for and sent, from its first word.
+        dana.work.launch { dana.talk.release() }
+        advanceTimeBy(1_000)
+        assertEquals(TalkPhase.TALKING, hen.state.talk.own?.phase)
+        hen.work.launch {
+            hen.mic.say(115, 5)
+            hen.talk.release()
+        }
+        advanceTimeBy(5_000)
+        val heard = dana.speaker.played.last()
+        assertEquals(20, heard.size, "all of hen's burst, recorded while waiting too")
+        assertTrue(hen.chat("dana").any { it.outgoing && it.clip != null }, "hen's burst is in the chat")
+        assertEquals(emptyList(), server.segmentRefusals)
         hen.stop()
         dana.stop()
     }

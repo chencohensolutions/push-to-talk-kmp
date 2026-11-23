@@ -36,3 +36,51 @@ A group's chat uses this screen with a group header and authors on the bubbles: 
 **Live drafts** (2026-11-23, hen): when the contact uses Live typing (Settings › Privacy), what they are writing shows
 at the bottom as an outlined "Writing…" bubble (in a group, "Dana is writing…"), updated as they write, deletions
 too; the message replaces it, and it fades 20 s after their last change.
+A growing draft stays in view when the list is at the bottom; when the message comes, the draft turns into it in place
+(250 ms: the outline fills, "Writing…" folds away, the time fades in), in the chat and the quick-reply window alike.
+
+**Writing in the chat** (2026-11-23, hen, from the approved mockup "chat-typing-in-chat"): there is no line to write in
+at the bottom. The last thing in the chat is an empty dashed bubble on this phone's side, "Write a message…"; a tap
+opens the keyboard and makes it the draft: an outlined bubble (coral outline, faint fill, "Writing…") edited in place,
+with a round Send inside it at the bottom end. The chat keeps it in view as it grows; Live typing, when on for the
+chat, sends this same text. Send fills it in place into the sent message (250 ms, the same turn as an incoming draft),
+and a new empty draft comes under it with the keyboard still up. With the keyboard up nothing else shows under the
+chat; Back or a tap on the chat puts the keyboard away. Under the chat, a row of round buttons, icons only (each with
+its name for TalkBack): Video call, Push-to-talk (big, hold to talk), Voice call, Voice message. Voice message: a tap
+starts recording; a strip at the end of the chat shows a red dot, the time, the voice's level and ✕ to throw it away,
+and the button is Send meanwhile. The header keeps the name, presence and Talk mode; the call buttons moved down. The
+old line had no attachments, so nothing else needed a new place.
+
+**How far they read** (2026-11-23, hen, from the approved mockups; `ReadMarks`): no "Read" word. Beside the time of
+each message of mine they haven't read, one small circle (hen picked "filling circle"): a dashed ring turning slowly
+while sending, an empty ring once the server has it, a solid dot once it is on their phone, nothing once read; each
+change eases (the ring closes, then fills). Their small letter circle sits right after the last message of mine they
+read, gliding down as they read; a tap shows when they read it ("read 20:44"). When they read everything it sits at the
+very end, and when they start Live typing that circle grows into their "Writing…" bubble (and back if they clear it).
+No circle when they hide their presence (their marks stop at the dot). In a group (2026-11-23, hen) each member's
+phone sends one read receipt to the group (end to end, through the group Send, no push), and each member's circle
+sits under the last message of mine they read: at most 3 in one place, then "+N"; a tap lists who read and when. A
+member who hides their presence shows no circle; a message of mine counts as read once anyone read it or a later one.
+
+**Transitions** (2026-11-23, hen: "everything with a transition, no sharp changes"): every item in the chat fades and
+slides in and out and glides when it moves (200 ms); the marks cross-fade; the button row folds away and back with the
+keyboard.
+
+**Video bursts in the chat** (2026-11-23, hen: "every video a person sends will be in the chat"): a push-to-video burst,
+sent or received, is a video bubble at its time: its first picture (decoded from the clip kept on the phone, in
+memory only), its length ("live" while it is said), a play mark; a tap plays it full screen over the chat (Follow face
+as set), Back or a tap closes it; a long press saves it as a file. Voice bursts stay voice bubbles.
+Push-to-video from the chat (2026-11-23, hen): with the chat's Voice | Video on Video the camera stays open while the
+chat shows; holding Push-to-talk puts this phone's camera live in an outlined bubble at the end of the chat (red dot,
+time); on release the same bubble stays and becomes the sent video (first picture, length, status circle). Their
+push-to-video plays live in their bubble the same way, then stays as the video. No separate preview over the chat.
+
+**Both pushing at once** (2026-11-23, hen): a press while the other holds the floor still records ("Waiting for
+Sharon…" on the live bubble); the moment their burst ends it is asked for and sent, so both phones see the two in press
+order. Three such overlaps within a minute show a "Switch to a video call?" chip for 10 s. Two video bursts that overlap
+in time, one each side, sit side by side in one row (theirs on their side, mine on mine), the later one lower by how
+much later it started, both a little smaller.
+
+**The draft is pinned** (2026-11-23, hen): this phone's draft bubble (and a voice message's recording strip) is not
+in the list: it sits fixed under the chat, above the keyboard or the buttons, and grows upwards; the chat is laid out
+above it and scrolls behind nothing. On Send the message fills in at the end of the list and the pinned draft empties.
