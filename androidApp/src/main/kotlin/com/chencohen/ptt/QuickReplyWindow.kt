@@ -402,6 +402,8 @@ object QuickReplyWindow {
                     call = { video -> call(context, current, video) },
                     shareCall = { openChat(context, current) },
                     playKept = { openChat(context, current) },
+                    // The same memory as the reply bubble's Voice | Video.
+                    setPushVideo = { on -> setTalkSettings(context, state.talkSettings.withVideoFor(current, on)) },
                 ),
                 embeddedHeader = {
                     WindowHeader(context, current, title, typing = (typingUntil ?: 0L) > now, online = state.presence[current]?.online == true, pulled = { pulled }, pull = { pulled = it })

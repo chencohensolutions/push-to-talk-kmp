@@ -658,6 +658,7 @@ fun HomeApp(
                             call = { video -> call(user, video) },
                             shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                             playKept = ::playKept,
+                            setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.withVideoFor(user, on)) },
                         ),
                         talk = messagingState.talk,
                         talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),

@@ -112,6 +112,8 @@ class ConversationActions(
     val shareCall: (String) -> Unit = {},
     /** A call the server kept: play it. */
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
+    /** Push-to-talk or push-to-video for this chat (remembered per contact); null: no switch. */
+    val setPushVideo: ((Boolean) -> Unit)? = null,
 )
 
 /** What the header says under the name: typing, online, last seen, or nothing known. */
@@ -160,7 +162,17 @@ internal fun ConversationScreen(
     }
     // Send (2026-11-24, hen): the pinned draft flies into its place at the end of the chat.
     val flight = remember(user) { SendFlight() }
-    Box(Modifier.fillMaxSize().onGloballyPositioned { flight.origin = it.positionInWindow() }) {
+    Box(
+        Modifier.fillMaxSize().onGloballyPositioned { flight.origin = it.positionInWindow() }.pointerInput(Unit) {
+            // Every touch counts (the camera's idle time).
+            awaitPointerEventScope {
+                while (true) {
+                    val e = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                    if (e.changes.any { it.pressed && !it.previousPressed }) flight.touches++
+                }
+            }
+        },
+    ) {
     Column(
         Modifier.fillMaxSize().background(LibraryColors.Background)
             // The keyboard's room follows its animation frame by frame (2026-11-24, hen); the window grows with it.
@@ -244,7 +256,14 @@ internal fun ConversationScreen(
         androidx.compose.runtime.DisposableEffect(user) { onDispose { actions.draft("") } }
         // Push-to-video from the chat (2026-11-23, hen): the camera kept open while the chat shows, so a press sends
         // it at once; what this phone sends shows live in its bubble at the end of the chat, and stays as the video.
-        com.chencohen.ptt.ui.talk.WarmCamera(user, pushVideo && canWrite, warmCamera)
+        // Released after a minute untouched (2026-11-24, hen), opened again at the next touch.
+        var cameraIdle by remember(user) { mutableStateOf(false) }
+        LaunchedEffect(flight.touches, pushVideo) {
+            cameraIdle = false
+            delay(60_000)
+            cameraIdle = true
+        }
+        com.chencohen.ptt.ui.talk.WarmCamera(user, pushVideo && canWrite && !cameraIdle, warmCamera)
         val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING || it.phase == TalkPhase.WAITING) }
         val recordingVoice = talk.own?.takeIf { it.chat == user && it.phase == TalkPhase.VOICE } != null
         val talkingHere = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) } != null
@@ -404,7 +423,7 @@ internal fun ConversationScreen(
                             val height = (row.height * rowShown).toInt()
                             layout(row.width, height) { row.placeWithLayer(0, 0) { alpha = rowShown } }
                         },
-                    ) { ChatButtons(false, talkingHere, recordingVoice, actions) }
+                    ) { ChatButtons(false, talkingHere, recordingVoice, actions, video = pushVideo) }
                 }
             }
         }
@@ -442,6 +461,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     back = a.back, openContact = a.openContact, send = a.send, retry = a.retry, typing = a.typing, draft = a.draft, openTalk = a.openTalk,
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
+    setPushVideo = a.setPushVideo,
 )
 
 
@@ -803,6 +823,8 @@ internal class SendFlight {
     /** The sent message, once it is in the chat. */
     var id by mutableStateOf<String?>(null)
     var origin = androidx.compose.ui.geometry.Offset.Zero
+    /** Touches on the chat, counted (the camera's idle release). */
+    var touches by androidx.compose.runtime.mutableIntStateOf(0)
     val progress = androidx.compose.animation.core.Animatable(0f)
 
     fun start(text: String, bounds: androidx.compose.ui.geometry.Rect?) {

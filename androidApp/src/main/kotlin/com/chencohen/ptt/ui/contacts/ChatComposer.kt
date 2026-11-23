@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -54,6 +55,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.Dp
@@ -231,30 +233,96 @@ internal fun ChatButtons(
     talking: Boolean,
     recording: Boolean,
     actions: ConversationActions,
+    /** This chat's push is video (the camera goes too). */
+    video: Boolean = false,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
     val big by animateDpAsState(if (compact) 48.dp else 84.dp, label = "talk button")
+    // The side buttons centred on the big one, which has its switch above it.
+    val lift = (big - small) / 2
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
         horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Bottom,
     ) {
-        RoundButton(LibraryIcons.Video, stringResource(R.string.call_video), small) { actions.call(true) }
-        val talkLabel = stringResource(R.string.talk_button)
-        Box(
-            Modifier.size(big)
-                .shadow(10.dp, CircleShape)
-                .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
-                .semantics { contentDescription = talkLabel }
-                .holdToTalk(onPress = { microphone(actions.startVoice) }, onRelease = { actions.finishVoice(true) }),
-            contentAlignment = Alignment.Center,
-        ) { Icon(LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f)) }
-        RoundButton(LibraryIcons.Call, stringResource(R.string.call_voice), small) { actions.call(false) }
-        if (recording) {
-            RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
-        } else {
-            RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
+        Box(Modifier.padding(bottom = lift)) { RoundButton(LibraryIcons.Video, stringResource(R.string.call_video), small) { actions.call(true) } }
+        androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Push-to-talk | push-to-video (2026-11-24, hen): icons only, centred on the button.
+            actions.setPushVideo?.let { set -> TalkModeSwitch(video, set, actions.micDenied, Modifier.padding(bottom = 8.dp)) }
+            val talkLabel = stringResource(if (video) R.string.talk_mode_video else R.string.talk_button)
+            Box(Modifier.size(big)) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .shadow(10.dp, CircleShape)
+                        .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
+                        .semantics { contentDescription = talkLabel }
+                        .holdToTalk(onPress = { microphone(actions.startVoice) }, onRelease = { actions.finishVoice(true) }),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.animation.Crossfade(video, animationSpec = androidx.compose.animation.core.tween(200), label = "talk icon") { v ->
+                        Icon(if (v) LibraryIcons.Video else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
+                    }
+                }
+                // My camera, small, on the button's corner: framed before pressing.
+                androidx.compose.animation.AnimatedVisibility(
+                    video && !compact,
+                    enter = androidx.compose.animation.fadeIn(tween<Float>(200)) + androidx.compose.animation.scaleIn(tween<Float>(200), initialScale = 0.6f),
+                    exit = androidx.compose.animation.fadeOut(tween<Float>(150)) + androidx.compose.animation.scaleOut(tween<Float>(150), targetScale = 0.6f),
+                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-6).dp),
+                ) {
+                    Box(Modifier.size(34.dp).shadow(4.dp, CircleShape).clip(CircleShape).background(Color.Black).border(2.dp, Color.White, CircleShape)) {
+                        com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize())
+                    }
+                }
+            }
+        }
+        Box(Modifier.padding(bottom = lift)) { RoundButton(LibraryIcons.Call, stringResource(R.string.call_voice), small) { actions.call(false) } }
+        Box(Modifier.padding(bottom = lift)) {
+            if (recording) {
+                RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
+            } else {
+                RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
+            }
+        }
+    }
+}
+
+/**
+ * Voice | video for the big button: two segments, a microphone and a camera, the chosen one filled; the fill slides
+ * between them (start to end, so mirrored in Hebrew). Video asks for the camera the first time (from the app; the
+ * quick-reply window opens the chat for that, [denied]).
+ */
+@Composable
+internal fun TalkModeSwitch(video: Boolean, set: (Boolean) -> Unit, denied: () -> Unit, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val canAsk = androidx.activity.compose.LocalActivityResultRegistryOwner.current != null
+    val ask = if (canAsk) androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted -> if (granted) set(true) } else null
+    fun choose(on: Boolean) {
+        when {
+            on == video -> {}
+            !on -> set(false)
+            context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED -> set(true)
+            ask != null -> ask.launch(android.Manifest.permission.CAMERA)
+            else -> denied()
+        }
+    }
+    val segment = 40.dp
+    val at by animateDpAsState(if (video) segment else 0.dp, tween(200), label = "mode")
+    Box(modifier.shadow(4.dp, CircleShape).background(LibraryColors.Raised, CircleShape).padding(3.dp)) {
+        Box(Modifier.offset(x = at).size(segment, 28.dp).background(LibraryColors.Inverse, CircleShape))
+        Row {
+            listOf(false to LibraryIcons.Mic, true to LibraryIcons.Video).forEach { (on, icon) ->
+                val chosen = on == video
+                val ink by androidx.compose.animation.animateColorAsState(if (chosen) LibraryColors.OnInverse else LibraryColors.OnBackground, tween(200), label = "ink")
+                val words = stringResource(if (on) R.string.talk_mode_video else R.string.talk_mode_voice)
+                Box(
+                    Modifier.size(segment, 28.dp).clip(CircleShape)
+                        .semantics { selected = chosen }
+                        .clickable(role = Role.Tab, onClickLabel = words) { choose(on) },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(icon, words, tint = ink, modifier = Modifier.size(16.dp)) }
+            }
         }
     }
 }

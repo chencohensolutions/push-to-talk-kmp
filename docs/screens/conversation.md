@@ -65,6 +65,15 @@ quick-reply window isn't fitted by the system any more: it grows upward by the k
 and is placed at its window position with `place()` (not mirrored), so it flies to its slot rather than to the mirror
 of it. Tested in RtlTransitionsTest.
 
+**Voice | video** (2026-11-24, hen): right above the big push-to-talk button, centred on it, a small two-part switch,
+a microphone and a camera (icons only; the fill slides between them, start to end, mirrored in Hebrew). The big
+button's icon follows it (walkie-talkie or camera, crossfading). The choice is kept per contact, the same memory as the
+reply bubble's Voice | Video, so the chat, the quick-reply window and the bubble agree. In Video the front camera
+opens as soon as the chat shows (warm, so a press sends video at once) and my picture shows small on the button's
+corner; it's let go on Voice, leaving the chat, the app going to the background, or a minute untouched, and opens again
+on return or at the next touch. It folds away with the button row while writing. The first Video asks for the camera
+(from the quick-reply window, the chat opens for that).
+
 **Writing in the chat** (2026-11-23, hen, from the approved mockup "chat-typing-in-chat"): there is no line to write in
 at the bottom. The last thing in the chat is an empty dashed bubble on this phone's side, "Write a message…"; a tap
 opens the keyboard and makes it the draft: an outlined bubble (coral outline, faint fill, "Writing…") edited in place,
