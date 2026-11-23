@@ -223,7 +223,11 @@ private const val SMALL_SHARE = 0.32f
 @Composable
 internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false) {
     val shown by AndroidTalkVideoOut.shown.collectAsStateWithLifecycle()
-    val s = shown
+    // When the burst ends its shape goes before this view does: kept, so no frame is drawn sideways (2026-11-23, hen:
+    // "a one-frame glitch, some horizontal video for a blink").
+    var lastShown by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<AndroidTalkVideoOut.Shown?>(null) }
+    if (shown != null && shown != lastShown) lastShown = shown
+    val s = shown ?: lastShown
     val rotation = s?.rotation ?: 0
     val frameAspect = if (s != null && s.width > 0 && s.height > 0) s.width.toFloat() / s.height else 4f / 3f
     val turned = rotation % 180 != 0

@@ -109,7 +109,10 @@ object TalkPlaying {
             NotificationManagerCompat.from(app).cancel(ID)
             return
         }
-        val builder = NotificationCompat.Builder(app, if ((!live && quiet) || lastClip == dark) RECORD_CHANNEL else CHANNEL)
+        // The bubble or the app shows the burst already (2026-11-23, hen: "when video is pushed I can still see the
+        // notification"): only a quiet record in the shade, no heads-up.
+        val shownElsewhere = TalkBubble.showing || chatInFront(app) == chat
+        val builder = NotificationCompat.Builder(app, if ((!live && quiet) || lastClip == dark || shownElsewhere) RECORD_CHANNEL else CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(
@@ -136,6 +139,7 @@ object TalkPlaying {
 
     /** The woken Talk screen is up: the full-screen notification that may have opened it goes. */
     fun wokenShown(context: Context) {
+        woken = true
         NotificationManagerCompat.from(context).cancel(WAKE_ID)
     }
 
@@ -166,11 +170,29 @@ object TalkPlaying {
             Log.i(TAG, "wake for $chat: started the Talk screen $started (window to allow it ${shim != null}), full-screen intents allowed $fullScreen")
             shim?.let { v -> android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ runCatching { app.getSystemService(android.view.WindowManager::class.java).removeView(v) } }, 3_000) }
             if (started && !fullScreen) return
+            if (started) {
+                // Started: the full-screen notification only if the Talk screen hasn't come up in a moment (Android may
+                // drop a background start without a word); otherwise it would show over the video as a notification.
+                woken = false
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (!woken) {
+                        Log.i(TAG, "wake for $chat: the Talk screen didn't come up, full-screen intent")
+                        fullScreenNotice(app, chat, title, intent)
+                    }
+                }, 1_200)
+                return
+            }
         }
         if (!fullScreen) {
             Log.i(TAG, "wake for $chat: can't turn the screen on: neither over other apps nor full-screen intents are allowed")
             return
         }
+        fullScreenNotice(app, chat, title, intent)
+    }
+
+    @Volatile private var woken = false
+
+    private fun fullScreenNotice(app: TalkApp, chat: String, title: String, intent: Intent) {
         NotificationManagerCompat.from(app).cancel(WAKE_ID)
         val n = NotificationCompat.Builder(app, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)

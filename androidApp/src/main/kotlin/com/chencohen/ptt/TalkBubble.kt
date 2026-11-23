@@ -76,6 +76,9 @@ object TalkBubble {
         }
     }
 
+    /** The bubble is on screen now. */
+    val showing: Boolean get() = view != null
+
     /** The bubble may show now: the setting, Android's permission, the phone in use and unlocked. */
     fun allowed(context: Context): Boolean {
         if (!messagingState(context).value.talkSettings.replyBubble) return false
@@ -161,39 +164,76 @@ object TalkBubble {
             dismissNow()
             return
         }
-        main.postDelayed({ showMode(context) }, 100)
+        main.postDelayed({
+            showMode(context)
+            showVideo(context)
+        }, 100)
     }
 
-    /** This phone's camera in the window while it sends video (the burst's picture, if any, gives way). */
-    private fun showOwn(context: Context, on: Boolean) {
-        val own = ownView ?: return
-        own.visibility = if (on) View.VISIBLE else View.GONE
-        videoBox?.findViewWithTag<View>("video")?.visibility = if (on) View.GONE else View.VISIBLE
-        if (on) {
-            val was = videoBox?.visibility
-            videoBox?.visibility = View.VISIBLE
-            fit(videoBox?.takeIf { was != View.VISIBLE })
-            ownSurface?.let { com.chencohen.ptt.talkVideoCapture?.setPreview(it) }
-        } else {
-            ownSurface?.let { s -> com.chencohen.ptt.talkVideoCapture?.clearPreview(s) {} }
-            showVideo(context)
-        }
-    }
+    /** Sending video from here: the box shows this phone's camera (their picture gives way). */
+    private fun showOwn(context: Context, @Suppress("UNUSED_PARAMETER") on: Boolean) = showVideo(context)
+
+    /** The last picture's shape and turn, kept when the burst ends (no sideways frame as it goes). */
+    private var lastShown: com.chencohen.ptt.talk.AndroidTalkVideoOut.Shown? = null
+
+    /** A video burst came in this window's time: the room for the picture stays, so the window doesn't change size. */
+    private var seenVideo = false
+
+    /** This phone's camera shows here (the window's Voice | Video is Video): kept open by Talk's service. */
+    private var previewOn = false
 
     /**
-     * A video burst shows its picture above the bar's words, unless the bubble's Video is off (2026-11-22, hen: off by
-     * default, like all of push-to-video); the Video switch shows while a burst has video.
+     * What the box above the button shows (2026-11-23, hen): their video burst while it plays (unless the bubble's Video
+     * is off); this phone's camera while it sends, or, in Video, between bursts; a quick crossfade (180 ms) between the
+     * two. The box keeps its room once the window is in Video or a video came (hidden, not gone), so the window keeps its
+     * size and nothing under the finger moves.
      */
     private fun showVideo(context: Context) {
         val on = messagingState(context).value.talkSettings.bubbleVideo
         videoSwitch?.visibility = if (burstVideo) View.VISIBLE else View.GONE
         videoSwitch?.setImageResource(if (on) R.drawable.ic_bubble_video else R.drawable.ic_bubble_video_off)
         videoSwitch?.contentDescription = context.getString(if (on) R.string.talk_video_on else R.string.talk_video_off)
-        val was = videoBox?.visibility
-        videoBox?.visibility = if ((burstVideo && on) || sendingVideo) View.VISIBLE else View.GONE
-        fit(videoBox?.takeIf { was != View.VISIBLE })
+        if (burstVideo) seenVideo = true
+        val camera = context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val callOn = messagingState(context).value.call != null
+        val theirs = burstVideo && on && !sendingVideo
+        val mine = sendingVideo || (!theirs && videoMode(context) && camera && !callOn && ringing == null)
+        // The camera kept open for the preview (the service holds it while the app is in the background).
+        if (mine && !sendingVideo && !previewOn) preview(context, true) else if (!mine && previewOn) preview(context, false)
+        val box = videoBox ?: return
+        val reserve = seenVideo || videoMode(context)
+        box.visibility = when {
+            theirs || mine -> View.VISIBLE
+            reserve -> View.INVISIBLE
+            else -> View.GONE
+        }
+        fit()
+        val burstView = box.findViewWithTag<View>("video")
+        fun fade(v: View?, to: Float) {
+            v ?: return
+            if (v.visibility != View.VISIBLE) {
+                v.visibility = View.VISIBLE
+                v.alpha = 0f
+            }
+            if (v.alpha != to) v.animate().alpha(to).setDuration(180).start()
+        }
+        fade(burstView, if (theirs) 1f else 0f)
+        fade(ownView, if (mine) 1f else 0f)
+        if (mine) ownSurface?.let { com.chencohen.ptt.talkVideoCapture?.setPreview(it) } else ownSurface?.let { s -> com.chencohen.ptt.talkVideoCapture?.clearPreview(s) {} }
         main.removeCallbacks(turn)
-        if (burstVideo && on) main.post(turn)
+        if (theirs) main.post(turn)
+    }
+
+    /** Asks Talk's service to keep the camera open for the window's preview ([on]) or let it go. */
+    private fun preview(context: Context, on: Boolean) {
+        val chat = chat ?: return
+        previewOn = on
+        runCatching {
+            context.startForegroundService(
+                Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_PREVIEW)
+                    .putExtra(TalkReadyService.EXTRA_CHAT, chat).putExtra(TalkReadyService.EXTRA_VIDEO, on),
+            )
+        }.onFailure { Log.w(TAG, "no camera preview", it) }
     }
 
     /** Keeps the picture upright and its shape as the sender's camera says, while it shows. */
@@ -202,7 +242,8 @@ object TalkBubble {
             val box = videoBox ?: return
             if (box.visibility != View.VISIBLE) return
             val video = box.findViewWithTag<View>("video") ?: return
-            val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value
+            val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
+            lastShown = shown
             val rotation = shown?.rotation ?: 0
             val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 4f / 3f
             // The box takes the picture's upright shape (tall for a phone held upright, wide on its side), at most
@@ -211,13 +252,7 @@ object TalkBubble {
             val turned = rotation % 180 != 0
             val shownAspect = if (turned) 1f / aspect else aspect
             val (w, h) = if (shownAspect >= 1f) side to (side / shownAspect).toInt() else (side * shownAspect).toInt() to side
-            val boxParams = box.layoutParams
-            if (boxParams.width != w || boxParams.height != h) {
-                boxParams.width = w
-                boxParams.height = h
-                box.layoutParams = boxParams
-                fit()
-            }
+            // The box itself keeps its size (240 dp square): the window never changes size for the picture's shape.
             val (vw, vh) = if (turned) h to w else w to h
             val lp = video.layoutParams
             if (lp.width != vw || lp.height != vh) {
@@ -301,7 +336,7 @@ object TalkBubble {
         val nameRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         nameRow.addView(title)
         nameRow.addView(hereDot)
-        line = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 15f; maxLines = 1; gravity = Gravity.CENTER; visibility = View.GONE }
+        line = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 15f; maxLines = 1; gravity = Gravity.CENTER; visibility = View.INVISIBLE }
         words.addView(nameRow)
         words.addView(line)
         top.addView(words, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -514,7 +549,6 @@ object TalkBubble {
         (button?.background as? GradientDrawable)?.setColor(TEAL)
         line?.visibility = View.VISIBLE
         line?.text = "0:00"
-        fit()
         button?.setImageResource(R.drawable.ic_bubble_send)
         button?.contentDescription = context.getString(R.string.bubble_send)
         main.post(tick)
@@ -540,8 +574,7 @@ object TalkBubble {
             context.startService(Intent(context, TalkReadyService::class.java).setAction(if (send) TalkReadyService.ACTION_SEND else TalkReadyService.ACTION_CANCEL_TALK))
         }
         (button?.background as? GradientDrawable)?.setColor(PINK)
-        line?.visibility = View.GONE
-        fit()
+        line?.visibility = View.INVISIBLE
         note = null
         if (sendingVideo) {
             sendingVideo = false
@@ -679,6 +712,9 @@ object TalkBubble {
         voiceTab = null
         videoTab = null
         followAt = Triple(1f, 0f, 0f)
+        if (previewOn) preview(v.context, false)
+        previewOn = false
+        seenVideo = false
         ownView = null
         sendingVideo = false
         note = null

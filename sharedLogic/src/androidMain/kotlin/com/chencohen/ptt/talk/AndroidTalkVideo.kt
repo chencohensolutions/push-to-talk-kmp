@@ -55,6 +55,7 @@ class AndroidTalkVideoCapture(
     private var faceReader: android.media.ImageReader? = null
     private var faceReaderOk = true
     @Volatile private var faceSink: ((TalkVideo.Face) -> Unit)? = null
+    private val faceHandler by lazy { Handler(HandlerThread("talk-faces").also { it.start() }.looper) }
     @Volatile private var lastPtsMs = 0L
     private val faceFinder by lazy {
         com.chencohen.ptt.calls.FaceFinder("TalkFaces", everyMs = 500) { box ->
@@ -337,7 +338,8 @@ class AndroidTalkVideoCapture(
         session = null
         if (faceReaderOk && faceReader == null) {
             faceReader = android.media.ImageReader.newInstance(FACE_WIDTH, FACE_HEIGHT, android.graphics.ImageFormat.YUV_420_888, 2).apply {
-                setOnImageAvailableListener({ faceImage(it) }, handler)
+                // On a thread of its own: the encoder's thread never waits for it.
+                setOnImageAvailableListener({ faceImage(it) }, faceHandler)
             }
         }
         val faces = faceReader?.surface?.takeIf { faceReaderOk }
