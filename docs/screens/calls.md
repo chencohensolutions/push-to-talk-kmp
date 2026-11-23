@@ -41,7 +41,10 @@ says "Calls need the microphone. Allow it in the app's settings."
     bar too; your video is a small corner window.
   - **Normal**: upright, their whole picture as wide as the screen at its own shape from the very top, and your video
     in the rest, at its own shape, as wide as that allows, centred. On its side, side by side: theirs at full height
-    from the start edge, yours in the rest, as big as fits, centred.
+    on the camera's side, yours in the rest, as big as fits, centred.
+  On its side (2026-11-23, hen), whichever way it is turned and in Hebrew too: the call's buttons are a column along
+  the edge away from the camera, and in Maximized your window sits beside that column, not under it. A half turn
+  swaps the sides at once (the display's rotation is followed, not the configuration).
   The name, pills and buttons float over the video on soft shades; a single tap on the video hides or shows them all
   (no double tap).
 - **Follow face** (2026-11-23, hen; a pill at the top while someone's video shows, kept for next time, apart from

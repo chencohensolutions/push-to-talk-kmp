@@ -284,6 +284,9 @@ fun CallScreen(
             onDispose { activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
         }
         val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        // On its side, the camera's edge: left when turned left (90), right when turned right (270); followed live,
+        // a turn of 180 degrees changes no configuration.
+        val cameraLeft = rememberDisplayRotation() != android.view.Surface.ROTATION_270
         var statsShown by remember { androidx.compose.runtime.mutableStateOf(prefs.getBoolean("stats", false)) }
         val stats = statsAllowed && statsShown
         // Follow my face (2026-11-22, hen): framed on this phone before sending; kept for next time.
@@ -336,16 +339,31 @@ fun CallScreen(
             }
         }
 
+        val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+        // Sides on its side are the camera's, not the language's: laid out left to right, text kept as it reads.
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalLayoutDirection provides if (landscape) androidx.compose.ui.unit.LayoutDirection.Ltr else direction,
+        ) {
         Box(
             Modifier.fillMaxSize().pointerInput(videoOn) { detectTapGestures(onTap = { if (videoOn) controls = !controls }) },
         ) {
             when {
                 normal && landscape -> Row(Modifier.fillMaxSize()) {
-                    // Theirs at full height and its own shape from the start edge; this phone's in the rest.
+                    // Theirs at full height and its own shape on the camera's side (whichever way the phone is
+                    // turned, 2026-11-23, hen); this phone's in the rest, before the buttons on the far side.
                     val shape = remote.firstOrNull()?.first?.let { shapes[it] } ?: (4f / 3f)
-                    theirs(Modifier.fillMaxHeight().aspectRatio(shape * remote.size.coerceAtLeast(1), matchHeightConstraintsFirst = true))
-                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                        mine(Modifier.fillMaxSize().padding(8.dp))
+                    @Composable
+                    fun them() = theirs(Modifier.fillMaxHeight().aspectRatio(shape * remote.size.coerceAtLeast(1), matchHeightConstraintsFirst = true))
+                    @Composable
+                    fun me() = Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        mine(Modifier.fillMaxSize().padding(start = if (cameraLeft) 8.dp else 104.dp, end = if (cameraLeft) 104.dp else 8.dp, top = 8.dp, bottom = 8.dp))
+                    }
+                    if (cameraLeft) {
+                        them()
+                        me()
+                    } else {
+                        me()
+                        them()
                     }
                 }
                 normal -> Column(Modifier.fillMaxSize()) {
@@ -361,11 +379,15 @@ fun CallScreen(
                     if (own != null) {
                         // A small window in the corner, above the buttons while they show.
                         val lift by androidx.compose.animation.core.animateDpAsState(if (shown) 150.dp else 16.dp, label = "own window")
+                        val aside by androidx.compose.animation.core.animateDpAsState(if (shown) 104.dp else 16.dp, label = "own window aside")
                         val window = if (ownShape >= 1f) Modifier.size(width = 160.dp, height = (160 / ownShape).dp) else Modifier.size(width = (160 * ownShape).dp, height = 160.dp)
-                        mine(
-                            Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = lift).then(window)
-                                .clip(RoundedCornerShape(12.dp)),
-                        )
+                        // On its side: away from the camera, beside the buttons' column, not under it.
+                        val place = when {
+                            !landscape -> Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = lift)
+                            cameraLeft -> Modifier.align(Alignment.BottomEnd).padding(end = aside, bottom = 16.dp)
+                            else -> Modifier.align(Alignment.BottomStart).padding(start = aside, bottom = 16.dp)
+                        }
+                        mine(place.then(window).clip(RoundedCornerShape(12.dp)))
                     }
                 }
             }
@@ -460,12 +482,25 @@ fun CallScreen(
                         }
                     }
                 }
-                // The bottom: Save or Stop, and the call's buttons, over a soft shade.
+                // Save or Stop, and the call's buttons, over a soft shade: along the bottom upright; on its side, a
+                // column along the edge away from the camera (2026-11-23, hen).
+                val side = landscape && call.phase != CallPhase.ENDED
                 Column(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, if (videoOn) scrim else Color.Transparent)))
-                        .navigationBarsPadding().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 24.dp),
+                    if (side) {
+                        Modifier.align(if (cameraLeft) Alignment.CenterEnd else Alignment.CenterStart).fillMaxHeight()
+                            .background(
+                                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    if (cameraLeft) listOf(Color.Transparent, if (videoOn) scrim else Color.Transparent) else listOf(if (videoOn) scrim else Color.Transparent, Color.Transparent),
+                                ),
+                            )
+                            .padding(horizontal = 12.dp, vertical = 16.dp)
+                    } else {
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, if (videoOn) scrim else Color.Transparent)))
+                            .navigationBarsPadding().padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 24.dp)
+                    },
                     horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = if (side) Arrangement.Center else Arrangement.Top,
                 ) {
                     // Stop shows for anyone while the server keeps the call; Record only where it can be saved.
                     val stoppable = call.saving || call.serverRecordingBy != null
@@ -481,12 +516,12 @@ fun CallScreen(
                         Spacer(Modifier.height(16.dp))
                     }
                     when (call.phase) {
-                        CallPhase.RINGING -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        CallPhase.RINGING -> ButtonLine(side) {
                             RoundButton(LibraryIcons.Close, stringResource(R.string.call_decline), LibraryColors.Error, actions.decline)
                             RoundButton(if (call.video) LibraryIcons.Video else LibraryIcons.Call, stringResource(R.string.call_answer), LibraryColors.Accent, actions.accept)
                         }
                         CallPhase.ENDED -> {}
-                        else -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        else -> ButtonLine(side) {
                             RoundButton(
                                 if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff,
                                 stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute),
@@ -504,7 +539,38 @@ fun CallScreen(
                 }
             }
         }
+        }
     }
+}
+
+/** The call's buttons: in a row, or a column on the edge away from the camera. */
+@Composable
+private fun ButtonLine(column: Boolean, content: @Composable () -> Unit) {
+    if (column) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) { content() }
+    } else {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) { content() }
+    }
+}
+
+/** The display's rotation (Surface.ROTATION_*), followed as it turns, a half turn included. */
+@Composable
+private fun rememberDisplayRotation(): Int {
+    val view = androidx.compose.ui.platform.LocalView.current
+    var rotation by remember { androidx.compose.runtime.mutableIntStateOf(view.display?.rotation ?: 0) }
+    DisposableEffect(view) {
+        val manager = view.context.getSystemService(android.hardware.display.DisplayManager::class.java)
+        val listener = object : android.hardware.display.DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) {}
+            override fun onDisplayRemoved(displayId: Int) {}
+            override fun onDisplayChanged(displayId: Int) {
+                view.display?.rotation?.let { rotation = it }
+            }
+        }
+        manager.registerDisplayListener(listener, android.os.Handler(android.os.Looper.getMainLooper()))
+        onDispose { manager.unregisterDisplayListener(listener) }
+    }
+    return rotation
 }
 
 /** A small pill over the video: [on] in the inverse colour. */
