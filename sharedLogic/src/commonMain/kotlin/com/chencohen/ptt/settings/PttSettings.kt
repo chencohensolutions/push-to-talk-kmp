@@ -112,6 +112,21 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_SAVE_CALLS)
         set(value) = store.putString(KEY_SAVE_CALLS, value)
 
+    /** Settings › Calls › Save calls › Download saved calls: a call this phone saved is fetched to the phone on its end. */
+    var autoDownloadCalls: Boolean
+        get() = store.getString(KEY_AUTO_DL) == "true"
+        set(value) = store.putString(KEY_AUTO_DL, value.toString())
+
+    /** Download saved calls only over Wi-Fi (default on). */
+    var autoDownloadWifiOnly: Boolean
+        get() = store.getString(KEY_AUTO_DL_WIFI) != "false"
+        set(value) = store.putString(KEY_AUTO_DL_WIFI, value.toString())
+
+    /** Download saved calls only while charging (default off). */
+    var autoDownloadChargingOnly: Boolean
+        get() = store.getString(KEY_AUTO_DL_CHARGING) == "true"
+        set(value) = store.putString(KEY_AUTO_DL_CHARGING, value.toString())
+
     /** The chats set to When I'm away: Notify only (the rest play aloud). */
     var notifyOnlyChats: Set<String>
         get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
@@ -228,6 +243,9 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_HARDWARE_BUTTONS = "talk_hardware_buttons"
         private const val KEY_NOTIFY_ONLY = "talk_notify_only"
         private const val KEY_SAVE_CALLS = "save_calls"
+        private const val KEY_AUTO_DL = "call_auto_download"
+        private const val KEY_AUTO_DL_WIFI = "call_auto_download_wifi"
+        private const val KEY_AUTO_DL_CHARGING = "call_auto_download_charging"
         private const val KEY_PUSH_TOKEN = "push_token"
         private const val KEY_PRESENCE_VISIBLE = "presence_visible"
         private const val KEY_PUSH_REGISTERED = "push_registered"

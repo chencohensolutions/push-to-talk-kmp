@@ -45,6 +45,21 @@ class TalkApp : Application() {
                 .distinctUntilChanged()
                 .collect { AndroidContacts.sync(this@TalkApp, messagingState(this@TalkApp).value.contacts) }
         }
+        // Download saved calls automatically (Settings › Calls › Save calls › Download saved calls, 2026-11-23, hen):
+        // when a call this phone saved ends, CallDownloads schedules the fetch under the chosen Wi-Fi/charging terms.
+        scope.launch {
+            var savedCall: String? = null
+            callState(this@TalkApp).collect { call ->
+                when {
+                    call == null -> savedCall = null
+                    call.saving -> savedCall = call.id
+                    call.phase == com.chencohen.ptt.calls.CallPhase.ENDED && call.id == savedCall -> {
+                        CallDownloads.schedule(this@TalkApp, call.id)
+                        savedCall = null
+                    }
+                }
+            }
+        }
     }
 }
 

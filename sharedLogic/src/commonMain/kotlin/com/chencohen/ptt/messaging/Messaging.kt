@@ -79,6 +79,12 @@ data class TalkSettings(
     val notifyOnly: Set<String> = emptySet(),
     /** Settings › Calls › Save calls (phase 6). */
     val saveCalls: com.chencohen.ptt.calls.SaveCalls = com.chencohen.ptt.calls.SaveCalls.OFF,
+    /** Settings › Calls › Save calls › Download saved calls: a call this phone saved is fetched to the phone on its end. */
+    val autoDownloadCalls: Boolean = false,
+    /** Download saved calls only over Wi-Fi (default on). */
+    val autoDownloadWifiOnly: Boolean = true,
+    /** Download saved calls only while charging (default off). */
+    val autoDownloadChargingOnly: Boolean = false,
     /** The chats marked Quick talk, in the order marked: the Talk tab's pages (QuickTalk). */
     val quickTalk: List<String> = emptyList(),
     /** The Talk tab's page shown last; null: the first. */
@@ -388,6 +394,9 @@ internal class Messaging(
         hardwareButtons = settings.hardwareButtons,
         notifyOnly = settings.notifyOnlyChats,
         saveCalls = settings.saveCalls?.let { name -> com.chencohen.ptt.calls.SaveCalls.entries.firstOrNull { it.name == name } } ?: com.chencohen.ptt.calls.SaveCalls.OFF,
+        autoDownloadCalls = settings.autoDownloadCalls,
+        autoDownloadWifiOnly = settings.autoDownloadWifiOnly,
+        autoDownloadChargingOnly = settings.autoDownloadChargingOnly,
         quickTalk = settings.quickTalkChats,
         quickTalkPage = settings.quickTalkPage,
         openOnTalk = settings.openOnTalk,
@@ -410,6 +419,9 @@ internal class Messaging(
         settings.hardwareButtons = talk.hardwareButtons
         settings.notifyOnlyChats = talk.notifyOnly
         settings.saveCalls = talk.saveCalls.name
+        settings.autoDownloadCalls = talk.autoDownloadCalls
+        settings.autoDownloadWifiOnly = talk.autoDownloadWifiOnly
+        settings.autoDownloadChargingOnly = talk.autoDownloadChargingOnly
         settings.quickTalkChats = talk.quickTalk
         settings.quickTalkPage = talk.quickTalkPage
         settings.openOnTalk = talk.openOnTalk

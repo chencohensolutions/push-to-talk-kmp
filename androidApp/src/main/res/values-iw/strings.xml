@@ -104,6 +104,13 @@
     <string name="calls_save_always">תמיד</string>
     <string name="calls_save_always_body">כל שיחה נשמרת מתחילתה</string>
     <string name="calls_save_note">שיחה שנשמרה נשארת בטלפון הזה (ויוצאת ממנו רק דרך שיתוף), והשרת שלכם שומר אותה גם, מוצפנת כך שרק מי שהיה בשיחה יכול לפתוח אותה.</string>
+    <string name="calls_autodl_title">הורדה אוטומטית</string>
+    <string name="calls_autodl">הורדת שיחות שמורות</string>
+    <string name="calls_autodl_body">כששומרים שיחה, היא תרד לטלפון הזה אוטומטית בסיום השיחה.</string>
+    <string name="calls_autodl_wifi">רק ב-Wi-Fi</string>
+    <string name="calls_autodl_wifi_body">להמתין ל-Wi-Fi לפני ההורדה.</string>
+    <string name="calls_autodl_charging">רק בזמן טעינה</string>
+    <string name="calls_autodl_charging_body">להמתין עד שהטלפון בטעינה.</string>
     <string name="call_save">שמירה</string>
     <string name="call_save_stop">הפסקת השמירה</string>
     <string name="call_save_ask">לשמור את השיחה?</string>

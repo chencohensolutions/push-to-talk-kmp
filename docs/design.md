@@ -465,6 +465,10 @@ The server's side is its docs/messaging.md, "Calls": `callToken(call, peer | gro
   and **`calls/Matroska.kt`** writes one file without re-encoding. The player is one ExoPlayer per person over that
   file. `tools/keptcall` makes the test fixture with Go's own crypto, so the decryption is checked against another
   implementation.
+- **Download saved calls** (2026-11-23, hen; Settings › Calls › Save calls › Download saved calls): when a call this
+  phone saved ends, `TalkApp` schedules **`CallDownloads`**, a WorkManager job (the Wi-Fi and/or charging terms from
+  `TalkSettings.autoDownload*`) that reuses `loadKeptCall`/`saveKeptCall` to download and decrypt the kept call into
+  the chosen folder once the server has it, retrying until then.
 
 - **H.265 video** (2026-11-22, hen; Settings › Calls › Video): `LiveKitCallTransport` publishes the camera in H.265
   with VP8 as LiveKit's backup codec when chosen and the phone has a hardware HEVC encoder (`hasHevcEncoder`). The
