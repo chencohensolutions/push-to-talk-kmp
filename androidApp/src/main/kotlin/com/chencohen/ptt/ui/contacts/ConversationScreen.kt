@@ -253,7 +253,7 @@ internal fun ConversationScreen(
         val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
         val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
         // The message sent from the draft: its slot is kept, unseen, while the draft flies into it.
-        if (newest != null && newest.outgoing && flight.body != null && flight.id == null && newest.body == flight.body) flight.id = newest.id
+        flight.claim(newest)
         val sentMorph = flight.id
         LaunchedEffect(flight.body) {
             if (flight.body == null) return@LaunchedEffect
@@ -444,7 +444,7 @@ internal fun ConversationScreen(
                             transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
                             label = "draft or recording",
                         ) { recording ->
-                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions) { body, from -> flight.start(body, from) }
+                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions) { body, from -> flight.start(body, from, newest?.id) }
                         }
                     }
                 }
@@ -993,11 +993,26 @@ internal class SendFlight {
     var touches by androidx.compose.runtime.mutableIntStateOf(0)
     val progress = androidx.compose.animation.core.Animatable(0f)
 
-    fun start(text: String, bounds: androidx.compose.ui.geometry.Rect?) {
+    /** What was newest in the chat as Send was pressed: the sent message comes after it (never matched by text). */
+    private var before: String? = null
+
+    fun start(text: String, bounds: androidx.compose.ui.geometry.Rect?, newestNow: String?) {
         to = null
         id = null
         from = bounds
+        before = newestNow
         body = text
+    }
+
+    /**
+     * [newest] is the chat's newest message now: the first one of mine to come after Send (a new id, not the one that
+     * was newest then) is the sent one, its slot the flight's target (2026-11-24, hen: the same text sent twice flew to
+     * the earlier one).
+     */
+    fun claim(newest: TextMessage?) {
+        if (body == null || id != null || newest == null) return
+        if (newest.id == before) return
+        if (newest.outgoing && newest.clip == null && newest.call == null) id = newest.id
     }
 
     fun land() {
