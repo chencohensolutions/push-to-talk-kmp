@@ -303,8 +303,10 @@ internal class Talk(
                         out.frames++
                         out.pendingAudio++
                     }
-                    // 200 ms of voice, or less when the camera's pieces fill it (under the server's 16 KB).
-                    if (out.pendingAudio == TalkAudioFormat.FRAMES_PER_SEGMENT || out.pendingBytes > SEGMENT_BYTES) segment(out, last = false)
+                    // 200 ms of voice, or less when the camera's pieces fill it (under the server's 16 KB); the first
+                    // after 60 ms, so the listener starts sooner (2026-11-23, hen: "the delay is big").
+                    val due = if (out.index == 0) FIRST_SEGMENT_FRAMES else TalkAudioFormat.FRAMES_PER_SEGMENT
+                    if (out.pendingAudio >= due || out.pendingBytes > SEGMENT_BYTES) segment(out, last = false)
                 }
                 Captured.End -> {
                     segment(out, last = true)
@@ -870,6 +872,9 @@ internal class Talk(
          * since bf1b11e; a key frame can be 20 to 40 KB).
          */
         const val SEGMENT_BYTES = 48_000
+
+        /** The first segment goes after this many 20 ms frames (60 ms), the rest after a full 200 ms. */
+        const val FIRST_SEGMENT_FRAMES = 3
 
         /**
          * Push-to-video's video in one burst, at most: the server keeps a clip up to 8 MiB, and the voice and the
