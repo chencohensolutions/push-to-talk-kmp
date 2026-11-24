@@ -132,6 +132,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
         set(value) = store.putString(KEY_NOTIFY_ONLY, json.encodeToString(value.sorted()))
 
+    /** Kept calls already downloaded from the server (by id): their Download button is gone. */
+    var downloadedCalls: Set<String>
+        get() = store.getString(KEY_DOWNLOADED_CALLS)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
+        set(value) = store.putString(KEY_DOWNLOADED_CALLS, json.encodeToString(value.sorted()))
+
     /** The chats marked Quick talk, in the order marked (the Talk tab's pages). */
     var quickTalkChats: List<String>
         get() = store.getString(KEY_QUICK_TALK)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }.orEmpty()
@@ -278,6 +283,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_DEFAULT_TALK = "talk_default_chat"
         private const val KEY_HARDWARE_BUTTONS = "talk_hardware_buttons"
         private const val KEY_NOTIFY_ONLY = "talk_notify_only"
+        private const val KEY_DOWNLOADED_CALLS = "calls_downloaded"
         private const val KEY_SAVE_CALLS = "save_calls"
         private const val KEY_AUTO_DL = "call_auto_download"
         private const val KEY_AUTO_DL_WIFI = "call_auto_download_wifi"

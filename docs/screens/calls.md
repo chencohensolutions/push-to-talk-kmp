@@ -95,7 +95,9 @@ says "Calls need the microphone. Allow it in the app's settings."
 
 A call the server kept (someone recorded it) has **On the server · Play** under its line in the chat, and **Play** and
 **Save as file** buttons on its row in the Calls tab. The call's key stays on its entry (`CallEntry.keptKey`) once the
-room's metadata said the server keeps it; the server never has it.
+room's metadata said the server keeps it; the server never has it. Once the call has been downloaded to this phone —
+here, or by Download saved calls — its **Save as file** button is gone, on the Calls-tab row and in the player's top
+bar (2026-11-24, hen; the downloaded ids are kept in `TalkSettings.downloadedCalls`).
 
 - **Getting it**: "Getting the call from your server and opening it on this phone…" with a progress bar. The phone
   asks `callRecording` for the tracks it may read, downloads each one (`GET /blob/<id>`), decrypts the frames with the

@@ -468,7 +468,9 @@ The server's side is its docs/messaging.md, "Calls": `callToken(call, peer | gro
 - **Download saved calls** (2026-11-23, hen; Settings › Calls › Save calls › Download saved calls): when a call this
   phone saved ends, `TalkApp` schedules **`CallDownloads`**, a WorkManager job (the Wi-Fi and/or charging terms from
   `TalkSettings.autoDownload*`) that reuses `loadKeptCall`/`saveKeptCall` to download and decrypt the kept call into
-  the chosen folder once the server has it, retrying until then.
+  the chosen folder once the server has it, retrying until then. A saved call's id is recorded in
+  `TalkSettings.downloadedCalls` (`Messaging.markCallDownloaded`, by both the worker and a manual Save), and its
+  **Save as file** button is then hidden on the Calls-tab row and in the player (2026-11-24, hen).
 
 - **H.265 video** (2026-11-22, hen; Settings › Calls › Video): `LiveKitCallTransport` publishes the camera in H.265
   with VP8 as LiveKit's backup codec when chosen and the phone has a hardware HEVC encoder (`hasHevcEncoder`). The

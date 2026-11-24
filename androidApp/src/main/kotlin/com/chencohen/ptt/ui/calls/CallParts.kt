@@ -199,6 +199,7 @@ fun CallsList(
     share: (String) -> Unit = {},
     playKept: (TextMessage) -> Unit = {},
     saveKept: (TextMessage) -> Unit = {},
+    downloaded: Set<String> = emptySet(),
 ) {
     Column(Modifier.fillMaxWidth()) {
         calls.forEach { message ->
@@ -219,9 +220,12 @@ fun CallsList(
                     )
                 }
                 if (call.keptKey != null) {
-                    val saveLabel = stringResource(R.string.kept_save)
-                    Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = saveLabel) { saveKept(message) }, contentAlignment = Alignment.Center) {
-                        Icon(LibraryIcons.Download, saveLabel, tint = LibraryColors.OnBackground)
+                    // Once the call has been downloaded from the server, its Download button is gone (2026-11-24, hen).
+                    if (message.id !in downloaded) {
+                        val saveLabel = stringResource(R.string.kept_save)
+                        Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = saveLabel) { saveKept(message) }, contentAlignment = Alignment.Center) {
+                            Icon(LibraryIcons.Download, saveLabel, tint = LibraryColors.OnBackground)
+                        }
                     }
                     val playLabel = stringResource(R.string.kept_open)
                     Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = playLabel) { playKept(message) }, contentAlignment = Alignment.Center) {

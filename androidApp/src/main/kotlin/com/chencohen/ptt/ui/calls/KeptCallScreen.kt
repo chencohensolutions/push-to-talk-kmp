@@ -225,7 +225,7 @@ fun shareKeptCall(context: android.content.Context, uri: Uri) {
  * person's tracks; the first leads and the others follow it.
  */
 @Composable
-fun KeptCallScreen(title: String, load: KeptLoad, back: () -> Unit, save: () -> Unit, saving: Boolean = false) {
+fun KeptCallScreen(title: String, load: KeptLoad, back: () -> Unit, save: () -> Unit, saving: Boolean = false, downloaded: Boolean = false) {
     // The file to play is the app's only while the player is open.
     DisposableEffect(load) { onDispose { (load as? KeptLoad.Ready)?.file?.delete() } }
     Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
@@ -235,7 +235,7 @@ fun KeptCallScreen(title: String, load: KeptLoad, back: () -> Unit, save: () -> 
                 Icon(LibraryIcons.Back, backLabel, tint = Color.White)
             }
             Text(title, color = Color.White, style = LibraryType.RowTitle, modifier = Modifier.weight(1f))
-            if (load is KeptLoad.Ready) {
+            if (load is KeptLoad.Ready && !downloaded) {
                 Text(
                     stringResource(if (saving) R.string.kept_saving else R.string.kept_save), color = Color.White, style = LibraryType.Small,
                     modifier = Modifier.padding(horizontal = 4.dp).background(Color.White.copy(alpha = 0.18f), CircleShape)
