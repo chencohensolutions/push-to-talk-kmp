@@ -442,7 +442,6 @@ private fun ConversationScreenIn(
             delay(60_000)
             cameraIdle = true
         }
-        com.chencohen.ptt.ui.talk.WarmCamera(user, pushVideo && canWrite && !cameraIdle, warmCamera)
         val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING || it.phase == TalkPhase.WAITING) }
         val recordingVoice = talk.own?.takeIf { it.chat == user && it.phase == TalkPhase.VOICE } != null
         val talkingHere = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) } != null
@@ -487,6 +486,9 @@ private fun ConversationScreenIn(
             }
         }
         androidx.compose.runtime.DisposableEffect(user) { onDispose { if (handsFreeNow) actions.finishVoice(true) } }
+        // Kept open while live hands-free or in standby (2026-11-24: after a minute untouched it was let go, so the next
+        // renewal went out as voice only).
+        com.chencohen.ptt.ui.talk.WarmCamera(user, pushVideo && canWrite && (!cameraIdle || handsFree || standby || talkingHere), warmCamera)
         // Their floor ended while I'm live in standby: mine starts.
         LaunchedEffect(standby, theyHold) {
             if (standby && !theyHold) {
