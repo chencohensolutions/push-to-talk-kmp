@@ -73,6 +73,7 @@ import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryShapes
 import com.chencohen.ptt.ui.style.LibraryType
 import com.chencohen.ptt.ui.talk.clipLength
+import com.chencohen.ptt.ui.talk.holdOrLock
 import com.chencohen.ptt.ui.talk.holdToTalk
 import com.chencohen.ptt.ui.talk.rememberMicrophone
 import com.chencohen.ptt.ui.talk.rememberVoiceLevel
@@ -308,6 +309,11 @@ internal fun ChatButtons(
     actions: ConversationActions,
     /** This chat's push is video (the camera goes too). */
     video: Boolean = false,
+    /** Locked hands-free (2026-11-24, hen): the button is Stop. */
+    handsFree: Boolean = false,
+    /** Slid up to the lock while held. */
+    lock: () -> Unit = {},
+    stopLive: () -> Unit = {},
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
@@ -330,13 +336,24 @@ internal fun ChatButtons(
                 RoundButton(LibraryIcons.Video, stringResource(R.string.call_video), small) { actions.call(true) }
             }
             val talkLabel = stringResource(if (video) R.string.talk_mode_video else R.string.talk_button)
+            // While held, the lock waits above the button: slid up to it, the burst goes on hands-free.
+            var lifting by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val lockAt = with(density) { 72.dp.toPx() }
             Box(Modifier.padding(start = 8.dp).size(big)) {
-                Box(
+                if (handsFree) {
+                    StopLive(big, stopLive)
+                } else Box(
                     Modifier.fillMaxSize()
                         .shadow(10.dp, CircleShape)
                         .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
                         .semantics { contentDescription = talkLabel }
-                        .holdToTalk(onPress = { microphone(actions.startVoice) }, onRelease = { actions.finishVoice(true) }),
+                        .holdOrLock(
+                            lockAt = lockAt,
+                            onPress = { lifting = 0f; microphone(actions.startVoice) },
+                            onLift = { up -> lifting = up },
+                            onRelease = { locked -> lifting = -1f; if (locked) lock() else actions.finishVoice(true) },
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     androidx.compose.animation.Crossfade(video, animationSpec = androidx.compose.animation.core.tween(200), label = "talk icon") { v ->
@@ -353,6 +370,16 @@ internal fun ChatButtons(
                     Box(Modifier.size(34.dp).shadow(4.dp, CircleShape).clip(CircleShape).background(Color.Black).border(2.dp, Color.White, CircleShape)) {
                         com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize())
                     }
+                }
+                // The lock, over the button while it is held; it fills as the thumb nears it.
+                if (lifting >= 0f && !handsFree) {
+                    val near = (lifting / lockAt).coerceIn(0f, 1f)
+                    Box(
+                        Modifier.align(Alignment.TopCenter).offset(y = -(56.dp + 16.dp * near)).size(44.dp, 56.dp)
+                            .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                            .background(androidx.compose.ui.graphics.lerp(LibraryColors.Background, com.chencohen.ptt.ui.style.Pink, near), androidx.compose.foundation.shape.RoundedCornerShape(22.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(LibraryIcons.Lock, stringResource(R.string.talk_lock_hint), tint = if (near > 0.5f) Color.White else LibraryColors.OnBackground, modifier = Modifier.size(20.dp)) }
                 }
             }
             actions.setPushVideo?.let { set -> TalkModeSwitch(video, set, actions.micDenied, Modifier.padding(start = 10.dp)) }

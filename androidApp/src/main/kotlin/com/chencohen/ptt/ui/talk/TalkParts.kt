@@ -229,6 +229,28 @@ internal fun Modifier.holdToTalk(onPress: () -> Unit, onRelease: (dx: Float) -> 
     }
 }
 
+/**
+ * Hold to talk, or slide up to lock it hands-free (2026-11-24, hen): [onLift] with how far up the finger is, and
+ * [onRelease] with whether it went past [lockAt] (locked: the burst goes on).
+ */
+internal fun Modifier.holdOrLock(lockAt: Float, onPress: () -> Unit, onLift: (Float) -> Unit, onRelease: (locked: Boolean) -> Unit): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        down.consume()
+        onPress()
+        var up = 0f
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Main)
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            up = (down.position.y - change.position.y).coerceAtLeast(0f)
+            onLift(up)
+            change.consume()
+            if (!change.pressed) break
+        }
+        onRelease(up >= lockAt)
+    }
+}
+
 /** What the Talk button says under it, from the floor and this phone's own talking. */
 @Composable
 internal fun talkLine(chat: String, talk: TalkUiState, nameOf: (String) -> String, me: String): String {
@@ -388,6 +410,26 @@ internal fun ChatDirectionCard(direction: Int, set: (Int) -> Unit) {
         ChoiceRow(stringResource(R.string.chat_direction_ltr), null, direction == d.LTR) { set(d.LTR) }
     }
     com.chencohen.ptt.ui.style.PageNote(stringResource(R.string.chat_direction_body), top = 6)
+}
+
+/**
+ * In the chat (2026-11-24, hen): whether push-to-talk voice and video stay as messages, and whether both live becomes
+ * a call by itself; all off by default.
+ */
+@Composable
+internal fun KeepInChatCard(chat: String, talk: com.chencohen.ptt.messaging.TalkSettings, set: (com.chencohen.ptt.messaging.TalkSettings) -> Unit) {
+    com.chencohen.ptt.ui.style.SectionTitle(stringResource(R.string.contact_keep_title))
+    com.chencohen.ptt.ui.style.SettingsCard {
+        SwitchRow(stringResource(R.string.contact_keep_voice), stringResource(R.string.contact_keep_voice_body), chat in talk.keepVoice) { on ->
+            set(talk.copy(keepVoice = if (on) talk.keepVoice + chat else talk.keepVoice - chat))
+        }
+        SwitchRow(stringResource(R.string.contact_keep_video), stringResource(R.string.contact_keep_video_body), chat in talk.keepVideo) { on ->
+            set(talk.copy(keepVideo = if (on) talk.keepVideo + chat else talk.keepVideo - chat))
+        }
+        SwitchRow(stringResource(R.string.contact_both_live_call), stringResource(R.string.contact_both_live_call_body), chat in talk.bothLiveCall) { on ->
+            set(talk.copy(bothLiveCall = if (on) talk.bothLiveCall + chat else talk.bothLiveCall - chat))
+        }
+    }
 }
 
 /** The layout a chat with [direction] (ChatDirection) has, on a phone laid out [phone]. */

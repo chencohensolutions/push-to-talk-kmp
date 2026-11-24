@@ -134,7 +134,14 @@ class ConversationActions(
     val sendFace: ((code: Int, fallback: String) -> Unit)? = null,
     /** Reacts to a message with one of this user's faces; null code takes it back. */
     val react: ((id: String, code: Int?) -> Unit)? = null,
+    /** This user is live hands-free and waiting for the floor (both live), or not any more. */
+    val sendLiveWaiting: ((Boolean) -> Unit)? = null,
+    /** Both live: turn it into a video call inside the chat; null: no calls here. */
+    val callInChat: (() -> Unit)? = null,
 )
+
+/** A video call shown inside the chat (2026-11-24, hen): theirs under the header, mine with the call's bar at the bottom. */
+class InChatCall(val top: @Composable () -> Unit, val bottom: @Composable () -> Unit)
 
 /** What the header says under the name: typing, online, last seen, or nothing known. */
 data class ConversationHeader(val typing: Boolean, val presence: UserPresence?)
@@ -174,12 +181,13 @@ internal fun ConversationScreen(
     viewing: Set<String> = emptySet(),
     /** This chat's direction (ChatDirection). */
     direction: Int = com.chencohen.ptt.messaging.ChatDirection.FOLLOW,
+    live: ChatLive = ChatLive(),
 ) {
     val phone = androidx.compose.ui.platform.LocalLayoutDirection.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
     ) {
-        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits)
+        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live)
     }
 }
 
@@ -214,7 +222,9 @@ private fun ConversationScreenIn(
     viewing: Set<String> = emptySet(),
     /** Their texts being edited live (MessagingState.liveEdits). */
     liveEdits: Map<String, com.chencohen.ptt.messaging.LiveEdit> = emptyMap(),
+    chatLive: ChatLive = ChatLive(),
 ) {
+    val keeps = chatLive.keeps
     // A video burst tapped in the chat plays full screen over it (2026-11-23, hen); Back or a tap closes it.
     var fullVideo by remember(user) { mutableStateOf<String?>(null) }
     val chatActions = actions
@@ -308,7 +318,9 @@ private fun ConversationScreenIn(
                 }
             }
         }
-        if (talkLine != null && (talk.talkers[user] != null || talk.own?.chat == user)) {
+        val videoPanel = (talk.playing?.let { it.chat == user && it.video && it.live } == true) ||
+            (pushVideo && talk.own?.chat == user && talk.own?.phase != TalkPhase.VOICE)
+        if (talkLine != null && !videoPanel && (talk.talkers[user] != null || talk.own?.chat == user)) {
             Text(
                 talkLine,
                 color = LibraryColors.Accent,
@@ -316,6 +328,15 @@ private fun ConversationScreenIn(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             )
+        }
+        // Theirs under the header (2026-11-24, hen): their push-to-video, or the call's other side.
+        if (chatLive.call != null) {
+            chatLive.call.top()
+        } else {
+            val theirs = talk.playing?.takeIf { it.chat == user && it.video && it.live && fullVideo == null }
+            var theirSince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
+            LaunchedEffect(theirs?.clip) { if (theirs != null) theirSince = talk.talkers[user]?.since ?: System.currentTimeMillis() }
+            TheirLivePanel(theirs != null, if (group != null) theirs?.from else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis())
         }
         if (contact?.changedKey != null) {
             HomeCard(
@@ -420,6 +441,58 @@ private fun ConversationScreenIn(
         val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING || it.phase == TalkPhase.WAITING) }
         val recordingVoice = talk.own?.takeIf { it.chat == user && it.phase == TalkPhase.VOICE } != null
         val talkingHere = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) } != null
+        // Hands-free (2026-11-24, hen): the Talk button slid up to the lock keeps sending until Stop. The server ends a
+        // floor at 60 s, so at 55 s it is let go and taken again at once.
+        var handsFree by remember(user) { mutableStateOf(false) }
+        val chainScope = androidx.compose.runtime.rememberCoroutineScope()
+        val handsFreeNow by androidx.compose.runtime.rememberUpdatedState(handsFree)
+        val ownHere = talk.own?.takeIf { it.chat == user }
+        val ownNow by androidx.compose.runtime.rememberUpdatedState(ownHere)
+        LaunchedEffect(handsFree, ownHere?.clip, ownHere?.phase) {
+            if (!handsFree) return@LaunchedEffect
+            val o = ownHere
+            if (o == null) {
+                // Its floor went (refused, or this phone's own end): hands-free ends unless a new press took it.
+                delay(2_500)
+                if (ownNow == null) handsFree = false
+                return@LaunchedEffect
+            }
+            if (o.phase == TalkPhase.TALKING) {
+                delay((o.startedAt + 55_000 - System.currentTimeMillis()).coerceAtLeast(0L))
+                // Outside this effect: letting go changes what it waits on, which would cancel the press that follows.
+                chainScope.launch {
+                    actions.finishVoice(true)
+                    // Taken again as soon as the last one is let go (a press while one is still going is ignored).
+                    var waited = 0
+                    while (ownNow != null && waited < 4_000) {
+                        delay(100)
+                        waited += 100
+                    }
+                    if (handsFreeNow) actions.startVoice()
+                }
+            }
+        }
+        androidx.compose.runtime.DisposableEffect(user) { onDispose { if (handsFreeNow) actions.finishVoice(true) } }
+        // Both live: I'm hands-free and waiting for their floor, or they are for mine.
+        val waitingLive = handsFree && ownHere?.phase == TalkPhase.WAITING
+        var saidWaiting by remember(user) { mutableStateOf(false) }
+        LaunchedEffect(waitingLive) {
+            if (waitingLive || saidWaiting) actions.sendLiveWaiting?.invoke(waitingLive)
+            saidWaiting = waitingLive
+        }
+        val bothLive = chatLive.call == null && handsFree && (waitingLive || chatLive.liveWaiting.isNotEmpty())
+        val makeCall: () -> Unit = {
+            handsFree = false
+            actions.finishVoice(true)
+            actions.callInChat?.invoke()
+        }
+        LaunchedEffect(bothLive) { chatLive.onBothLive(bothLive) }
+        LaunchedEffect(bothLive, chatLive.autoCall) {
+            if (bothLive && chatLive.autoCall && actions.callInChat != null) {
+                delay(10_000)
+                makeCall()
+            }
+        }
         // A draft that grows (a new line) stays in view, if the list was at the bottom (2026-11-23, hen).
         // Their draft counts as a new message for scrolling: appearing or growing at the bottom, the list glides to it.
         val draftText = shownDrafts.joinToString("\n") { it.second }
@@ -430,7 +503,7 @@ private fun ConversationScreenIn(
                 unseenCount = 0
             }
         }
-        val pairs = remember(messages, talk.own?.clip, talk.playing?.clip) { ReadMarks.overlappingVideos(messages, System.currentTimeMillis()) }
+        val pairs = remember(messages, talk.own?.clip, talk.playing?.clip) { ReadMarks.overlappingVideos(messages.filter(keeps), System.currentTimeMillis()) }
         val pairedEarlier = remember(pairs) { pairs.values.toSet() }
         val byId = remember(messages) { messages.associateBy { it.id } }
         val ticks = remember(messages, group != null) { if (group != null) messages.associate { it.id to ReadMarks.groupTick(messages, it) } else ReadMarks.ticks(messages) }
@@ -493,14 +566,7 @@ private fun ConversationScreenIn(
                         }
                     }
                 }
-                // What this phone sends with its camera, before its message is there: the same key, so it stays in place.
-                if (sendingVideo != null && messages.none { it.id == sendingVideo.clip }) {
-                    item(key = sendingVideo.clip) {
-                        Box(Modifier.animateItem(ease, move, ease)) {
-                            LiveVideoBubble(mine = true, startedAt = sendingVideo.startedAt, waitingFor = sendingVideo.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING })
-                        }
-                    }
-                }
+                // (What this phone sends with its camera shows in the panel above the buttons now.)
                 // Their draft, the message it became, and (one-to-one) their circle at the very end: one item each, so
                 // each change morphs in place: the circle grows into the draft, the draft fills into the message.
                 fun liveItem(key: String, line: LiveLine) = item(key = key) {
@@ -542,6 +608,16 @@ private fun ConversationScreenIn(
                     groupReaders[message.id]?.let { readers ->
                         item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { GroupReaders(readers, viewing) } }
                     }
+                    // A burst the chat doesn't keep: nothing while it is live (the panels show it), then a muted line.
+                    if (message.clip != null && !message.deleted && !keeps(message)) {
+                        val liveNow = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id || (talk.playing?.clip == message.id && talk.playing?.live == true)
+                        if (!liveNow) item(key = message.id) {
+                            Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) {
+                                TalkTrace(message, if (group != null) message.author ?: message.user else contact?.name ?: user)
+                            }
+                        }
+                        return@forEach
+                    }
                     val liveKey = live.morphed[message.id]
                     if (liveKey != null) {
                         liveItem(liveKey, LiveLine.Message(message, if (group != null) message.author else null, live.lastText[message.id]))
@@ -570,10 +646,8 @@ private fun ConversationScreenIn(
                             } else {
                                 // Live video in the bubble: mine while I send it, theirs while it plays (not under the
                                 // full-screen player).
-                                val liveVideo = message.clip?.video == true && fullVideo == null && (
-                                    (message.outgoing && talk.own?.clip == message.id && talk.own?.phase == TalkPhase.TALKING) ||
-                                        (!message.outgoing && talk.playing?.clip == message.id && talk.playing?.video == true)
-                                    )
+                                // Live video shows in the panels now (2026-11-24, hen), not in its bubble.
+                                val liveVideo = false
                                 // A playing video stays solid while the window arrives (never drawn see-through).
                                 Bubble(
                                     message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
@@ -664,6 +738,16 @@ private fun ConversationScreenIn(
             )
             val rowShown = if (imeFull > 0) 1f - (imeNow.toFloat() / imeFull).coerceIn(0f, 1f) else 1f
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { floatingHeight = it.height }.graphicsLayer { alpha = seeThrough }) {
+                // Mine above the buttons (2026-11-24, hen), or the call's own side and its bar.
+                if (chatLive.call != null) {
+                    chatLive.call.bottom()
+                } else {
+                    BothLiveChip(bothLive && actions.callInChat != null, makeCall)
+                    MyLivePanel(
+                        sendingVideo != null, sendingVideo?.startedAt ?: System.currentTimeMillis(),
+                        sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
+                    )
+                }
                 androidx.compose.animation.AnimatedVisibility(
                     pendingDelete != null,
                     enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(180)),
@@ -710,7 +794,14 @@ private fun ConversationScreenIn(
                             val height = (row.height * rowShown).toInt()
                             layout(row.width, height) { row.placeWithLayer(0, 0) { alpha = rowShown } }
                         },
-                    ) { ChatButtons(false, talkingHere, recordingVoice, actions, video = pushVideo) }
+                    ) {
+                        if (chatLive.call == null) {
+                            ChatButtons(false, talkingHere, recordingVoice, actions, video = pushVideo, handsFree = handsFree, lock = { handsFree = true }, stopLive = {
+                                handsFree = false
+                                actions.finishVoice(true)
+                            })
+                        }
+                    }
                 }
             }
         }
@@ -756,7 +847,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
-    sendFace = a.sendFace, react = a.react,
+    sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat,
 )
 
 
@@ -1725,3 +1816,15 @@ private fun PinnedDraft(
     }
     }
 }
+
+/**
+ * The chat's live side (2026-11-24, hen): which bursts it keeps as messages, who is live and waiting for this user's
+ * floor, whether both live becomes a call by itself, and a video call shown inside it.
+ */
+class ChatLive(
+    val keeps: (TextMessage) -> Boolean = { true },
+    val liveWaiting: Set<String> = emptySet(),
+    val autoCall: Boolean = false,
+    val call: InChatCall? = null,
+    val onBothLive: (Boolean) -> Unit = {},
+)

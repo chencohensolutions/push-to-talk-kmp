@@ -65,7 +65,7 @@ class ContactActions(
  * safety number to accept, the safety number, block and remove. The conversation itself is ConversationScreen.
  */
 @Composable
-internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActions, notifyOnly: Boolean = false, quickTalk: Boolean = false, liveTyping: Boolean = false, direction: Int = 0) {
+internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActions, notifyOnly: Boolean = false, quickTalk: Boolean = false, liveTyping: Boolean = false, direction: Int = 0, inChat: @Composable () -> Unit = {}) {
     SettingsScaffold(title = user, back = actions.back, imePadding = true) {
         if (contact == null) {
             EmptyState(stringResource(R.string.contact_gone))
@@ -159,6 +159,7 @@ internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActi
             com.chencohen.ptt.ui.talk.WhenAwayCard(notifyOnly, actions.setNotifyOnly)
             com.chencohen.ptt.ui.talk.LiveTypingCard(liveTyping, actions.setLiveTyping)
         }
+        if (contact.paired) inChat()
         if (contact.paired) com.chencohen.ptt.ui.talk.ChatDirectionCard(direction, actions.setDirection)
         Spacer(Modifier.height(20.dp))
         SettingsCard {

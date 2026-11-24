@@ -1031,3 +1031,77 @@ private fun CompactCall(call: CallUi, title: String, transport: LiveKitCallTrans
         }
     }
 }
+
+/**
+ * A video call inside the chat (2026-11-24, hen: "both live becomes a video call in the chat"): the other side under
+ * the header, in the place their push-to-video had (a group's: side by side).
+ */
+@Composable
+fun ChatCallTop(call: CallUi, title: String, transport: LiveKitCallTransport?) {
+    val room by (transport?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
+    val changes by (transport?.changes ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
+    Box(Modifier.fillMaxWidth().height(300.dp).clip(shape).background(Color.Black)) {
+        val r = room
+        val remote = if (r != null) remoteVideo(r, changes) else emptyList()
+        if (r != null && remote.isNotEmpty()) {
+            Row(Modifier.fillMaxSize()) { remote.forEach { (_, track) -> VideoView(r, track, Modifier.weight(1f).fillMaxHeight(), fill = true) } }
+        } else {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Avatar(call.chat, size = 72.dp, name = title) }
+        }
+    }
+}
+
+/** The call inside the chat, my side: my video, then a teal bar with its time and End, then mute, camera, flip, full screen. */
+@Composable
+fun ChatCallBottom(call: CallUi, transport: LiveKitCallTransport?, actions: CallActions, fullScreen: () -> Unit) {
+    val room by (transport?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
+    val changes by (transport?.changes ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(500)
+        }
+    }
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        val r = room
+        val own = r?.let { ownVideo(it, changes) }
+        if (r != null && own != null && call.camera) {
+            Box(Modifier.fillMaxWidth().height(200.dp).clip(shape).background(Color.Black)) {
+                VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = true)
+            }
+        }
+        val since = call.connectedAt.takeIf { it > 0 } ?: call.startedAt
+        val length = ((now - since) / 1000).coerceAtLeast(0)
+        Row(
+            Modifier.padding(top = 8.dp).fillMaxWidth().background(LibraryColors.Accent, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                stringResource(R.string.call_in_chat, "%d:%02d".format(length / 60, length % 60)),
+                color = Color.White, style = LibraryType.RowTitle, modifier = Modifier.weight(1f),
+            )
+            Text(
+                stringResource(R.string.call_end), color = Color.White, style = LibraryType.RowTitle,
+                modifier = Modifier.background(LibraryColors.Error, CircleShape).clickable(role = Role.Button, onClick = actions.hangUp).padding(horizontal = 18.dp, vertical = 10.dp),
+            )
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp).navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            SmallCallButton(if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute)) { actions.setMicrophone(!call.microphone) }
+            SmallCallButton(if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on)) { actions.setCamera(!call.camera) }
+            if (call.camera) SmallCallButton(LibraryIcons.Flip, stringResource(R.string.call_flip), actions.switchCamera)
+            SmallCallButton(LibraryIcons.Expand, stringResource(R.string.call_full_screen), fullScreen)
+        }
+    }
+}
+
+@Composable
+private fun SmallCallButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).background(LibraryColors.Raised, CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(22.dp)) }
+}
