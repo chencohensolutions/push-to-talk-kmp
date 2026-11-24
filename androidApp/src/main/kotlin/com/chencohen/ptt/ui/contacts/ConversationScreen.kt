@@ -1069,8 +1069,20 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                     modifier = Modifier.padding(bottom = 2.dp),
                 )
             }
-            // The text stays; if the message differs from the last draft, it crossfades.
-            val differs = message != null && message.body != (line as LiveLine.Message).lastDraft
+            // While they write: the text itself, nothing around it that measures, eases or clips (2026-11-24, hen: the
+            // first Hebrew letter flashed at the edge on every keystroke). Then the message: if it differs from the last
+            // draft, it crossfades.
+            val caretNow = (line as? LiveLine.Draft)?.caret?.takeIf { it.second >= 0 }
+            if (message == null) {
+                var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+                Text(
+                    if (caretNow == null) "$text\u258F" else text,
+                    color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * s), style = LibraryType.Message,
+                    onTextLayout = { layout = it },
+                    modifier = if (caretNow != null) Modifier.liveCaret(layout, caretNow.first, caretNow.second) else Modifier,
+                )
+            } else {
+            val differs = message.body != (line as LiveLine.Message).lastDraft
             androidx.compose.animation.AnimatedContent(
                 differs to text,
                 contentKey = { it.first },
@@ -1092,6 +1104,7 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                     onTextLayout = { layout = it },
                     modifier = if (message == null && caret != null) Modifier.liveCaret(layout, caret.first, caret.second) else Modifier,
                 )
+            }
             }
             if (message != null) {
                 Text(
