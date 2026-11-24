@@ -237,3 +237,30 @@ In a group each member's circle follows the same rule. Send's flight goes straig
 
 **Live edit's end** (1.4.22): saving sends an end to the live view too, and a live frame written before the save that
 comes after it is ignored (each live frame carries when it was written), so "Editing…" never stays on their phone.
+
+## Live in the chat (2026-11-24, hen)
+
+- **Who is here.** No general "online" or "last seen" in the header (only typing is said there). Whether they are in
+  this chat shows at its end: their face (or letter) where their reading reached, full size with a slow teal ring
+  breathing around it while they have this chat open (the viewing signal), smaller and grey after. In a group each
+  member's face has its own ring; those here come first in the at-most-3-then-+N row. Someone who hides their presence
+  sends no viewing signal, so they never ring.
+- **Their push-to-video** drops down as a panel under the header (250 ms) while it plays, with their name in a group
+  and a red "live" tag; the chat is pushed down below it and stays usable. It slides back up when it ends.
+- **Mine** rises as a panel just above the writing line while I send ("You · live · 0:05", or "Waiting for …"). A
+  voice-only press shows no panel (the line under the header says it).
+- **Not kept by default.** A push-to-talk burst stays in the chat as a voice or video message only when the chat's
+  "Keep voice in chat" / "Keep videos in chat" is on (contact or group page, In the chat; both off by default). Off,
+  nothing shows while it is live (the panels do), and once it ends a muted centred line stays: "hen sent live video ·
+  0:07", "You talked · 0:03", not playable. Voice messages from the microphone button always stay.
+- **Hands-free.** Holding the Talk button, a lock appears above it; sliding up to it (72 dp) and letting go keeps it
+  sending, voice or video, until **Stop**, which takes the button's place. The server ends a floor at 60 s, so at 55 s
+  it is let go and taken again at once (each part a burst of its own). Leaving the chat stops it.
+- **Both live.** When I'm hands-free and waiting for their floor, my phone tells theirs (`liveWaiting`, live only).
+  Either side then shows "You're both live · Make it a call" over the bottom. A tap starts a video call shown inside
+  the chat; their phone, both live too, takes it at once, also inside the chat. With "Both live becomes a call" on
+  for the chat (off by default) it happens after 10 s without the tap.
+- **A call inside the chat.** The other side's video in the top panel's place (a group's side by side), mine at the
+  bottom over a teal bar "Video call · 3:20" with End, then mute, camera, flip and full screen. Messages stay visible
+  between them. Full screen moves it to the usual call screen; leaving the chat shows the usual call screen too. When
+  it ends, the panels go and the call's line ("Video call · 3:20") stays, with its entry in Calls.

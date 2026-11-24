@@ -575,6 +575,20 @@ calls). People without one keep the letter circle.
   bytes. A phone told of an id it doesn't have (it had an app without pictures) asks with `needPicture`, and the bytes go
   again. The server sees only sealed envelopes.
 
+## Live in the chat (2026-11-24, hen)
+
+- Presence is per chat only: the viewing signal (`ViewingContent`, every 20 s while the chat is open and in view, from
+  those who show their presence) rings the reader's face at the chat's end; the header no longer shows online or last
+  seen.
+- `TalkSettings.keepVoice`, `keepVideo`, `bothLiveCall` (sets of chats, this phone's own, off by default; stored as
+  `talk_keep_voice`, `talk_keep_video`, `talk_both_live_call`). `keeps(chat, clip)` decides whether a burst shows as a
+  message or as a muted line; the clip itself is stored as before, so turning the switch on shows past ones again.
+- Hands-free is the app's: the Talk button's lock keeps pressing, letting go at 55 s and pressing again as soon as the
+  last burst is let go (the server's floor limit is 60 s). `Content.liveWaiting` (field 23, a `ViewingContent`, live
+  only) tells the chat this user is hands-free and waiting for the floor; with it both sides know they are both live.
+- "Make it a call" starts an ordinary video call (phase 6) and marks it shown inside the chat; the other phone, both
+  live in that chat, accepts a call from it at once and shows it inside the chat too. Nothing changes on the server.
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.

@@ -50,3 +50,9 @@ identifiers); the code is `ptt://safety?v=1&n=<base64url>`.
   one their own phone shared (Settings › Contacts › Your email, sent end to end to each paired contact, ProfileContent;
   set by itself from an invite's email at enrollment). It goes on their Talk entry in Android Contacts, so Android
   joins it with the phone's card that has the same email.
+
+## In the chat (2026-11-24, hen)
+
+On a paired contact's page, before Chat direction: **Keep voice in chat**, **Keep videos in chat** and **Both live
+becomes a call**, all off by default (docs/screens/conversation.md, "Live in the chat"). This phone's only; never
+sent.

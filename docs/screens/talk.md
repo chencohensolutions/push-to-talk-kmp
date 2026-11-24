@@ -114,3 +114,8 @@ shows, then moved onto it), and is let go after a minute without a burst.
 always go out in order, one sender at a time (a race once sent a new one ahead of those recorded before the grant;
 the server refused the gap and the floor stayed held for 60 s); a refused burst lets go of the floor at once; and
 someone's floor shows at most 75 s, so a lost end can't keep the button busy.
+
+## Hands-free (2026-11-24, hen)
+
+In a chat, the Talk button slid up to its lock keeps sending until Stop (docs/screens/conversation.md, "Live in the
+chat"). Bursts aren't kept as messages unless the chat's In the chat switches say so.
