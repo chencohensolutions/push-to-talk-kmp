@@ -174,6 +174,36 @@ object FaceMaker {
         Prepared(crop, headOnly(segment(context, crop), jaw), landmarks)
     }
 
+    /** Whether [photo]'s face shows [expression], as far as the detector tells (smiling, eyes open); true when it can't tell. */
+    suspend fun looks(photo: Bitmap, expression: Expression): Boolean {
+        val detector = FaceDetection.getClient(
+            FaceDetectorOptions.Builder().setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL).build(),
+        )
+        return try {
+            suspendCancellableCoroutine { c ->
+                detector.process(InputImage.fromBitmap(photo, 0))
+                    .addOnSuccessListener { faces ->
+                        val f = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
+                        val smile = f?.smilingProbability
+                        val left = f?.leftEyeOpenProbability
+                        val right = f?.rightEyeOpenProbability
+                        c.resume(
+                            when {
+                                f == null -> true
+                                expression == Expression.SMILE || expression == Expression.LAUGH -> smile == null || smile > 0.5f
+                                expression == Expression.WINK -> left == null || right == null || minOf(left, right) < 0.4f
+                                expression == Expression.SAD || expression == Expression.ANGRY -> smile == null || smile < 0.5f
+                                else -> true
+                            },
+                        )
+                    }
+                    .addOnFailureListener { c.resume(true) }
+            }
+        } finally {
+            detector.close()
+        }
+    }
+
     private class Found(val box: Rect, val jaw: List<android.graphics.PointF>, val landmarks: Landmarks?)
 
     private suspend fun findFace(photo: Bitmap): Found? {

@@ -831,4 +831,7 @@
     <string name="face_expr_wink">קורץ</string>
     <string name="face_expr_angry">כועס</string>
     <string name="face_send">שליחת אחד הפרצופים שלך</string>
+    <string name="face_real_selfie">לצלם אמיתי עבור %1$s</string>
+    <string name="face_made_one">לחזור למה שנוצר</string>
+    <string name="face_not_quite">לפי הטלפון זה לא ממש נראה %1$s. אפשר להשאיר או לצלם שוב.</string>
 </resources>

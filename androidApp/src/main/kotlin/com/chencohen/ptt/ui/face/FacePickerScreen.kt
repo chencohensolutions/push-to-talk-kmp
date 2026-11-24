@@ -94,6 +94,11 @@ internal fun FacePickerScreen(onboarding: Boolean, done: () -> Unit) {
     var saving by remember { mutableStateOf(false) }
     // The chosen style's faces: each expression, for the emoticons (2026-11-24, hen).
     var set by remember { mutableStateOf<Map<com.chencohen.ptt.face.Expression, Bitmap>?>(null) }
+    // Expressions taken from a real selfie instead of made (2026-11-24, hen: "also guided"), in the same style.
+    val real = remember { mutableStateMapOf<com.chencohen.ptt.face.Expression, Bitmap>() }
+    var asking by remember { mutableStateOf<com.chencohen.ptt.face.Expression?>(null) }
+    var taking by remember { mutableStateOf<com.chencohen.ptt.face.Expression?>(null) }
+    var notQuite by remember { mutableStateOf<com.chencohen.ptt.face.Expression?>(null) }
     LaunchedEffect(prepared, chosen) {
         set = null
         val p = prepared ?: return@LaunchedEffect
@@ -128,6 +133,27 @@ internal fun FacePickerScreen(onboarding: Boolean, done: () -> Unit) {
 
     val selfie = remember { File(File(context.cacheDir, "selfie").apply { mkdirs() }, "selfie.jpg") }
     val selfieUri = remember { FileProvider.getUriForFile(context, "${context.packageName}.calls", selfie) }
+    // A real selfie for one expression: found, cut out and drawn in the chosen style; the expression checked by the
+    // face detector (smiling, an eye closed), and kept either way with a word when it doesn't look like it.
+    val takeOne = rememberLauncherForActivityResult(FrontCamera()) { ok ->
+        val e = taking ?: return@rememberLauncherForActivityResult
+        taking = null
+        scope.launch {
+            val photo = if (ok) decode(context, Uri.fromFile(selfie)) else null
+            selfie.delete()
+            val style = chosen ?: return@launch
+            if (photo == null) return@launch
+            working = true
+            val p = runCatching { FaceMaker.prepare(context, photo) }.getOrNull()
+            val looks = runCatching { FaceMaker.looks(photo, e) }.getOrDefault(true)
+            photo.recycle()
+            val b = p?.let { runCatching { FaceMaker.draw(context, it, style) }.getOrNull() }
+            working = false
+            if (b == null) { noFace = true; return@launch }
+            real[e] = b
+            notQuite = if (looks) null else e
+        }
+    }
     val take = rememberLauncherForActivityResult(FrontCamera()) { ok ->
         scope.launch {
             val photo = if (ok) decode(context, Uri.fromFile(selfie)) else null
@@ -161,7 +187,21 @@ internal fun FacePickerScreen(onboarding: Boolean, done: () -> Unit) {
             }
             set?.let { faces ->
                 Text(stringResource(R.string.face_expressions), color = LibraryColors.Muted, style = LibraryType.Body, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
-                FacesRow(faces)
+                FacesRow(faces + real) { e -> asking = e }
+                notQuite?.let { e ->
+                    Text(stringResource(R.string.face_not_quite, stringResource(expressionName(e))), color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center)
+                }
+                asking?.let { e ->
+                    // One expression: a real selfie for it, or back to the made one.
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextAction(stringResource(R.string.face_real_selfie, stringResource(expressionName(e))), {
+                            asking = null
+                            taking = e
+                            takeOne.launch(selfieUri)
+                        }, icon = LibraryIcons.Person)
+                        if (e in real) TextAction(stringResource(R.string.face_made_one), { real.remove(e); asking = null; if (notQuite == e) notQuite = null })
+                    }
+                }
             }
             val pickedNow = chosen?.let { drawn[it] }
             if (pickedNow != null) {
@@ -171,7 +211,7 @@ internal fun FacePickerScreen(onboarding: Boolean, done: () -> Unit) {
                         val bytes = withContext(Dispatchers.Default) { FaceMaker.encode(pickedNow) }
                         // The expressions too, for the emoticons (each about 12 KB).
                         val faces = withContext(Dispatchers.Default) {
-                            set.orEmpty().filterKeys { it != com.chencohen.ptt.face.Expression.NEUTRAL }.map { (e, b) -> e.code to FaceMaker.encode(b) }.toMap()
+                            (set.orEmpty() + real).filterKeys { it != com.chencohen.ptt.face.Expression.NEUTRAL }.map { (e, b) -> e.code to FaceMaker.encode(b) }.toMap()
                         }
                         com.chencohen.ptt.setMyFaces(context, bytes, faces)
                         saving = false
@@ -194,12 +234,13 @@ internal fun FacePickerScreen(onboarding: Boolean, done: () -> Unit) {
 
 /** The expressions in a row, each on light above and dark below. */
 @Composable
-private fun FacesRow(faces: Map<com.chencohen.ptt.face.Expression, Bitmap>) {
+private fun FacesRow(faces: Map<com.chencohen.ptt.face.Expression, Bitmap>, pick: (com.chencohen.ptt.face.Expression) -> Unit) {
     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(faces.entries.filter { it.key != com.chencohen.ptt.face.Expression.NEUTRAL }.toList(), key = { it.key.code }) { (e, b) ->
             val image = remember(b) { b.asImageBitmap() }
             Column(
-                Modifier.clip(RoundedCornerShape(12.dp)).background(Brush.verticalGradient(0.5f to Color(0xFFF4F4F2), 0.5f to Color(0xFF1C1E20))).padding(6.dp),
+                Modifier.clip(RoundedCornerShape(12.dp)).background(Brush.verticalGradient(0.5f to Color(0xFFF4F4F2), 0.5f to Color(0xFF1C1E20)))
+                    .clickable(role = Role.Button) { pick(e) }.padding(6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Image(image, stringResource(expressionName(e)), contentScale = ContentScale.Fit, modifier = Modifier.size(72.dp))

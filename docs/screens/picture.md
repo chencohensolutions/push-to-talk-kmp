@@ -19,6 +19,10 @@ home. See docs/design.md, "Pictures".
 - **Your faces, to send in chats:** under the styles, the chosen style's face in each expression (smiling, laughing,
   sad, surprised, winking, angry), each over light and dark. Use this picture keeps the picture and the faces; it waits
   until they are drawn.
+- **A real one instead** (2026-11-24, hen: "also guided"): a tap on an expression offers **Take a real one for …**: a
+  selfie for that expression, drawn in the same style and cut out the same way, replaces the made one; **Use the made
+  one** brings it back. The face detector checks it (smiling for smiling and laughing, an eye closed for winking, not
+  smiling for sad and angry); when it doesn't look like it, a muted line says so and it is kept anyway.
 - The picture is the head only: face and hair, nothing below the jaw line.
 
 ## Faces in chats

@@ -828,4 +828,7 @@
     <string name="face_expr_wink">Winking</string>
     <string name="face_expr_angry">Angry</string>
     <string name="face_send">Send one of your faces</string>
+    <string name="face_real_selfie">Take a real one for %1$s</string>
+    <string name="face_made_one">Use the made one</string>
+    <string name="face_not_quite">That doesn\u2019t quite look like %1$s, as far as the phone can tell. Keep it, or take another.</string>
 </resources>
