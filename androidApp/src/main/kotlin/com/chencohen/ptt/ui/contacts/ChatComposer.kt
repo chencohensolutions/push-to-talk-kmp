@@ -11,6 +11,9 @@ import com.chencohen.ptt.messaging.ReadMarks.Tick
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.lifecycle.compose.currentStateAsState
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.asImageBitmap
@@ -496,7 +499,16 @@ internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-internal fun VideoClipContent(message: TextMessage, live: Boolean, onInverse: Boolean, play: (String) -> Unit, save: ((String) -> Unit)?, compact: Boolean = false) {
+internal fun VideoClipContent(
+    message: TextMessage,
+    live: Boolean,
+    onInverse: Boolean,
+    play: (String) -> Unit,
+    save: ((String) -> Unit)?,
+    compact: Boolean = false,
+    /** Plays it in its bubble with sound, from the start (a tap, or the speaker). */
+    playHere: ((String) -> Unit)? = null,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val clip = message.clip ?: return
     var thumb by remember(message.id) { androidx.compose.runtime.mutableStateOf(com.chencohen.ptt.ui.talk.ClipThumbs.cached(message.id)) }
@@ -504,18 +516,36 @@ internal fun VideoClipContent(message: TextMessage, live: Boolean, onInverse: Bo
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
     val label = stringResource(R.string.clip_play)
     val ratio = thumb?.let { it.width.toFloat() / it.height } ?: 0.75f
+    // The most visible video in the chat plays here, muted and looping, while the app is in front (2026-11-24, hen).
+    val autoplay = LocalVideoAutoplay.current
+    val resumed = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateAsState().value
+        .isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+    val playingMuted = autoplay != null && !live && resumed && autoplay.current == message.id
+    if (autoplay != null) androidx.compose.runtime.DisposableEffect(message.id) { onDispose { autoplay.gone(message.id) } }
     Box(
         Modifier.width(if (compact) 132.dp else if (ratio < 1f) 168.dp else 240.dp).aspectRatio(ratio)
             .background(Color.Black, shape)
             .clip(shape)
-            .combinedClickable(role = Role.Button, onClickLabel = label, onLongClick = save?.let { s -> { s(message.id) } }) { play(message.id) },
+            .then(if (autoplay != null) Modifier.onGloballyPositioned { c -> autoplay.seen(message.id, c.boundsInWindow()) } else Modifier)
+            // A double tap on the bubble plays it here with sound, from the start (2026-11-24, hen: a single tap does
+            // nothing, so scrolling can't start it); a long press selects it; the full screen: a tap while it plays.
+            // Without a chat around it (playHere null), a tap plays it full screen as before.
+            .then(if (playHere == null) Modifier.combinedClickable(role = Role.Button, onClickLabel = label, onLongClick = save?.let { s -> { s(message.id) } }) { play(message.id) } else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         androidx.compose.animation.AnimatedVisibility(thumb != null, enter = androidx.compose.animation.fadeIn(tween(200)), modifier = Modifier.fillMaxSize()) {
             thumb?.let { androidx.compose.foundation.Image(it.asImageBitmap(), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
         }
-        Box(Modifier.size(44.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape), contentAlignment = Alignment.Center) {
-            Icon(LibraryIcons.Play, null, tint = Color.White, modifier = Modifier.size(22.dp))
+        // Over its first picture, so it starts with no flash.
+        if (playingMuted) com.chencohen.ptt.ui.talk.InlineVideo(message.id, Modifier.fillMaxSize())
+        if (playingMuted && playHere != null) {
+            val unmute = stringResource(R.string.clip_unmute)
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(6.dp).size(30.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    .clickable(role = Role.Button, onClickLabel = unmute) { playHere(message.id) },
+                contentAlignment = Alignment.Center,
+            ) { Icon(LibraryIcons.SpeakerOff, unmute, tint = Color.White, modifier = Modifier.size(16.dp)) }
         }
         val length = if (live) stringResource(R.string.clip_live) else clip.durationMs.takeIf { it > 0 }?.let { clipLength(it) }
         if (length != null) {
@@ -527,6 +557,30 @@ internal fun VideoClipContent(message: TextMessage, live: Boolean, onInverse: Bo
     }
     @Suppress("UNUSED_EXPRESSION") onInverse
 }
+
+/**
+ * Which video bubble plays muted (2026-11-24, hen): the one most on screen, at least 60% of it, of those the chat
+ * shows; [viewport] is the chat's list on the screen.
+ */
+internal class VideoAutoplay {
+    var viewport by androidx.compose.runtime.mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+    private val shares = androidx.compose.runtime.mutableStateMapOf<String, Float>()
+    val current: String? by androidx.compose.runtime.derivedStateOf { shares.filterValues { it >= 0.6f }.maxByOrNull { it.value }?.key }
+
+    fun seen(id: String, bounds: androidx.compose.ui.geometry.Rect) {
+        val view = viewport ?: return
+        val h = bounds.height
+        val share = if (h <= 0f) 0f else ((minOf(bounds.bottom, view.bottom) - maxOf(bounds.top, view.top)).coerceAtLeast(0f) / h)
+        val was = shares[id]
+        if (was == null || kotlin.math.abs(was - share) > 0.04f || (share >= 0.6f) != (was >= 0.6f)) shares[id] = share
+    }
+
+    fun gone(id: String) {
+        shares.remove(id)
+    }
+}
+
+internal val LocalVideoAutoplay = androidx.compose.runtime.staticCompositionLocalOf<VideoAutoplay?> { null }
 
 /**
  * A push-to-video burst live in the chat (2026-11-23, hen): mine, the camera as it sends, at the end of the chat in an

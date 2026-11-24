@@ -711,6 +711,7 @@
     <string name="chat_deleted">Message deleted</string>
     <string name="chat_delete">Delete for everyone</string>
     <string name="chat_undo">Undo</string>
+    <string name="clip_unmute">Sound on</string>
     <string name="chat_delete_for_me">Delete for me</string>
     <string name="chat_today">Today</string>
     <string name="chat_yesterday">Yesterday</string>

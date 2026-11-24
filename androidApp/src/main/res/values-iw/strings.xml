@@ -714,6 +714,7 @@
     <string name="chat_deleted">ההודעה נמחקה</string>
     <string name="chat_delete">מחיקה לכולם</string>
     <string name="chat_undo">ביטול</string>
+    <string name="clip_unmute">הפעלת קול</string>
     <string name="chat_delete_for_me">מחיקה אצלי</string>
     <string name="chat_today">היום</string>
     <string name="chat_yesterday">אתמול</string>
