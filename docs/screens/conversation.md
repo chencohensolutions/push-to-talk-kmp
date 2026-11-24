@@ -205,7 +205,7 @@ places; a selection gets a soft highlight. Gone with the draft or the edit (save
 dashed) and writing (coral outline, caret, Send) are one element that morphs both ways in 250 ms on the keyboard's
 easing: the dash fades into the coral outline, the fill deepens, the resting words fade and slide a little as the
 caret fades in, Send scales in; empty on leaving, the exact reverse; with text in it, it stays writing. The same size
-in both (no jump), anchored on my side at 38.2% of the row. A tap on it (or its focus) starts writing. Send's flight
+in both (no jump), anchored on my side at 38.2% of the row. A tap anywhere on it (not only on its words; 1.4.21) or its focus starts writing. Send's flight
 has no label to fold either.
 
 

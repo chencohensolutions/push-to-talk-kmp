@@ -143,6 +143,13 @@ internal fun ComposeBubble(
                 }
                 .border(1.5.dp, coral.copy(alpha = open), LibraryShapes.Card)
                 .background(coral.copy(alpha = 0.08f * open), LibraryShapes.Card)
+                // Resting, a tap anywhere on it starts writing, not only on its words (2026-11-24, hen).
+                .then(
+                    if (!editing) Modifier.clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null, role = Role.Button, onClickLabel = hint,
+                    ) { startEditing() } else Modifier,
+                )
                 .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
