@@ -157,7 +157,7 @@ private fun WaitingInvites(waiting: List<com.chencohen.ptt.messaging.WaitingInvi
                             Column(Modifier.weight(1f)) {
                                 Text(invite.email ?: stringResource(R.string.invite_waiting_anyone), color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
                                 val made = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(invite.createdAt))
-                                Text(stringResource(R.string.invite_waiting_line, made, untilText(invite.expiresAt)), color = LibraryColors.Muted, style = LibraryType.Caption)
+                                Text(stringResource(R.string.invite_waiting_line, made, DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(invite.expiresAt))), color = LibraryColors.Muted, style = LibraryType.Caption)
                             }
                             if (asking) {
                                 Text(
@@ -176,18 +176,6 @@ private fun WaitingInvites(waiting: List<com.chencohen.ptt.messaging.WaitingInvi
                 }
             }
         }
-    }
-}
-
-/** "6 days", "3 hours", "20 minutes": how long until [at]. */
-private fun untilText(at: Long): String {
-    val left = (at - System.currentTimeMillis()).coerceAtLeast(0L)
-    val days = left / 86_400_000L
-    val hours = left / 3_600_000L
-    return when {
-        days >= 1 -> android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), android.text.format.DateUtils.DAY_IN_MILLIS).toString()
-        hours >= 1 -> android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), android.text.format.DateUtils.HOUR_IN_MILLIS).toString()
-        else -> android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
     }
 }
 

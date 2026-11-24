@@ -231,7 +231,7 @@ internal class FakeServer {
             val code = "invite${nextId++}".padEnd(22, 'i')
             invites[code] = device.user
             inviteEmails[code] = email
-            return CreatedInvite(code, "2026-11-28T10:00:00Z", "123456")
+            return CreatedInvite(code, "2026-11-28T10:00:00Z", "123456", code.take(8))
         }
 
         override suspend fun waitingInvites(): List<WaitingInvite> =

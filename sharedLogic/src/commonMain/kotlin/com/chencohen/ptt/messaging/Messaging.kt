@@ -1032,7 +1032,7 @@ internal class Messaging(
             email = wanted,
             passcode = null,
         )
-        return NewInvite(link, expires, created.passcode)
+        return NewInvite(link, expires, created.passcode, created.id)
     }
 
     /** Redeems [link] on this enrolled phone and pairs with the inviter. True when the pair is made. */
@@ -1926,7 +1926,7 @@ internal class Messaging(
 }
 
 /** [Messaging.newInvite]'s answer. */
-internal class NewInvite(val link: InviteLink, val expiresAt: Long, val passcode: String)
+internal class NewInvite(val link: InviteLink, val expiresAt: Long, val passcode: String, val id: String = "")
 
 @OptIn(kotlin.time.ExperimentalTime::class)
 internal fun parseTime(rfc3339: String): Long? = runCatching { kotlin.time.Instant.parse(rfc3339).toEpochMilliseconds() }.getOrNull()

@@ -105,6 +105,8 @@ data class MadeInvite(
      * else. Never sent: the message carries [link] and the passcode apart.
      */
     val faceToFace: String,
+    /** Its id on the server (as in the waiting list), so cancelling it there also takes it off this screen. */
+    val id: String = "",
 ) {
     /** The message the link and its passcode go out in, with [until] as the phone writes [expiresAt]'s date. */
     /** The message around it, its link in the web form (it can be tapped in a mail or chat app; AppLinks). */
@@ -216,7 +218,7 @@ class PairingController internal constructor(
                 val made = withContext(work) { messaging.newInvite(email.takeIf { it.isNotBlank() }) }
                 val link = made.link
                 _state.update {
-                    it.copy(invite = MadeInvite(link.format(), link.email, made.expiresAt, link.inviter, made.passcode, link.withPasscode(made.passcode).format()), inviteLoading = false)
+                    it.copy(invite = MadeInvite(link.format(), link.email, made.expiresAt, link.inviter, made.passcode, link.withPasscode(made.passcode).format(), made.id), inviteLoading = false)
                 }
                 refreshWaiting()
             } catch (e: CancellationException) {
@@ -242,7 +244,8 @@ class PairingController internal constructor(
 
     /** Stops waiting invite [id]: gone from the list at once, then read again. */
     fun cancelInvite(id: String) {
-        _state.update { s -> s.copy(waiting = s.waiting.filter { it.id != id }) }
+        // The invite on screen is the one cancelled: it goes too, so nobody shares a link that no longer works.
+        _state.update { s -> s.copy(waiting = s.waiting.filter { it.id != id }, invite = s.invite?.takeIf { it.id.isEmpty() || it.id != id }) }
         scope.launch {
             try {
                 withContext(work) { messaging.cancelInvite(id) }
