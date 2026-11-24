@@ -103,7 +103,11 @@ internal fun ComposeBubble(
     /** The text and where the caret is in it, at every change, the caret moving too (live typing shows it). */
     caret: (String, androidx.compose.ui.text.TextRange) -> Unit = { _, _ -> },
 ) {
-    var selection by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.TextRange(text.length)) }
+    // The field's own value, composition included, kept as the keyboard gives it (2026-11-24, hen: suggestions and
+    // autocorrect didn't take when it was rebuilt from the text each time): set from outside only when the text
+    // itself changed there (emptied after Send).
+    var field by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(text.length))) }
+    if (field.text != text) field = androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(text.length))
     val coral = com.chencohen.ptt.ui.style.Pink
     // One element, resting ("Write a message…", dashed) or writing (coral outline), morphing both ways in 250 ms on the
     // keyboard's easing (2026-11-24, hen); with text in it, it stays writing. Same size in both (no jump), anchored on
@@ -140,13 +144,13 @@ internal fun ComposeBubble(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BasicTextField(
-                value = androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(selection.start.coerceIn(0, text.length), selection.end.coerceIn(0, text.length))),
+                value = field,
                 onValueChange = { v ->
-                    val t = v.text.take(4_000)
-                    val moved = v.selection != selection
-                    selection = v.selection
-                    if (t != text) change(t)
-                    if (t != text || moved) caret(t, v.selection)
+                    val before = field
+                    val next = if (v.text.length > 4_000) v.copy(text = v.text.take(4_000)) else v
+                    field = next
+                    if (next.text != before.text) change(next.text)
+                    if (next.text != before.text || next.selection != before.selection) caret(next.text, next.selection)
                 },
                 textStyle = style,
                 // The caret fades in with the morph.
