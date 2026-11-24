@@ -48,8 +48,7 @@ enum class FaceStyle(val file: String, val bytes: Long, val ink: Boolean = false
 data class ModelProgress(val done: Long = 0, val total: Long = 0, val ready: Boolean = false, val failed: Boolean = false)
 
 /**
- * Makes a person's picture on the phone only (2026-11-24, hen): their face found in a photo (ML Kit), head and
- * shoulders cut out on a clear background (MediaPipe selfie segmenter, Apache-2.0, bundled), drawn in a [FaceStyle],
+ * Makes a person's picture on the phone only (2026-11-24, hen): their face found in a photo (ML Kit), head cut out on a clear background (MediaPipe selfie segmenter, Apache-2.0, bundled), drawn in a [FaceStyle],
  * 256 px WebP with alpha, about 15 KB. The photo is never kept or sent.
  */
 object FaceMaker {
@@ -141,38 +140,118 @@ object FaceMaker {
         }
     }
 
-    /** A photo made ready: the head and shoulders, square, [SIZE] px, and the person's outline (0–1 each pixel). */
+    /** A photo made ready: the head, square, [SIZE] px, and the person's outline (0–1 each pixel). */
     class Prepared internal constructor(val crop: Bitmap, internal val mask: FloatArray)
 
-    /** Finds the face in [photo] (upright) and cuts out the head and shoulders; null when there's no face. */
+    /**
+     * Finds the face in [photo] (upright) and cuts out the head only (2026-11-24, hen: "the face illustration should be
+     * only face"): face and hair, centred, nothing below the jaw line; null when there's no face.
+     */
     suspend fun prepare(context: Context, photo: Bitmap): Prepared? = withContext(Dispatchers.Default) {
         initialize(context)
-        val face = findFace(photo) ?: return@withContext null
-        // Head and shoulders: about 2.4 face widths, the face a little above the middle.
-        val side = (max(face.width(), face.height()) * 2.4f).roundToInt()
-        val cx = face.centerX()
-        val cy = face.centerY() + face.height() * 0.25f
+        val found = findFace(photo) ?: return@withContext null
+        val face = found.box
+        // The head: about 1.9 face sizes, its middle a little above the face's (the hair).
+        val side = (max(face.width(), face.height()) * 1.9f).roundToInt()
+        val cx = face.centerX().toFloat()
+        val cy = face.centerY() - face.height() * 0.12f
+        val left = cx - side / 2f
+        val top = cy - side / 2f
+        val scale = SIZE.toFloat() / side
         val crop = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
         Canvas(crop).apply {
             drawColor(Color.WHITE)
-            val scale = SIZE.toFloat() / side
-            val m = Matrix().apply { postTranslate(-(cx - side / 2f), -(cy - side / 2f)); postScale(scale, scale) }
+            val m = Matrix().apply { postTranslate(-left, -top); postScale(scale, scale) }
             drawBitmap(photo, m, Paint(Paint.FILTER_BITMAP_FLAG))
         }
-        Prepared(crop, segment(context, crop))
+        // The jaw line in the crop: below it (the neck, the shoulders) goes.
+        val jaw = (found.jaw.takeIf { it.size >= 5 } ?: listOf(
+            android.graphics.PointF(face.left.toFloat(), face.centerY().toFloat()),
+            android.graphics.PointF(face.centerX().toFloat(), face.bottom.toFloat()),
+            android.graphics.PointF(face.right.toFloat(), face.centerY().toFloat()),
+        )).map { android.graphics.PointF((it.x - left) * scale, (it.y - top) * scale) }
+        Prepared(crop, headOnly(segment(context, crop), jaw))
     }
 
-    private suspend fun findFace(photo: Bitmap): Rect? {
-        val detector = FaceDetection.getClient(FaceDetectorOptions.Builder().setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE).build())
+    private class Found(val box: Rect, val jaw: List<android.graphics.PointF>)
+
+    private suspend fun findFace(photo: Bitmap): Found? {
+        val detector = FaceDetection.getClient(
+            FaceDetectorOptions.Builder().setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL).build(),
+        )
         return try {
             suspendCancellableCoroutine { c ->
                 detector.process(InputImage.fromBitmap(photo, 0))
-                    .addOnSuccessListener { faces -> c.resume(faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }?.boundingBox) }
+                    .addOnSuccessListener { faces ->
+                        val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
+                        // The face's outline, its lower half: the jaw from ear to ear.
+                        val outline = face?.getContour(com.google.mlkit.vision.face.FaceContour.FACE)?.points.orEmpty()
+                        val middle = face?.boundingBox?.centerY()?.toFloat() ?: 0f
+                        c.resume(face?.let { Found(it.boundingBox, outline.filter { p -> p.y >= middle }.sortedBy { p -> p.x }) })
+                    }
                     .addOnFailureListener { c.resume(null) }
             }
         } finally {
             detector.close()
         }
+    }
+
+    /**
+     * [mask] kept only above the jaw: under the jaw line (between its ends) it fades out over a few pixels, so the chin
+     * stays and the neck goes; beside the face the hair is kept down to the chin's height.
+     */
+    private fun headOnly(mask: FloatArray, jaw: List<android.graphics.PointF>): FloatArray {
+        val chin = jaw.maxOf { it.y }
+        val fade = SIZE * 0.025f
+        for (x in 0 until SIZE) {
+            val line = when {
+                x <= jaw.first().x || x >= jaw.last().x -> chin
+                else -> {
+                    val i = jaw.indexOfFirst { it.x >= x }.coerceAtLeast(1)
+                    val a = jaw[i - 1]; val b = jaw[i]
+                    val t = if (b.x == a.x) 0f else (x - a.x) / (b.x - a.x)
+                    a.y + (b.y - a.y) * t
+                }
+            }
+            for (y in 0 until SIZE) {
+                val keep = ((line + fade - y) / fade).coerceIn(0f, 1f)
+                mask[y * SIZE + x] *= keep
+            }
+        }
+        // Only what joins the head: pieces left beside it (a collar, a hand, someone behind) go.
+        val start = (jaw.sumOf { it.x.toDouble() } / jaw.size).toInt().coerceIn(0, SIZE - 1) +
+            ((chin - SIZE * 0.15f).toInt().coerceIn(0, SIZE - 1)) * SIZE
+        val joined = BooleanArray(SIZE * SIZE)
+        val stack = IntArray(SIZE * SIZE)
+        var top = 0
+        if (mask[start] > 0.3f) { joined[start] = true; stack[top++] = start }
+        while (top > 0) {
+            val i = stack[--top]
+            val x = i % SIZE; val y = i / SIZE
+            for ((dx, dy) in NEIGHBOURS) {
+                val nx = x + dx; val ny = y + dy
+                if (nx !in 0 until SIZE || ny !in 0 until SIZE) continue
+                val n = ny * SIZE + nx
+                if (!joined[n] && mask[n] > 0.3f) { joined[n] = true; stack[top++] = n }
+            }
+        }
+        if (top == 0 && joined.any { it }) {
+            // Keep the soft edge: what is next to the head stays as it was.
+            for (i in mask.indices) if (!joined[i] && !nearJoined(joined, i)) mask[i] = 0f
+        }
+        return mask
+    }
+
+    private val NEIGHBOURS = listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
+
+    private fun nearJoined(joined: BooleanArray, i: Int): Boolean {
+        val x = i % SIZE; val y = i / SIZE
+        for (dy in -3..3) for (dx in -3..3) {
+            val nx = x + dx; val ny = y + dy
+            if (nx in 0 until SIZE && ny in 0 until SIZE && joined[ny * SIZE + nx]) return true
+        }
+        return false
     }
 
     /** The person's outline in [crop]: 0 background, 1 person, for each of its [SIZE]² pixels, the edge a little soft. */
@@ -196,11 +275,9 @@ object FaceMaker {
             mask[y * SIZE + x] = ((v - 0.35f) / 0.3f).coerceIn(0f, 1f)
         }
         val soft = blur(mask, SIZE, 2)
-        // The bottom fades out (the shoulders end softly instead of at the photo's edge), and so do the sides.
+        // The sides fade out a little, in case long hair reaches the square's edge.
         for (y in 0 until SIZE) for (x in 0 until SIZE) {
-            val bottom = ((SIZE - 1 - y) / (SIZE * 0.18f)).coerceIn(0f, 1f)
-            val side = (minOf(x, SIZE - 1 - x) / (SIZE * 0.04f)).coerceIn(0f, 1f)
-            soft[y * SIZE + x] *= bottom * side
+            soft[y * SIZE + x] *= (minOf(x, SIZE - 1 - x) / (SIZE * 0.04f)).coerceIn(0f, 1f)
         }
         return soft
     }
