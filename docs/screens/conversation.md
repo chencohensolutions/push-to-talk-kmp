@@ -256,7 +256,10 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
 - **Hands-free.** Holding the Talk button, a lock appears above it; sliding up to it (72 dp) and letting go keeps it
   sending, voice or video, until **Stop**, which takes the button's place. The server ends a floor at 60 s, so at 55 s
   it is let go and taken again at once (each part a burst of its own). Leaving the chat stops it.
-- **Both live.** When I'm hands-free and waiting for their floor, my phone tells theirs (`liveWaiting`, live only).
+- **Both live.** In a one-to-one chat a press (or a lock) while they hold the floor doesn't wait behind it
+  (2026-11-24, hen, "a"): my camera shows in my panel, nothing is sent yet, and my phone tells theirs I'm live
+  (`liveWaiting`, live only). If their floor ends while I'm still live, my burst starts. In a group a press still waits
+  its turn. When I'm hands-free and waiting for their floor, my phone tells theirs the same way.
   Either side then shows "You're both live · Make it a call" over the bottom. A tap starts a video call shown inside
   the chat; their phone, both live too, takes it at once, also inside the chat. With "Both live becomes a call" on
   for the chat (off by default) it happens after 10 s without the tap.

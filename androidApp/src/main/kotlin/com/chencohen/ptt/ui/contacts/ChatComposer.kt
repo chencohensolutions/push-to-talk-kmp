@@ -314,6 +314,9 @@ internal fun ChatButtons(
     /** Slid up to the lock while held. */
     lock: () -> Unit = {},
     stopLive: () -> Unit = {},
+    /** Pressed and let go (locked: slid up to the lock), in place of starting and ending a burst directly. */
+    press: (() -> Unit)? = null,
+    release: ((locked: Boolean) -> Unit)? = null,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
@@ -350,9 +353,9 @@ internal fun ChatButtons(
                         .semantics { contentDescription = talkLabel }
                         .holdOrLock(
                             lockAt = lockAt,
-                            onPress = { lifting = 0f; microphone(actions.startVoice) },
+                            onPress = { lifting = 0f; microphone(press ?: actions.startVoice) },
                             onLift = { up -> lifting = up },
-                            onRelease = { locked -> lifting = -1f; if (locked) lock() else actions.finishVoice(true) },
+                            onRelease = { locked -> lifting = -1f; if (release != null) release(locked) else if (locked) lock() else actions.finishVoice(true) },
                         ),
                     contentAlignment = Alignment.Center,
                 ) {

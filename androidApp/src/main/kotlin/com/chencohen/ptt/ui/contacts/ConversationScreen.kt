@@ -449,6 +449,12 @@ private fun ConversationScreenIn(
         // Hands-free (2026-11-24, hen): the Talk button slid up to the lock keeps sending until Stop. The server ends a
         // floor at 60 s, so at 55 s it is let go and taken again at once.
         var handsFree by remember(user) { mutableStateOf(false) }
+        // Both live, app only (2026-11-24, hen, "a"): in a one-to-one chat, a press while they hold the floor doesn't
+        // wait behind it. My camera shows in my panel (nothing sent), they're told I'm live, and both phones offer the
+        // call; when their floor ends while I'm still live, my burst starts.
+        var standby by remember(user) { mutableStateOf(false) }
+        var standbySince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
+        val theyHold = group == null && talk.talkers[user] != null && talk.own?.chat != user
         val chainScope = androidx.compose.runtime.rememberCoroutineScope()
         val handsFreeNow by androidx.compose.runtime.rememberUpdatedState(handsFree)
         val ownHere = talk.own?.takeIf { it.chat == user }
@@ -456,6 +462,7 @@ private fun ConversationScreenIn(
         LaunchedEffect(handsFree, ownHere?.clip, ownHere?.phase) {
             if (!handsFree) return@LaunchedEffect
             val o = ownHere
+            if (o == null && standby) return@LaunchedEffect
             if (o == null) {
                 // Its floor went (refused, or this phone's own end): hands-free ends unless a new press took it.
                 delay(2_500)
@@ -480,21 +487,32 @@ private fun ConversationScreenIn(
             }
         }
         androidx.compose.runtime.DisposableEffect(user) { onDispose { if (handsFreeNow) actions.finishVoice(true) } }
-        // Both live: I'm hands-free and waiting for their floor, or they are for mine.
-        val waitingLive = handsFree && ownHere?.phase == TalkPhase.WAITING
+        // Their floor ended while I'm live in standby: mine starts.
+        LaunchedEffect(standby, theyHold) {
+            if (standby && !theyHold) {
+                delay(300)
+                if (standby && talk.talkers[user] == null) {
+                    standby = false
+                    actions.startVoice()
+                }
+            }
+        }
+        // Both live: I'm live and waiting for their floor (standby, or a queued burst), or they are for mine.
+        val waitingLive = standby || (handsFree && ownHere?.phase == TalkPhase.WAITING)
         var saidWaiting by remember(user) { mutableStateOf(false) }
         LaunchedEffect(waitingLive) {
             if (waitingLive || saidWaiting) actions.sendLiveWaiting?.invoke(waitingLive)
             saidWaiting = waitingLive
         }
-        val bothLive = chatLive.call == null && handsFree && (waitingLive || chatLive.liveWaiting.isNotEmpty())
+        val bothLive = chatLive.call == null && (waitingLive || ((handsFree || talkingHere) && chatLive.liveWaiting.isNotEmpty()))
         val makeCall: () -> Unit = {
             handsFree = false
-            actions.finishVoice(true)
+            standby = false
+            if (ownNow != null) actions.finishVoice(true)
             actions.callInChat?.invoke()
         }
         // Home takes a video call from this chat at once while I'm live here (either side tapped Make it a call).
-        LaunchedEffect(handsFree) { chatLive.onBothLive(handsFree) }
+        LaunchedEffect(handsFree, standby) { chatLive.onBothLive(handsFree || standby) }
         LaunchedEffect(bothLive, chatLive.autoCall) {
             if (bothLive && chatLive.autoCall && actions.callInChat != null) {
                 delay(10_000)
@@ -753,7 +771,8 @@ private fun ConversationScreenIn(
                 } else {
                     BothLiveChip(bothLive && actions.callInChat != null, makeCall)
                     MyLivePanel(
-                        sendingVideo != null, sendingVideo?.startedAt ?: System.currentTimeMillis(),
+                        sendingVideo != null || (standby && pushVideo),
+                        sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
                         sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
                     )
                 }
@@ -805,10 +824,29 @@ private fun ConversationScreenIn(
                         },
                     ) {
                         if (chatLive.call == null) {
-                            ChatButtons(false, talkingHere, recordingVoice, actions, video = pushVideo, handsFree = handsFree, lock = { handsFree = true }, stopLive = {
-                                handsFree = false
-                                actions.finishVoice(true)
-                            })
+                            ChatButtons(
+                                false, talkingHere || standby, recordingVoice, actions, video = pushVideo, handsFree = handsFree, lock = { handsFree = true },
+                                stopLive = {
+                                    handsFree = false
+                                    standby = false
+                                    if (ownNow != null) actions.finishVoice(true)
+                                },
+                                press = {
+                                    if (theyHold) {
+                                        standby = true
+                                        standbySince = System.currentTimeMillis()
+                                    } else {
+                                        actions.startVoice()
+                                    }
+                                },
+                                release = { locked ->
+                                    when {
+                                        locked -> handsFree = true
+                                        standby -> standby = false
+                                        else -> actions.finishVoice(true)
+                                    }
+                                },
+                            )
                         }
                     }
                 }
