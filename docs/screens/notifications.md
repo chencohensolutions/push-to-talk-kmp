@@ -51,9 +51,11 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   - **Voice**: nothing at the top; the pill grows to show who talks at its start: their face in a teal ring that glows
     with their voice (brightness, glow and thickness follow the level, 60 ms up and 200 ms down), their name and the
     time. My own voice push looks the same, with my face and my microphone's level.
-  - **Video**: a box at the top centre slides down from the top edge (250 ms): 23.6% of the screen high and as wide as
+  - **Video**: a box at the top centre slides in from the very top edge of the screen and comes to rest just below
+    the status bar (2026-11-24, hen: "enter from the edge of the screen and start just below the notification bar";
+    250 ms; a swipe up sends it back out the same way): 23.6% of the screen high and as wide as
     the picture's own shape (no crop, no bars), rounded 18 dp with a thin teal outline, "Name · 0:04" inside its
-    bottom-start corner. While I send video my camera shows the same way (coral outline, "● You · LIVE 0:03"),
+    bottom-start corner. While I send video my camera shows the same way (coral outline, "● You · LIVE 0:03", one line),
     side by side with theirs when both are live, and "You're both live · Make it a call" under them (a tap starts a
     video call). Drag moves it; a swipe up puts it away until their next burst; a tap opens the chat.
 - **From the floating video to the chat** (2026-11-24, hen: "open the chat with the video stay connected"): a tap on

@@ -75,7 +75,7 @@ private fun LiveTag(text: String, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box(Modifier.size(8.dp).background(LibraryColors.Error, CircleShape))
-        Text(text, color = Color.White, style = LibraryType.Small)
+        Text(text, color = Color.White, style = LibraryType.Small, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -114,7 +114,7 @@ internal fun LiveBoxes(shapes: List<Float>, modifier: Modifier = Modifier, conte
 @Composable
 internal fun LivePanel(
     theirs: Boolean, who: String?, theirSince: Long,
-    mine: Boolean, mySince: Long, waitingFor: String?, handsFree: Boolean,
+    mine: Boolean, mySince: Long, waitingFor: String?, @Suppress("UNUSED_PARAMETER") handsFree: Boolean,
 ) {
     val shown by com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.collectAsState()
     var lastShown by remember { androidx.compose.runtime.mutableStateOf(shown) }
@@ -139,7 +139,8 @@ internal fun LivePanel(
             if (sides[i] == "theirs") {
                 Box(box) {
                     com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
-                    val words = listOfNotNull(who, stringResource(R.string.talk_panel_live), elapsedSince(theirSince)).joinToString(" · ")
+                    // One line in a narrow box: the red dot says live.
+                    val words = listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · ")
                     LiveTag(words, Modifier.align(Alignment.BottomStart).padding(8.dp))
                 }
             } else {
@@ -147,7 +148,7 @@ internal fun LivePanel(
                     com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true)
                     val me = stringResource(R.string.talk_panel_you)
                     val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor)
-                    else listOfNotNull(me, stringResource(if (handsFree) R.string.talk_panel_hands_free else R.string.talk_panel_live), elapsedSince(mySince)).joinToString(" · ")
+                    else listOf(me, elapsedSince(mySince)).joinToString(" · ")
                     LiveTag(words, Modifier.align(Alignment.BottomStart).padding(8.dp))
                 }
             }

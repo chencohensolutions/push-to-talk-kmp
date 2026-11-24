@@ -246,7 +246,7 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   picture's own shape (no crop, no bars), rounded 18 dp, centred; it drops down (250 ms) when the first video starts
   and slides back up when the last ends. Both at once: two such boxes of the same height side by side, centred,
   theirs at the start side and mine at the end (following the chat's direction), shrunk together only if they'd be
-  wider than the screen. The tags (name in a group, "live", time) sit inside each video. The chat is laid out below
+  wider than the screen. The tags sit inside each video on one line, a red dot with the name in a group (or "You") and the time. The chat is laid out below
   the boxes (nothing drawn under them), and the oldest line in view fades at the list's top edge. While my camera
   shows there, the small preview on the Talk button's corner is hidden (one preview at a time). A voice-only press
   shows the voice bar instead.
