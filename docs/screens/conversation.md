@@ -165,11 +165,23 @@ a bubble changes its size in place (an edit, Send's flight, a live draft or live
 placement animation of their own, so they move with it frame by frame; when one is added or removed they glide.
 
 
-**Delete for everyone** (2026-11-24, hen): in the edit box, a small trash beside ✓ (both where the time and its mark
-were, 6 dp under the text, inset like the text, small so the box keeps its height; each with a 40 dp touch area). A tap
-removes the message from the chat at once (it fades and the others close up), with "Message deleted · Undo" above
-the writing bubble for 4 s; the delete is sent only then (leaving the chat sends it at once), and Undo brings the
-message back. It goes end to end (`DeleteContent`, Content field 20, kept and pushed silently, to my other phones and,
+**Selecting messages** (2026-11-24, hen, Signal's way): a long press selects a message (a soft highlight); the header
+turns into its actions: ✕ and how many on the start side, then Edit (one text of mine: the same in-place edit box,
+the caret at the end), Info (one: a sheet with when it was sent or received, for mine when it was delivered and read,
+in a group each member's read time, and when it was edited) and Delete. A tap adds or removes others; with more than
+one, only Delete. Back or a tap outside ends it. The edit box keeps only ✓ (18 dp, 48 dp touch area, 6 dp under the
+text). The sheets are drawn in the screen (no dialog window, so the quick-reply window has them too).
+
+**Delete** (2026-11-24, hen): Delete for everyone (all selected are mine) or Delete for me (anyone's, this phone only,
+nothing sent). The messages leave the chat at once (they fade and the others close up), with "Message deleted · Undo"
+above the writing bubble for 4 s; it is done only then (leaving the chat does it at once), and Undo brings them back.
+For everyone It goes end to end (`DeleteContent`, Content field 20, kept and pushed silently, to my other phones and,
 in a group, through its Send); older apps skip it. Their phones keep a faint "Message deleted" in its place (any live
 edit view cleared, a burst's or voice message's file removed); my other phones drop it. Only the author's delete
 counts; an unknown id is ignored (MessagingTest).
+
+
+**Days** (2026-11-24, hen): a quiet divider where the day changes (Today, Yesterday, a weekday within the last 6 days,
+a date this year, else the full date; calendar days in the phone's time zone), and a small pill floating under the
+header with the day of the topmost message on screen when it isn't today, crossfading as the day changes and fading
+away at today's messages (DaysTest).

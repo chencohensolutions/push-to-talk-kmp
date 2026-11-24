@@ -539,6 +539,32 @@ class MessagingTest {
     }
 
     @Test
+    fun deletingSeveralForEveryoneOrForMe() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val a = hen.messaging.sendText("dana", "one")
+        val b = hen.messaging.sendText("dana", "two")
+        val theirs = dana.messaging.sendText("hen", "three")
+        advanceUntilIdle()
+        assertNotNull(hen.store.message(a.id)!!.deliveredAt, "when it reached them (Info)")
+        // For everyone: only mine go (theirs and an unknown id are skipped).
+        assertEquals(2, hen.messaging.deleteMessages(listOf(a.id, b.id, theirs.id, "no-such-id")))
+        advanceUntilIdle()
+        assertNull(hen.store.message(a.id))
+        assertNull(hen.store.message(b.id))
+        assertTrue(dana.store.message(a.id)!!.deleted && dana.store.message(b.id)!!.deleted)
+        assertEquals("three", hen.store.message(theirs.id)?.body)
+        // For me: theirs, here only; nothing reaches dana.
+        assertEquals(1, hen.messaging.deleteForMe(listOf(theirs.id, "no-such-id")))
+        advanceUntilIdle()
+        assertNull(hen.store.message(theirs.id))
+        assertEquals("three", dana.store.message(theirs.id)?.body)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
     fun aLiveEditShowsAndGoesOnCancelOrAfterAWhile() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)

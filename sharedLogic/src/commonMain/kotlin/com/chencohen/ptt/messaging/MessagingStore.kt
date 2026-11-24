@@ -99,6 +99,8 @@ data class TextMessage(
     val readBy: Map<String, Long> = emptyMap(),
     /** Edited by its author (2026-11-24, hen): when, on the author's clock; the chat says "edited". */
     val editedAt: Long? = null,
+    /** When it reached their phone (this phone's clock as the receipt came; mine, one-to-one). */
+    val deliveredAt: Long? = null,
     /** Deleted by its author (2026-11-24, hen): only "Message deleted" is left of it here. */
     val deleted: Boolean = false,
 )

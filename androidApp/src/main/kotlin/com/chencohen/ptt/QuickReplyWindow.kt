@@ -434,7 +434,7 @@ object QuickReplyWindow {
                     answering = { readNow(context, current) },
                     edit = { id, body -> editText(context, id, body) },
                     editLive = { id, text -> editLive(context, id, text) },
-                    delete = { id -> deleteMessage(context, id) },
+                    delete = { ids, everyone -> deleteMessages(context, ids, everyone) },
                 ),
                 seeThrough = seeThrough.floatValue,
                 embeddedHeader = {

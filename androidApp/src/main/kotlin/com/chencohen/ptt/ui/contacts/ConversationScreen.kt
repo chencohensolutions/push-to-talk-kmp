@@ -120,8 +120,8 @@ class ConversationActions(
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** My sent text [id] edited to the new text (2026-11-24, hen). */
     val edit: (id: String, body: String) -> Unit = { _, _ -> },
-    /** My message [id] deleted for everyone (sent once its Undo has passed). */
-    val delete: (id: String) -> Unit = {},
+    /** Messages deleted, for everyone (mine only) or for me (sent once their Undo has passed). */
+    val delete: (ids: List<String>, forEveryone: Boolean) -> Unit = { _, _ -> },
     /** Editing [id] live: the text as it stands (null: cancelled). */
     val editLive: (id: String, text: String?) -> Unit = { _, _ -> },
     /** Writing started (the draft opened): what they wrote counts as read (the quick-reply window). */
@@ -183,18 +183,29 @@ internal fun ConversationScreen(
     // Editing one of my sent texts (2026-11-24, hen): a double tap on it.
     val edits = remember(user) { EditSession() }
     val editing = edits.editing
-    // Deleted from the edit box (2026-11-24, hen): gone from the chat at once, sent once its 4 s Undo has passed.
-    var pendingDelete by remember(user) { mutableStateOf<String?>(null) }
+    // Selected messages (2026-11-24, hen, Signal's way: a long press): the header turns into their actions.
+    val selected = remember(user) { androidx.compose.runtime.mutableStateListOf<String>() }
+    var sheet by remember(user) { mutableStateOf<ChatSheet?>(null) }
+    // Deleted (2026-11-24, hen): gone from the chat at once, done once its 4 s Undo has passed.
+    var pendingDelete by remember(user) { mutableStateOf<PendingDelete?>(null) }
     val deleteNow by androidx.compose.runtime.rememberUpdatedState(actions.delete)
     LaunchedEffect(pendingDelete) {
-        val id = pendingDelete ?: return@LaunchedEffect
+        val d = pendingDelete ?: return@LaunchedEffect
         delay(4_000)
-        deleteNow(id)
+        deleteNow(d.ids, d.forEveryone)
         pendingDelete = null
     }
-    androidx.compose.runtime.DisposableEffect(user) { onDispose { pendingDelete?.let { deleteNow(it) } } }
+    androidx.compose.runtime.DisposableEffect(user) { onDispose { pendingDelete?.let { deleteNow(it.ids, it.forEveryone) } } }
+    fun deleteSoon(ids: List<String>, forEveryone: Boolean) {
+        // One already waiting goes now.
+        pendingDelete?.let { actions.delete(it.ids, it.forEveryone) }
+        pendingDelete = PendingDelete(ids, forEveryone)
+        selected.clear()
+        sheet = null
+    }
+    val allMessages = messages
     @Suppress("NAME_SHADOWING")
-    val messages = remember(messages, pendingDelete) { if (pendingDelete == null) messages else messages.filter { it.id != pendingDelete } }
+    val messages = remember(messages, pendingDelete) { pendingDelete?.let { d -> messages.filter { it.id !in d.ids } } ?: messages }
     Box(
         Modifier.fillMaxSize().onGloballyPositioned { flight.origin = it.positionInWindow() }.pointerInput(Unit) {
             // Every touch counts (the camera's idle time).
@@ -212,10 +223,34 @@ internal fun ConversationScreen(
             .then(if (embeddedHeader != null) Modifier.navigationBarsPadding().imePadding() else Modifier.statusBarsPadding().navigationBarsPadding().imePadding()),
     ) {
         val canTalk = if (group != null) group.note == null else contact?.paired == true && !contact.blocked
-        when {
-            embeddedHeader != null -> Box(Modifier.graphicsLayer { alpha = seeThrough }) { embeddedHeader() }
-            group != null -> GroupHeader(group, actions, canTalk)
-            else -> Header(user, contact, header, actions, canTalk)
+        androidx.compose.animation.AnimatedContent(
+            selected.isNotEmpty(),
+            transitionSpec = {
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(200)) { -it / 4 })
+                    .togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)))
+                    .using(androidx.compose.animation.SizeTransform(clip = false))
+            },
+            label = "header or selection",
+        ) { selecting ->
+            if (selecting) {
+                val chosen = selected.mapNotNull { id -> allMessages.firstOrNull { it.id == id } }
+                val one = chosen.singleOrNull()
+                SelectionBar(
+                    count = selected.size,
+                    close = { selected.clear() },
+                    edit = one?.takeIf { it.outgoing && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
+                        { selected.clear(); edits.start(Editing(m.id, m.body, m.body.length, 0)) }
+                    },
+                    info = one?.let { m -> { sheet = ChatSheet.Info(m.id) } },
+                    delete = { sheet = ChatSheet.Delete(chosen.map { it.id }, chosen.all { it.outgoing && !it.deleted }) },
+                )
+            } else {
+                when {
+                    embeddedHeader != null -> Box(Modifier.graphicsLayer { alpha = seeThrough }) { embeddedHeader() }
+                    group != null -> GroupHeader(group, actions, canTalk)
+                    else -> Header(user, contact, header, actions, canTalk)
+                }
+            }
         }
         if (talkLine != null && (talk.talkers[user] != null || talk.own?.chat == user)) {
             Text(
@@ -325,6 +360,7 @@ internal fun ConversationScreen(
                         if (draft.text.isEmpty()) draft.editing = false
                         // A tap outside the edit cancels it (it turns back unchanged).
                         edits.abort()
+                        selected.clear()
                     })
                 },
                 state = list,
@@ -376,7 +412,17 @@ internal fun ConversationScreen(
                 }
                 // The messages, and their circle right after the last one of mine they read (it glides down as they read).
                 // Two videos at once, one each side: side by side, the later one lower by when it started.
+                // A quiet divider where the day changes (2026-11-24, hen), above each day's first message.
+                var newerDay: Long? = null
+                fun divider(day: Long) = item(key = "day@$day") {
+                    Box(Modifier.animateItem(ease, move, ease).fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        Text(dayLabel(day), color = LibraryColors.Muted, style = LibraryType.Tiny)
+                    }
+                }
                 messages.asReversed().forEach { message ->
+                    val day = dayOf(message.at)
+                    newerDay?.let { if (it != day) divider(it) }
+                    newerDay = day
                     val earlier = pairs[message.id]?.let { byId[it] }
                     if (earlier != null) {
                         item(key = "pair@" + earlier.id) {
@@ -410,13 +456,6 @@ internal fun ConversationScreen(
                                         if (save) actions.edit(message.id, edit.value.text) else actions.editLive(message.id, null)
                                     },
                                     gone = { edits.gone(edit) },
-                                    delete = {
-                                        actions.editLive(message.id, null)
-                                        edits.gone(edit)
-                                        // One already waiting goes now.
-                                        pendingDelete?.let { actions.delete(it) }
-                                        pendingDelete = message.id
-                                    },
                                 )
                             } else if (message.id == sentMorph) {
                                 Bubble(
@@ -435,11 +474,44 @@ internal fun ConversationScreen(
                                     message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
                                     bubbleModifier = if (liveVideo) Modifier else Modifier.graphicsLayer { alpha = seeThrough },
                                     liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
-                                    startEdit = if (message.outgoing && message.clip == null && message.call == null && canWrite) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
+                                    startEdit = if (message.outgoing && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
+                                    selected = message.id in selected,
+                                    select = { if (message.id in selected) selected.remove(message.id) else selected.add(message.id) },
+                                    selecting = selected.isNotEmpty(),
                                 )
                             }
                         }
                     }
+                }
+                newerDay?.let { divider(it) }
+            }
+            // The day of the topmost message on screen, floating under the header when it isn't today (2026-11-24, hen).
+            val topDay by androidx.compose.runtime.remember(messages) {
+                androidx.compose.runtime.derivedStateOf {
+                    val top = list.layoutInfo.visibleItemsInfo.maxByOrNull { it.index }?.key as? String ?: return@derivedStateOf null
+                    when {
+                        top.startsWith("day@") -> top.removePrefix("day@").toLongOrNull()
+                        top.startsWith("pair@") -> byId[top.removePrefix("pair@")]?.let { dayOf(it.at) }
+                        else -> byId[top]?.let { dayOf(it.at) }
+                    }
+                }
+            }
+            val shownDay = topDay?.takeIf { it != dayOf(System.currentTimeMillis()) }
+            androidx.compose.animation.AnimatedVisibility(
+                shownDay != null,
+                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp),
+            ) {
+                var last by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+                if (shownDay != null) last = shownDay
+                androidx.compose.animation.Crossfade(last, animationSpec = androidx.compose.animation.core.tween(200), label = "day") { d ->
+                    Text(
+                        dayLabel(d), color = LibraryColors.OnBackground, style = LibraryType.Small,
+                        modifier = Modifier.shadow(3.dp, androidx.compose.foundation.shape.CircleShape)
+                            .background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
+                            .padding(horizontal = 12.dp, vertical = 5.dp),
+                    )
                 }
             }
             if (unseen) {
@@ -476,7 +548,8 @@ internal fun ConversationScreen(
                             .padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(stringResource(R.string.chat_deleted), color = LibraryColors.OnInverse, style = LibraryType.Small)
+                        val n = pendingDelete?.ids?.size ?: 1
+                        Text(if (n > 1) stringResource(R.string.chat_deleted_several, n) else stringResource(R.string.chat_deleted), color = LibraryColors.OnInverse, style = LibraryType.Small)
                         Text(
                             stringResource(R.string.chat_undo), color = com.chencohen.ptt.ui.style.Pink, style = LibraryType.Small,
                             modifier = Modifier.padding(start = 8.dp).clickable(role = Role.Button) { pendingDelete = null }.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -518,6 +591,10 @@ internal fun ConversationScreen(
     if (editing != null && androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current != null) {
         androidx.activity.compose.BackHandler { edits.abort() }
     }
+    if ((selected.isNotEmpty() || sheet != null) && androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current != null) {
+        androidx.activity.compose.BackHandler { if (sheet != null) sheet = null else selected.clear() }
+    }
+    ChatSheetView(sheet, allMessages, group != null, close = { sheet = null }, delete = { ids, everyone -> deleteSoon(ids, everyone) })
     fullVideo?.let { id ->
         val playingIt = talk.playing?.clip == id
         LaunchedEffect(playingIt) { if (!playingIt) { delay(400); if (talk.playing?.clip != id) fullVideo = null } }
@@ -621,6 +698,10 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     liveEdit: com.chencohen.ptt.messaging.LiveEdit? = null,
     /** Mine: a double tap edits it, the caret at the tapped character ([Int] the bubble's width now, in pixels). */
     startEdit: ((Int, Int) -> Unit)? = null,
+    /** Selected (a long press; then a tap adds or removes it). */
+    selected: Boolean = false,
+    select: (() -> Unit)? = null,
+    selecting: Boolean = false,
 ) {
     var bubbleWidth by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     // Where the text lies in the bubble and its layout: a double tap anywhere on the bubble finds its character.
@@ -628,17 +709,26 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     var textLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     val retry = actions.retry
     val mine = message.outgoing
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+    val highlight by androidx.compose.animation.animateColorAsState(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent, androidx.compose.animation.core.tween(180), label = "selected")
+    Box(
+        Modifier.fillMaxWidth().background(highlight, RoundedCornerShape(10.dp))
+            .then(if (selecting && select != null) Modifier.clickable(role = Role.Checkbox, onClick = select) else Modifier),
+        contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart,
+    ) {
         Column(
             bubbleModifier
                 .widthIn(max = bubbleMaxWidth())
                 .onSizeChanged { bubbleWidth = it.width }
                 .onGloballyPositioned { textPlace[0] = it }
                 .then(
-                    if (startEdit != null) Modifier.pointerInput(message.id) {
-                        // Anywhere on the bubble (2026-11-24, hen: a one-letter message is a small target): on the
-                        // text, the caret at that character; elsewhere, the nearest place, its end.
-                        detectTapGestures(onDoubleTap = { at ->
+                    if (startEdit != null || select != null) Modifier.pointerInput(message.id, startEdit != null, selecting) {
+                        // Anywhere on the bubble (2026-11-24, hen: a one-letter message is a small target): a long
+                        // press selects it; a double tap on mine edits it, on the text the caret at that character,
+                        // elsewhere the nearest place, its end; while selecting, a tap adds or removes it.
+                        detectTapGestures(
+                            onLongPress = if (select != null && !selecting) { _ -> select() } else null,
+                            onTap = if (select != null && selecting) { _ -> select() } else null,
+                            onDoubleTap = if (startEdit == null) null else { at ->
                             val bubble = textPlace[0]
                             val text = textPlace[1]
                             val layout = textLayout
@@ -648,7 +738,8 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                                 if (inside) layout.getOffsetForPosition(p) else message.body.length
                             } else message.body.length
                             startEdit(offset, bubbleWidth)
-                        })
+                        },
+                        )
                     } else Modifier,
                 )
                 .animateContentSize(androidx.compose.animation.core.tween(MORPH_MS))
@@ -945,6 +1036,142 @@ internal class ChatDraft {
 
 internal const val FLIGHT_MS = 300
 
+/** The local day [at] falls on, as its midnight (the phone's own time zone). */
+internal fun dayOf(at: Long, zone: java.util.TimeZone = java.util.TimeZone.getDefault()): Long {
+    val c = java.util.Calendar.getInstance(zone)
+    c.timeInMillis = at
+    c.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    c.set(java.util.Calendar.MINUTE, 0)
+    c.set(java.util.Calendar.SECOND, 0)
+    c.set(java.util.Calendar.MILLISECOND, 0)
+    return c.timeInMillis
+}
+
+/** How far back [day] is: 0 today, 1 yesterday (calendar days, the phone's time zone). */
+internal fun daysAgo(day: Long, now: Long, zone: java.util.TimeZone = java.util.TimeZone.getDefault()): Int {
+    val a = java.util.Calendar.getInstance(zone).apply { timeInMillis = day }
+    val b = java.util.Calendar.getInstance(zone).apply { timeInMillis = dayOf(now, zone) }
+    var n = 0
+    while (a.before(b) && n < 400) {
+        a.add(java.util.Calendar.DAY_OF_MONTH, 1)
+        n++
+    }
+    return n
+}
+
+/** A day as the chat says it: Today, Yesterday, a weekday within the last 6 days, a date this year, else a full date. */
+@Composable
+internal fun dayLabel(day: Long): String {
+    val now = System.currentTimeMillis()
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    val ago = daysAgo(day, now)
+    val thisYear = java.util.Calendar.getInstance().apply { timeInMillis = now }.get(java.util.Calendar.YEAR) ==
+        java.util.Calendar.getInstance().apply { timeInMillis = day }.get(java.util.Calendar.YEAR)
+    return when {
+        ago <= 0 -> stringResource(R.string.chat_today)
+        ago == 1 -> stringResource(R.string.chat_yesterday)
+        ago <= 6 -> java.text.SimpleDateFormat("EEEE", locale).format(Date(day))
+        thisYear -> java.text.SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(locale, "dMMMM"), locale).format(Date(day))
+        else -> java.text.SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(locale, "dMMMMyyyy"), locale).format(Date(day))
+    }
+}
+
+/** Messages waiting for their Undo to pass before they are deleted. */
+internal data class PendingDelete(val ids: List<String>, val forEveryone: Boolean)
+
+/** A sheet over the chat: a message's Info, or how to delete the selected ones. */
+internal sealed interface ChatSheet {
+    data class Info(val id: String) : ChatSheet
+    data class Delete(val ids: List<String>, val allMine: Boolean) : ChatSheet
+}
+
+private fun canWriteHere(group: GroupChat?, contact: Contact?) = if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
+
+/**
+ * The header while messages are selected (2026-11-24, hen, Signal's way): close and how many on the start side;
+ * Edit (one text of mine), Info (one) and Delete on the end side. Icons follow the reading direction.
+ */
+@Composable
+private fun SelectionBar(count: Int, close: () -> Unit, edit: (() -> Unit)?, info: (() -> Unit)?, delete: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        val closeLabel = stringResource(R.string.chat_close_selection)
+        Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = closeLabel, onClick = close), contentAlignment = Alignment.Center) {
+            Icon(LibraryIcons.Close, closeLabel, tint = LibraryColors.OnBackground)
+        }
+        Text(stringResource(R.string.chat_selected, count), color = LibraryColors.OnBackground, style = LibraryType.RowTitle, modifier = Modifier.weight(1f).padding(start = 4.dp))
+        @Composable
+        fun action(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = LibraryColors.OnBackground, onClick: () -> Unit) =
+            Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = label, onClick = onClick), contentAlignment = Alignment.Center) {
+                Icon(icon, label, tint = tint)
+            }
+        androidx.compose.animation.AnimatedVisibility(edit != null) { action(LibraryIcons.Edit, stringResource(R.string.chat_edit)) { edit?.invoke() } }
+        androidx.compose.animation.AnimatedVisibility(info != null) { action(LibraryIcons.Info, stringResource(R.string.chat_info)) { info?.invoke() } }
+        action(LibraryIcons.Trash, stringResource(R.string.chat_delete), LibraryColors.Warning, delete)
+    }
+}
+
+/** The sheet over the chat (no dialog window: the quick-reply window has none to give). */
+@Composable
+private fun ChatSheetView(sheet: ChatSheet?, messages: List<TextMessage>, group: Boolean, close: () -> Unit, delete: (List<String>, Boolean) -> Unit) {
+    androidx.compose.animation.AnimatedVisibility(
+        sheet != null,
+        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
+        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)),
+    ) {
+        var shown by remember { mutableStateOf(sheet) }
+        if (sheet != null) shown = sheet
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)).clickable(onClickLabel = null, role = null, indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, onClick = close),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Column(
+                Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp)
+                    .background(LibraryColors.Raised, LibraryShapes.Card)
+                    .clickable(enabled = false) {}
+                    .padding(vertical = 8.dp),
+            ) {
+                when (val s = shown) {
+                    is ChatSheet.Info -> {
+                        val m = messages.firstOrNull { it.id == s.id }
+                        if (m != null) {
+                            val fmt = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                            @Composable
+                            fun line(label: String, at: Long?) {
+                                if (at == null) return
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+                                    Text(label, color = LibraryColors.Muted, style = LibraryType.Body, modifier = Modifier.weight(1f))
+                                    Text(fmt.format(Date(at)), color = LibraryColors.OnBackground, style = LibraryType.Body)
+                                }
+                            }
+                            line(stringResource(if (m.outgoing) R.string.chat_info_sent else R.string.chat_info_received), m.at)
+                            if (m.outgoing) {
+                                if (group) {
+                                    m.readBy.entries.sortedBy { it.value }.forEach { (who, at) -> line(stringResource(R.string.chat_info_read) + " · " + who, at) }
+                                } else {
+                                    line(stringResource(R.string.chat_info_delivered), m.deliveredAt)
+                                    line(stringResource(R.string.chat_info_read), m.readAt)
+                                }
+                            }
+                            line(stringResource(R.string.chat_info_edited), m.editedAt)
+                        }
+                    }
+                    is ChatSheet.Delete -> {
+                        @Composable
+                        fun choice(label: String, tint: Color, onClick: () -> Unit) = Text(
+                            label, color = tint, style = LibraryType.Body,
+                            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp),
+                        )
+                        if (s.allMine) choice(stringResource(R.string.chat_delete), LibraryColors.Warning) { delete(s.ids, true) }
+                        choice(stringResource(R.string.chat_delete_for_me), LibraryColors.Warning) { delete(s.ids, false) }
+                        choice(stringResource(R.string.chat_undo), LibraryColors.OnBackground, close)
+                    }
+                    null -> {}
+                }
+            }
+        }
+    }
+}
+
 /**
  * The chat's edits (2026-11-24, hen): the one in progress ([editing]) and those turning back ([closing]). A new
  * double tap, a tap or focus on the writing bubble, Back or a tap outside end the one in progress unchanged (it turns
@@ -999,7 +1226,7 @@ internal class Editing(val id: String, val original: String, caret: Int, val wid
  * ✓ saves; Back or a tap outside turn it back unchanged (no ✕). 220 ms each way, eased.
  */
 @Composable
-private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit, delete: () -> Unit = {}) {
+private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit) {
     val open = remember(edit.id) { androidx.compose.animation.core.Animatable(0f) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
     var saving by remember(edit.id) { mutableStateOf<Boolean?>(null) }
@@ -1053,40 +1280,35 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
                 maxLines = 6,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
             )
-            // Delete and ✓ in the place of the time and its mark, at the end of that line (2026-11-24, hen): 6 dp under
-            // the text, the box's own inset from its outline, small enough that the height doesn't change; each with a
-            // full-size touch area around it.
+            // ✓ in the place of the time and its mark, at the end of that line (2026-11-24, hen): 6 dp under the text,
+            // the box's own inset from its outline, 18 dp with a 48 dp touch area around it (the box grows a little at
+            // its bottom; the text stays).
             Row(
-                Modifier.align(Alignment.End).padding(top = 6.dp).height(14.dp).graphicsLayer { alpha = p },
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                Modifier.align(Alignment.End).padding(top = 6.dp).height(18.dp).graphicsLayer { alpha = p },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val del = stringResource(R.string.chat_delete)
-                SmallAction(del, enabled = p > 0.5f && saving == null, onClick = delete) {
-                    Icon(LibraryIcons.Trash, del, tint = LibraryColors.Warning, modifier = Modifier.size(14.dp))
-                }
                 val save = stringResource(R.string.chat_edit_save)
                 val can = edit.value.text.isNotBlank()
                 SmallAction(save, enabled = can && p > 0.5f, onClick = { if (saving == null) saving = true }) {
                     Box(
-                        Modifier.size(14.dp).graphicsLayer { scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p }
+                        Modifier.size(18.dp).graphicsLayer { scaleX = 0.6f + 0.4f * p; scaleY = 0.6f + 0.4f * p }
                             .background(if (can) coral else coral.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape),
                         contentAlignment = Alignment.Center,
-                    ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(10.dp)) }
+                    ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(12.dp)) }
                 }
             }
         }
     }
 }
 
-/** A small control drawn at its own size, its touch area 40 dp around it (not taking room). */
+/** A small control drawn at its own size, its touch area 48 dp around it (not taking room). */
 @Composable
 private fun SmallAction(label: String, enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
         Modifier.layout { m, c ->
-            val touch = 40.dp.roundToPx()
+            val touch = 48.dp.roundToPx()
             val pl = m.measure(androidx.compose.ui.unit.Constraints.fixed(touch, touch))
-            val shown = 14.dp.roundToPx()
+            val shown = 18.dp.roundToPx()
             layout(shown, shown) { pl.place((shown - touch) / 2, (shown - touch) / 2) }
         }.clickable(enabled = enabled, role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,

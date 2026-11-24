@@ -147,6 +147,9 @@ class MessagingController internal constructor(
     /** Delete my message [id] for everyone (2026-11-24, hen). */
     fun deleteMessage(id: String) = onWork { messaging.deleteMessage(id) }
 
+    /** Delete [ids] for everyone (mine only) or from this phone only. */
+    fun deleteMessages(ids: List<String>, forEveryone: Boolean) = onWork { if (forEveryone) messaging.deleteMessages(ids) else messaging.deleteForMe(ids) }
+
     /** Editing [id] live (null: cancelled). */
     fun editLive(id: String, text: String?) = onWork { messaging.editLive(id, text) }
 

@@ -1485,6 +1485,23 @@ internal class Messaging(
         return true
     }
 
+    /** Deletes [ids] for everyone: only this user's own (each as [deleteMessage]); how many went. */
+    suspend fun deleteMessages(ids: List<String>): Int = ids.count { deleteMessage(it) }
+
+    /** Deletes [ids] from this phone only (2026-11-24, hen: "Delete for me"): anyone's, nothing is sent. */
+    fun deleteForMe(ids: List<String>): Int {
+        var gone = 0
+        for (id in ids) {
+            val message = store.message(id) ?: continue
+            editWanted.remove(id)
+            store.removeMessage(message)
+            if (message.clip != null) talk.forgetClip(id)
+            gone++
+        }
+        if (gone > 0) publish()
+        return gone
+    }
+
     /** A delete from [author] in [chat] (as [takeEdit]): this user's own on another phone goes; theirs leaves a mark. */
     private fun takeDelete(chat: String, author: String?, mine: Boolean, delete: DeleteContent) {
         val message = store.message(delete.id)?.takeIf {
@@ -1670,7 +1687,13 @@ internal class Messaging(
             for (id in receipt.ids) {
                 val message = store.message(id)?.takeIf { it.outgoing && it.user == contact.user } ?: continue
                 if (message.status.ordinal < status.ordinal || message.status == MessageStatus.PENDING) {
-                    store.putMessage(message.copy(status = status, readAt = if (status == MessageStatus.READ) now() else message.readAt))
+                    store.putMessage(
+                        message.copy(
+                            status = status,
+                            readAt = if (status == MessageStatus.READ) now() else message.readAt,
+                            deliveredAt = message.deliveredAt ?: now(),
+                        ),
+                    )
                 }
             }
         }
