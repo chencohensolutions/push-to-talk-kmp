@@ -802,4 +802,21 @@
     <string name="car_wait">Wait: someone is talking</string>
     <string name="car_talking_to">Talking to %1$s · %2$s</string>
     <string name="car_nothing_heard">Nothing heard</string>
+    <string name="face_title">Your picture</string>
+    <string name="face_body">Take a selfie or pick a photo, and Talk draws your face in a few styles. You choose one; it shows in your contacts’ chats instead of your letter.</string>
+    <string name="face_private">Drawn on this phone. The photo is never kept or sent; only the drawing goes to your contacts, end to end.</string>
+    <string name="face_take_selfie">Take a selfie</string>
+    <string name="face_pick_photo">Pick a photo</string>
+    <string name="face_pick_style">Pick the one you like</string>
+    <string name="face_use">Use this picture</string>
+    <string name="face_skip">Skip for now</string>
+    <string name="face_remove">Remove my picture</string>
+    <string name="face_no_face">No face found in that photo. Try one where your face is clear and facing the camera.</string>
+    <string name="face_offline">Needs the internet once</string>
+    <string name="face_style_soft">Soft</string>
+    <string name="face_style_painted">Painted</string>
+    <string name="face_style_hand_drawn">Hand-drawn</string>
+    <string name="face_style_ink">Ink</string>
+    <string name="settings_picture_title">Your picture</string>
+    <string name="settings_picture_body">A drawing of your face, made on this phone</string>
 </resources>

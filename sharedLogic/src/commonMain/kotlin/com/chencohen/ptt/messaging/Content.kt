@@ -64,9 +64,14 @@ internal data class ProfileContent(
     @ProtoNumber(3) val pictureId: String = "",
     /** The picture itself (a small WebP with a clear background), only to whoever doesn't have [pictureId] yet; else empty. */
     @ProtoNumber(4) val picture: ByteArray = ByteArray(0),
+    /**
+     * The receiver was told of a picture it doesn't have (it was sent when this phone still had an app without
+     * pictures): send it again. Only this flag counts in such a profile.
+     */
+    @ProtoNumber(5) val needPicture: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean = other is ProfileContent && email == other.email && gender == other.gender &&
-        pictureId == other.pictureId && picture.contentEquals(other.picture)
+        pictureId == other.pictureId && picture.contentEquals(other.picture) && needPicture == other.needPicture
 
     override fun hashCode(): Int = email.hashCode() * 31 + pictureId.hashCode()
 

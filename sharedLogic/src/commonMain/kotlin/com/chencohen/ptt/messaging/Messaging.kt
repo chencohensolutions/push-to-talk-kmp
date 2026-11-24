@@ -375,7 +375,7 @@ internal class Messaging(
         onEdit = { group, author, edit -> takeEdit(group.chat, author, mine = author == device()?.user, edit) },
         onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
         onViewing = { group, author, open -> if (author != device()?.user) takeViewing(typingKey(group.chat, author), open) },
-        onProfile = { _, author, profile -> if (author != device()?.user) takePicture(author, profile) },
+        onProfile = { _, author, profile -> if (author != device()?.user) takePicture(author, profile, contact = store.contact(author)?.paired == true) },
         onTyping = { group, author, typing ->
             val key = typingKey(group.chat, author)
             _state.update { it.copy(typing = if (typing.typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing.typing, typing.draft, typing.selStart, typing.selEnd)) }
@@ -1326,13 +1326,27 @@ internal class Messaging(
         shareProfile()
     }
 
-    /** [user]'s picture as their phone said ([ProfileContent]): kept, gone, or (no bytes, not said) unchanged. */
-    private fun takePicture(user: String, profile: ProfileContent) {
+    /**
+     * [user]'s picture as their phone said ([ProfileContent]): kept, gone, or unchanged. [contact]: they are a paired
+     * contact, so a picture named without its bytes that this phone doesn't have is asked for again.
+     */
+    private fun takePicture(user: String, profile: ProfileContent, contact: Boolean) {
         val id = profile.pictureId
         when {
             id.isEmpty() -> return
             id == ProfileContent.NO_PICTURE -> if (store.pictureId(user) != null) store.removePicture(user) else return
             profile.picture.isNotEmpty() && profile.picture.size <= MAX_PICTURE_BYTES -> if (store.pictureId(user) != id) store.putPicture(user, id, profile.picture) else return
+            store.pictureId(user) != id && contact -> {
+                scope.launch {
+                    try {
+                        sender.send(user, Content(profile = ProfileContent(needPicture = true)), pushKind = PushKind.NONE)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                    }
+                }
+                return
+            }
             else -> return
         }
         publish()
@@ -1886,7 +1900,13 @@ internal class Messaging(
             }
         }
         content.profile?.let { profile ->
-            takePicture(contact.user, profile)
+            if (profile.needPicture) {
+                // They don't have this user's picture after all: it goes again.
+                store.putPictureSent(contact.user, "")
+                shareProfile()
+                return@let
+            }
+            takePicture(contact.user, profile, contact = true)
             store.contact(contact.user)?.let { c ->
                 val email = profile.email.trim().take(254).ifBlank { null }
                 val gender = profile.gender.takeIf { it == Gender.MALE || it == Gender.FEMALE } ?: Gender.NOT_SET

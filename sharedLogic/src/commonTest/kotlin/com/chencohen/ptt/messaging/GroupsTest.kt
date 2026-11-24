@@ -303,6 +303,13 @@ class GroupsTest {
         advanceUntilIdle()
         assertEquals(before, server.groupSends.size, "the group already has this picture")
 
+        // Dana's phone lost it (it had an app without pictures then): told of it again without the bytes, it asks.
+        dana.store.removePicture("hen")
+        hen.store.putPictureSent("dana", pictureId!!)
+        hen.messaging.shareProfile()
+        advanceUntilIdle()
+        assertEquals(pictureId, dana.state.pictures["hen"], "asked for and sent again")
+
         hen.messaging.setMyPicture(null)
         advanceUntilIdle()
         assertNull(hen.state.pictures[""])

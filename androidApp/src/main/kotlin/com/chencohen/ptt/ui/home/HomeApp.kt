@@ -239,6 +239,11 @@ fun HomeApp(
     }
     // A talk notification's Play: the burst plays from the chat's history.
     LaunchedEffect(openedClip) { if (openedClip != null) messaging.playClip(openedClip) }
+    // Your picture, once after enrolling (or after the update that brought pictures; 2026-11-24, hen), unless an
+    // invite or a chat is being opened.
+    LaunchedEffect(Unit) {
+        if (!com.chencohen.ptt.ui.face.PictureAsked.asked(context) && openedInvite == null && openedChat == null && openedCall == null && stack.isEmpty()) push("welcomepicture")
+    }
     // An invite link: Add contact asks "Pair with them?".
     LaunchedEffect(openedInvite) {
         if (openedInvite != null && stack.lastOrNull() != "join") push("join")
@@ -325,6 +330,7 @@ fun HomeApp(
                         refresh = settings::refresh,
                         registerAgain = onRegisterAgain,
                         linkPhone = { push("devices") },
+                        openPicture = { push("picture") },
                         openTalk = { push("talksettings") },
                         openCalls = { push("callsettings") },
                         updates = updates,
@@ -447,6 +453,8 @@ fun HomeApp(
                         },
                     )
                 }
+                name == "picture" -> com.chencohen.ptt.ui.face.FacePickerScreen(onboarding = false, done = ::pop)
+                name == "welcomepicture" -> com.chencohen.ptt.ui.face.FacePickerScreen(onboarding = true, done = ::pop)
                 name.startsWith("groupadd/") && pageUser != null -> {
                     val group = messagingState.groups.firstOrNull { it.id == pageUser }
                     var busy by remember { mutableStateOf(false) }

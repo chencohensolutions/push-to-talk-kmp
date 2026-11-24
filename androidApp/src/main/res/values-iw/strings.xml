@@ -805,4 +805,21 @@
     <string name="car_wait">רגע: מישהו מדבר</string>
     <string name="car_talking_to">מדברים אל %1$s · %2$s</string>
     <string name="car_nothing_heard">לא נשמע כלום</string>
+    <string name="face_title">התמונה שלך</string>
+    <string name="face_body">צלמו סלפי או בחרו תמונה, ו־Talk יצייר את הפנים שלכם בכמה סגנונות. בוחרים אחד, והוא מופיע אצל אנשי הקשר במקום האות.</string>
+    <string name="face_private">הציור נעשה בטלפון הזה. התמונה לא נשמרת ולא נשלחת; רק הציור עובר לאנשי הקשר, מוצפן מקצה לקצה.</string>
+    <string name="face_take_selfie">צילום סלפי</string>
+    <string name="face_pick_photo">בחירת תמונה</string>
+    <string name="face_pick_style">בחרו את מה שאהבתם</string>
+    <string name="face_use">להשתמש בתמונה הזו</string>
+    <string name="face_skip">לא עכשיו</string>
+    <string name="face_remove">להסיר את התמונה שלי</string>
+    <string name="face_no_face">לא נמצאו פנים בתמונה. נסו תמונה שבה הפנים ברורות ומול המצלמה.</string>
+    <string name="face_offline">צריך אינטרנט פעם אחת</string>
+    <string name="face_style_soft">רך</string>
+    <string name="face_style_painted">צבוע</string>
+    <string name="face_style_hand_drawn">ציור יד</string>
+    <string name="face_style_ink">דיו</string>
+    <string name="settings_picture_title">התמונה שלך</string>
+    <string name="settings_picture_body">ציור של הפנים שלך, שנעשה בטלפון</string>
 </resources>

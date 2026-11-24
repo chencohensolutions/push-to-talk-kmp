@@ -1,6 +1,7 @@
 package com.chencohen.ptt.ui.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -70,11 +71,25 @@ internal fun SettingsScreen(
     /** Settings › Notifications › Message sound: Talk's soft chime (true, the default) or the phone's sound. */
     softMessage: Boolean = true,
     setSoftMessage: (Boolean) -> Unit = {},
+    /** Settings › Your picture (2026-11-24, hen). */
+    openPicture: () -> Unit = {},
 ) {
     LaunchedEffect(Unit) { refresh() }
     SettingsScaffold(stringResource(R.string.settings_title), back) {
         SectionTitle(stringResource(R.string.settings_account_title))
         SettingsCard {
+            // Your picture: the face as contacts see it, and a way to make or change it.
+            androidx.compose.foundation.layout.Row(
+                Modifier.fillMaxWidth().clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = openPicture).padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                com.chencohen.ptt.ui.contacts.Avatar("", 56.dp, name = state.device?.user ?: "?")
+                androidx.compose.foundation.layout.Column(Modifier.padding(start = 14.dp)) {
+                    Text(stringResource(R.string.settings_picture_title), color = com.chencohen.ptt.ui.style.LibraryColors.OnBackground, style = com.chencohen.ptt.ui.style.LibraryType.RowTitle)
+                    Text(stringResource(R.string.settings_picture_body), color = com.chencohen.ptt.ui.style.LibraryColors.Muted, style = com.chencohen.ptt.ui.style.LibraryType.Caption)
+                }
+            }
+            RowDivider()
             val device = state.device
             InfoRow(
                 title = device?.deviceName ?: stringResource(R.string.settings_device_name),

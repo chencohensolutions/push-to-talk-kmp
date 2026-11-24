@@ -9,3 +9,8 @@
 -dontwarn org.signal.libsignal.**
 # Our libsignal stores are called from native code through libsignal's interfaces.
 -keep class com.chencohen.ptt.crypto.SignalStore { *; }
+
+# LiteRT from Google Play services (Silero, and Your picture's face models, 2026-11-24): its factory is made by
+# reflection, so R8 must keep it.
+-keep class com.google.android.gms.tflite.** { *; }
+-keep class org.tensorflow.lite.** { *; }

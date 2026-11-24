@@ -539,6 +539,30 @@ the car's microphone and end by themselves when the speech does (Silero VAD on L
 [android-auto.md](screens/android-auto.md). The same `SpeechDetector` and `VoiceEnd` can later end the phone's Talk
 back and widget bursts (not turned on there).
 
+## Pictures (2026-11-24, hen)
+
+Each user can have a picture: an illustration of their face, made on their own phone, cut out on a clear background and
+drawn free-standing wherever the letter circle was (chats, the chat list, the reader circle, the floating window,
+calls). People without one keep the letter circle.
+
+- **Made on the phone only.** A selfie or a photo from the gallery is the input and is never kept or sent (the camera
+  writes it to `cache/selfie`, which is read once and deleted). ML Kit finds the face; the head and shoulders (about 2.4
+  face widths) are cropped to 384 px; MediaPipe's selfie segmenter (Apache-2.0, bundled, 250 KB) gives the outline,
+  firmed up, softened and faded out at the bottom; a style model draws it; the result is a 256 px WebP with alpha,
+  about 15 KB (`FaceMaker`).
+- **Styles** (the person picks; each previewed on light and dark): Soft, Painted and Hand-drawn are DCT-Net
+  (menyifang/DCT-Net, Apache-2.0: 3d, sd-design, handdrawn), Ink is Informative Drawings (carolineec, MIT: contour).
+  Converted to LiteRT fp16 at 384 px by `tools/face/` (3.25 MB each, Ink 8.6 MB; 18.4 MB for all four). Anime was
+  tried and dropped: it changed the eyes too much. They run on LiteRT from Play services, 4 threads.
+- **Downloaded on first use** from the app repository's release `face-models-1`, one at a time, the first as the
+  Your picture step opens, each tile with its own progress ring. Without a network the step still opens and Skip
+  works. The fast build carries them in its assets for testing.
+- **End to end.** `ProfileContent` carries `pictureId` ("-": none) and, only to a chat that doesn't have that id yet,
+  the picture's bytes (at most 96 KB taken). Contacts get it with the profile (email, gender); each group gets it as a
+  group message. Which id each chat was sent is kept (`picture_sent`), so the profile said again at each start sends no
+  bytes. A phone told of an id it doesn't have (it had an app without pictures) asks with `needPicture`, and the bytes go
+  again. The server sees only sealed envelopes.
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.
