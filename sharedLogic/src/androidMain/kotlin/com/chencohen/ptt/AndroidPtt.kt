@@ -434,3 +434,45 @@ suspend fun clipContents(context: Context, id: String): com.chencohen.ptt.talk.C
     val messaging = hub(context)
     return withContext(messagingWork) { messaging.talk.clipContents(id) }
 }
+
+/** [user]'s picture (this user's own: ""), a small WebP with a clear background; null: none (2026-11-24, hen). */
+suspend fun pictureOf(context: Context, user: String): ByteArray? {
+    val messaging = hub(context)
+    return withContext(messagingWork) { messaging.picture(user) }
+}
+
+/** This user's picture ([image] null: none), end to end to their contacts and groups. */
+fun setMyPicture(context: Context, image: ByteArray?) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.setMyPicture(image) }
+}
+
+/** [user]'s face in expression [code] (this user's own: ""); null: none (2026-11-24, hen: faces as emoticons). */
+suspend fun faceImageOf(context: Context, user: String, code: Int): ByteArray? {
+    val messaging = hub(context)
+    return withContext(messagingWork) { messaging.face(user, code) }
+}
+
+/** This user's picture and its expressions, end to end to their contacts and groups. */
+fun setMyFaces(context: Context, image: ByteArray?, faces: Map<Int, ByteArray>) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.setMyPicture(image, faces) }
+}
+
+/** Sends this user's face [code] to [user] (a contact or a group's chat), from the quick-reply window. */
+fun sendFace(context: Context, user: String, code: Int, fallback: String) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.sendFace(user, code, fallback) }
+}
+
+/** Reacts to message [id] with this user's face [code]; null takes it back. */
+fun react(context: Context, id: String, code: Int?) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.react(id, code) }
+}
+
+/** The expressions this user has faces for. */
+suspend fun myFaceCodes(context: Context): List<Int> {
+    val messaging = hub(context)
+    return withContext(messagingWork) { messaging.faceCodes("") }
+}

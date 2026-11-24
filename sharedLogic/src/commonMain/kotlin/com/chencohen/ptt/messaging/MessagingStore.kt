@@ -103,6 +103,10 @@ data class TextMessage(
     val deliveredAt: Long? = null,
     /** Deleted by its author (2026-11-24, hen): only "Message deleted" is left of it here. */
     val deleted: Boolean = false,
+    /** One of the author's faces instead of words (Expression code + 1; 2026-11-24, hen); 0: a text. */
+    val face: Int = 0,
+    /** Reactions with faces, by who reacted ("" this user): their Expression code + 1. */
+    val reactions: Map<String, Int> = emptyMap(),
 )
 
 /** How a call went, for the chat and the Calls tab. */
@@ -335,6 +339,43 @@ internal class MessagingStore(val store: SecureStore) {
             if (read(Spaces.MESSAGES, key, TextMessage.serializer())?.user == user) store.remove(Spaces.MESSAGES, key)
         }
     }
+
+    /** [user]'s picture (this user's own: ""), a small WebP with a clear background; null: none. */
+    fun picture(user: String): ByteArray? = store.get(Spaces.PICTURES, user)
+
+    /** Which picture [user] has (this user's own: ""); null: none. */
+    fun pictureId(user: String): String? = store.get(Spaces.PICTURE_IDS, user)?.decodeToString()
+
+    /** Every user with a picture here, with its id. */
+    fun pictureIds(): Map<String, String> = store.keys(Spaces.PICTURE_IDS).associateWith { pictureId(it).orEmpty() }
+
+    fun putPicture(user: String, id: String, bytes: ByteArray, faces: Map<Int, ByteArray> = emptyMap()) {
+        removeFaces(user)
+        store.put(Spaces.PICTURES, user, bytes)
+        for ((code, image) in faces) store.put(Spaces.PICTURES, "$user#$code", image)
+        store.put(Spaces.PICTURE_IDS, user, id.encodeToByteArray())
+    }
+
+    fun removePicture(user: String) {
+        removeFaces(user)
+        store.remove(Spaces.PICTURES, user)
+        store.remove(Spaces.PICTURE_IDS, user)
+    }
+
+    /** [user]'s face in expression [code] (the Expression code); null: none. */
+    fun face(user: String, code: Int): ByteArray? = store.get(Spaces.PICTURES, "$user#$code")
+
+    /** The expressions [user] has faces for. */
+    fun faceCodes(user: String): List<Int> = store.keys(Spaces.PICTURES).filter { it.startsWith("$user#") }.mapNotNull { it.substringAfter('#').toIntOrNull() }.sorted()
+
+    private fun removeFaces(user: String) {
+        store.keys(Spaces.PICTURES).filter { it.startsWith("$user#") }.forEach { store.remove(Spaces.PICTURES, it) }
+    }
+
+    /** The id of this user's picture last sent to [chat] (a contact or a group), or NO_PICTURE; null: never. */
+    fun pictureSent(chat: String): String? = store.get(Spaces.PICTURE_SENT, chat)?.decodeToString()
+
+    fun putPictureSent(chat: String, id: String) = store.put(Spaces.PICTURE_SENT, chat, id.encodeToByteArray())
 
     fun groups(): List<Group> = all(Spaces.GROUPS, Group.serializer())
 

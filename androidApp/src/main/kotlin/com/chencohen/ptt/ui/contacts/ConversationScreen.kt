@@ -130,6 +130,10 @@ class ConversationActions(
     val answering: () -> Unit = {},
     /** Push-to-talk or push-to-video for this chat (remembered per contact); null: no switch. */
     val setPushVideo: ((Boolean) -> Unit)? = null,
+    /** Sends one of this user's faces ([code]: Expression code; [fallback]: the emoji older apps show); null: no faces here. */
+    val sendFace: ((code: Int, fallback: String) -> Unit)? = null,
+    /** Reacts to a message with one of this user's faces; null code takes it back. */
+    val react: ((id: String, code: Int?) -> Unit)? = null,
 )
 
 /** What the header says under the name: typing, online, last seen, or nothing known. */
@@ -275,10 +279,11 @@ private fun ConversationScreenIn(
             if (selecting) {
                 val chosen = selected.mapNotNull { id -> allMessages.firstOrNull { it.id == id } }
                 val one = chosen.singleOrNull()
+                androidx.compose.foundation.layout.Column {
                 SelectionBar(
                     count = selected.size,
                     close = { selected.clear() },
-                    edit = one?.takeIf { it.outgoing && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
+                    edit = one?.takeIf { it.outgoing && it.face == 0 && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
                         { selected.clear(); edits.start(Editing(m.id, m.body, m.body.length, 0)) }
                     },
                     info = one?.let { m -> { sheet = ChatSheet.Info(m.id) } },
@@ -286,6 +291,15 @@ private fun ConversationScreenIn(
                     save = one?.takeIf { it.clip != null && !it.deleted }?.let { m -> actions.saveClip?.let { s -> { selected.clear(); s(m.id) } } },
                     delete = { sheet = ChatSheet.Delete(chosen.map { it.id }, chosen.all { it.outgoing && !it.deleted }) },
                 )
+                // React with one of my faces (2026-11-24, hen): under the bar, for one message.
+                val react = actions.react
+                if (one != null && !one.deleted && react != null && com.chencohen.ptt.ui.face.faceOf("") != null) {
+                    com.chencohen.ptt.ui.face.FaceTray(current = one.reactions[""]?.minus(1)) { code ->
+                        react(one.id, code.takeIf { it != one.reactions[""]?.minus(1) })
+                        selected.clear()
+                    }
+                }
+                }
             } else {
                 when {
                     embeddedHeader != null -> Box(Modifier.graphicsLayer { alpha = seeThrough }) { embeddedHeader() }
@@ -742,6 +756,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
+    sendFace = a.sendFace, react = a.react,
 )
 
 
@@ -825,6 +840,9 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     var textLayout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
     val retry = actions.retry
     val mine = message.outgoing
+    // One of the author's faces instead of words (2026-11-24, hen): no bubble around it, and nothing to edit.
+    val isFace = message.face > 0 && !message.deleted && message.clip == null && message.call == null
+    @Suppress("NAME_SHADOWING") val startEdit = startEdit?.takeIf { !isFace }
     val highlight by androidx.compose.animation.animateColorAsState(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent, androidx.compose.animation.core.tween(180), label = "selected")
     Box(
         Modifier.fillMaxWidth().background(highlight, RoundedCornerShape(10.dp))
@@ -860,7 +878,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 )
                 .animateContentSize(androidx.compose.animation.core.tween(MORPH_MS))
                 .then(if (liveEdit != null) Modifier.border(1.dp, LibraryColors.Accent.copy(alpha = 0.6f), LibraryShapes.Card) else Modifier)
-                .background(if (mine) LibraryColors.Mine else LibraryColors.Raised, LibraryShapes.Card)
+                .background(if (isFace) Color.Transparent else if (mine) LibraryColors.Mine else LibraryColors.Raised, LibraryShapes.Card)
                 .then(if (message.status == MessageStatus.FAILED) Modifier.clickable(role = Role.Button) { retry(message.id) } else Modifier)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
@@ -891,6 +909,9 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 }
             } else if (message.clip != null) {
                 ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine, save = actions.saveClip)
+            } else if (isFace) {
+                val author = if (mine) "" else message.author ?: message.user
+                com.chencohen.ptt.ui.face.FaceSticker(author, message.face - 1, message.body)
             } else {
                 if (liveEdit != null) Text(stringResource(R.string.chat_editing), color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
                 Text(
@@ -917,6 +938,9 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                     style = LibraryType.Tiny,
                 )
                 if (mine) StatusMark(tick, Modifier.padding(start = 4.dp))
+            }
+            if (message.reactions.isNotEmpty() && !message.deleted) {
+                com.chencohen.ptt.ui.face.Reactions(message.reactions, Modifier.align(if (mine) Alignment.Start else Alignment.End).padding(top = 2.dp))
             }
         }
     }
@@ -1640,6 +1664,28 @@ private fun PinnedDraft(
             }
         }
     }
+    var faces by remember { mutableStateOf(false) }
+    val sendFace = actions.sendFace
+    val myFace = com.chencohen.ptt.ui.face.faceOf("")
+    androidx.compose.foundation.layout.Column {
+    if (sendFace != null && myFace != null) {
+        androidx.compose.animation.AnimatedVisibility(faces) {
+            com.chencohen.ptt.ui.face.FaceTray(current = null) { code ->
+                faces = false
+                sendFace(code, com.chencohen.ptt.face.Expression.of(code)?.emoji ?: "")
+            }
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+    if (sendFace != null && myFace != null) {
+        // My faces to send (2026-11-24, hen): my own face, a tap opens them above.
+        val label = stringResource(R.string.face_send)
+        androidx.compose.foundation.Image(
+            myFace, label, contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            modifier = Modifier.padding(start = 8.dp).size(40.dp).clickable(role = Role.Button, onClickLabel = label) { faces = !faces },
+        )
+    }
+    Box(Modifier.weight(1f)) {
     ComposeBubble(
         draft.text, draft.editing, focus, {
             writing()
@@ -1679,4 +1725,7 @@ private fun PinnedDraft(
             }
         },
     )
+    }
+    }
+    }
 }

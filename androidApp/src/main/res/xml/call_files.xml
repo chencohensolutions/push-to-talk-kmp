@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Saved calls (Save calls, phase 6) leave the app only through Share: the one folder the FileProvider serves. -->
+<!-- Saved calls (Save calls, phase 6) leave the app only through Share; and the camera app writes a selfie for Your picture
+     into cache/selfie (read once, then deleted). The only folders the FileProvider serves. -->
 <paths>
     <files-path name="calls" path="calls/" />
+    <cache-path name="selfie" path="selfie/" />
 </paths>

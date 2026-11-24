@@ -239,6 +239,11 @@ fun HomeApp(
     }
     // A talk notification's Play: the burst plays from the chat's history.
     LaunchedEffect(openedClip) { if (openedClip != null) messaging.playClip(openedClip) }
+    // Your picture, once after enrolling (or after the update that brought pictures; 2026-11-24, hen), unless an
+    // invite or a chat is being opened.
+    LaunchedEffect(Unit) {
+        if (!com.chencohen.ptt.ui.face.PictureAsked.asked(context) && openedInvite == null && openedChat == null && openedCall == null && stack.isEmpty()) push("welcomepicture")
+    }
     // An invite link: Add contact asks "Pair with them?".
     LaunchedEffect(openedInvite) {
         if (openedInvite != null && stack.lastOrNull() != "join") push("join")
@@ -325,6 +330,7 @@ fun HomeApp(
                         refresh = settings::refresh,
                         registerAgain = onRegisterAgain,
                         linkPhone = { push("devices") },
+                        openPicture = { push("picture") },
                         openTalk = { push("talksettings") },
                         openCalls = { push("callsettings") },
                         updates = updates,
@@ -447,6 +453,8 @@ fun HomeApp(
                         },
                     )
                 }
+                name == "picture" -> com.chencohen.ptt.ui.face.FacePickerScreen(onboarding = false, done = ::pop)
+                name == "welcomepicture" -> com.chencohen.ptt.ui.face.FacePickerScreen(onboarding = true, done = ::pop)
                 name.startsWith("groupadd/") && pageUser != null -> {
                     val group = messagingState.groups.firstOrNull { it.id == pageUser }
                     var busy by remember { mutableStateOf(false) }
@@ -647,6 +655,8 @@ fun HomeApp(
                         actions = ConversationActions(
                             back = ::pop,
                             openContact = { Group.idOf(user)?.let { push("group/$it") } ?: push("contact/$user") },
+                            sendFace = { code, fallback -> com.chencohen.ptt.sendFace(context, user, code, fallback) },
+                            react = { id, code -> com.chencohen.ptt.react(context, id, code) },
                             send = { body ->
                                 messaging.sendText(user, body) { result ->
                                     if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
@@ -1062,10 +1072,18 @@ private fun TopBar(state: HomeState, tab: HomeTab, openSettings: () -> Unit, mod
     }
 }
 
-/** The user's first letter in an ink circle (no pictures yet); opens Settings. */
+/** The user's own face (2026-11-24, hen), else their first letter in an ink circle; opens Settings. */
 @Composable
 private fun ProfileCircle(user: String?, onClick: () -> Unit) {
     val label = stringResource(R.string.chats_profile)
+    val face = com.chencohen.ptt.ui.face.faceOf("")
+    if (face != null) {
+        androidx.compose.foundation.Image(
+            face, label, contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            modifier = Modifier.size(44.dp).clickable(role = Role.Button, onClick = onClick),
+        )
+        return
+    }
     Box(
         Modifier
             .size(40.dp)

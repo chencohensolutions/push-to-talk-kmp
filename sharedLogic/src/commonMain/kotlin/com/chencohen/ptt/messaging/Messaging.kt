@@ -82,6 +82,11 @@ data class MessagingState(
     val live: com.chencohen.ptt.talk.LiveState = com.chencohen.ptt.talk.LiveState(),
     /** The call on this phone (phase 6); null when none. */
     val call: com.chencohen.ptt.calls.CallUi? = null,
+    /**
+     * Who has a picture (2026-11-24, hen), with its id, by user; this user's own under "". The picture itself:
+     * [Messaging.picture].
+     */
+    val pictures: Map<String, String> = emptyMap(),
 )
 
 /** Settings › Talk, and each chat's When I'm away. */
@@ -370,6 +375,8 @@ internal class Messaging(
         onEdit = { group, author, edit -> takeEdit(group.chat, author, mine = author == device()?.user, edit) },
         onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
         onViewing = { group, author, open -> if (author != device()?.user) takeViewing(typingKey(group.chat, author), open) },
+        onReaction = { group, author, reaction -> takeReaction(group.chat, if (author == device()?.user) null else author, reaction) },
+        onProfile = { _, author, profile -> if (author != device()?.user) takePicture(author, profile, contact = store.contact(author)?.paired == true) },
         onTyping = { group, author, typing ->
             val key = typingKey(group.chat, author)
             _state.update { it.copy(typing = if (typing.typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing.typing, typing.draft, typing.selStart, typing.selEnd)) }
@@ -493,7 +500,7 @@ internal class Messaging(
         updateViewing()
         open()
         // Once a run: this user's email to contacts (some paired since it was last said).
-        if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET)) {
+        if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET || store.pictureId("") != null)) {
             profileShared = true
             scope.launch {
                 socket.state.first { it is SocketState.Live }
@@ -1274,21 +1281,118 @@ internal class Messaging(
         shareProfile()
     }
 
-    /** Tells each paired contact this user's email (also when the app opens, for contacts paired since). */
+    /**
+     * Tells each paired contact this user's email, gender and picture (also when the app opens, for contacts paired
+     * since); each group gets the picture. The picture itself goes only where its id wasn't sent yet.
+     */
     fun shareProfile() {
         val email = settings.myEmail.orEmpty()
         val contacts = store.contacts().filter { it.paired && !it.blocked }
-        if (contacts.isEmpty()) return
+        val inGroups = store.groups().filter { !it.gone && it.members.isNotEmpty() }
+        if (contacts.isEmpty() && inGroups.isEmpty()) return
         scope.launch {
+            val id = store.pictureId("") ?: ProfileContent.NO_PICTURE
+            val bytes = store.picture("")
+            fun picture(chat: String) = if (bytes != null && id != ProfileContent.NO_PICTURE && store.pictureSent(chat) != id) bytes else ByteArray(0)
+            val faces = store.faceCodes("").mapNotNull { code -> store.face("", code)?.let { FaceImage(code, it) } }
+            fun faces(chat: String) = if (picture(chat).isNotEmpty()) faces else emptyList()
             for (c in contacts) {
                 try {
-                    sender.send(c.user, Content(profile = ProfileContent(email, settings.myGender)), pushKind = PushKind.NONE)
+                    sender.send(c.user, Content(profile = ProfileContent(email, settings.myGender, id, picture(c.user), faces = faces(c.user), faceCount = faces.size)), pushKind = PushKind.NONE)
+                    store.putPictureSent(c.user, id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+            for (g in inGroups) {
+                if (store.pictureSent(g.chat) == id) continue
+                try {
+                    groups.send(g.id, Content(profile = ProfileContent(pictureId = id, picture = picture(g.chat), faces = faces(g.chat), faceCount = faces.size)), PushKind.NONE)
+                    store.putPictureSent(g.chat, id)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
                 }
             }
         }
+    }
+
+    /** [user]'s picture (this user's own: ""), a small WebP with a clear background; null: none. */
+    fun picture(user: String): ByteArray? = store.picture(user)
+
+    /** This user's picture ([image] null: none), shown on their contacts' and groups' phones too, end to end. */
+    fun setMyPicture(image: ByteArray?, faces: Map<Int, ByteArray> = emptyMap()) {
+        if (image == null || image.isEmpty()) store.removePicture("")
+        else store.putPicture("", random.nextBytes(8).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }, image.copyOf(), faces)
+        publish()
+        shareProfile()
+    }
+
+    /** [user]'s face in expression [code] (this user's own: ""); null: none. */
+    fun face(user: String, code: Int): ByteArray? = store.face(user, code)
+
+    /** The expressions [user] has faces for (this user's own: ""). */
+    fun faceCodes(user: String): List<Int> = store.faceCodes(user)
+
+    /** Sends this user's face [code] (an Expression code) to [user] as a message; older apps see [fallback]. */
+    suspend fun sendFace(user: String, code: Int, fallback: String): TextMessage {
+        val message = TextMessage(newId(), user, outgoing = true, body = fallback, at = now(), status = MessageStatus.PENDING, face = code + 1)
+        store.putMessage(message)
+        publish()
+        return deliver(message)
+    }
+
+    /** Reacts to message [id] with this user's face [code] (an Expression code); null takes the reaction back. */
+    suspend fun react(id: String, code: Int?) {
+        val message = store.message(id) ?: return
+        val face = code?.plus(1) ?: 0
+        store.putMessage(message.copy(reactions = if (face == 0) message.reactions - "" else message.reactions + ("" to face)))
+        publish()
+        val content = Content(reaction = ReactionContent(id, face))
+        try {
+            Group.idOf(message.user)?.let { groups.send(it, content, PushKind.SYNC) } ?: sender.send(message.user, content, pushKind = PushKind.SYNC)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /** A reaction from [author] (null: this user, from another of their phones) to a message in [chat]. */
+    private fun takeReaction(chat: String, author: String?, reaction: ReactionContent) {
+        val message = store.message(reaction.id)?.takeIf { it.user == chat } ?: return
+        val who = author ?: ""
+        store.putMessage(message.copy(reactions = if (reaction.face == 0) message.reactions - who else message.reactions + (who to reaction.face)))
+        publish()
+    }
+
+    /**
+     * [user]'s picture as their phone said ([ProfileContent]): kept, gone, or unchanged. [contact]: they are a paired
+     * contact, so a picture named without its bytes that this phone doesn't have is asked for again.
+     */
+    private fun takePicture(user: String, profile: ProfileContent, contact: Boolean) {
+        val id = profile.pictureId
+        when {
+            id.isEmpty() -> return
+            id == ProfileContent.NO_PICTURE -> if (store.pictureId(user) != null) store.removePicture(user) else return
+            profile.picture.isNotEmpty() && profile.picture.size <= MAX_PICTURE_BYTES -> if (store.pictureId(user) != id || store.faceCodes(user).size < profile.faces.size) {
+                val faces = profile.faces.filter { it.image.isNotEmpty() && it.image.size <= MAX_PICTURE_BYTES && com.chencohen.ptt.face.Expression.of(it.code) != null }.take(12)
+                store.putPicture(user, id, profile.picture, faces.associate { it.code to it.image })
+            } else return
+            (store.pictureId(user) != id || store.faceCodes(user).size < profile.faceCount) && contact -> {
+                scope.launch {
+                    try {
+                        sender.send(user, Content(profile = ProfileContent(needPicture = true)), pushKind = PushKind.NONE)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                    }
+                }
+                return
+            }
+            else -> return
+        }
+        publish()
     }
 
     /** This user's own name for [user] ([name] blank: back to theirs), on all of this user's phones. */
@@ -1333,7 +1437,7 @@ internal class Messaging(
             return store.message(message.id) ?: message
         }
         val status = try {
-            val text = Content(text = TextContent(message.body, message.at, message.id))
+            val text = Content(text = TextContent(message.body, message.at, message.id, face = message.face))
             val group = Group.idOf(message.user)
             if (group != null) groups.send(group, text, PushKind.MESSAGE) else sender.send(message.user, text, pushKind = PushKind.MESSAGE)
             MessageStatus.SENT
@@ -1773,8 +1877,9 @@ internal class Messaging(
             val to = content.destination.takeIf { it.isNotEmpty() } ?: return
             content.text?.let { text ->
                 val id = text.id.ifEmpty { envelope.id }
-                if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt))
+                if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt, face = text.face))
             }
+            content.reaction?.let { takeReaction(to, null, it) }
             content.edit?.let { takeEdit(to, null, mine = true, it) }
             content.delete?.let { takeDelete(to, null, mine = true, it) }
             content.clip?.let { talk.receiveClip(to, self.user, it, envelope.serverTimestamp, outgoingCopy = true) }
@@ -1793,7 +1898,7 @@ internal class Messaging(
             val id = text.id.ifEmpty { envelope.id }
             if (store.message(id) != null) return
             val read = readsAtOnce(contact.user)
-            store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read))
+            store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read, face = text.face))
             _state.update { it.copy(typing = it.typing - contact.user, drafts = it.drafts - contact.user) }
             scope.launch {
                 sendReceipt(contact.user, read = false, listOf(id))
@@ -1838,7 +1943,15 @@ internal class Messaging(
                 )
             }
         }
+        content.reaction?.let { takeReaction(contact.user, contact.user, it) }
         content.profile?.let { profile ->
+            if (profile.needPicture) {
+                // They don't have this user's picture after all: it goes again.
+                store.putPictureSent(contact.user, "")
+                shareProfile()
+                return@let
+            }
+            takePicture(contact.user, profile, contact = true)
             store.contact(contact.user)?.let { c ->
                 val email = profile.email.trim().take(254).ifBlank { null }
                 val gender = profile.gender.takeIf { it == Gender.MALE || it == Gender.FEMALE } ?: Gender.NOT_SET
@@ -1895,6 +2008,7 @@ internal class Messaging(
                 conversations = messages.groupBy { it.user },
                 unread = messages.filter { !it.outgoing && !it.read }.groupingBy { it.user }.eachCount(),
                 groups = store.groups().sortedBy { it.createdAt },
+                pictures = store.pictureIds(),
             )
         }
     }
@@ -1908,6 +2022,9 @@ internal class Messaging(
 
         /** How long "typing…" shows after the last typing message, unless a text or a stop comes first. */
         const val TYPING_FOR = 8_000L
+
+        /** The largest picture taken from a contact or group member (pictures are made at about 20 KB). */
+        const val MAX_PICTURE_BYTES = 96_000
 
         /** Live typing: at most one draft this often (about ten a second), the newest text. */
         const val DRAFT_EVERY = 100L

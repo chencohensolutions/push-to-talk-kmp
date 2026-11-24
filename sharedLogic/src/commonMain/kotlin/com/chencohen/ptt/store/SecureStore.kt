@@ -51,6 +51,10 @@ object Spaces {
     const val LINKS = "links"
     /** Groups, by id (MessagingStore). */
     const val GROUPS = "groups"
+    /** Pictures (2026-11-24, hen): each user's own (this user's under ""), its id, and which id each chat was sent. */
+    const val PICTURES = "pictures"
+    const val PICTURE_IDS = "picture_ids"
+    const val PICTURE_SENT = "picture_sent"
 }
 
 /** A [SecureStore] in memory: the tests', and a fallback that keeps nothing. */

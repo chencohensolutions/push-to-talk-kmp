@@ -489,12 +489,17 @@ internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
                     color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(end = 6.dp),
                 )
             }
-            Box(
-                Modifier.size(20.dp).background(LibraryColors.Mine, CircleShape)
-                    .clickable(role = Role.Button, onClickLabel = label) { showTime = !showTime }
-                    .semantics { contentDescription = label },
-                contentAlignment = Alignment.Center,
-            ) { Text(user.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.Tiny) }
+            // Their face when they have one (2026-11-24, hen), free-standing and a little larger; else the letter circle.
+            val face = com.chencohen.ptt.ui.face.faceOf(user)
+            val tap = Modifier.clickable(role = Role.Button, onClickLabel = label) { showTime = !showTime }.semantics { contentDescription = label }
+            if (face != null) {
+                androidx.compose.foundation.Image(face, null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.size(26.dp).then(tap))
+            } else {
+                Box(
+                    Modifier.size(20.dp).background(LibraryColors.Mine, CircleShape).then(tap),
+                    contentAlignment = Alignment.Center,
+                ) { Text(user.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.Tiny) }
+            }
         }
     }
     @Suppress("UNUSED_EXPRESSION") end

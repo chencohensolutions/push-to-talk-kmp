@@ -209,7 +209,7 @@ fun CallsList(
                 Modifier.fillMaxWidth().clickable(role = Role.Button) { open(message.user) }.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Avatar(nameOf(message.user))
+                Avatar(message.user, name = nameOf(message.user))
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(nameOf(message.user), color = if (missed) LibraryColors.Error else LibraryColors.OnBackground, style = LibraryType.RowTitle)
@@ -501,7 +501,7 @@ fun CallScreen(
                     }
                     if (remote.isEmpty()) {
                         Spacer(Modifier.height(48.dp))
-                        Avatar(title, size = 96.dp)
+                        Avatar(call.chat, size = 96.dp, name = title)
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
@@ -1023,7 +1023,7 @@ private fun CompactCall(call: CallUi, title: String, transport: LiveKitCallTrans
                 remote.forEach { (_, track) -> VideoView(r, track, Modifier.weight(1f).fillMaxWidth(), fill = true) }
             }
         } else {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Avatar(title, size = 56.dp) }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Avatar(call.chat, size = 56.dp, name = title) }
         }
         val own = r?.let { ownVideo(it, changes) }
         if (r != null && own != null && call.camera) {
