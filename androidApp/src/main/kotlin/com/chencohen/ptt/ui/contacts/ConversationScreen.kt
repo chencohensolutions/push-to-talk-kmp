@@ -364,6 +364,10 @@ private fun ConversationScreenIn(
             }
         }
         val reader = remember(readerMessages, header.presence, group != null) { if (group == null && ReadMarks.showsReader(header.presence)) ReadMarks.lastRead(readerMessages) else null }
+        // Their circle reaching the end (they read the last message) while the chat is at its end (2026-11-24, hen): the
+        // list follows it, so the end stays in view instead of the circle landing below it.
+        val readerAtEnd = reader != null && ReadMarks.atEnd(readerMessages)
+        LaunchedEffect(readerAtEnd) { if (readerAtEnd && list.firstVisibleItemIndex <= 1) list.glideToEnd() }
         // In a group: each member's circle under the last message of mine they read (2026-11-23, hen).
         val groupReaders = remember(readerMessages, presences, group != null) { if (group != null) ReadMarks.groupReaders(readerMessages, presences.filterValues { !ReadMarks.showsReader(it) }.keys) else emptyMap() }
         // Writing in the chat (2026-11-23, hen): the draft bubble at the end of the list.
