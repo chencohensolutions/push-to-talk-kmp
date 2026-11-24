@@ -54,6 +54,11 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   is kept per contact or group, the same one the Talk screen's Voice | Video shows, and the bubble opens with it the
   next time that contact talks. Video without the camera allowed opens the Talk screen, where Android asks. In a call
   the camera is the call's: the press sends voice only, and "camera busy in the call, voice only" shows by the time.
+- **From the bubble's video to the chat** (2026-11-24, hen: "open the chat with the video stay connected"): a tap on
+  their video, or on its "Chat ⤢" tag, or on the Chat icon, opens the chat; their video goes on in the chat's live
+  panel without a break (the same decoder moves to the chat's picture), and the bubble's picture grows a little and
+  fades into it (200 ms) instead of sliding away. Leaving the app while their video plays live puts it back in the
+  bubble, the same way.
 - **Picture-in-picture**: an answered video call goes on in Android's small floating window when the app is left
   (dragged and resized by Android), the other's video filling it and this phone's in a corner, with Hang up.
 - **Video in the reply bubble** (on by default; 2026-11-22, hen: a received video plays): a video burst's picture

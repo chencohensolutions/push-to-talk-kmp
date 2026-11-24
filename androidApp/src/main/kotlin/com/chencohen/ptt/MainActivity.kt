@@ -340,6 +340,8 @@ class MainActivity : ComponentActivity() {
         viewModel.messaging.stop()
         viewModel.connection.stop()
         super.onStop()
+        // Their live video goes on in the floating window.
+        if (!afterTalk && !isChangingConfigurations) TalkPlaying.leftApp(application as TalkApp)
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -59,6 +59,18 @@ object TalkPlaying {
         }
     }
 
+    /**
+     * The app went to the back while their video plays live (2026-11-24, hen): it goes on in the floating window, the
+     * same decoder moving to its picture, instead of only being heard.
+     */
+    fun leftApp(app: TalkApp) {
+        app.scope.launch {
+            val playing = messagingState(app).value.talk.playing ?: return@launch
+            if (!playing.live || quiet || chatInFront(app) == playing.chat || !TalkBubble.allowed(app)) return@launch
+            TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video)
+        }
+    }
+
     private suspend fun update(app: TalkApp, talk: TalkUiState) {
         val playing = talk.playing
         if (playing != null) {

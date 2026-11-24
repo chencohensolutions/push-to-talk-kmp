@@ -462,6 +462,19 @@ object TalkBubble {
                 android.widget.FrameLayout.LayoutParams(dp(240), dp(180), Gravity.CENTER),
             )
         }
+        // Their video opens the chat, where it goes on in the top panel without a break (2026-11-24, hen: "open the
+        // chat with the video stay connected"): the same decoder moves to the chat's view.
+        videoBox!!.setOnClickListener { chat?.let { intoChat(context, it) } }
+        videoBox!!.addView(
+            TextView(context).apply {
+                text = context.getString(R.string.talk_action_chat) + "  ⤢"
+                setTextColor(Color.WHITE)
+                textSize = 13f
+                setPadding(dp(10), dp(4), dp(10), dp(4))
+                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0x80000000.toInt()) }
+            },
+            android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) },
+        )
         root.addView(videoBox, LinearLayout.LayoutParams(dp(240), dp(240)).apply { bottomMargin = dp(8); gravity = Gravity.CENTER_HORIZONTAL })
         root.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         button = android.widget.ImageView(context).apply {
@@ -538,7 +551,7 @@ object TalkBubble {
         actions = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         val gap = LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(8); marginEnd = dp(8) }
         videoSwitch!!.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
-        actions!!.addView(small(R.drawable.ic_bubble_chat, R.string.talk_action_chat) { chat?.let { openChat(context, it) }; dismissNow() }, LinearLayout.LayoutParams(gap))
+        actions!!.addView(small(R.drawable.ic_bubble_chat, R.string.talk_action_chat) { chat?.let { intoChat(context, it) } }, LinearLayout.LayoutParams(gap))
         actions!!.addView(small(R.drawable.ic_bubble_call, R.string.call_voice) { chat?.let { call(context, it, false) }; dismissNow() }, LinearLayout.LayoutParams(gap))
         videoCall = small(R.drawable.ic_bubble_video, R.string.call_video) { chat?.let { call(context, it, true) }; dismissNow() }
         actions!!.addView(videoCall, LinearLayout.LayoutParams(gap))
@@ -762,6 +775,17 @@ object TalkBubble {
         }
         callGone(context)
         dismissNow()
+    }
+
+    /**
+     * To the chat: it opens under the bubble with their video already in its top panel, and the bubble's picture grows
+     * a little and fades into it (200 ms) instead of sliding away, so the video reads as one moving up.
+     */
+    private fun intoChat(context: Context, chat: String) {
+        openChat(context, chat)
+        val v = view ?: return
+        videoBox?.animate()?.scaleX(1.15f)?.scaleY(1.15f)?.setDuration(200)?.start()
+        v.animate().alpha(0f).setDuration(200).withEndAction { if (view === v) remove() }.start()
     }
 
     private fun openChat(context: Context, chat: String) = runCatching {
