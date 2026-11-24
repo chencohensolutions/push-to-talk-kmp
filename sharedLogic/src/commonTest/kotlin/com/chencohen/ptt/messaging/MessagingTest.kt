@@ -170,7 +170,8 @@ class MessagingTest {
         ).format()
         val message = MadeInvite(link, "dana@example.com", 0, "hen", "042917", "$link&p=042917").message("Nov 29, 2026")
         assertEquals("hen invited you to Talk", message.subject)
-        assertContains(message.body, "Open this link on your phone: $link\n")
+        // In its web form, which mail and chat apps let you tap (AppLinks).
+        assertContains(message.body, "Open this link on your phone: ${com.chencohen.ptt.AppLinks.web(link)}\n")
         assertContains(message.body, "type this code: 042 917")
         assertContains(message.body, "until Nov 29, 2026")
 
@@ -185,7 +186,7 @@ class MessagingTest {
         val mailto = message.mailto("dana@example.com")
         assertTrue(mailto.startsWith("mailto:dana@example.com?subject=hen%20invited%20you%20to%20Talk&body=hen%20invited"), mailto)
         assertContains(mailto, "%0D%0A%0D%0A1.%20Install")
-        assertContains(mailto, "ptt%3A%2F%2Finvite%3Fv%3D1%26code%3Dabc123456defghijklmnop")
+        assertContains(mailto, "https%3A%2F%2Fchencohensolutions.github.io%2Fpush-to-talk-kmp%2Finvite%23v%3D1%26code%3Dabc123456defghijklmnop")
         assertContains(mailto, "weren%E2%80%99t")
         assertEquals(1, mailto.count { it == '&' }, "the link's own & is encoded")
     }

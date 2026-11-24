@@ -93,6 +93,16 @@
 
                 <data android:scheme="ptt" android:host="link" />
             </intent-filter>
+            <!-- The same links as web addresses (AppLinks, 2026-11-24: mail apps drop ptt:// links), the repo's
+                 GitHub Pages; the words after # are the link's. Not verified (a repo's Pages has no site root). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" android:host="chencohensolutions.github.io" android:pathPrefix="/push-to-talk-kmp/" />
+            </intent-filter>
         </activity>
             <!-- The server's pushes (FCM): a wake-up, then the phone takes its queue. -->
         <!-- The "Talk" account in Android Contacts: its authenticator (nothing to sign in to) and sync adapter. -->

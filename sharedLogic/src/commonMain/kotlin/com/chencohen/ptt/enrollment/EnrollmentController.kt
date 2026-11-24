@@ -732,7 +732,7 @@ data class EnrollmentLink(
  */
 fun parseEnrollmentLink(link: String): EnrollmentLink? {
     val url = try {
-        Url(link.trim())
+        Url(com.chencohen.ptt.AppLinks.toApp(link.trim()))
     } catch (e: Exception) {
         return null
     }
@@ -761,7 +761,7 @@ private val LINK_IN_TEXT = Regex("""ptt://enroll\?[^\s<>"']+""")
 
 /** The first `ptt://enroll?…` link in [text] that [parseEnrollmentLink] reads, without punctuation a sentence put after it. */
 fun findEnrollmentLink(text: String): EnrollmentLink? =
-    LINK_IN_TEXT.findAll(text).firstNotNullOfOrNull { parseEnrollmentLink(it.value.trimEnd('.', ',', ';', ')', ']', '!', '?')) }
+    LINK_IN_TEXT.findAll(com.chencohen.ptt.AppLinks.toApp(text)).firstNotNullOfOrNull { parseEnrollmentLink(it.value.trimEnd('.', ',', ';', ')', ']', '!', '?')) }
 
 internal fun cleanCode(input: String): String {
     val pasted = input.any(Char::isWhitespace) || input.count(Char::isLetterOrDigit) > CODE_LENGTH

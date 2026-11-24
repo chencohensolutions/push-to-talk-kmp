@@ -401,7 +401,8 @@ class MainActivity : ComponentActivity() {
             if (intent.action == TalkNotifications.ACTION_PLAY) openedClip = intent.getStringExtra(TalkNotifications.EXTRA_CLIP)
             return
         }
-        val data = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
+        // A web-form link (https://chencohensolutions.github.io/talk/…#…) reads as its ptt:// link (AppLinks).
+        val data = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString?.let(com.chencohen.ptt.AppLinks::toApp) ?: return
         InviteLink.parse(data)?.let { invite ->
             // Enrolled on that server: pair with the inviter. Not yet (or on another): enroll with it, then pair.
             if (viewModel.connection.currentState.enrolled && viewModel.pairing.isForThisServer(invite)) {

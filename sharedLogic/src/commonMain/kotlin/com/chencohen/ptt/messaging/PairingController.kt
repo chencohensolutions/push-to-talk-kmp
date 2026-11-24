@@ -107,7 +107,8 @@ data class MadeInvite(
     val faceToFace: String,
 ) {
     /** The message the link and its passcode go out in, with [until] as the phone writes [expiresAt]'s date. */
-    fun message(until: String): InviteMessage = InviteMessage(inviter, link, passcode, until)
+    /** The message around it, its link in the web form (it can be tapped in a mail or chat app; AppLinks). */
+    fun message(until: String): InviteMessage = InviteMessage(inviter, com.chencohen.ptt.AppLinks.web(link), passcode, until)
 }
 
 data class PairingState(
