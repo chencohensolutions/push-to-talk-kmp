@@ -145,8 +145,42 @@ data class GroupChat(val name: String, val picture: String?, val line: String, v
  * A conversation (docs/screens/conversation.md), Signal's: the contact in the header (a tap opens their page), the
  * texts in bubbles with when and how far each of ours got, a changed safety number on top, and the line to write in.
  */
+/**
+ * The chat in its own direction (2026-11-24, hen: a contact's Chat direction; follow the phone by default): which side
+ * the bubbles, the writing bubble and the animations take. Each message's text keeps its own direction.
+ */
 @Composable
 internal fun ConversationScreen(
+    user: String,
+    contact: Contact?,
+    messages: List<TextMessage>,
+    header: ConversationHeader,
+    actions: ConversationActions,
+    group: GroupChat? = null,
+    talk: TalkUiState = TalkUiState(),
+    talkLine: String? = null,
+    drafts: List<Pair<String?, String>> = emptyList(),
+    pushVideo: Boolean = false,
+    warmCamera: (String?) -> Unit = {},
+    presences: Map<String, UserPresence> = emptyMap(),
+    embeddedHeader: (@Composable () -> Unit)? = null,
+    seeThrough: Float = 1f,
+    draftCarets: Map<String, Pair<Int, Int>> = emptyMap(),
+    liveEdits: Map<String, com.chencohen.ptt.messaging.LiveEdit> = emptyMap(),
+    viewing: Set<String> = emptySet(),
+    /** This chat's direction (ChatDirection). */
+    direction: Int = com.chencohen.ptt.messaging.ChatDirection.FOLLOW,
+) {
+    val phone = androidx.compose.ui.platform.LocalLayoutDirection.current
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
+    ) {
+        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits)
+    }
+}
+
+@Composable
+private fun ConversationScreenIn(
     user: String,
     contact: Contact?,
     messages: List<TextMessage>,
@@ -172,6 +206,8 @@ internal fun ConversationScreen(
     seeThrough: Float = 1f,
     /** Where each live writer's caret is (who, "" in a one-to-one chat; start to end). */
     draftCarets: Map<String, Pair<Int, Int>> = emptyMap(),
+    /** Who has this chat in view now (MessagingState.viewing): the contact, or a group's members. */
+    viewing: Set<String> = emptySet(),
     /** Their texts being edited live (MessagingState.liveEdits). */
     liveEdits: Map<String, com.chencohen.ptt.messaging.LiveEdit> = emptyMap(),
 ) {
@@ -305,9 +341,31 @@ internal fun ConversationScreen(
         val atBottom by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
         // How far they read: their circle after the last message of mine they read (one-to-one; not when they hide
         // their presence).
-        val reader = remember(messages, header.presence, group != null) { if (group == null && ReadMarks.showsReader(header.presence)) ReadMarks.lastRead(messages) else null }
+        // Sent while they had the chat in view (2026-11-24, hen): taken as read at once, so their circle stays at the
+        // end and the new message comes in above it; their receipt then moves nothing. No receipt in 3 s: it glides
+        // back above the message.
+        val predicted = remember(user) { androidx.compose.runtime.mutableStateMapOf<String, Set<String>>() }
+        LaunchedEffect(newest?.id) {
+            val m = newest ?: return@LaunchedEffect
+            if (!m.outgoing || viewing.isEmpty() || m.id in predicted) return@LaunchedEffect
+            if (System.currentTimeMillis() - m.at > 5_000) return@LaunchedEffect
+            predicted[m.id] = viewing
+            delay(3_000)
+            predicted.remove(m.id)
+        }
+        val readerMessages = remember(messages, predicted.toMap()) {
+            if (predicted.isEmpty()) messages else messages.map { m ->
+                val who = predicted[m.id] ?: return@map m
+                if (group == null) {
+                    if (m.status != MessageStatus.READ) m.copy(status = MessageStatus.READ, readAt = m.readAt ?: m.at) else m
+                } else {
+                    m.copy(readBy = who.associateWith { m.at } + m.readBy)
+                }
+            }
+        }
+        val reader = remember(readerMessages, header.presence, group != null) { if (group == null && ReadMarks.showsReader(header.presence)) ReadMarks.lastRead(readerMessages) else null }
         // In a group: each member's circle under the last message of mine they read (2026-11-23, hen).
-        val groupReaders = remember(messages, presences, group != null) { if (group != null) ReadMarks.groupReaders(messages, presences.filterValues { !ReadMarks.showsReader(it) }.keys) else emptyMap() }
+        val groupReaders = remember(readerMessages, presences, group != null) { if (group != null) ReadMarks.groupReaders(readerMessages, presences.filterValues { !ReadMarks.showsReader(it) }.keys) else emptyMap() }
         // Writing in the chat (2026-11-23, hen): the draft bubble at the end of the list.
         val canWrite = if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
         val draft = remember(user) { ChatDraft() }
@@ -400,7 +458,8 @@ internal fun ConversationScreen(
                 // While a bubble changes its size in place (an edit, Send's flight, a live draft growing), the others follow
                 // it in the same frame: no placement animation of their own trailing it (2026-11-24, hen: "don't make
                 // the surrounding objects move with delay"). Otherwise (one added or gone) they glide.
-                val morphing = editing != null || edits.closing.isNotEmpty() || flight.body != null || shownDrafts.isNotEmpty() || liveEdits.isNotEmpty()
+                // (Send's flight is not one: its slot is kept unseen, so the others make room for it in one glide.)
+                val morphing = editing != null || edits.closing.isNotEmpty() || shownDrafts.isNotEmpty() || liveEdits.isNotEmpty()
                 val move = if (morphing) null else androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                 // Both kept pushing at once: a video call may suit them (2026-11-23, hen).
                 if (talk.suggestCall == user) {
@@ -429,9 +488,9 @@ internal fun ConversationScreen(
                 fun liveItem(key: String, line: LiveLine) = item(key = key) {
                     Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { LiveLineView(line, if (group == null) user else null) }
                 }
-                val circleAtEnd = reader != null && ReadMarks.atEnd(messages)
+                val circleAtEnd = reader != null && ReadMarks.atEnd(readerMessages)
+                val oneDraft = if (group == null) shownDrafts.firstOrNull() else null
                 if (group == null) {
-                    val oneDraft = shownDrafts.firstOrNull()
                     if (oneDraft != null) liveItem(live.key(null), LiveLine.Draft(null, oneDraft.second, draftCarets[""]))
                     else if (circleAtEnd) liveItem(live.key(null), LiveLine.Circle(reader?.readAt))
                 } else {
@@ -459,7 +518,8 @@ internal fun ConversationScreen(
                     }
                     if (message.id in pairedEarlier) return@forEach
                     if (reader != null && message.id == reader.id && !circleAtEnd) {
-                        item(key = "reader") { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { ReaderCircle(user, reader.readAt, end = true) } }
+                        // The same item as the circle at the end (one key): when they read on, it slides down to the end.
+                        liveItem(if (oneDraft == null) live.key(null) else "reader", LiveLine.Circle(reader.readAt))
                     }
                     groupReaders[message.id]?.let { readers ->
                         item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { GroupReaders(readers) } }
@@ -831,7 +891,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 if (liveEdit != null) Text(stringResource(R.string.chat_editing), color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
                 Text(
                     liveEdit?.text ?: message.body,
-                    color = if (mine) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Body,
+                    color = if (mine) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Message,
                     onTextLayout = { textLayout = it },
                     modifier = Modifier.onGloballyPositioned { textPlace[1] = it }
                         .then(if (liveEdit?.text != null && liveEdit.selEnd >= 0) Modifier.liveCaret(textLayout, liveEdit.selStart, liveEdit.selEnd) else Modifier),
@@ -899,7 +959,7 @@ internal fun DraftBubble(
             }
             Text(
                 if (settled > 0f) text else "$text\u258F",
-                color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * settled), style = LibraryType.Body,
+                color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * settled), style = LibraryType.Message,
             )
             if (time != null && settled > 0f) {
                 Text(time, color = LibraryColors.Muted.copy(alpha = settled), style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End).padding(top = 2.dp))
@@ -1018,7 +1078,7 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                 var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
                 Text(
                     if (message == null && caret == null) "$t\u258F" else t,
-                    color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * s), style = LibraryType.Body,
+                    color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * s), style = LibraryType.Message,
                     onTextLayout = { layout = it },
                     modifier = if (message == null && caret != null) Modifier.liveCaret(layout, caret.first, caret.second) else Modifier,
                 )
@@ -1344,7 +1404,7 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     val longest = remember(edit.value.text) {
         with(density) {
-            val r = measurer.measure(edit.value.text.ifEmpty { " " }, LibraryType.Body)
+            val r = measurer.measure(edit.value.text.ifEmpty { " " }, LibraryType.Message)
             (0 until r.lineCount).maxOf { r.getLineRight(it) - r.getLineLeft(it) }.toDp()
         }
     }
@@ -1365,7 +1425,7 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
                     if (v.text != edit.value.text) edit.changed = true
                     change(v.copy(text = v.text.take(4_000)))
                 },
-                textStyle = LibraryType.Body.copy(color = androidx.compose.ui.graphics.lerp(LibraryColors.OnMine, LibraryColors.OnBackground, p)),
+                textStyle = LibraryType.Message.copy(color = androidx.compose.ui.graphics.lerp(LibraryColors.OnMine, LibraryColors.OnBackground, p)),
                 cursorBrush = androidx.compose.ui.graphics.SolidColor(coral),
                 maxLines = 6,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
@@ -1510,7 +1570,7 @@ private fun SendFlightOverlay(flight: SendFlight) {
     ) {
         // The label folds away above the text, which keeps its size and moves with the box.
         Column {
-            Text(text, color = androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.OnMine, p), style = LibraryType.Body)
+            Text(text, color = androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.OnMine, p), style = LibraryType.Message)
         }
         Row(Modifier.align(Alignment.BottomEnd).graphicsLayer { alpha = p }, verticalAlignment = Alignment.CenterVertically) {
             Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(System.currentTimeMillis())), color = LibraryColors.OnMineMuted, style = LibraryType.Tiny)

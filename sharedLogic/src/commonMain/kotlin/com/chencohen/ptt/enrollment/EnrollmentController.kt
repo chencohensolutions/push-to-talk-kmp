@@ -755,7 +755,7 @@ enum class PasteResult { LINK, CODE, NOTHING }
 const val LINK_SCHEME = "ptt"
 
 /** Whether [text] holds an Add contact code (`ptt://pair?…`), which only an enrolled phone can use. */
-internal fun isContactCode(text: String): Boolean = text.contains("${LINK_SCHEME}://${com.chencohen.ptt.messaging.PairCode.HOST}?")
+internal fun isContactCode(text: String): Boolean = com.chencohen.ptt.AppLinks.toApp(text).contains("${LINK_SCHEME}://${com.chencohen.ptt.messaging.PairCode.HOST}?")
 
 private val LINK_IN_TEXT = Regex("""ptt://enroll\?[^\s<>"']+""")
 

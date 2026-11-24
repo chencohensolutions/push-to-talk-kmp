@@ -717,6 +717,17 @@
     <string name="clip_unmute">הפעלת קול</string>
     <string name="chat_delete_for_me">מחיקה אצלי</string>
     <string name="chat_today">היום</string>
+    <string name="invite_waiting">הזמנות שממתינות</string>
+    <string name="invite_waiting_anyone">כל מי שיש לו את הקישור</string>
+    <string name="invite_waiting_line">נוצרה %1$s · תפוג %2$s</string>
+    <string name="invite_waiting_cancel">ביטול</string>
+    <string name="invite_waiting_canceled">ההזמנה בוטלה</string>
+    <string name="chat_direction">כיוון השיחה</string>
+    <string name="chat_direction_follow">לפי הטלפון</string>
+    <string name="chat_direction_follow_body">כמו שפת הטלפון</string>
+    <string name="chat_direction_rtl">מימין לשמאל</string>
+    <string name="chat_direction_ltr">משמאל לימין</string>
+    <string name="chat_direction_body">באיזה צד הבועות והכתיבה בשיחה הזאת, בטלפון הזה בלבד. הטקסט של כל הודעה שומר על הכיוון שלו.</string>
     <string name="chat_yesterday">אתמול</string>
     <string name="chat_selected">%1$d נבחרו</string>
     <string name="chat_edit">עריכה</string>

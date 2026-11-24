@@ -10,6 +10,8 @@ import com.chencohen.ptt.crypto.SignedPublicPrekey
 import com.chencohen.ptt.graphql.AcceptInviteMutation
 import com.chencohen.ptt.graphql.BlockMutation
 import com.chencohen.ptt.graphql.CreateInviteMutation
+import com.chencohen.ptt.graphql.WaitingInvitesQuery
+import com.chencohen.ptt.graphql.CancelInviteMutation
 import com.chencohen.ptt.graphql.CreateLinkCodeMutation
 import com.chencohen.ptt.graphql.AcceptGroupInviteMutation
 import com.chencohen.ptt.graphql.CreateGroupMutation
@@ -142,6 +144,12 @@ internal interface MessagingApi {
     /** Redeems an invite on this enrolled phone: the inviter's pairing token. */
     suspend fun acceptInvite(code: String): InvitePairing
 
+    /** This user's invites waiting to be used, newest first. */
+    suspend fun waitingInvites(): List<WaitingInvite>
+
+    /** Stops waiting invite [id] from working; false if there was none. */
+    suspend fun cancelInvite(id: String): Boolean
+
     // Groups (the server's docs/messaging.md, "Groups").
     suspend fun groups(): List<ServerGroup>
 
@@ -222,6 +230,9 @@ data class UserPresence(val user: String, val online: Boolean, val lastSeen: Lon
  * sends beside the link.
  */
 internal class CreatedInvite(val code: String, val expiresAt: String, val passcode: String)
+
+/** An invite of this user's that nobody used yet: who it is for (null: anyone with the link), made and ending (ms). */
+data class WaitingInvite(val id: String, val email: String?, val createdAt: Long, val expiresAt: Long)
 
 /** What redeeming an invite gave: the inviter, and their pairing token (null when the server couldn't make one). */
 internal class InvitePairing(val inviter: String, val token: String?)
@@ -371,6 +382,13 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
         val created = run { it.mutation(CreateInviteMutation(Optional.presentIfNotNull(email))).execute() }.createInvite
         return CreatedInvite(created.code, created.invite.expiresAt, created.passcode)
     }
+
+    override suspend fun waitingInvites(): List<WaitingInvite> =
+        run { it.query(WaitingInvitesQuery()).execute() }.invites.map {
+            WaitingInvite(it.id, it.email, parseTime(it.createdAt.toString()) ?: 0L, parseTime(it.expiresAt.toString()) ?: 0L)
+        }
+
+    override suspend fun cancelInvite(id: String): Boolean = run { it.mutation(CancelInviteMutation(id)).execute() }.cancelInvite
 
     override suspend fun acceptInvite(code: String): InvitePairing {
         val answer = run { it.mutation(AcceptInviteMutation(code)).execute() }.acceptInvite

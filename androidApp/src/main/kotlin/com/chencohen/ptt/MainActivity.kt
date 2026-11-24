@@ -422,6 +422,9 @@ class MainActivity : ComponentActivity() {
             return
         }
         val link = parseEnrollmentLink(data) ?: return
+        // Enrolled already: the task's old enrollment link, handed back when the app is opened again after an update
+        // (2026-11-24: it showed the enrollment screen, its code used, on an enrolled phone).
+        if (viewModel.connection.currentState.enrolled) return
         viewModel.enrollment.openLink(link)
         linkOpened = true
     }

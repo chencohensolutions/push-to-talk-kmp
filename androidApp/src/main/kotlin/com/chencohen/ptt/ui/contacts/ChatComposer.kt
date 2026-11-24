@@ -119,12 +119,13 @@ internal fun ComposeBubble(
         if (editing || text.isNotEmpty()) 1f else 0f,
         tween(250, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "writing",
     )
-    val style = LibraryType.Body.copy(color = LibraryColors.OnBackground)
+    val style = LibraryType.Message.copy(color = LibraryColors.OnBackground)
     val label = stringResource(R.string.chat_send)
     val hint = stringResource(R.string.chat_write_hint)
     // From 38.2% of the row (1 − 0.618, the golden ratio) growing with the text, at once, up to 85%, then wrapping;
     // past 6 lines it scrolls inside with the caret in view.
-    val width = draftWidth(text, style, chrome = 14.dp + 8.dp + 8.dp + 36.dp)
+    // Never narrower than its resting words (2026-11-24: "Write a message…" was cut to "Write a" in English).
+    val width = maxOf(draftWidth(text, style, chrome = 14.dp + 8.dp + 8.dp + 36.dp), draftWidth(hint, style, chrome = 14.dp + 8.dp + 8.dp + 36.dp))
     val dash = LibraryColors.Muted.copy(alpha = 0.6f)
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     Box(modifier.fillMaxWidth(), contentAlignment = MySide) {
@@ -242,7 +243,7 @@ internal fun SentMorphBubble(message: TextMessage) {
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
             if (s < 1f) Text(stringResource(R.string.chat_my_draft), color = coral.copy(alpha = 1f - s), style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
-            Text(message.body, color = ink, style = LibraryType.Body)
+            Text(message.body, color = ink, style = LibraryType.Message)
             Text(
                 DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at)),
                 color = LibraryColors.OnMineMuted.copy(alpha = 0.6f * s), style = LibraryType.Tiny,

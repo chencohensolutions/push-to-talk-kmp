@@ -217,3 +217,23 @@ side, a single tap) or a double tap on it plays it here with sound from the star
 so scrolling can't start one); a tap while it plays opens it full screen; a long press selects it, as any message
 (Save as file is in the selection's header now, for a burst or voice message); another video
 becoming the most visible one, or scrolling it away, stops the sound. The same in the quick-reply window.
+
+
+**Chat direction** (2026-11-24, hen; 1.4.22): each contact's and group's page has Chat direction: Follow the phone
+(the default), Right to left or Left to right, this phone's only (TalkSettings.directionFor, never sent). The chat (and
+its quick-reply window) is laid out that way: which side the bubbles, the writing bubble, the circles and the
+animations take. Each message's words keep their own direction from their first strong letter (`LibraryType.Message`,
+TextDirection.Content), so English is left to right and Hebrew right to left in either layout, and a live caret lands
+by that (it showed at the start of an English line on a right-to-left phone).
+
+**Their read circle as I send** (2026-11-24, hen; 1.4.22). Their phone says when it has the chat in view
+(ViewingContent, live only, every 20 s, and when it leaves; only from those who show when they're online; the
+quick-reply window once its user has answered there, when it starts reading at once). Sending at the end of the chat:
+- they have it in view: the circle stays at the end and the new message comes in above it, the rest moving up in one
+  glide; their receipt then moves nothing (no receipt in 3 s: the circle glides back above it);
+- else: the new message comes in under the circle and all of it moves up in one glide; when they read it, the circle
+  slides down past it (the circle is one item wherever it is, so it slides rather than fading).
+In a group each member's circle follows the same rule. Send's flight goes straight to the message's own slot.
+
+**Live edit's end** (1.4.22): saving sends an end to the live view too, and a live frame written before the save that
+comes after it is ignored (each live frame carries when it was written), so "Editing…" never stays on their phone.

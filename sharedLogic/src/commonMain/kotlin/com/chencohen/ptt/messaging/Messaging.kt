@@ -64,6 +64,11 @@ data class MessagingState(
     val liveEdits: Map<String, LiveEdit> = emptyMap(),
     /** Contacts whose Talk screen or reply bubble for this chat is open now (HereContent): until when. */
     val here: Map<String, Long> = emptyMap(),
+    /**
+     * Contacts (a group's members: "chat/author") who have the chat with this user open and in view now, so what this
+     * user sends is read at once (ViewingContent; 2026-11-24, hen: the read circle): until when.
+     */
+    val viewing: Map<String, Long> = emptyMap(),
     /** How many texts from each contact aren't read yet. */
     val unread: Map<String, Int> = emptyMap(),
     /** Each conversation's texts, oldest first, by user (a group's by [Group.chat]). */
@@ -144,7 +149,19 @@ data class TalkSettings(
      * screen's and the reply bubble's Voice | Video chose last for it; [pushVideo] for one never chosen.
      */
     val videoFor: Map<String, Boolean> = emptyMap(),
+    /**
+     * Chat direction per contact or group (2026-11-24, hen): [ChatDirection.FOLLOW] (the phone's; the default),
+     * [ChatDirection.RTL] or [ChatDirection.LTR]. This phone's only; never sent.
+     */
+    val directionFor: Map<String, Int> = emptyMap(),
 ) {
+    /** [chat]'s direction (ChatDirection). */
+    fun directionOf(chat: String): Int = directionFor[chat] ?: ChatDirection.FOLLOW
+
+    /** With [chat]'s direction set ([ChatDirection.FOLLOW] takes it out). */
+    fun withDirection(chat: String, direction: Int): TalkSettings =
+        copy(directionFor = if (direction == ChatDirection.FOLLOW) directionFor - chat else directionFor + (chat to direction))
+
     /**
      * Whether what is written to [chat] goes live: its own switch; one never set follows Settings › Privacy › Live
      * typing only if it came after that was turned on (turning it on never switches on the chats there were).
@@ -159,6 +176,13 @@ data class TalkSettings(
 }
 
 /** A draft written live by someone ([MessagingState.drafts]): its text and when it last changed. */
+/** A chat's layout direction (TalkSettings.directionFor). */
+object ChatDirection {
+    const val FOLLOW = 0
+    const val RTL = 1
+    const val LTR = 2
+}
+
 /** A text being edited live: [text] as it stands (null: hidden), as of [at]; the editor's caret/selection (-1: none). */
 data class LiveEdit(val text: String?, val at: Long, val selStart: Int = -1, val selEnd: Int = -1)
 
@@ -211,6 +235,66 @@ internal class Messaging(
 
     /** The conversation on screen, whose texts are read as they come in; null when none is. */
     var openChat: String? = null
+        set(value) {
+            field = value
+            updateViewing()
+        }
+
+    /**
+     * The quick-reply window's chat once its user has answered there (2026-11-24, hen): from then on what comes in is
+     * read at once, as on the chat's screen, and they count as viewing it. Null: none.
+     */
+    var windowChat: String? = null
+        set(value) {
+            field = value
+            updateViewing()
+        }
+
+    /** What comes in to [chat] is read at once: on screen in front, or answered in the quick-reply window. */
+    private fun readsAtOnce(chat: String): Boolean = (openChat == chat && foreground) || windowChat == chat
+
+    private var viewingChat: String? = null
+    private var viewingJob: kotlinx.coroutines.Job? = null
+
+    /** Tells the chat in view that it is (and the one left that it isn't); not when this user hides being online. */
+    private fun updateViewing() {
+        val target = ((openChat?.takeIf { foreground }) ?: windowChat)?.takeIf { settings.presenceVisible }
+        if (target == viewingChat) return
+        val old = viewingChat
+        viewingChat = target
+        viewingJob?.cancel()
+        if (old != null) scope.launch { sendViewing(old, false) }
+        if (target != null) {
+            viewingJob = scope.launch {
+                while (true) {
+                    sendViewing(target, true)
+                    kotlinx.coroutines.delay(HERE_EVERY)
+                }
+            }
+        }
+    }
+
+    private suspend fun sendViewing(chat: String, open: Boolean) {
+        if (socket.state.value !is SocketState.Live) return
+        val content = Content(viewing = ViewingContent(open))
+        try {
+            Group.idOf(chat)?.let { id ->
+                groups.send(id, content, PushKind.NONE, ephemeral = true)
+                return
+            }
+            val contact = store.contact(chat)?.takeIf { it.paired && !it.blocked } ?: return
+            sender.send(contact.user, content, pushKind = PushKind.NONE, ephemeral = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /** [key] (a contact, or a group's "chat/author") viewing the chat with this user, or not. */
+    private fun takeViewing(key: String, open: Boolean) {
+        val until = now() + HERE_FOR
+        _state.update { it.copy(viewing = if (open) it.viewing + (key to until) else it.viewing - key) }
+    }
 
     /** The conversation open on the app's screen while the app is in front; null otherwise (QuickReply). */
     val chatInFront: String? get() = openChat?.takeIf { foreground }
@@ -255,7 +339,7 @@ internal class Messaging(
         engine = engine, store = store, api = api, sender = sender, send = socket::send, scope = scope, now = now, random = random,
         me = ::device, publish = ::publish,
         onText = { group, message ->
-            val read = message.outgoing || (openChat == group.chat && foreground)
+            val read = message.outgoing || readsAtOnce(group.chat)
             store.putMessage(message.copy(read = read))
             _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty()), drafts = it.drafts - typingKey(group.chat, message.author.orEmpty())) }
             if (!read) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
@@ -265,7 +349,7 @@ internal class Messaging(
             val fresh = store.message(clip.id) == null
             talk.receiveClip(group.chat, author, clip, at, outgoingCopy = mine)
             if (fresh && !mine) {
-                if (openChat == group.chat && foreground) store.message(clip.id)?.let { store.putMessage(it.copy(read = true)) }
+                if (readsAtOnce(group.chat)) store.message(clip.id)?.let { store.putMessage(it.copy(read = true)) }
                 else if (clip.kind == ClipContent.VOICE) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
             }
         },
@@ -283,6 +367,7 @@ internal class Messaging(
         },
         onEdit = { group, author, edit -> takeEdit(group.chat, author, mine = author == device()?.user, edit) },
         onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
+        onViewing = { group, author, open -> if (author != device()?.user) takeViewing(typingKey(group.chat, author), open) },
         onTyping = { group, author, typing ->
             val key = typingKey(group.chat, author)
             _state.update { it.copy(typing = if (typing.typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing.typing, typing.draft, typing.selStart, typing.selEnd)) }
@@ -403,6 +488,7 @@ internal class Messaging(
     /** The app came to the front: keys, /ws, and the push registration. */
     suspend fun start() {
         foreground = true
+        updateViewing()
         open()
         // Once a run: this user's email to contacts (some paired since it was last said).
         if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET)) {
@@ -419,6 +505,7 @@ internal class Messaging(
     /** The app went to the back. */
     fun stop() {
         foreground = false
+        updateViewing()
         if (!stayConnected && !talk.busy) socket.stop()
     }
 
@@ -477,6 +564,7 @@ internal class Messaging(
         quickReply = settings.quickReply,
         lowBatteryNoWake = settings.lowBatteryNoWake,
         videoFor = settings.videoFor,
+        directionFor = settings.directionFor,
         liveTyping = settings.liveTyping,
         liveTypingFor = settings.liveTypingFor,
         liveTypingKnown = settings.liveTypingKnown,
@@ -509,6 +597,7 @@ internal class Messaging(
         settings.quickReply = talk.quickReply
         settings.lowBatteryNoWake = talk.lowBatteryNoWake
         if (talk.videoFor != before.videoFor) settings.videoFor = talk.videoFor
+        if (talk.directionFor != before.directionFor) settings.directionFor = talk.directionFor
         settings.liveTyping = talk.liveTyping
         if (talk.liveTypingFor != before.liveTypingFor) settings.liveTypingFor = talk.liveTypingFor
         // The default turned on: the chats there are now keep theirs (off unless set), only new ones follow it.
@@ -914,6 +1003,12 @@ internal class Messaging(
      * server is, and this phone's pairing part, with a secret kept to recognise the friend's pair request. Gives the
      * link, when it expires, and the invite's passcode, which goes beside the link (not in it).
      */
+    /** This user's invites waiting to be used (Invite a friend's list). */
+    suspend fun waitingInvites(): List<WaitingInvite> = api.waitingInvites()
+
+    /** Stops invite [id]; true when it was waiting. */
+    suspend fun cancelInvite(id: String): Boolean = api.cancelInvite(id)
+
     suspend fun newInvite(email: String?): NewInvite {
         val self = device() ?: throw IllegalStateException("This phone isn't registered")
         val identity = engine.identityKey() ?: throw IllegalStateException("No identity key yet")
@@ -1459,10 +1554,15 @@ internal class Messaging(
         editWanted.remove(id)
         val content = Content(edit = EditContent(id, text, at, EditContent.FINAL))
         try {
-            Group.idOf(message.user)?.let { group -> groups.send(group, content, PushKind.SYNC) } ?: sender.send(message.user, content, pushKind = PushKind.SYNC)
+            val group = Group.idOf(message.user)
+            if (group != null) groups.send(group, content, PushKind.SYNC) else sender.send(message.user, content, pushKind = PushKind.SYNC)
+            println("TalkEdit: edit of $id sent")
+            // And the live view's end (2026-11-24, hen: "Editing…" stayed on their phone after the edit).
+            sendEdit(message.user, EditContent(id, editedAt = at, stage = EditContent.CANCEL))
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            println("TalkEdit: edit of $id not sent: $e")
             return false
         }
         return true
@@ -1528,7 +1628,7 @@ internal class Messaging(
         val message = store.message(id)?.takeIf { it.outgoing && it.clip == null && it.call == null } ?: return
         if (text == null) {
             editWanted.remove(id)
-            scope.launch { sendEdit(message.user, EditContent(id, stage = EditContent.CANCEL)) }
+            scope.launch { sendEdit(message.user, EditContent(id, editedAt = now(), stage = EditContent.CANCEL)) }
             return
         }
         val shown = talkSettings().liveTypingTo(message.user)
@@ -1542,7 +1642,8 @@ internal class Messaging(
                 while (true) {
                     val want = editWanted[id] ?: break
                     if (want != sent || now() - sentAt > DRAFT_FOR / 2) {
-                        sendEdit(message.user, EditContent(id, want.text, stage = EditContent.LIVE, hidden = !shown, selStart = want.start, selEnd = want.end))
+                        // Stamped with when it was written: one that arrives after the saved edit is too old to show.
+                        sendEdit(message.user, EditContent(id, want.text, now(), stage = EditContent.LIVE, hidden = !shown, selStart = want.start, selEnd = want.end))
                         sent = want
                         sentAt = now()
                     }
@@ -1556,7 +1657,10 @@ internal class Messaging(
     }
 
     private suspend fun sendEdit(user: String, edit: EditContent) {
-        if (socket.state.value !is SocketState.Live) return
+        if (socket.state.value !is SocketState.Live) {
+            println("TalkEdit: live edit of ${edit.id} not sent: not connected")
+            return
+        }
         val content = Content(edit = edit)
         try {
             Group.idOf(user)?.let { id ->
@@ -1567,7 +1671,8 @@ internal class Messaging(
             sender.send(contact.user, content, pushKind = PushKind.NONE, ephemeral = true)
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            println("TalkEdit: live edit of ${edit.id} not sent: $e")
         }
     }
 
@@ -1575,19 +1680,28 @@ internal class Messaging(
      * An edit came from [author] (in [chat]): applied only to a text of theirs ([mine]: this user's own, from another
      * of their phones) that this phone has; any other id is ignored.
      */
-    private fun takeEdit(chat: String, author: String?, mine: Boolean, edit: EditContent) {
-        val message = store.message(edit.id)?.takeIf {
+    /** For each message, when the last saved edit or live view's end was written (the author's clock). */
+    private val editEnded = HashMap<String, Long>()
+
+    internal fun takeEdit(chat: String, author: String?, mine: Boolean, edit: EditContent) {
+        val found = store.message(edit.id)
+        val message = found?.takeIf {
             it.user == chat && it.outgoing == mine && it.clip == null && it.call == null && (author == null || mine || it.author == author)
-        } ?: return
+        }
+        println("TalkEdit: stage ${edit.stage} for ${edit.id} from $chat: ${if (message != null) "applied" else if (found == null) "no such message" else "not theirs"}")
+        if (message == null) return
         when (edit.stage) {
             EditContent.FINAL -> {
                 if (edit.body.isBlank()) return
+                editEnded[edit.id] = maxOf(editEnded[edit.id] ?: 0L, edit.editedAt)
                 if ((message.editedAt ?: 0L) <= edit.editedAt) store.putMessage(message.copy(body = edit.body.take(4_000), editedAt = edit.editedAt))
                 _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
                 publish()
             }
             EditContent.LIVE -> {
                 if (mine) return
+                // Written before the edit was saved or ended (it came late): nothing to show.
+                if (edit.editedAt != 0L && edit.editedAt < (editEnded[edit.id] ?: 0L)) return
                 val at = now()
                 _state.update { it.copy(liveEdits = it.liveEdits + (edit.id to LiveEdit(if (edit.hidden) null else edit.body.take(4_000), at, if (edit.hidden) -1 else edit.selStart, if (edit.hidden) -1 else edit.selEnd))) }
                 scope.launch {
@@ -1595,7 +1709,10 @@ internal class Messaging(
                     _state.update { s -> if (s.liveEdits[edit.id]?.at == at) s.copy(liveEdits = s.liveEdits - edit.id) else s }
                 }
             }
-            else -> _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
+            else -> {
+                if (edit.editedAt != 0L) editEnded[edit.id] = maxOf(editEnded[edit.id] ?: 0L, edit.editedAt)
+                _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
+            }
         }
     }
 
@@ -1664,7 +1781,7 @@ internal class Messaging(
         content.text?.let { text ->
             val id = text.id.ifEmpty { envelope.id }
             if (store.message(id) != null) return
-            val read = openChat == contact.user && foreground
+            val read = readsAtOnce(contact.user)
             store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read))
             _state.update { it.copy(typing = it.typing - contact.user, drafts = it.drafts - contact.user) }
             scope.launch {
@@ -1682,7 +1799,7 @@ internal class Messaging(
             talk.receiveClip(contact.user, contact.user, clip, envelope.serverTimestamp, outgoingCopy = false)
             if (fresh) {
                 scope.launch { sendReceipt(contact.user, read = false, listOf(clip.id)) }
-                val read = openChat == contact.user && foreground
+                val read = readsAtOnce(contact.user)
                 if (read) store.message(clip.id)?.let { store.putMessage(it.copy(read = true)) }
                 else if (clip.kind == ClipContent.VOICE) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
             }
@@ -1720,6 +1837,7 @@ internal class Messaging(
                 }
             }
         }
+        content.viewing?.let { takeViewing(contact.user, it.open) }
         content.here?.let { here ->
             // From when the server took it: one that waited (this phone was away) is already over.
             val until = minOf(now(), envelope.serverTimestamp.takeIf { it > 0 } ?: now()) + HERE_FOR

@@ -61,7 +61,7 @@ internal fun LinkPhoneScreen(view: LinkPhoneView, back: () -> Unit, again: () ->
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(stringResource(R.string.link_steps), color = LibraryColors.OnBackground, style = LibraryType.Body, textAlign = TextAlign.Center)
-                QrImage(view.code.code, stringResource(R.string.link_code_label), Modifier.padding(top = 8.dp))
+                QrImage(com.chencohen.ptt.AppLinks.web(view.code.code), stringResource(R.string.link_code_label), Modifier.padding(top = 8.dp))
                 val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(view.code.expiresAt))
                 Text(stringResource(R.string.link_until, time), color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center)
                 Text(stringResource(R.string.link_note), color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center)

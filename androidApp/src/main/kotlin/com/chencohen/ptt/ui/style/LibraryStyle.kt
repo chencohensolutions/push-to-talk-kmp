@@ -181,6 +181,13 @@ internal object LibraryType {
     /** A row's title in a card or list. */
     val RowTitle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     val Body = TextStyle(fontSize = 14.sp)
+
+    /**
+     * A message's words (2026-11-24, hen: English written live on a right-to-left phone showed its caret at the line's
+     * start): their own direction from their first strong letter, English left to right and Hebrew right to left,
+     * whatever the screen's.
+     */
+    val Message = Body.copy(textDirection = androidx.compose.ui.text.style.TextDirection.Content)
     /** Notes and second lines under a title. */
     val Caption = TextStyle(fontSize = 13.sp)
     /** Badges and counts over photos. */

@@ -59,6 +59,7 @@ internal class FakeServer {
     val pairs = mutableSetOf<Set<String>>()
     /** Invite codes and who made them (createInvite), until redeemed. */
     val invites = mutableMapOf<String, String>()
+    val inviteEmails = mutableMapOf<String, String?>()
     val displayNames = mutableMapOf<String, String>()
     /** registerPush: each device's token and notifications flag. */
     val pushTokens = mutableMapOf<DeviceAddress, Pair<String?, Boolean>>()
@@ -229,7 +230,17 @@ internal class FakeServer {
         override suspend fun createInvite(email: String?): CreatedInvite {
             val code = "invite${nextId++}".padEnd(22, 'i')
             invites[code] = device.user
+            inviteEmails[code] = email
             return CreatedInvite(code, "2026-11-28T10:00:00Z", "123456")
+        }
+
+        override suspend fun waitingInvites(): List<WaitingInvite> =
+            invites.filterValues { it == device.user }.keys.reversed().map { WaitingInvite(it.take(8), inviteEmails[it], 0L, 1_795_860_000_000L) }
+
+        override suspend fun cancelInvite(id: String): Boolean {
+            val code = invites.keys.firstOrNull { it.take(8) == id && invites[it] == device.user } ?: return false
+            invites.remove(code)
+            return true
         }
 
         override suspend fun groups(): List<ServerGroup> =

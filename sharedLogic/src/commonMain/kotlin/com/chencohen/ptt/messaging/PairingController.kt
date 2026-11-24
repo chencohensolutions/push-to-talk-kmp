@@ -125,6 +125,8 @@ data class PairingState(
     val inviteLoading: Boolean = false,
     /** Why the invite couldn't be made. */
     val inviteError: PairingError? = null,
+    /** This user's invites waiting to be used (2026-11-24, hen), newest first; empty when none or not read yet. */
+    val waiting: List<WaitingInvite> = emptyList(),
 )
 
 /**
@@ -216,11 +218,39 @@ class PairingController internal constructor(
                 _state.update {
                     it.copy(invite = MadeInvite(link.format(), link.email, made.expiresAt, link.inviter, made.passcode, link.withPasscode(made.passcode).format()), inviteLoading = false)
                 }
+                refreshWaiting()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _state.update { it.copy(inviteLoading = false, inviteError = e.toPairingError()) }
             }
+        }
+    }
+
+    /** Reads this user's waiting invites again (Invite a friend opened, an invite made or canceled). */
+    fun refreshWaiting() {
+        scope.launch {
+            try {
+                val list = withContext(work) { messaging.waitingInvites() }
+                _state.update { it.copy(waiting = list) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** Stops waiting invite [id]: gone from the list at once, then read again. */
+    fun cancelInvite(id: String) {
+        _state.update { s -> s.copy(waiting = s.waiting.filter { it.id != id }) }
+        scope.launch {
+            try {
+                withContext(work) { messaging.cancelInvite(id) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+            refreshWaiting()
         }
     }
 

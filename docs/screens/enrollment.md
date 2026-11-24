@@ -76,9 +76,10 @@ name. A failed registration says "Ask
 
 
 **Links as web addresses** (2026-11-24, hen: Gmail drops `ptt://` links). Every `ptt://<kind>?<words>` link (enroll,
-invite, link, pair) also has a web form, `https://chencohensolutions.github.io/push-to-talk-kmp/<kind>#<words>`: the
+invite, link, pair) also has a web form, `https://chencohensolutions.github.io/push-to-talk-server-go/<kind>#<words>`: the
 app repo's GitHub Pages (branch gh-pages). The words after `#` never reach GitHub. The page there opens Talk with the
 `ptt://` link ("Open in Talk", an Android intent falling back to the latest release; on Android it tries at once), shows
-the link to copy, and says how to get the app. The app takes the web form too (an intent-filter for that address, not a
-verified App Link: a repo's Pages can't serve the site-root file that needs) and reads it as its `ptt://` link
+the link to copy, and says how to get the app. The app takes the web form too: a verified App Link (autoVerify) for those four
+paths, through https://chencohensolutions.github.io/.well-known/assetlinks.json (repo chencohensolutions.github.io, the
+release and debug keys), so with Talk installed a tap opens it straight away and reads it as its `ptt://` link
 (`AppLinks`), when opened or pasted. Invite messages carry the web form; the server's enrollment mail too.

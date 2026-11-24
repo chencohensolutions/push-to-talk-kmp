@@ -714,6 +714,17 @@
     <string name="clip_unmute">Sound on</string>
     <string name="chat_delete_for_me">Delete for me</string>
     <string name="chat_today">Today</string>
+    <string name="invite_waiting">Waiting invites</string>
+    <string name="invite_waiting_anyone">Anyone with the link</string>
+    <string name="invite_waiting_line">Made %1$s · ends %2$s</string>
+    <string name="invite_waiting_cancel">Cancel</string>
+    <string name="invite_waiting_canceled">Invite canceled</string>
+    <string name="chat_direction">Chat direction</string>
+    <string name="chat_direction_follow">Follow the phone</string>
+    <string name="chat_direction_follow_body">As the phone\'s language writes</string>
+    <string name="chat_direction_rtl">Right to left</string>
+    <string name="chat_direction_ltr">Left to right</string>
+    <string name="chat_direction_body">Which side the chat\'s bubbles and writing sit on, on this phone only. Each message\'s own text keeps its direction.</string>
     <string name="chat_yesterday">Yesterday</string>
     <string name="chat_selected">%1$d selected</string>
     <string name="chat_edit">Edit</string>
