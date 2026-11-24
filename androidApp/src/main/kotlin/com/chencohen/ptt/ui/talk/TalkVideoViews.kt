@@ -102,7 +102,7 @@ internal fun WarmCamera(chat: String, on: Boolean, warm: (String?) -> Unit) {
  * turn is undone here. What is sent keeps its frames as captured, with their rotation alongside.
  */
 @Composable
-internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
+internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false) {
     val capture = com.chencohen.ptt.talkVideoCapture ?: return
     val display = androidx.compose.ui.platform.LocalView.current.display?.rotation ?: 0
     val screenTurn = display * 90
@@ -112,7 +112,8 @@ internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignmen
     } else {
         com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT
     }
-    FittedBox(shape, modifier, alignment) { w, h ->
+    // [cover]: filling the space given, cropped (the chat's live panel, 2026-11-24, hen: "no black bars").
+    val content: @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit = { w, h ->
         // The camera draws its preview upright for the phone held upright; on its side the view is laid out upright
         // (its sides swapped) and turned back by the screen's turn, so it fills the box with no bars or stretch.
         val sideways = screenTurn % 180 != 0
@@ -148,6 +149,7 @@ internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignmen
             modifier = Modifier.requiredSize(if (sideways) h else w, if (sideways) w else h).graphicsLayer { rotationZ = -screenTurn.toFloat() },
         )
     }
+    if (cover) CoverBox(shape, modifier, alignment, content) else FittedBox(shape, modifier, alignment, content)
 }
 
 /** A box of [shape] (width for 1 high) as big as covers the space given, clipped to it; [content] gets its size. */
@@ -221,7 +223,7 @@ private const val SMALL_SHARE = 0.32f
  * AndroidTalkVideoOut in step with the voice.
  */
 @Composable
-internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false) {
+internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false, inset: Boolean = true) {
     val shown by AndroidTalkVideoOut.shown.collectAsStateWithLifecycle()
     // When the burst ends its shape goes before this view does: kept, so no frame is drawn sideways (2026-11-23, hen:
     // "a one-frame glitch, some horizontal video for a blink").
@@ -297,7 +299,7 @@ internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment =
             Box(Modifier.fillMaxSize().then(pinch.modifier), contentAlignment = Alignment.Center) {
                 with(density) { picture(fit.first.toDp(), fit.second.toDp(), framing) }
             }
-            followPill(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(12.dp))
+            followPill(Modifier.align(Alignment.TopStart).then(if (inset) Modifier.statusBarsPadding() else Modifier).padding(if (inset) 12.dp else 8.dp))
         }
     } else {
         FittedBox(upright, modifier, alignment) { w, h ->

@@ -77,47 +77,47 @@ private fun LiveTag(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Their push-to-video (or, in a group, whoever holds the floor: [who] named), under the header: slides down in 250 ms
- * while it plays, back up when it ends. [since]: when it started.
+ * Push-to-video under the header (2026-11-24, hen: "when two sides push to video show videos at top side by side; when
+ * I push show the video on the top, never on bottom"): theirs (or, in a group, whoever holds the floor: [who] named)
+ * and mine, each filling its half with no bars, theirs at the start side and mine at the end; one alone takes the whole
+ * width. Slides down in 250 ms when the first starts, back up when the last ends; it always pushes the chat down.
+ * [waitingFor]: mine queued behind someone else's floor (a group).
  */
 @Composable
-internal fun TheirLivePanel(shown: Boolean, who: String?, since: Long, height: Dp = 300.dp) {
+internal fun LivePanel(
+    theirs: Boolean, who: String?, theirSince: Long,
+    mine: Boolean, mySince: Long, waitingFor: String?, handsFree: Boolean,
+    height: Dp = 280.dp,
+) {
     AnimatedVisibility(
-        shown,
+        theirs || mine,
         enter = expandVertically(tween(PANEL_MS), expandFrom = Alignment.Top) + slideInVertically(tween(PANEL_MS)) { -it },
         exit = shrinkVertically(tween(PANEL_MS), shrinkTowards = Alignment.Top) + slideOutVertically(tween(PANEL_MS)) { -it },
     ) {
         val shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
-        Box(Modifier.fillMaxWidth().height(height).shadow(8.dp, shape).clip(shape).background(Color.Black)) {
-            // Whole, as sent (2026-11-24, hen: filling the panel zoomed a small picture far too close); Follow face's
-            // pill is at its top, so the live tag goes at the bottom.
-            com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = false)
-            val words = listOfNotNull(who, stringResource(R.string.talk_panel_live), elapsedSince(since)).joinToString(" · ")
-            LiveTag(words, Modifier.align(Alignment.BottomStart).padding(12.dp))
+        Row(Modifier.fillMaxWidth().height(height).shadow(8.dp, shape).clip(shape).background(Color.Black), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            AnimatedVisibility(theirs, Modifier.weight(1f), enter = fadeIn(tween(PANEL_MS)), exit = fadeOut(tween(150))) {
+                Box(Modifier.fillMaxSize()) {
+                    // Filling its box (no bars); Follow face slides the crop. Its pill is at the top, the tag at the bottom.
+                    com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
+                    val words = listOfNotNull(who, stringResource(R.string.talk_panel_live), elapsedSince(theirSince)).joinToString(" · ")
+                    LiveTag(words, Modifier.align(Alignment.BottomStart).padding(10.dp))
+                }
+            }
+            AnimatedVisibility(mine, Modifier.weight(1f), enter = fadeIn(tween(PANEL_MS)), exit = fadeOut(tween(150))) {
+                Box(Modifier.fillMaxSize()) {
+                    com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true)
+                    val me = stringResource(R.string.talk_panel_you)
+                    val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor)
+                    else listOfNotNull(me, stringResource(if (handsFree) R.string.talk_panel_hands_free else R.string.talk_panel_live), elapsedSince(mySince)).joinToString(" · ")
+                    LiveTag(words, Modifier.align(Alignment.BottomStart).padding(10.dp))
+                }
+            }
         }
     }
 }
 
-/** Mine, while I send video: rises above the buttons; [waitingFor] someone else's floor first. */
-@Composable
-internal fun MyLivePanel(shown: Boolean, since: Long, waitingFor: String?, handsFree: Boolean, height: Dp = 240.dp) {
-    AnimatedVisibility(
-        shown,
-        enter = expandVertically(tween(PANEL_MS), expandFrom = Alignment.Bottom) + slideInVertically(tween(PANEL_MS)) { it },
-        exit = shrinkVertically(tween(PANEL_MS), shrinkTowards = Alignment.Bottom) + slideOutVertically(tween(PANEL_MS)) { it },
-    ) {
-        val shape = RoundedCornerShape(24.dp)
-        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp).fillMaxWidth().height(height).shadow(8.dp, shape).clip(shape).background(Color.Black)) {
-            com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize())
-            val me = stringResource(R.string.talk_panel_you)
-            val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor)
-            else listOfNotNull(me, stringResource(if (handsFree) R.string.talk_panel_hands_free else R.string.talk_panel_live), elapsedSince(since)).joinToString(" · ")
-            LiveTag(words, Modifier.align(Alignment.TopStart).padding(12.dp))
-        }
-    }
-}
-
-/** "You're both live · Make it a call" (2026-11-24, hen), over the bottom of the chat. */
+/** "You're both live · Make it a call" (2026-11-24, hen), just under the top panel, in its own space. */
 @Composable
 internal fun BothLiveChip(shown: Boolean, makeCall: () -> Unit) {
     AnimatedVisibility(shown, enter = fadeIn(tween(200)) + expandVertically(tween(200)), exit = fadeOut(tween(150)) + shrinkVertically(tween(150))) {
@@ -140,12 +140,12 @@ internal fun BothLiveChip(shown: Boolean, makeCall: () -> Unit) {
 
 /**
  * A push-to-talk burst the chat doesn't keep (2026-11-24, hen: its "Keep voice / videos in chat" off): one muted,
- * centred line once it ends, "Sharon sent live video · 0:07"; nothing to play.
+ * centred line once it ends, "Sharon sent live video · 0:07"; nothing to play. A run of them is a [TalkSession].
  */
 @Composable
-internal fun TalkTrace(message: TextMessage, author: String, count: Int = 1, totalMs: Long = message.clip?.durationMs ?: 0L) {
+internal fun TalkTrace(message: TextMessage, author: String, at: String? = null) {
     val clip = message.clip ?: return
-    val length = totalMs.takeIf { it > 0 }?.let { clipLength(it) }
+    val length = clip.durationMs.takeIf { it > 0 }?.let { clipLength(it) }
     val words = when {
         message.outgoing && clip.video -> stringResource(R.string.talk_trace_my_video)
         message.outgoing -> stringResource(R.string.talk_trace_my_voice)
@@ -153,10 +153,40 @@ internal fun TalkTrace(message: TextMessage, author: String, count: Int = 1, tot
         else -> com.chencohen.ptt.genderedString(R.string.talk_trace_voice, author, author)
     }
     Text(
-        listOfNotNull(if (count > 1) "$words ×$count" else words, length).joinToString(" · "),
+        listOfNotNull(words, length, at).joinToString(" · "),
         color = LibraryColors.Muted, style = LibraryType.Tiny, textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     )
+}
+
+/**
+ * Push-to-talk back and forth with nothing else between (2026-11-24, hen): one quiet line, "Push-to-talk · Sharon ×5,
+ * you ×4 · 21:40–21:45"; a tap lists each one under it, a tap again folds them.
+ */
+@Composable
+internal fun TalkSession(run: List<TextMessage>, nameOf: (TextMessage) -> String, open: Boolean, toggle: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val time = remember { android.text.format.DateFormat.getTimeFormat(context) }
+    val me = stringResource(R.string.talk_panel_you)
+    // Each side by count, in the order they first spoke.
+    val sides = LinkedHashMap<String, Int>()
+    run.forEach { m -> val who = if (m.outgoing) me else nameOf(m); sides[who] = (sides[who] ?: 0) + 1 }
+    val from = time.format(java.util.Date(run.first().at))
+    val to = time.format(java.util.Date(run.last().at))
+    val words = listOf(
+        stringResource(R.string.talk_session),
+        sides.entries.joinToString(", ") { (who, n) -> if (n > 1) "$who ×$n" else who },
+        if (from == to) from else "$from–$to",
+    ).joinToString(" · ")
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            words, color = LibraryColors.Muted, style = LibraryType.Tiny, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = toggle).padding(vertical = 6.dp),
+        )
+        AnimatedVisibility(open, enter = fadeIn(tween(200)) + expandVertically(tween(200)), exit = fadeOut(tween(150)) + shrinkVertically(tween(150))) {
+            Column { run.forEach { m -> TalkTrace(m, nameOf(m), at = time.format(java.util.Date(m.at))) } }
+        }
+    }
 }
 
 /** Locked, hands-free: the big button's place shows Stop. */

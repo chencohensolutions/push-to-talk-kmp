@@ -647,7 +647,7 @@ fun HomeApp(
                                     top = { com.chencohen.ptt.ui.calls.ChatCallTop(c, chatName(user), transport) },
                                     bottom = {
                                         com.chencohen.ptt.ui.calls.ChatCallBottom(
-                                            c, transport,
+                                            c,
                                             com.chencohen.ptt.ui.calls.CallActions(
                                                 hangUp = messaging::hangUp,
                                                 setMicrophone = messaging::setCallMicrophone,

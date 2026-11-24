@@ -835,6 +835,7 @@
     <string name="face_made_one">לחזור למה שנוצר</string>
     <string name="face_not_quite">לפי הטלפון זה לא ממש נראה %1$s. אפשר להשאיר או לצלם שוב.</string>
     <string name="talk_panel_live">בשידור</string>
+    <string name="talk_session">לחיצה לדיבור</string>
     <string name="talk_panel_you">את/ה</string>
     <string name="talk_panel_hands_free">בשידור, בלי ידיים</string>
     <string name="talk_both_live">שניכם בשידור</string>

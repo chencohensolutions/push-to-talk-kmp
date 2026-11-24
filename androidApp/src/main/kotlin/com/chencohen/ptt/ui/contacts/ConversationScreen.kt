@@ -330,7 +330,17 @@ private fun ConversationScreenIn(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             )
         }
-        // Theirs under the header (2026-11-24, hen): their push-to-video, or the call's other side.
+        // Live in the chat (2026-11-24, hen): what this phone sends with its camera, hands-free, and standby (below).
+        val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING || it.phase == TalkPhase.WAITING) }
+        var handsFree by remember(user) { mutableStateOf(false) }
+        var standby by remember(user) { mutableStateOf(false) }
+        var standbySince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
+        // Both live, and the call it can become: worked out further down, shown here under the panel.
+        var bothLiveNow by remember(user) { mutableStateOf(false) }
+        val makeCallNow = remember(user) { arrayOf<() -> Unit>({}) }
+        val myPanel = sendingVideo != null || (standby && pushVideo)
+        // The panel under the header (2026-11-24, hen: "when two sides push to video show videos at top side by side;
+        // when I push show the video on the top, never on bottom"), or the call in the chat in its place.
         if (chatLive.call != null) {
             chatLive.call.top()
         } else {
@@ -341,7 +351,12 @@ private fun ConversationScreenIn(
             val theirClip = theirs?.clip ?: talker?.clip
             var theirSince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
             LaunchedEffect(theirClip) { if (theirClip != null) theirSince = talk.talkers[user]?.since ?: System.currentTimeMillis() }
-            TheirLivePanel(theirClip != null && fullVideo == null, if (group != null) (theirs?.from ?: talker?.user) else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis())
+            LivePanel(
+                theirClip != null && fullVideo == null, if (group != null) (theirs?.from ?: talker?.user) else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                myPanel, sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
+            )
+            BothLiveChip(bothLiveNow && actions.callInChat != null) { makeCallNow[0]() }
         }
         if (contact?.changedKey != null) {
             HomeCard(
@@ -442,17 +457,13 @@ private fun ConversationScreenIn(
             delay(60_000)
             cameraIdle = true
         }
-        val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING || it.phase == TalkPhase.WAITING) }
         val recordingVoice = talk.own?.takeIf { it.chat == user && it.phase == TalkPhase.VOICE } != null
         val talkingHere = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) } != null
         // Hands-free (2026-11-24, hen): the Talk button slid up to the lock keeps sending until Stop. The server ends a
         // floor at 60 s, so at 55 s it is let go and taken again at once.
-        var handsFree by remember(user) { mutableStateOf(false) }
         // Both live, app only (2026-11-24, hen, "a"): in a one-to-one chat, a press while they hold the floor doesn't
         // wait behind it. My camera shows in my panel (nothing sent), they're told I'm live, and both phones offer the
         // call; when their floor ends while I'm still live, my burst starts.
-        var standby by remember(user) { mutableStateOf(false) }
-        var standbySince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
         val theyHold = group == null && talk.talkers[user] != null && talk.own?.chat != user
         val chainScope = androidx.compose.runtime.rememberCoroutineScope()
         val handsFreeNow by androidx.compose.runtime.rememberUpdatedState(handsFree)
@@ -513,6 +524,19 @@ private fun ConversationScreenIn(
             if (ownNow != null) actions.finishVoice(true)
             actions.callInChat?.invoke()
         }
+        androidx.compose.runtime.SideEffect {
+            bothLiveNow = bothLive
+            makeCallNow[0] = makeCall
+        }
+        // A press in a one-to-one chat that the server still queued behind their floor (it came just as theirs
+        // started, or a hands-free renewal): not queued, standby instead (2026-11-24, hen, "a").
+        LaunchedEffect(ownHere?.phase) {
+            if (group == null && ownHere?.phase == TalkPhase.WAITING) {
+                actions.finishVoice(false)
+                standby = true
+                standbySince = System.currentTimeMillis()
+            }
+        }
         // Home takes a video call from this chat at once while I'm live here (either side tapped Make it a call).
         LaunchedEffect(handsFree, standby) { chatLive.onBothLive(handsFree || standby) }
         LaunchedEffect(bothLive, chatLive.autoCall) {
@@ -534,15 +558,15 @@ private fun ConversationScreenIn(
         val pairs = remember(messages, talk.own?.clip, talk.playing?.clip) { ReadMarks.overlappingVideos(messages.filter(keeps), System.currentTimeMillis()) }
         val pairedEarlier = remember(pairs) { pairs.values.toSet() }
         val byId = remember(messages) { messages.associateBy { it.id } }
-        // Quiet lines in a row from the same side, a few minutes apart at most, are one line ("You talked ×3 · 0:05").
+        // Push-to-talk from both sides with nothing else between, ten minutes apart at most, is one session: one quiet
+        // line (2026-11-24, hen: "Push-to-talk · testbot ×5, you ×4 · 21:40–21:45"), a tap lists them.
         val traceRuns = remember(messages, talk.own?.clip, talk.talkers[user]?.clip) {
-            val shownAt = HashMap<String, Pair<Int, Long>>()
+            val shownAt = HashMap<String, List<TextMessage>>()
             val hidden = HashSet<String>()
             var run = mutableListOf<TextMessage>()
             fun close() {
                 if (run.isEmpty()) return
-                val last = run.last()
-                shownAt[last.id] = run.size to run.sumOf { it.clip?.durationMs ?: 0L }
+                shownAt[run.last().id] = run
                 run.dropLast(1).forEach { hidden += it.id }
                 run = mutableListOf()
             }
@@ -554,12 +578,13 @@ private fun ConversationScreenIn(
                     continue
                 }
                 val prev = run.lastOrNull()
-                if (prev != null && (prev.outgoing != m.outgoing || prev.author != m.author || prev.clip?.video != c!!.video || m.at - prev.at > 5 * 60_000)) close()
+                if (prev != null && m.at - prev.at > 10 * 60_000) close()
                 run += m
             }
             close()
             shownAt to hidden
         }
+        val openSessions = remember(user) { androidx.compose.runtime.mutableStateListOf<String>() }
         val ticks = remember(messages, group != null) { if (group != null) messages.associate { it.id to ReadMarks.groupTick(messages, it) } else ReadMarks.ticks(messages) }
         // The draft and the buttons float over the chat (2026-11-23, hen: no band behind them): the list scrolls
         // under them to the bottom of the screen, with room at its end so its last message clears them.
@@ -582,7 +607,19 @@ private fun ConversationScreenIn(
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { autoplay.viewport = it.boundsInWindow() }) {
           androidx.compose.runtime.CompositionLocalProvider(LocalVideoAutoplay provides autoplay) {
             LazyColumn(
-                Modifier.fillMaxSize().pointerInput(Unit) {
+                Modifier.fillMaxSize()
+                    // The oldest line in view fades out at the top edge, so nothing reads as tucked under the header
+                    // or the live panel (2026-11-24, hen).
+                    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, endY = 20.dp.toPx()),
+                            size = androidx.compose.ui.geometry.Size(size.width, 20.dp.toPx()),
+                            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                        )
+                    }
+                    .pointerInput(Unit) {
                     // A tap on the chat puts the keyboard away (the draft stays).
                     detectTapGestures(onTap = {
                         focusManager.clearFocus()
@@ -666,10 +703,16 @@ private fun ConversationScreenIn(
                     if (message.clip != null && !message.deleted && !keeps(message)) {
                         // Still being recorded (waiting for the floor) or live: nothing yet.
                         val liveNow = message.clip!!.durationMs < 500 || talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id || (talk.playing?.clip == message.id && talk.playing?.live == true)
-                        val runOf = traceRuns.first[message.id]
+                        val runOf = traceRuns.first[message.id] ?: listOf(message)
+                        val nameOf = { m: TextMessage -> if (group != null) m.author ?: m.user else contact?.name ?: user }
                         if (!liveNow && message.id !in traceRuns.second) item(key = message.id) {
                             Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) {
-                                TalkTrace(message, if (group != null) message.author ?: message.user else contact?.name ?: user, runOf?.first ?: 1, runOf?.second ?: (message.clip?.durationMs ?: 0L))
+                                if (runOf.size == 1) {
+                                    TalkTrace(message, nameOf(message))
+                                } else {
+                                    val open = message.id in openSessions
+                                    TalkSession(runOf, nameOf, open) { if (open) openSessions -= message.id else openSessions += message.id }
+                                }
                             }
                         }
                         return@forEach
@@ -794,17 +837,8 @@ private fun ConversationScreenIn(
             )
             val rowShown = if (imeFull > 0) 1f - (imeNow.toFloat() / imeFull).coerceIn(0f, 1f) else 1f
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().onSizeChanged { floatingHeight = it.height }.graphicsLayer { alpha = seeThrough }) {
-                // Mine above the buttons (2026-11-24, hen), or the call's own side and its bar.
-                if (chatLive.call != null) {
-                    chatLive.call.bottom()
-                } else {
-                    BothLiveChip(bothLive && actions.callInChat != null, makeCall)
-                    MyLivePanel(
-                        sendingVideo != null || (standby && pushVideo),
-                        sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                        sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
-                    )
-                }
+                // The call's bar and buttons (its videos are in the top panel).
+                if (chatLive.call != null) chatLive.call.bottom()
                 androidx.compose.animation.AnimatedVisibility(
                     pendingDelete != null,
                     enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(180)),
@@ -855,6 +889,8 @@ private fun ConversationScreenIn(
                         if (chatLive.call == null) {
                             ChatButtons(
                                 false, talkingHere || standby, recordingVoice, actions, video = pushVideo, handsFree = handsFree, lock = { handsFree = true },
+                                // One preview at a time: while the panel shows my camera, the button's corner doesn't.
+                                thumb = !myPanel,
                                 stopLive = {
                                     handsFree = false
                                     standby = false

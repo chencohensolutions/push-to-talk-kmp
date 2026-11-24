@@ -317,6 +317,8 @@ internal fun ChatButtons(
     /** Pressed and let go (locked: slid up to the lock), in place of starting and ending a burst directly. */
     press: (() -> Unit)? = null,
     release: ((locked: Boolean) -> Unit)? = null,
+    /** My camera, small, on the button's corner. */
+    thumb: Boolean = true,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
@@ -365,7 +367,7 @@ internal fun ChatButtons(
                 }
                 // My camera, small, on the button's top-left corner (clear of the switch): framed before pressing.
                 androidx.compose.animation.AnimatedVisibility(
-                    video && !compact,
+                    video && !compact && thumb,
                     enter = androidx.compose.animation.fadeIn(tween<Float>(200)) + androidx.compose.animation.scaleIn(tween<Float>(200), initialScale = 0.6f),
                     exit = androidx.compose.animation.fadeOut(tween<Float>(150)) + androidx.compose.animation.scaleOut(tween<Float>(150), targetScale = 0.6f),
                     modifier = Modifier.align(Alignment.TopStart).offset(x = (-10).dp, y = (-6).dp),

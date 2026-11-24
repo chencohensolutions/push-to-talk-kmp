@@ -1033,30 +1033,44 @@ private fun CompactCall(call: CallUi, title: String, transport: LiveKitCallTrans
 }
 
 /**
- * A video call inside the chat (2026-11-24, hen: "both live becomes a video call in the chat"): the other side under
- * the header, in the place their push-to-video had (a group's: side by side).
+ * A video call inside the chat (2026-11-24, hen: "both live becomes a video call in the chat"), under the header in the
+ * push-to-video panel's place: side by side, each filling its share (no bars), theirs from the start side and mine at
+ * the end; in a group two of theirs at most, then "+N".
  */
 @Composable
 fun ChatCallTop(call: CallUi, title: String, transport: LiveKitCallTransport?) {
     val room by (transport?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
     val changes by (transport?.changes ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
-    Box(Modifier.fillMaxWidth().height(300.dp).clip(shape).background(Color.Black)) {
+    Row(Modifier.fillMaxWidth().height(280.dp).clip(shape).background(Color.Black), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         val r = room
         val remote = if (r != null) remoteVideo(r, changes) else emptyList()
+        val own = r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
         if (r != null && remote.isNotEmpty()) {
-            Row(Modifier.fillMaxSize()) { remote.forEach { (_, track) -> VideoView(r, track, Modifier.weight(1f).fillMaxHeight(), fill = true) } }
+            val shown = remote.take(2)
+            shown.forEachIndexed { i, (_, track) ->
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    VideoView(r, track, Modifier.fillMaxSize(), fill = true)
+                    if (i == shown.lastIndex && remote.size > shown.size) {
+                        Text(
+                            "+${remote.size - shown.size}", color = Color.White, style = LibraryType.Small,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
         } else {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Avatar(call.chat, size = 72.dp, name = title) }
+            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) { Avatar(call.chat, size = 72.dp, name = title) }
+        }
+        if (r != null && own != null) {
+            Box(Modifier.weight(1f).fillMaxHeight()) { VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = true) }
         }
     }
 }
 
-/** The call inside the chat, my side: my video, then a teal bar with its time and End, then mute, camera, flip, full screen. */
+/** The call inside the chat, at the bottom: a teal bar with its time and End, then mute, camera, flip, full screen. */
 @Composable
-fun ChatCallBottom(call: CallUi, transport: LiveKitCallTransport?, actions: CallActions, fullScreen: () -> Unit) {
-    val room by (transport?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
-    val changes by (transport?.changes ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
+fun ChatCallBottom(call: CallUi, actions: CallActions, fullScreen: () -> Unit) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -1064,15 +1078,7 @@ fun ChatCallBottom(call: CallUi, transport: LiveKitCallTransport?, actions: Call
             delay(500)
         }
     }
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-        val r = room
-        val own = r?.let { ownVideo(it, changes) }
-        if (r != null && own != null && call.camera) {
-            Box(Modifier.fillMaxWidth().height(200.dp).clip(shape).background(Color.Black)) {
-                VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = true)
-            }
-        }
         val since = call.connectedAt.takeIf { it > 0 } ?: call.startedAt
         val length = ((now - since) / 1000).coerceAtLeast(0)
         Row(

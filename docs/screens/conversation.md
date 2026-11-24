@@ -245,25 +245,35 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   breathing around it while they have this chat open (the viewing signal), smaller and grey after. In a group each
   member's face has its own ring; those here come first in the at-most-3-then-+N row. Someone who hides their presence
   sends no viewing signal, so they never ring.
-- **Their push-to-video** drops down as a panel under the header (250 ms) while it plays, with their name in a group
-  and a red "live" tag; the chat is pushed down below it and stays usable. It slides back up when it ends.
-- **Mine** rises as a panel just above the writing line while I send ("You · live · 0:05", or "Waiting for …"). A
-  voice-only press shows no panel (the line under the header says it).
+- **The live panel** (2026-11-24, hen: "when two sides push to video show videos at top side by side; when I push
+  show the video on the top, never on bottom"). Push-to-video shows in one panel under the header, never at the
+  bottom. It drops down (250 ms) when the first video starts and slides back up when the last one ends. One alone (theirs, or mine:
+  "You · live · 0:05") takes the whole width; both at once split it into two halves of the same height, theirs at the
+  start side and mine at the end (following the chat's direction). Every video fills its box, cropped from the
+  centre, with no black bars; Follow face only moves that crop (no zoom beyond filling). The tags (name in a group,
+  red "live", time) sit inside each video. The panel always pushes the chat down; nothing is drawn under it, and the
+  oldest line in view fades at the list's top edge. While my camera shows in the panel, the small preview on the Talk
+  button's corner is hidden (one preview at a time). A voice-only press shows no panel (the line under the header
+  says it).
 - **Not kept by default.** A push-to-talk burst stays in the chat as a voice or video message only when the chat's
   "Keep voice in chat" / "Keep videos in chat" is on (contact or group page, In the chat; both off by default). Off,
-  nothing shows while it is live (the panels do), and once it ends a muted centred line stays: "hen sent live video ·
-  0:07", "You talked · 0:03", not playable. Voice messages from the microphone button always stay.
+  nothing shows while it is live (the panel does), and once it ends a muted centred line stays: "hen sent live video ·
+  0:07", "You talked · 0:03", not playable. Bursts back and forth from both sides with nothing else between (ten
+  minutes apart at most) are one line per session: "Push-to-talk · hen ×5, you ×4 · 21:40–21:45". A tap lists each one
+  under it (who, length, time); a tap again folds them. Voice messages from the microphone button always stay.
 - **Hands-free.** Holding the Talk button, a lock appears above it; sliding up to it (72 dp) and letting go keeps it
   sending, voice or video, until **Stop**, which takes the button's place. The server ends a floor at 60 s, so at 55 s
   it is let go and taken again at once (each part a burst of its own). Leaving the chat stops it.
 - **Both live.** In a one-to-one chat a press (or a lock) while they hold the floor doesn't wait behind it
-  (2026-11-24, hen, "a"): my camera shows in my panel, nothing is sent yet, and my phone tells theirs I'm live
+  (2026-11-24, hen, "a"): my camera shows in the live panel beside theirs, nothing is sent yet, and my phone tells theirs I'm live
   (`liveWaiting`, live only). If their floor ends while I'm still live, my burst starts. In a group a press still waits
-  its turn. When I'm hands-free and waiting for their floor, my phone tells theirs the same way.
-  Either side then shows "You're both live · Make it a call" over the bottom. A tap starts a video call shown inside
+  its turn. A press the server still queues (it came just as their floor started, or a hands-free renewal) is turned
+  into the same standby. Either side then shows "You're both live · Make it a call" just under the live panel, in its
+  own space. A tap starts a video call shown inside
   the chat; their phone, both live too, takes it at once, also inside the chat. With "Both live becomes a call" on
   for the chat (off by default) it happens after 10 s without the tap.
-- **A call inside the chat.** The other side's video in the top panel's place (a group's side by side), mine at the
-  bottom over a teal bar "Video call · 3:20" with End, then mute, camera, flip and full screen. Messages stay visible
+- **A call inside the chat.** In the live panel's place: the videos side by side, each filling its share, theirs from
+  the start side and mine at the end (in a group two of theirs at most, then "+N"). At the bottom only a teal bar
+  "Video call · 3:20" with End, then mute, camera, flip and full screen. Messages stay visible
   between them. Full screen moves it to the usual call screen; leaving the chat shows the usual call screen too. When
   it ends, the panels go and the call's line ("Video call · 3:20") stays, with its entry in Calls.
