@@ -89,9 +89,11 @@ internal fun TheirLivePanel(shown: Boolean, who: String?, since: Long, height: D
     ) {
         val shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
         Box(Modifier.fillMaxWidth().height(height).shadow(8.dp, shape).clip(shape).background(Color.Black)) {
-            com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
+            // Whole, as sent (2026-11-24, hen: filling the panel zoomed a small picture far too close); Follow face's
+            // pill is at its top, so the live tag goes at the bottom.
+            com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = false)
             val words = listOfNotNull(who, stringResource(R.string.talk_panel_live), elapsedSince(since)).joinToString(" · ")
-            LiveTag(words, Modifier.align(Alignment.TopStart).padding(12.dp))
+            LiveTag(words, Modifier.align(Alignment.BottomStart).padding(12.dp))
         }
     }
 }
@@ -128,8 +130,8 @@ internal fun BothLiveChip(shown: Boolean, makeCall: () -> Unit) {
             ) {
                 Text(stringResource(R.string.talk_both_live), color = LibraryColors.OnInverse, style = LibraryType.Small)
                 Text(
-                    stringResource(R.string.talk_make_call), color = com.chencohen.ptt.ui.style.Pink, style = LibraryType.Small,
-                    modifier = Modifier.padding(start = 8.dp).background(Color.White.copy(alpha = 0.08f), CircleShape).padding(horizontal = 12.dp, vertical = 8.dp),
+                    stringResource(R.string.talk_make_call), color = Color.White, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                    modifier = Modifier.padding(start = 10.dp).background(com.chencohen.ptt.ui.style.Pink, CircleShape).padding(horizontal = 14.dp, vertical = 8.dp),
                 )
             }
         }
@@ -141,9 +143,9 @@ internal fun BothLiveChip(shown: Boolean, makeCall: () -> Unit) {
  * centred line once it ends, "Sharon sent live video · 0:07"; nothing to play.
  */
 @Composable
-internal fun TalkTrace(message: TextMessage, author: String) {
+internal fun TalkTrace(message: TextMessage, author: String, count: Int = 1, totalMs: Long = message.clip?.durationMs ?: 0L) {
     val clip = message.clip ?: return
-    val length = clip.durationMs.takeIf { it > 0 }?.let { clipLength(it) }
+    val length = totalMs.takeIf { it > 0 }?.let { clipLength(it) }
     val words = when {
         message.outgoing && clip.video -> stringResource(R.string.talk_trace_my_video)
         message.outgoing -> stringResource(R.string.talk_trace_my_voice)
@@ -151,7 +153,7 @@ internal fun TalkTrace(message: TextMessage, author: String) {
         else -> com.chencohen.ptt.genderedString(R.string.talk_trace_voice, author, author)
     }
     Text(
-        listOfNotNull(words, length).joinToString(" · "),
+        listOfNotNull(if (count > 1) "$words ×$count" else words, length).joinToString(" · "),
         color = LibraryColors.Muted, style = LibraryType.Tiny, textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     )

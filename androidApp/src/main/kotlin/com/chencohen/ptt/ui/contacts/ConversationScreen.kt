@@ -532,6 +532,32 @@ private fun ConversationScreenIn(
         val pairs = remember(messages, talk.own?.clip, talk.playing?.clip) { ReadMarks.overlappingVideos(messages.filter(keeps), System.currentTimeMillis()) }
         val pairedEarlier = remember(pairs) { pairs.values.toSet() }
         val byId = remember(messages) { messages.associateBy { it.id } }
+        // Quiet lines in a row from the same side, a few minutes apart at most, are one line ("You talked ×3 · 0:05").
+        val traceRuns = remember(messages, talk.own?.clip, talk.talkers[user]?.clip) {
+            val shownAt = HashMap<String, Pair<Int, Long>>()
+            val hidden = HashSet<String>()
+            var run = mutableListOf<TextMessage>()
+            fun close() {
+                if (run.isEmpty()) return
+                val last = run.last()
+                shownAt[last.id] = run.size to run.sumOf { it.clip?.durationMs ?: 0L }
+                run.dropLast(1).forEach { hidden += it.id }
+                run = mutableListOf()
+            }
+            for (m in messages) {
+                val c = m.clip
+                val trace = c != null && !m.deleted && !keeps(m) && c.durationMs >= 500 && talk.own?.clip != m.id && talk.talkers[user]?.clip != m.id
+                if (!trace) {
+                    if (c == null || keeps(m) || m.deleted) close()
+                    continue
+                }
+                val prev = run.lastOrNull()
+                if (prev != null && (prev.outgoing != m.outgoing || prev.author != m.author || prev.clip?.video != c!!.video || m.at - prev.at > 5 * 60_000)) close()
+                run += m
+            }
+            close()
+            shownAt to hidden
+        }
         val ticks = remember(messages, group != null) { if (group != null) messages.associate { it.id to ReadMarks.groupTick(messages, it) } else ReadMarks.ticks(messages) }
         // The draft and the buttons float over the chat (2026-11-23, hen: no band behind them): the list scrolls
         // under them to the bottom of the screen, with room at its end so its last message clears them.
@@ -638,9 +664,10 @@ private fun ConversationScreenIn(
                     if (message.clip != null && !message.deleted && !keeps(message)) {
                         // Still being recorded (waiting for the floor) or live: nothing yet.
                         val liveNow = message.clip!!.durationMs < 500 || talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id || (talk.playing?.clip == message.id && talk.playing?.live == true)
-                        if (!liveNow) item(key = message.id) {
+                        val runOf = traceRuns.first[message.id]
+                        if (!liveNow && message.id !in traceRuns.second) item(key = message.id) {
                             Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) {
-                                TalkTrace(message, if (group != null) message.author ?: message.user else contact?.name ?: user)
+                                TalkTrace(message, if (group != null) message.author ?: message.user else contact?.name ?: user, runOf?.first ?: 1, runOf?.second ?: (message.clip?.durationMs ?: 0L))
                             }
                         }
                         return@forEach
