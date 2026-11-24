@@ -30,7 +30,14 @@ import com.chencohen.ptt.talk.TalkVideo
 internal fun InlineVideo(id: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var frames by remember(id) { mutableStateOf(InlineVideoFrames.cached(id)) }
-    LaunchedEffect(id) { if (frames == null) frames = InlineVideoFrames.load(context, id) }
+    // Its frames may not be on the phone yet (the burst still coming, or its upload not done): tried again until they are.
+    LaunchedEffect(id) {
+        var tries = 0
+        while (frames.isNullOrEmpty() && tries++ < 60) {
+            frames = InlineVideoFrames.load(context, id)
+            if (frames.isNullOrEmpty()) kotlinx.coroutines.delay(1_500)
+        }
+    }
     val f = frames ?: return
     if (f.isEmpty()) return
     val loop = remember(id) { arrayOfNulls<VideoLoop>(1) }
