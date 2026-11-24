@@ -336,6 +336,30 @@ internal class MessagingStore(val store: SecureStore) {
         }
     }
 
+    /** [user]'s picture (this user's own: ""), a small WebP with a clear background; null: none. */
+    fun picture(user: String): ByteArray? = store.get(Spaces.PICTURES, user)
+
+    /** Which picture [user] has (this user's own: ""); null: none. */
+    fun pictureId(user: String): String? = store.get(Spaces.PICTURE_IDS, user)?.decodeToString()
+
+    /** Every user with a picture here, with its id. */
+    fun pictureIds(): Map<String, String> = store.keys(Spaces.PICTURE_IDS).associateWith { pictureId(it).orEmpty() }
+
+    fun putPicture(user: String, id: String, bytes: ByteArray) {
+        store.put(Spaces.PICTURES, user, bytes)
+        store.put(Spaces.PICTURE_IDS, user, id.encodeToByteArray())
+    }
+
+    fun removePicture(user: String) {
+        store.remove(Spaces.PICTURES, user)
+        store.remove(Spaces.PICTURE_IDS, user)
+    }
+
+    /** The id of this user's picture last sent to [chat] (a contact or a group), or NO_PICTURE; null: never. */
+    fun pictureSent(chat: String): String? = store.get(Spaces.PICTURE_SENT, chat)?.decodeToString()
+
+    fun putPictureSent(chat: String, id: String) = store.put(Spaces.PICTURE_SENT, chat, id.encodeToByteArray())
+
     fun groups(): List<Group> = all(Spaces.GROUPS, Group.serializer())
 
     fun group(id: String): Group? = read(Spaces.GROUPS, id, Group.serializer())

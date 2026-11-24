@@ -82,6 +82,11 @@ data class MessagingState(
     val live: com.chencohen.ptt.talk.LiveState = com.chencohen.ptt.talk.LiveState(),
     /** The call on this phone (phase 6); null when none. */
     val call: com.chencohen.ptt.calls.CallUi? = null,
+    /**
+     * Who has a picture (2026-11-24, hen), with its id, by user; this user's own under "". The picture itself:
+     * [Messaging.picture].
+     */
+    val pictures: Map<String, String> = emptyMap(),
 )
 
 /** Settings › Talk, and each chat's When I'm away. */
@@ -370,6 +375,7 @@ internal class Messaging(
         onEdit = { group, author, edit -> takeEdit(group.chat, author, mine = author == device()?.user, edit) },
         onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
         onViewing = { group, author, open -> if (author != device()?.user) takeViewing(typingKey(group.chat, author), open) },
+        onProfile = { _, author, profile -> if (author != device()?.user) takePicture(author, profile) },
         onTyping = { group, author, typing ->
             val key = typingKey(group.chat, author)
             _state.update { it.copy(typing = if (typing.typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing.typing, typing.draft, typing.selStart, typing.selEnd)) }
@@ -493,7 +499,7 @@ internal class Messaging(
         updateViewing()
         open()
         // Once a run: this user's email to contacts (some paired since it was last said).
-        if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET)) {
+        if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET || store.pictureId("") != null)) {
             profileShared = true
             scope.launch {
                 socket.state.first { it is SocketState.Live }
@@ -1274,21 +1280,62 @@ internal class Messaging(
         shareProfile()
     }
 
-    /** Tells each paired contact this user's email (also when the app opens, for contacts paired since). */
+    /**
+     * Tells each paired contact this user's email, gender and picture (also when the app opens, for contacts paired
+     * since); each group gets the picture. The picture itself goes only where its id wasn't sent yet.
+     */
     fun shareProfile() {
         val email = settings.myEmail.orEmpty()
         val contacts = store.contacts().filter { it.paired && !it.blocked }
-        if (contacts.isEmpty()) return
+        val inGroups = store.groups().filter { !it.gone && it.members.isNotEmpty() }
+        if (contacts.isEmpty() && inGroups.isEmpty()) return
         scope.launch {
+            val id = store.pictureId("") ?: ProfileContent.NO_PICTURE
+            val bytes = store.picture("")
+            fun picture(chat: String) = if (bytes != null && id != ProfileContent.NO_PICTURE && store.pictureSent(chat) != id) bytes else ByteArray(0)
             for (c in contacts) {
                 try {
-                    sender.send(c.user, Content(profile = ProfileContent(email, settings.myGender)), pushKind = PushKind.NONE)
+                    sender.send(c.user, Content(profile = ProfileContent(email, settings.myGender, id, picture(c.user))), pushKind = PushKind.NONE)
+                    store.putPictureSent(c.user, id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+            for (g in inGroups) {
+                if (store.pictureSent(g.chat) == id) continue
+                try {
+                    groups.send(g.id, Content(profile = ProfileContent(pictureId = id, picture = picture(g.chat))), PushKind.NONE)
+                    store.putPictureSent(g.chat, id)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
                 }
             }
         }
+    }
+
+    /** [user]'s picture (this user's own: ""), a small WebP with a clear background; null: none. */
+    fun picture(user: String): ByteArray? = store.picture(user)
+
+    /** This user's picture ([image] null: none), shown on their contacts' and groups' phones too, end to end. */
+    fun setMyPicture(image: ByteArray?) {
+        if (image == null || image.isEmpty()) store.removePicture("")
+        else store.putPicture("", random.nextBytes(8).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }, image.copyOf())
+        publish()
+        shareProfile()
+    }
+
+    /** [user]'s picture as their phone said ([ProfileContent]): kept, gone, or (no bytes, not said) unchanged. */
+    private fun takePicture(user: String, profile: ProfileContent) {
+        val id = profile.pictureId
+        when {
+            id.isEmpty() -> return
+            id == ProfileContent.NO_PICTURE -> if (store.pictureId(user) != null) store.removePicture(user) else return
+            profile.picture.isNotEmpty() && profile.picture.size <= MAX_PICTURE_BYTES -> if (store.pictureId(user) != id) store.putPicture(user, id, profile.picture) else return
+            else -> return
+        }
+        publish()
     }
 
     /** This user's own name for [user] ([name] blank: back to theirs), on all of this user's phones. */
@@ -1839,6 +1886,7 @@ internal class Messaging(
             }
         }
         content.profile?.let { profile ->
+            takePicture(contact.user, profile)
             store.contact(contact.user)?.let { c ->
                 val email = profile.email.trim().take(254).ifBlank { null }
                 val gender = profile.gender.takeIf { it == Gender.MALE || it == Gender.FEMALE } ?: Gender.NOT_SET
@@ -1895,6 +1943,7 @@ internal class Messaging(
                 conversations = messages.groupBy { it.user },
                 unread = messages.filter { !it.outgoing && !it.read }.groupingBy { it.user }.eachCount(),
                 groups = store.groups().sortedBy { it.createdAt },
+                pictures = store.pictureIds(),
             )
         }
     }
@@ -1908,6 +1957,9 @@ internal class Messaging(
 
         /** How long "typing…" shows after the last typing message, unless a text or a stop comes first. */
         const val TYPING_FOR = 8_000L
+
+        /** The largest picture taken from a contact or group member (pictures are made at about 20 KB). */
+        const val MAX_PICTURE_BYTES = 96_000
 
         /** Live typing: at most one draft this often (about ten a second), the newest text. */
         const val DRAFT_EVERY = 100L

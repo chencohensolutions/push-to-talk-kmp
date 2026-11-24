@@ -434,3 +434,15 @@ suspend fun clipContents(context: Context, id: String): com.chencohen.ptt.talk.C
     val messaging = hub(context)
     return withContext(messagingWork) { messaging.talk.clipContents(id) }
 }
+
+/** [user]'s picture (this user's own: ""), a small WebP with a clear background; null: none (2026-11-24, hen). */
+suspend fun pictureOf(context: Context, user: String): ByteArray? {
+    val messaging = hub(context)
+    return withContext(messagingWork) { messaging.picture(user) }
+}
+
+/** This user's picture ([image] null: none), end to end to their contacts and groups. */
+fun setMyPicture(context: Context, image: ByteArray?) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.setMyPicture(image) }
+}

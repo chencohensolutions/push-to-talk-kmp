@@ -51,13 +51,29 @@ internal data class Content(
     @ProtoNumber(21) val viewing: ViewingContent? = null,
 )
 
-/** What a user shares with their paired contacts about themselves: their email ("" none; Settings › Contacts). */
+/**
+ * What a user shares with their paired contacts about themselves: their email ("" none; Settings › Contacts), and
+ * their picture (2026-11-24, hen). In a group, only the picture counts.
+ */
 @Serializable
 internal data class ProfileContent(
     @ProtoNumber(1) val email: String = "",
     /** How the app should refer to the sender (Gender); older apps send none (not set). */
     @ProtoNumber(2) val gender: Int = 0,
-)
+    /** Which picture the sender has: "" not said (older apps), [NO_PICTURE] none, else its id. */
+    @ProtoNumber(3) val pictureId: String = "",
+    /** The picture itself (a small WebP with a clear background), only to whoever doesn't have [pictureId] yet; else empty. */
+    @ProtoNumber(4) val picture: ByteArray = ByteArray(0),
+) {
+    override fun equals(other: Any?): Boolean = other is ProfileContent && email == other.email && gender == other.gender &&
+        pictureId == other.pictureId && picture.contentEquals(other.picture)
+
+    override fun hashCode(): Int = email.hashCode() * 31 + pictureId.hashCode()
+
+    companion object {
+        const val NO_PICTURE = "-"
+    }
+}
 
 /** The sender's Talk screen or reply bubble for this chat is open ([open]); said again every 20 s while it is. */
 /**

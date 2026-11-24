@@ -34,11 +34,19 @@ import com.chencohen.ptt.ui.style.LibraryType
 
 // The pieces the contact screens share (docs/screens/contacts.md): the letter circle and a contact's row.
 
-/** A contact's first letter in a Raised circle (no pictures yet); the profile circle is the one in ink. */
+/**
+ * [user]'s face: their picture when they have one (2026-11-24, hen: an illustrated face on a clear background, drawn
+ * free-standing, no disc and no crop), else [name]'s first letter in a Raised circle.
+ */
 @Composable
-internal fun Avatar(user: String, size: Dp = 48.dp) {
+internal fun Avatar(user: String, size: Dp = 48.dp, name: String = user) {
+    val face = com.chencohen.ptt.ui.face.faceOf(user)
+    if (face != null) {
+        androidx.compose.foundation.Image(face, name, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.size(size))
+        return
+    }
     Box(Modifier.size(size).clip(CircleShape).background(LibraryColors.Raised), contentAlignment = Alignment.Center) {
-        val letter = user.firstOrNull()?.uppercaseChar()
+        val letter = name.firstOrNull()?.uppercaseChar()
         if (letter != null) {
             Text(letter.toString(), color = LibraryColors.OnBackground, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
         } else {

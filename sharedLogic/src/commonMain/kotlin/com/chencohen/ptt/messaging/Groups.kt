@@ -61,6 +61,7 @@ internal class Groups(
     private val onDelete: (group: Group, author: String, delete: DeleteContent) -> Unit = { _, _, _ -> },
     /** A member has the group's chat in view, or left it (ViewingContent). */
     private val onViewing: (group: Group, author: String, open: Boolean) -> Unit = { _, _, _ -> },
+    private val onProfile: (group: Group, author: String, profile: ProfileContent) -> Unit = { _, _, _ -> },
     private val attempts: Int = 3,
 ) {
     private fun self(): EnrolledDevice = me() ?: throw IllegalStateException("This phone isn't registered")
@@ -430,6 +431,7 @@ internal class Groups(
         content.edit?.let { onEdit(group, author, it) }
         content.delete?.let { onDelete(group, author, it) }
         content.viewing?.let { onViewing(group, author, it.open) }
+        content.profile?.let { onProfile(group, author, it) }
         content.receipt?.takeIf { it.read && author != self.user }?.let { onRead(group, author, it.ids) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }
         content.talkKey?.let { onTalkKey("$author.${envelope.senderDevice}", it) }

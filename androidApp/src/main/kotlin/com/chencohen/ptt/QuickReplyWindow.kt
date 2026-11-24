@@ -481,7 +481,7 @@ object QuickReplyWindow {
                     Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = stringResource(R.string.quick_reply_open)) { openChat(context, current) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Avatar(title, size = 36.dp)
+                    Avatar(current, size = 36.dp, name = title)
                     Column(Modifier.padding(start = 10.dp)) {
                         Text(title, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
                         androidx.compose.animation.AnimatedVisibility(typing || online) {

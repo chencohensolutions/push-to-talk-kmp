@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.io.encoding.Base64
 import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
@@ -278,6 +279,34 @@ class GroupsTest {
         assertTrue(server.groups.isEmpty())
         // A text to a gone group fails at once.
         assertEquals(MessageStatus.FAILED, dana.messaging.sendText(Group.chatOf(id), "anyone?").status)
+        listOf(hen, dana, noa).forEach { it.stop() }
+    }
+
+    @Test
+    fun picturesReachContactsAndGroupMembers() = runTest {
+        // 2026-11-24 (hen): a picture goes end to end to contacts and to each group; only once each, and its removal too.
+        val server = FakeServer()
+        val (hen, dana, noa) = trip(server)
+        val id = makeTrip(hen, dana, noa)
+        val face = ByteArray(2_000) { (it % 251).toByte() }
+        hen.messaging.setMyPicture(face)
+        advanceUntilIdle()
+        val pictureId = hen.state.pictures[""]
+        assertNotNull(pictureId)
+        for (phone in listOf(dana, noa)) {
+            assertEquals(pictureId, phone.state.pictures["hen"], "${phone.user} got it")
+            assertContentEquals(face, phone.messaging.picture("hen"))
+        }
+        // Said again (the app opened): no second copy of the bytes.
+        val before = server.groupSends.size
+        hen.messaging.shareProfile()
+        advanceUntilIdle()
+        assertEquals(before, server.groupSends.size, "the group already has this picture")
+
+        hen.messaging.setMyPicture(null)
+        advanceUntilIdle()
+        assertNull(hen.state.pictures[""])
+        for (phone in listOf(dana, noa)) assertNull(phone.state.pictures["hen"], "${phone.user}: gone")
         listOf(hen, dana, noa).forEach { it.stop() }
     }
 

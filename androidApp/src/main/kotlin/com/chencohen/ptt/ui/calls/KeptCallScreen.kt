@@ -341,7 +341,7 @@ private fun KeptCallPlayer(ready: KeptLoad.Ready) {
                                 }
                                 VideoTile(players[i], sizes[i] ?: (4f / 3f), rotation, view?.takeIf { it.fill }?.aspect)
                             } else {
-                                Avatar(person.name, size = 96.dp)
+                                Avatar(person.identity.substringBeforeLast('.'), size = 96.dp, name = person.name)
                             }
                             Text(
                                 person.name, color = Color.White, style = LibraryType.Small,
