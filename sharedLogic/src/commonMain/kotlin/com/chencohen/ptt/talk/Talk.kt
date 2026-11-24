@@ -852,7 +852,7 @@ internal class Talk(
             val bytes = clips.read(id) ?: try {
                 val buffer = mutableListOf<ByteArray>()
                 blobs.read(id) { buffer += it }
-                concat(buffer).also { clips.write(id, it) }
+                concat(buffer).also { whole -> if (runCatching { ClipRecords.parse(whole) }.getOrNull()?.any { it.last } == true) clips.write(id, whole) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -883,7 +883,8 @@ internal class Talk(
         val bytes = clips.read(id) ?: try {
             val buffer = mutableListOf<ByteArray>()
             blobs.read(id) { buffer += it }
-            concat(buffer).also { clips.write(id, it) }
+            // Kept only when whole (its last segment there): a part of one isn't kept for good.
+            concat(buffer).also { whole -> if (runCatching { ClipRecords.parse(whole) }.getOrNull()?.any { it.last } == true) clips.write(id, whole) }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
