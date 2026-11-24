@@ -983,7 +983,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                         Spacer(Modifier.height(96.dp))
                         EmptyTab(LibraryIcons.Call, stringResource(R.string.calls_empty))
                     } else {
-                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact, actions.shareCall, actions.playKept, actions.saveKept, messagingState.talkSettings.downloadedCalls)
+                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact, actions.shareCall, actions.playKept, actions.saveKept, state.messaging.talkSettings.downloadedCalls)
                     }
                 }
             }
