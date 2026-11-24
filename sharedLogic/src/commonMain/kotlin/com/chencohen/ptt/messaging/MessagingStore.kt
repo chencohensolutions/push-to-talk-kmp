@@ -35,6 +35,8 @@ data class Contact(
     val email: String? = null,
     /** The email their own phone shared (ProfileContent, end to end); null: not shared. */
     val theirEmail: String? = null,
+    /** How they want to be referred to (Gender), from their own phone (ProfileContent). */
+    val theirGender: Int = 0,
 ) {
     /** The email shown and put in Android Contacts: this user's, else theirs. */
     val shownEmail: String? get() = email?.takeIf { it.isNotBlank() } ?: theirEmail?.takeIf { it.isNotBlank() }
@@ -95,6 +97,12 @@ data class TextMessage(
     val readAt: Long? = null,
     /** In a group: who has read it (mine only), and when (this phone's clock as each receipt came). */
     val readBy: Map<String, Long> = emptyMap(),
+    /** Edited by its author (2026-11-24, hen): when, on the author's clock; the chat says "edited". */
+    val editedAt: Long? = null,
+    /** When it reached their phone (this phone's clock as the receipt came; mine, one-to-one). */
+    val deliveredAt: Long? = null,
+    /** Deleted by its author (2026-11-24, hen): only "Message deleted" is left of it here. */
+    val deleted: Boolean = false,
 )
 
 /** How a call went, for the chat and the Calls tab. */
@@ -319,6 +327,8 @@ internal class MessagingStore(val store: SecureStore) {
     fun messagesWith(user: String): List<TextMessage> = messages().filter { it.user == user }
 
     fun message(id: String): TextMessage? = messages().firstOrNull { it.id == id }
+
+    fun removeMessage(message: TextMessage) = store.remove(Spaces.MESSAGES, message.at.toString().padStart(15, '0') + "-" + message.id)
 
     fun removeMessagesOf(user: String) {
         store.keys(Spaces.MESSAGES).forEach { key ->

@@ -136,6 +136,8 @@ class HomeActions(
     val playKept: (com.chencohen.ptt.messaging.TextMessage) -> Unit = {},
     /** Push-to-video switched on a Talk screen; the camera warm for a chat (null: none). */
     val setPushVideo: (chat: String, video: Boolean) -> Unit = { _, _ -> },
+    /** How the app refers to this user (the card on Chats). */
+    val setMyGender: (Int) -> Unit = {},
     val warmCamera: (String?) -> Unit = {},
     /** A Talk page open ("here" to its user). */
     val setHere: (String?) -> Unit = {},
@@ -300,6 +302,7 @@ fun HomeApp(
                         playKept = ::playKept,
                         saveKept = ::saveKept,
                         setPushVideo = { chat, on -> onTalkSettings(messagingState.talkSettings.withVideoFor(chat, on)) },
+                        setMyGender = { g -> messaging.setMyGender(g) },
                         warmCamera = messaging::warmCamera,
                         setHere = messaging::setHere,
                         pressTalk = { chat -> pressOrUnlock(chat) },
@@ -332,6 +335,12 @@ fun HomeApp(
                         contacts = messagingState.contacts,
                         myEmail = messaging.myEmail,
                         setMyEmail = { email -> messaging.setMyEmail(email) },
+                        myGender = messaging.myGender,
+                        setMyGender = { g ->
+                            messaging.setMyGender(g)
+                            com.chencohen.ptt.ui.settings.GenderAsked.mark(context)
+                            com.chencohen.ptt.Gendered.applyMine(context, g)
+                        },
                         softMessage = messagingState.talkSettings.softMessage,
                         setSoftMessage = { soft -> onTalkSettings(messagingState.talkSettings.copy(softMessage = soft)) },
                         presenceVisible = presenceVisible,
@@ -605,8 +614,10 @@ fun HomeApp(
                         messages = messagingState.conversations[user].orEmpty(),
                         header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
                         drafts = liveDrafts(messagingState.drafts, user, now, Group.idOf(user) != null),
+                        draftCarets = liveCarets(messagingState.drafts, user, Group.idOf(user) != null),
                         pushVideo = messagingState.talkSettings.pushVideoFor(user),
                         presences = messagingState.presence,
+                        liveEdits = messagingState.liveEdits,
                         warmCamera = messaging::warmCamera,
                         group = Group.idOf(user)?.let { id ->
                             val me = state.device?.user.orEmpty()
@@ -615,7 +626,7 @@ fun HomeApp(
                                 name = group?.let { groupName(it) } ?: resources.getString(R.string.group_unnamed),
                                 picture = group?.picture,
                                 line = when {
-                                    typers.isNotEmpty() -> resources.getString(R.string.group_typing, typers.joinToString(", "))
+                                    typers.isNotEmpty() -> com.chencohen.ptt.Gendered.stringFor(context, R.string.group_typing, typers, typers.joinToString(", "))
                                     else -> resources.getQuantityString(R.plurals.group_members, group?.readers?.size ?: 0, group?.readers?.size ?: 0)
                                 },
                                 note = when {
@@ -637,7 +648,7 @@ fun HomeApp(
                             },
                             retry = messaging::retry,
                             typing = { messaging.typing(user, it) },
-                            draft = { text -> if (text.isEmpty()) messaging.draftDone(user) else messaging.draft(user, text) },
+                            draft = { text, s, e -> if (text.isEmpty()) messaging.draftDone(user) else messaging.draft(user, text, s, e) },
                             playClip = messaging::playClip,
                             saveClip = { id -> saveBurst(context, id, nameOf(user), messages) },
                             stopClip = messaging::stopPlaying,
@@ -649,6 +660,10 @@ fun HomeApp(
                             call = { video -> call(user, video) },
                             shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                             playKept = ::playKept,
+                            setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.withVideoFor(user, on)) },
+                            edit = { id, body -> messaging.editText(id, body) },
+                            editLive = { id, text, s, e -> messaging.editLive(id, text, s, e) },
+                            delete = { ids, everyone -> messaging.deleteMessages(ids, everyone) },
                         ),
                         talk = messagingState.talk,
                         talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
@@ -839,6 +854,23 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
             val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
             Column(Modifier.fillMaxSize().padding(top = insets.calculateTopPadding() + 8.dp, bottom = insets.calculateBottomPadding() + if (landscape) 60.dp else 80.dp)) {
             state.update?.let { release -> UpdateCard(release, actions.update) }
+            // Once, for those who never said how the app should refer to them (2026-11-23, hen).
+            val homeContext = androidx.compose.ui.platform.LocalContext.current
+            var genderAsked by remember { mutableStateOf(com.chencohen.ptt.ui.settings.GenderAsked.asked(homeContext)) }
+            if (!genderAsked && tab == HomeTab.CHATS) {
+                com.chencohen.ptt.ui.settings.GenderCard(
+                    choose = { g ->
+                        actions.setMyGender(g)
+                        com.chencohen.ptt.ui.settings.GenderAsked.mark(homeContext)
+                        com.chencohen.ptt.Gendered.applyMine(homeContext, g)
+                        genderAsked = true
+                    },
+                    dismiss = {
+                        com.chencohen.ptt.ui.settings.GenderAsked.mark(homeContext)
+                        genderAsked = true
+                    },
+                )
+            }
             com.chencohen.ptt.ui.talk.QuickTalkHome(
                 pages = pages,
                 startPage = com.chencohen.ptt.talk.QuickTalk.startPage(pages.map { it.chat }, chats.talkSettings.quickTalkPage),
@@ -1207,6 +1239,14 @@ private fun saveBurst(context: android.content.Context, id: String, title: Strin
 }
 
 /** Live drafts in [chat] still fresh at [now]: (who, text); who is null in a one-to-one chat. */
+/** Where each live writer's caret is in [chat]: by who ("" one-to-one), start to end; only those that said. */
+internal fun liveCarets(drafts: Map<String, com.chencohen.ptt.messaging.Draft>, chat: String, group: Boolean): Map<String, Pair<Int, Int>> =
+    if (group) {
+        drafts.filter { (k, d) -> k.startsWith("$chat/") && d.selEnd >= 0 }.map { (k, d) -> k.substringAfter('/') to (d.selStart to d.selEnd) }.toMap()
+    } else {
+        drafts[chat]?.takeIf { it.selEnd >= 0 }?.let { mapOf("" to (it.selStart to it.selEnd)) } ?: emptyMap()
+    }
+
 internal fun liveDrafts(drafts: Map<String, com.chencohen.ptt.messaging.Draft>, chat: String, now: Long, group: Boolean): List<Pair<String?, String>> =
     if (group) {
         drafts.filter { (k, d) -> k.startsWith("$chat/") && now - d.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }

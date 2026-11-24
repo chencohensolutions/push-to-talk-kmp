@@ -77,6 +77,11 @@ class MessagingController internal constructor(
     /** This user's own email, shared with their paired contacts (blank: none). */
     fun setMyEmail(email: String) = onWork { messaging.setMyEmail(email) }
 
+    /** How the app refers to this user (Gender), shared with contacts. */
+    val myGender: Int get() = messaging.myGender
+
+    fun setMyGender(gender: Int) = onWork { messaging.setMyGender(gender) }
+
     /** Rename: this user's own name for [user] (blank: back to theirs). */
     fun renameContact(user: String, name: String) {
         scope.launch { withContext(work) { messaging.rename(user, name) } }
@@ -131,10 +136,22 @@ class MessagingController internal constructor(
     }
 
     /** Live typing: the line to [user] is [text] now (sent only when the setting is on; throttled there). */
-    fun draft(user: String, text: String) = onWork { messaging.draft(user, text) }
+    fun draft(user: String, text: String, selStart: Int = -1, selEnd: Int = -1) = onWork { messaging.draft(user, text, selStart, selEnd) }
 
     /** The line to [user] was sent: no more drafts for it. */
     fun draftDone(user: String) = onWork { messaging.draftDone(user) }
+
+    /** Edit my sent text [id] (2026-11-24, hen). */
+    fun editText(id: String, body: String) = onWork { messaging.editText(id, body) }
+
+    /** Delete my message [id] for everyone (2026-11-24, hen). */
+    fun deleteMessage(id: String) = onWork { messaging.deleteMessage(id) }
+
+    /** Delete [ids] for everyone (mine only) or from this phone only. */
+    fun deleteMessages(ids: List<String>, forEveryone: Boolean) = onWork { if (forEveryone) messaging.deleteMessages(ids) else messaging.deleteForMe(ids) }
+
+    /** Editing [id] live (null: cancelled). */
+    fun editLive(id: String, text: String?, selStart: Int = -1, selEnd: Int = -1) = onWork { messaging.editLive(id, text, selStart, selEnd) }
 
     /** Typing to [user] started or stopped (the screen throttles it). */
     fun typing(user: String, typing: Boolean) {

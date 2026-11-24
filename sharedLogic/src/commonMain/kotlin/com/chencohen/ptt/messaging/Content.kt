@@ -43,13 +43,49 @@ internal data class Content(
     @ProtoNumber(17) val here: HereContent? = null,
     /** The sender's own profile for a paired contact (their email, which they chose to share). */
     @ProtoNumber(18) val profile: ProfileContent? = null,
+    /** A sent text edited (2026-11-24, hen), or being edited live. Older apps skip the field. */
+    @ProtoNumber(19) val edit: EditContent? = null,
+    /** The author deleted their message for everyone (2026-11-24, hen). Older apps skip the field. */
+    @ProtoNumber(20) val delete: DeleteContent? = null,
 )
 
 /** What a user shares with their paired contacts about themselves: their email ("" none; Settings › Contacts). */
 @Serializable
-internal data class ProfileContent(@ProtoNumber(1) val email: String = "")
+internal data class ProfileContent(
+    @ProtoNumber(1) val email: String = "",
+    /** How the app should refer to the sender (Gender); older apps send none (not set). */
+    @ProtoNumber(2) val gender: Int = 0,
+)
 
 /** The sender's Talk screen or reply bubble for this chat is open ([open]); said again every 20 s while it is. */
+/**
+ * An edit of the author's own text [id] (2026-11-24, hen). [stage] FINAL: its text is [body] now, edited at [editedAt]
+ * (sent like any text, kept and pushed silently). LIVE: being edited, [body] as it stands (empty and [hidden] when the
+ * author's Live typing is off: only that it is being edited); live only, never kept. CANCEL: the live edit ended
+ * unchanged.
+ */
+@Serializable
+internal data class EditContent(
+    @ProtoNumber(1) val id: String = "",
+    @ProtoNumber(2) val body: String = "",
+    @ProtoNumber(3) val editedAt: Long = 0,
+    @ProtoNumber(4) val stage: Int = FINAL,
+    @ProtoNumber(5) val hidden: Boolean = false,
+    /** LIVE: where the editor's caret is in [body], and the selection's end (2026-11-24, hen); -1: not said. */
+    @ProtoNumber(6) val selStart: Int = -1,
+    @ProtoNumber(7) val selEnd: Int = -1,
+) {
+    companion object {
+        const val FINAL = 0
+        const val LIVE = 1
+        const val CANCEL = 2
+    }
+}
+
+/** Message [id] deleted by its author, for everyone. */
+@Serializable
+internal data class DeleteContent(@ProtoNumber(1) val id: String = "")
+
 @Serializable
 internal data class HereContent(@ProtoNumber(1) val open: Boolean = false)
 
@@ -201,6 +237,9 @@ internal data class TypingContent(
      * written, deletions included; "" when it was emptied. Older apps skip it and see only "typing".
      */
     @ProtoNumber(2) val draft: String? = null,
+    /** Where the writer's caret is in [draft] (2026-11-24, hen), and the selection's end; -1: not said. */
+    @ProtoNumber(3) val selStart: Int = -1,
+    @ProtoNumber(4) val selEnd: Int = -1,
 )
 
 /**

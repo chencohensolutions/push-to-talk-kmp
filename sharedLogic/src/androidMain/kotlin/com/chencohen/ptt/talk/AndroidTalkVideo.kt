@@ -122,6 +122,23 @@ class AndroidTalkVideoCapture(
         handler?.post { close() }
     }
 
+    /**
+     * A call's camera is about to open (2026-11-24, hen: no own video in calls): the push-to-video camera lets go now,
+     * and this returns once it has (at most [waitMs]), so the two never fight over the front camera. (No warm comes
+     * during a call: Messaging keeps it cool while there is one.)
+     */
+    fun handOver(waitMs: Long = 800) {
+        val h = synchronized(lock) {
+            warmWanted = false
+            handler
+        } ?: return
+        val done = java.util.concurrent.CountDownLatch(1)
+        if (!h.post { close(); done.countDown() }) return
+        if (!done.await(waitMs, java.util.concurrent.TimeUnit.MILLISECONDS)) Log.w(TAG, "push-to-video camera still closing at the call's start")
+        else Log.i(TAG, "push-to-video camera handed to the call")
+    }
+
+
     override fun start(onFrame: (TalkVideo.Frame) -> Unit): Boolean {
         val enc = synchronized(lock) {
             val enc = encoder ?: return false

@@ -38,6 +38,41 @@ at the bottom as an outlined "Writing…" bubble (in a group, "Dana is writing�
 too; the message replaces it, and it fades 20 s after their last change.
 A growing draft stays in view when the list is at the bottom; when the message comes, the draft turns into it in place
 (250 ms: the outline fills, "Writing…" folds away, the time fades in), in the chat and the quick-reply window alike.
+2026-11-24 (hen): the draft and its message are one list item (one key, `LiveKeys`), so nothing is removed and added:
+no jump, and nothing scrolls when it turns (it is in place already); if the message differs from the last draft its
+text crossfades. Their draft counts as a new message for scrolling: appearing or growing at the bottom, the list glides
+to it; erased, it shrinks away and the list glides back.
+
+**Scrolling to new messages** (2026-11-24, hen): at the bottom, a new message (or one sent) glides the list to the new
+end, eased over 300 ms, after the new item is laid out, landing exactly at the bottom (`glideToEnd`). Scrolled up, the
+list stays and the "New message" chip shows.
+
+**Send's flight** (2026-11-24, hen): the bubble written in becomes the sent message. A copy is drawn over the chat from
+the draft's place to the message's slot (kept unseen at the end of the list, scrolled into view, wherever the keyboard
+puts it), 300 ms on one easing: the coral outline gives way to the teal fill, it moves and resizes with the text at its
+size, "Your message" fades out and the time and status circle fade in. At the end the message shows and the copy goes in
+the same frame. As it leaves, a new empty draft pops up in the pinned place (from 0.85 with a fade, 200 ms), the keyboard
+still up and focused on it. The same in the quick-reply window.
+
+**The keyboard** (2026-11-24, hen): the chat follows the keyboard's animation frame by frame (its insets, `imePadding`,
+with the activity edge to edge and adjustResize); the list, upside down, stays anchored at its bottom and rides up and
+down with it, with no scroll afterwards. The button row folds away by the same amount the keyboard is open (no
+animation of its own), and the room under the list is the pinned draft and the row as measured, every frame. The
+quick-reply window isn't fitted by the system any more: it grows upward by the keyboard's height as it animates.
+
+**Right to left** (2026-11-24, hen's phone is in Hebrew): pivots are left-based, so a bubble grows from its own side
+(`sideOrigin`: theirs from the start, the right in Hebrew; mine from the end); Send's flying copy covers the whole chat
+and is placed at its window position with `place()` (not mirrored), so it flies to its slot rather than to the mirror
+of it. Tested in RtlTransitionsTest.
+
+**Voice | video** (2026-11-24, hen): an upright two-part switch at the right edge, beside the big push-to-talk button,
+a microphone over a camera (icons only; the fill slides between them). The big
+button's icon follows it (walkie-talkie or camera, crossfading). The choice is kept per contact, the same memory as the
+reply bubble's Voice | Video, so the chat, the quick-reply window and the bubble agree. In Video the front camera
+opens as soon as the chat shows (warm, so a press sends video at once) and my picture shows small on the button's
+corner; it's let go on Voice, leaving the chat, the app going to the background, or a minute untouched, and opens again
+on return or at the next touch. It folds away with the button row while writing. The first Video asks for the camera
+(from the quick-reply window, the chat opens for that).
 
 **Writing in the chat** (2026-11-23, hen, from the approved mockup "chat-typing-in-chat"): there is no line to write in
 at the bottom. The last thing in the chat is an empty dashed bubble on this phone's side, "Write a message…"; a tap
@@ -52,7 +87,7 @@ and the button is Send meanwhile. The header keeps the name, presence and Talk m
 old line had no attachments, so nothing else needed a new place.
 
 **How far they read** (2026-11-23, hen, from the approved mockups; `ReadMarks`): no "Read" word. Beside the time of
-each message of mine they haven't read, one small circle (hen picked "filling circle"): a dashed ring turning slowly
+each message of mine they haven't read, one small circle (hen picked "filling circle"; replaced by envelopes 2026-11-24, see Status marks below): a dashed ring turning slowly
 while sending, an empty ring once the server has it, a solid dot once it is on their phone, nothing once read; each
 change eases (the ring closes, then fills). Their small letter circle sits right after the last message of mine they
 read, gliding down as they read; a tap shows when they read it ("read 20:44"). When they read everything it sits at the
@@ -84,3 +119,83 @@ much later it started, both a little smaller.
 **The draft is pinned** (2026-11-23, hen): this phone's draft bubble (and a voice message's recording strip) is not
 in the list: it sits fixed under the chat, above the keyboard or the buttons, and grows upwards; the chat is laid out
 above it and scrolls behind nothing. On Send the message fills in at the end of the list and the pinned draft empties.
+
+
+**The button row, on the screen itself** (2026-11-24, hen): laid out left to right the same in Hebrew and English, so
+the thumb finds it in one place: Voice message, Voice call, Video call, then the big push-to-talk button near the right
+edge and the upright Voice | video switch at the edge; my camera's thumbnail on the button's top-left corner.
+
+**The writing bubble** (2026-11-24, hen: "a bit wider"): the empty "Write a message" one is 38.2% of the row (1 − 0.618, the golden ratio); writing,
+it starts at that width (nothing shrinks as the first letter goes in) and grows with the text, at once, up to 85%,
+then wraps (`draftWidth`); anchored on my side (the left in Hebrew, `MySide`). Sent bubbles keep their 78% at most, and
+Send's flight eases the width from one to the other. The edit box takes the same widths, never narrower than the
+bubble was; the text wraps inside it, and past 6 lines it scrolls inside
+with the caret in view. Their live draft follows its text at once too; only its turn into the message eases. Its
+place, and the row's folding, come straight from the keyboard's animated insets, frame by frame.
+
+**Typing reads** (2026-11-24, hen): typing or a live draft to them marks what they wrote read first, the receipt before
+the draft (Messaging.sendTyping, draft). In the quick-reply window, opening the draft, talking or sending reads them;
+only showing the window doesn't.
+
+
+**Editing a sent text** (2026-11-24, hen): a double tap on one of my texts turns it in place (200 ms) into the writing
+bubble's look, the caret where the finger was (the text's own layout, right to left too), the keyboard up. The box
+keeps the bubble's bounds: the same width, place and lines; only its colour and outline turn (teal to coral, no
+label), and ✓ takes the place of the time and its mark at the bottom, so the height doesn't change either. It widens
+only when the typed text no longer fits, toward the middle (the right in Hebrew), up to 85% of the row, then wraps
+(`editBoxWidth`, RtlTransitionsTest). A tap on (or focus in) the writing bubble ends the edit unchanged, the focus moving there with the keyboard staying up; a double tap on another of my texts ends the first and starts the new one (`EditSession`, EditSessionTest). ✓ saves; Back or a tap outside turn it back unchanged (no ✕). The edit goes end to end like
+a text (`EditContent` in Content field 19, kept and pushed silently, also to my other phones; in a group through the
+group's Send); every phone replaces the text and shows "edited" by the time. Only the author's edit of their own text
+counts; an id a phone doesn't have is ignored; older apps skip the field. While I edit, live only like live typing
+(ephemeral): with Live typing on for the chat they see that message's text change letter by letter in place, else
+only that it is being edited; either way their bubble gets a soft outline and "Editing…", and its size eases. A cancel
+puts it back; it also goes 20 s after the last word. No server change: live-only sends exist. Messaging.editText,
+editLive; MessagingTest covers the edit, the author check, an unknown id, and the live view on cancel and timeout.
+
+
+**Status marks** (2026-11-24, hen's pick "E2 · Flying, sent, sealed", replacing the filling circle): on my messages,
+by the time, an envelope drawn on a 16-unit square in the time's colour at 75%: Sending flies (shifted ahead, two
+speed lines trailing and drifting; mirrored in Hebrew so they trail behind); Sent rests; Delivered gets a round seal
+on its flap, popping in; Read: no mark (their letter circle says it). Each change eases. Failed: the envelope in the
+warning colour. `StatusMark`, the chat, the quick-reply window and groups.
+
+
+**Neighbours follow in the same frame** (2026-11-24, hen: "don't make the surrounding objects move with delay"): while
+a bubble changes its size in place (an edit, Send's flight, a live draft or live edit), the other items have no
+placement animation of their own, so they move with it frame by frame; when one is added or removed they glide.
+
+
+**Selecting messages** (2026-11-24, hen, Signal's way): a long press selects a message (a soft highlight); the header
+turns into its actions: ✕ and how many on the start side, then Edit (one text of mine: the same in-place edit box,
+the caret at the end), Info (one: a sheet with when it was sent or received, for mine when it was delivered and read,
+in a group each member's read time, and when it was edited) and Delete. A tap adds or removes others; with more than
+one, only Delete. Back or a tap outside ends it. The edit box keeps only ✓ (18 dp, 48 dp touch area, 6 dp under the
+text). The sheets are drawn in the screen (no dialog window, so the quick-reply window has them too).
+
+**Delete** (2026-11-24, hen): Delete for everyone (all selected are mine) or Delete for me (anyone's, this phone only,
+nothing sent). The messages leave the chat at once (they fade and the others close up), with "Message deleted · Undo"
+above the writing bubble for 4 s; it is done only then (leaving the chat does it at once), and Undo brings them back.
+For everyone It goes end to end (`DeleteContent`, Content field 20, kept and pushed silently, to my other phones and,
+in a group, through its Send); older apps skip it. Their phones keep a faint "Message deleted" in its place (any live
+edit view cleared, a burst's or voice message's file removed); my other phones drop it. Only the author's delete
+counts; an unknown id is ignored (MessagingTest).
+
+
+**Days** (2026-11-24, hen): a quiet divider where the day changes (Today, Yesterday, a weekday within the last 6 days,
+a date this year, else the full date; calendar days in the phone's time zone), and a small pill floating under the
+header with the day of the topmost message on screen when it isn't today, crossfading as the day changes and fading
+away at today's messages (DaysTest).
+
+
+**Scroll to the end** (2026-11-24, hen): scrolled up more than a screen (or with new messages below), a round ⌄
+appears (scale and fade) above the writing bubble on their side (the right in Hebrew), clear of the buttons, with a
+badge of how many came in meanwhile; a tap glides to the end and clears it; at the end it goes. It replaces the "New
+message" chip.
+
+
+**Their caret** (2026-11-24, hen): with Live typing on, the writer's caret (and selection) goes with the live text, a
+caret move alone too, at most 10 a second (TypingContent and EditContent `selStart`/`selEnd`, optional, -1 when not
+said; older apps skip them). In their live draft and in a message they are editing, a thin blinking caret in the accent
+colour at that place, placed by the text's own layout (right to left and mixed text land right), gliding between
+places; a selection gets a soft highlight. Gone with the draft or the edit (save, cancel, timeout). Without a caret said
+(an older app), the draft shows a bar at its end as before (MessagingTest).

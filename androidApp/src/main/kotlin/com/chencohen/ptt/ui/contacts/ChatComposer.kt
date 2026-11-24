@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.draw.shadow
 import com.chencohen.ptt.messaging.ReadMarks.Tick
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.asImageBitmap
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -45,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -54,6 +57,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.Dp
@@ -90,9 +94,17 @@ internal fun ComposeBubble(
     startEditing: () -> Unit,
     change: (String) -> Unit,
     send: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** On the bubble being written (its place on the screen, for Send's flight). */
+    bubbleModifier: Modifier = Modifier,
+    /** Its field took the focus. */
+    focused: () -> Unit = {},
+    /** The text and where the caret is in it, at every change, the caret moving too (live typing shows it). */
+    caret: (String, androidx.compose.ui.text.TextRange) -> Unit = { _, _ -> },
 ) {
+    var selection by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.TextRange(text.length)) }
     val coral = com.chencohen.ptt.ui.style.Pink
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+    Box(modifier.fillMaxWidth(), contentAlignment = MySide) {
         if (!editing && text.isEmpty()) {
             val hint = stringResource(R.string.chat_write_hint)
             val dash = LibraryColors.Muted.copy(alpha = 0.6f)
@@ -100,7 +112,9 @@ internal fun ComposeBubble(
                 hint,
                 color = LibraryColors.Muted,
                 style = LibraryType.Body,
+                // 38.2% of the row (1 − 0.618, the golden ratio; 2026-11-24, hen), anchored on my side.
                 modifier = Modifier
+                    .fillMaxWidth(DRAFT_MIN)
                     .drawBehind {
                         drawRoundRect(
                             dash,
@@ -114,9 +128,13 @@ internal fun ComposeBubble(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
             )
         } else {
+            // From the empty one's width (38.2% of the row, so nothing shrinks as the first letter goes in), growing with
+            // the text, at once, up to 85%, then wrapping; past 6 lines it scrolls inside with the caret in view.
+            val style = LibraryType.Body.copy(color = LibraryColors.OnBackground)
+            val label = stringResource(R.string.chat_send)
+            val width = draftWidth(text, style, chrome = 14.dp + 8.dp + 8.dp + 36.dp)
             Column(
-                Modifier.widthIn(min = 120.dp, max = 300.dp)
-                    .animateContentSize(tween(200))
+                bubbleModifier.width(width)
                     .shadow(8.dp, LibraryShapes.Card)
                     .background(LibraryColors.Background, LibraryShapes.Card)
                     .border(1.5.dp, coral, LibraryShapes.Card)
@@ -126,15 +144,22 @@ internal fun ComposeBubble(
                 Text(stringResource(R.string.chat_my_draft), color = coral, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     BasicTextField(
-                        value = text,
-                        onValueChange = { change(it.take(4_000)) },
-                        textStyle = LibraryType.Body.copy(color = LibraryColors.OnBackground),
+                        value = androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(selection.start.coerceIn(0, text.length), selection.end.coerceIn(0, text.length))),
+                        onValueChange = { v ->
+                            val t = v.text.take(4_000)
+                            val moved = v.selection != selection
+                            selection = v.selection
+                            if (t != text) change(t)
+                            if (t != text || moved) caret(t, v.selection)
+                        },
+                        textStyle = style,
                         cursorBrush = SolidColor(coral),
+                        maxLines = 6,
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
-                        modifier = Modifier.weight(1f, fill = false).widthIn(min = 60.dp).padding(bottom = 6.dp).focusRequester(focus),
+                        modifier = Modifier.weight(1f).padding(bottom = 6.dp).focusRequester(focus)
+                            .onFocusChanged { if (it.isFocused) focused() },
                     )
                     Spacer(Modifier.width(8.dp))
-                    val label = stringResource(R.string.chat_send)
                     Box(
                         Modifier.size(36.dp)
                             .background(if (text.isNotBlank()) coral else coral.copy(alpha = 0.3f), CircleShape)
@@ -147,6 +172,24 @@ internal fun ComposeBubble(
     }
 }
 
+/** The writing bubble's least and most width, of the row (2026-11-24, hen). */
+internal const val DRAFT_MIN = 0.382f
+internal const val DRAFT_MAX = 0.85f
+
+/** The row the chat's bubbles sit in: the screen less its 12 dp sides. */
+@Composable
+internal fun chatRowWidth(): Dp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp - 24.dp
+
+/** A writing box's width for [text]: its longest line and [chrome], from 38.2% to 85% of the row. */
+@Composable
+internal fun draftWidth(text: String, style: androidx.compose.ui.text.TextStyle, chrome: Dp): Dp {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val row = chatRowWidth()
+    val textWidth = remember(text, style) { with(density) { measurer.measure(text.ifEmpty { " " }, style).size.width.toDp() } }
+    return (textWidth + chrome + 4.dp).coerceIn(row * DRAFT_MIN, row * DRAFT_MAX)
+}
+
 /** A message just sent from the draft bubble: it fills in place, outline to this phone's bubble colour (250 ms). */
 @Composable
 internal fun SentMorphBubble(message: TextMessage) {
@@ -156,9 +199,9 @@ internal fun SentMorphBubble(message: TextMessage) {
     val coral = com.chencohen.ptt.ui.style.Pink
     val fill = androidx.compose.ui.graphics.lerp(coral.copy(alpha = 0.08f), LibraryColors.Mine, s)
     val ink = androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.OnMine, s)
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = MySide) {
         Column(
-            Modifier.widthIn(max = 300.dp)
+            Modifier.widthIn(max = bubbleMaxWidth())
                 .animateContentSize(tween(MORPH_MS))
                 .border(1.5.dp, coral.copy(alpha = 1f - s), LibraryShapes.Card)
                 .background(fill, LibraryShapes.Card)
@@ -228,30 +271,96 @@ internal fun ChatButtons(
     talking: Boolean,
     recording: Boolean,
     actions: ConversationActions,
+    /** This chat's push is video (the camera goes too). */
+    video: Boolean = false,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
     val big by animateDpAsState(if (compact) 48.dp else 84.dp, label = "talk button")
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RoundButton(LibraryIcons.Video, stringResource(R.string.call_video), small) { actions.call(true) }
-        val talkLabel = stringResource(R.string.talk_button)
-        Box(
-            Modifier.size(big)
-                .shadow(10.dp, CircleShape)
-                .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
-                .semantics { contentDescription = talkLabel }
-                .holdToTalk(onPress = { microphone(actions.startVoice) }, onRelease = { actions.finishVoice(true) }),
-            contentAlignment = Alignment.Center,
-        ) { Icon(LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f)) }
-        RoundButton(LibraryIcons.Call, stringResource(R.string.call_voice), small) { actions.call(false) }
-        if (recording) {
-            RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
-        } else {
-            RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
+    // Laid out on the screen itself, the same in Hebrew and English (2026-11-24, hen: the thumb finds it in one
+    // place): from the left, voice message, voice call, video call, then the big button near the right edge and the
+    // voice | video switch, upright, at the edge.
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = if (compact) 6.dp else 12.dp, bottom = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                if (recording) {
+                    RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
+                } else {
+                    RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
+                }
+                RoundButton(LibraryIcons.Call, stringResource(R.string.call_voice), small) { actions.call(false) }
+                RoundButton(LibraryIcons.Video, stringResource(R.string.call_video), small) { actions.call(true) }
+            }
+            val talkLabel = stringResource(if (video) R.string.talk_mode_video else R.string.talk_button)
+            Box(Modifier.padding(start = 8.dp).size(big)) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .shadow(10.dp, CircleShape)
+                        .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
+                        .semantics { contentDescription = talkLabel }
+                        .holdToTalk(onPress = { microphone(actions.startVoice) }, onRelease = { actions.finishVoice(true) }),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.animation.Crossfade(video, animationSpec = androidx.compose.animation.core.tween(200), label = "talk icon") { v ->
+                        Icon(if (v) LibraryIcons.Video else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
+                    }
+                }
+                // My camera, small, on the button's top-left corner (clear of the switch): framed before pressing.
+                androidx.compose.animation.AnimatedVisibility(
+                    video && !compact,
+                    enter = androidx.compose.animation.fadeIn(tween<Float>(200)) + androidx.compose.animation.scaleIn(tween<Float>(200), initialScale = 0.6f),
+                    exit = androidx.compose.animation.fadeOut(tween<Float>(150)) + androidx.compose.animation.scaleOut(tween<Float>(150), targetScale = 0.6f),
+                    modifier = Modifier.align(Alignment.TopStart).offset(x = (-10).dp, y = (-6).dp),
+                ) {
+                    Box(Modifier.size(34.dp).shadow(4.dp, CircleShape).clip(CircleShape).background(Color.Black).border(2.dp, Color.White, CircleShape)) {
+                        com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize())
+                    }
+                }
+            }
+            actions.setPushVideo?.let { set -> TalkModeSwitch(video, set, actions.micDenied, Modifier.padding(start = 10.dp)) }
+        }
+    }
+}
+
+/**
+ * Voice | video for the big button: two segments, upright, a microphone over a camera, the chosen one filled; the
+ * fill slides between them. Video asks for the camera the first time (from the app; the
+ * quick-reply window opens the chat for that, [denied]).
+ */
+@Composable
+internal fun TalkModeSwitch(video: Boolean, set: (Boolean) -> Unit, denied: () -> Unit, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val canAsk = androidx.activity.compose.LocalActivityResultRegistryOwner.current != null
+    val ask = if (canAsk) androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted -> if (granted) set(true) } else null
+    fun choose(on: Boolean) {
+        when {
+            on == video -> {}
+            !on -> set(false)
+            context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED -> set(true)
+            ask != null -> ask.launch(android.Manifest.permission.CAMERA)
+            else -> denied()
+        }
+    }
+    // Upright, as the reply bubble's: the microphone on top, the camera below; the fill slides between them.
+    val segment = 38.dp
+    val at by animateDpAsState(if (video) segment else 0.dp, tween(200), label = "mode")
+    Box(modifier.shadow(4.dp, CircleShape).background(LibraryColors.Raised, CircleShape).padding(3.dp)) {
+        Box(Modifier.offset(y = at).size(34.dp, segment).background(LibraryColors.Inverse, CircleShape))
+        androidx.compose.foundation.layout.Column {
+            listOf(false to LibraryIcons.Mic, true to LibraryIcons.Video).forEach { (on, icon) ->
+                val chosen = on == video
+                val ink by androidx.compose.animation.animateColorAsState(if (chosen) LibraryColors.OnInverse else LibraryColors.OnBackground, tween(200), label = "ink")
+                val words = stringResource(if (on) R.string.talk_mode_video else R.string.talk_mode_voice)
+                Box(
+                    Modifier.size(34.dp, segment).clip(CircleShape)
+                        .semantics { selected = chosen }
+                        .clickable(role = Role.Tab, onClickLabel = words) { choose(on) },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(icon, words, tint = ink, modifier = Modifier.size(16.dp)) }
+            }
         }
     }
 }
@@ -271,7 +380,7 @@ private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
  * How far a message of mine got (2026-11-23, hen picked option A, "filling circle"): a ~12 dp circle beside the time,
  * in its colour. Sending: a dashed ring, slowly turning; Sent (the server has it): an empty ring; Delivered (on their
  * phone): a solid dot; Read: nothing (it fades as their circle glides to it). Each change eases in ~200 ms: the ring
- * closes, then fills. The one place to swap the set.
+ * closes, then fills. The one place to swap the set. (2026-11-24: envelopes instead, below.)
  */
 @Composable
 internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifier: Modifier = Modifier) {
@@ -284,23 +393,48 @@ internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifi
         Tick.FAILED -> stringResource(R.string.chat_status_failed)
         Tick.NONE -> stringResource(R.string.chat_status_read)
     }
-    val closed by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.SENDING) 0f else 1f, tween(200), label = "ring closes")
-    val filled by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.DELIVERED) 1f else 0f, tween(200), label = "dot fills")
+    // Envelopes (2026-11-24, hen's pick "E2 · Flying, sent, sealed"): Sending flies (shifted ahead, two speed lines
+    // trailing, drifting); Sent rests; Delivered gets a round seal on its flap (popping in); Read: no mark. Drawn on a
+    // 16-unit square; in Hebrew mirrored so the lines trail behind.
+    val ease = tween<Float>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+    val flying by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.SENDING) 1f else 0f, ease, label = "flying")
+    val sealed by androidx.compose.animation.core.animateFloatAsState(
+        if (tick == Tick.DELIVERED) 1f else 0f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f), label = "seal",
+    )
     val shown by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.NONE) 0f else 1f, tween(250), label = "mark fades")
-    val turning = androidx.compose.animation.core.rememberInfiniteTransition(label = "sending")
-    val turn by turning.animateFloat(0f, 360f, androidx.compose.animation.core.infiniteRepeatable(tween(1_600, easing = androidx.compose.animation.core.LinearEasing)), label = "turn")
+    val drifting = androidx.compose.animation.core.rememberInfiniteTransition(label = "sending")
+    val drift by drifting.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(900, easing = androidx.compose.animation.core.LinearEasing)), label = "drift")
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     if (shown <= 0f) return
-    androidx.compose.foundation.Canvas(modifier.size(12.dp).semantics { contentDescription = label }) {
-        val color = (if (tick == Tick.FAILED) warn else ink).copy(alpha = ink.alpha * shown)
-        val r = size.minDimension / 2 - 0.8.dp.toPx()
-        val w = 1.6.dp.toPx()
-        // Dashed while sending, closing into a whole ring; then filling into a dot.
-        val dash = 3.dp.toPx() * (1f - closed)
-        val effect = if (dash > 0.1f) PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), dash)) else null
-        rotate(if (tick == Tick.SENDING) turn else 0f) {
-            drawCircle(color, r, style = Stroke(width = w, pathEffect = effect))
+    androidx.compose.foundation.Canvas(modifier.size(16.dp).semantics { contentDescription = label }) {
+        val u = size.minDimension / 16f
+        val color = (if (tick == Tick.FAILED) warn else ink).copy(alpha = 0.75f * shown)
+        fun l(a: Float, b: Float) = a + (b - a) * flying
+        val stroke = Stroke(width = 1.35f * u, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+        withTransform({ if (rtl) scale(-1f, 1f, pivot = center) }) {
+            // The envelope: resting (x2 y3.8 12x8.6) or flying (x4 y4.6 10.5x7.6).
+            val x = l(2f, 4f)
+            val y = l(3.8f, 4.6f)
+            val w = l(12f, 10.5f)
+            val h = l(8.6f, 7.6f)
+            drawRoundRect(color, androidx.compose.ui.geometry.Offset(x * u, y * u), androidx.compose.ui.geometry.Size(w * u, h * u), androidx.compose.ui.geometry.CornerRadius(l(1.6f, 1.4f) * u), style = stroke)
+            val flap = androidx.compose.ui.graphics.Path().apply {
+                moveTo(l(2.6f, 4.5f) * u, l(4.6f, 5.3f) * u)
+                lineTo(l(8f, 9.25f) * u, l(8.8f, 9f) * u)
+                lineTo(l(13.4f, 14f) * u, l(4.6f, 5.3f) * u)
+            }
+            drawPath(flap, color, style = stroke)
+            // The speed lines, trailing and drifting back while it flies.
+            if (flying > 0f) {
+                val back = drift * 0.8f
+                val lines = color.copy(alpha = color.alpha * flying * (1f - 0.5f * drift))
+                drawLine(lines, androidx.compose.ui.geometry.Offset((0.8f - back) * u, 7f * u), androidx.compose.ui.geometry.Offset((2.8f - back) * u, 7f * u), 1.35f * u, androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(lines, androidx.compose.ui.geometry.Offset((1.4f - back) * u, 9.6f * u), androidx.compose.ui.geometry.Offset((3f - back) * u, 9.6f * u), 1.35f * u, androidx.compose.ui.graphics.StrokeCap.Round)
+            }
+            // The seal on the flap, popping in.
+            if (sealed > 0.01f) drawCircle(color, 2.3f * u * sealed.coerceAtLeast(0f), androidx.compose.ui.geometry.Offset(8f * u, 9.4f * u))
         }
-        if (filled > 0f) drawCircle(color, r * filled)
     }
 }
 
@@ -311,7 +445,7 @@ internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifi
 @Composable
 internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
     var showTime by remember { androidx.compose.runtime.mutableStateOf(false) }
-    val label = stringResource(R.string.chat_read_up_to_here, user)
+    val label = com.chencohen.ptt.genderedString(R.string.chat_read_up_to_here, user, user)
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.animation.AnimatedVisibility(showTime && readAt != null) {

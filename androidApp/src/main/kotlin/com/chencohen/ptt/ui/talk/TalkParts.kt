@@ -188,6 +188,14 @@ internal fun isDebugBuild(): Boolean {
 internal fun rememberMicrophone(onDenied: () -> Unit): (then: () -> Unit) -> Unit {
     val context = LocalContext.current
     val denied by rememberUpdatedState(onDenied)
+    // In the quick-reply window there's no activity to ask from: not allowed yet goes to [onDenied] (it opens the chat).
+    if (androidx.activity.compose.LocalActivityResultRegistryOwner.current == null) {
+        return remember(context) {
+            { then: () -> Unit ->
+                if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) then() else denied()
+            }
+        }
+    }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (!granted) denied() }
     return remember(context) {
         { then: () -> Unit ->
@@ -230,14 +238,14 @@ internal fun talkLine(chat: String, talk: TalkUiState, nameOf: (String) -> Strin
         own != null -> when (own.phase) {
             TalkPhase.REQUESTING -> stringResource(R.string.talk_requesting)
             TalkPhase.TALKING -> stringResource(R.string.talk_live)
-            TalkPhase.BUSY -> stringResource(R.string.talk_busy, nameOf(own.busyWith.orEmpty()))
+            TalkPhase.BUSY -> com.chencohen.ptt.genderedString(R.string.talk_busy, own.busyWith, nameOf(own.busyWith.orEmpty()))
             TalkPhase.REFUSED -> if (own.refusal == OwnTalk.MIC) stringResource(R.string.talk_no_mic) else stringResource(R.string.talk_refused)
             TalkPhase.OFFLINE -> stringResource(R.string.talk_offline)
             TalkPhase.VOICE -> stringResource(R.string.voice_recording)
             TalkPhase.WAITING -> stringResource(R.string.talk_waiting_for, nameOf(own.busyWith.orEmpty()))
         }
         talker != null && talker.user == me -> stringResource(R.string.talk_other_phone)
-        talker != null -> stringResource(R.string.talk_someone, nameOf(talker.user))
+        talker != null -> com.chencohen.ptt.genderedString(R.string.talk_someone, talker.user, nameOf(talker.user))
         // Nothing to say while nobody talks (2026-11-22, hen: no "Hold the button" text).
         else -> ""
     }

@@ -483,6 +483,177 @@ class MessagingTest {
     }
 
     @Test
+    fun anEditReplacesTheTextOnTheirPhoneAndOnlyTheAuthorCanEdit() = runTest {
+        // 2026-11-24 (hen): editing a sent text.
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val sent = hen.messaging.sendText("dana", "see you at 5")
+        val theirs = dana.messaging.sendText("hen", "ok")
+        advanceUntilIdle()
+        assertTrue(hen.messaging.editText(sent.id, "see you at 6"))
+        advanceUntilIdle()
+        assertEquals("see you at 6", hen.store.message(sent.id)!!.body)
+        assertNotNull(hen.store.message(sent.id)!!.editedAt)
+        assertEquals("see you at 6", dana.store.message(sent.id)!!.body, "their phone has the new text")
+        assertEquals(hen.store.message(sent.id)!!.editedAt, dana.store.message(sent.id)!!.editedAt, "and \"edited\"")
+        // Not mine: hen can't edit dana's text, and dana can't edit hen's.
+        assertFalse(hen.messaging.editText(theirs.id, "nope"))
+        dana.messaging.editText(sent.id, "hacked")
+        advanceUntilIdle()
+        assertEquals("see you at 6", hen.store.message(sent.id)!!.body)
+        assertEquals("see you at 6", dana.store.message(sent.id)!!.body)
+        // An id nobody has: nothing changes.
+        assertFalse(hen.messaging.editText("no-such-id", "x"))
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun aDeleteRemovesItForEveryoneAndOnlyTheAuthorCanDelete() = runTest {
+        // 2026-11-24 (hen): delete for everyone.
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val mine = hen.messaging.sendText("dana", "oops")
+        val theirs = dana.messaging.sendText("hen", "keep this")
+        advanceUntilIdle()
+        // Not the author: nothing changes, on either side.
+        assertFalse(hen.messaging.deleteMessage(theirs.id))
+        dana.messaging.deleteMessage(mine.id)
+        advanceUntilIdle()
+        assertEquals("oops", hen.store.message(mine.id)?.body)
+        assertEquals("oops", dana.store.message(mine.id)?.body)
+        // An id nobody has: ignored.
+        assertFalse(hen.messaging.deleteMessage("no-such-id"))
+        // The author: gone on hen's phone, a "Message deleted" mark on dana's.
+        assertTrue(hen.messaging.deleteMessage(mine.id))
+        advanceUntilIdle()
+        assertNull(hen.store.message(mine.id))
+        val left = dana.store.message(mine.id)!!
+        assertTrue(left.deleted)
+        assertEquals("", left.body)
+        assertEquals("keep this", hen.store.message(theirs.id)?.body)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun deletingSeveralForEveryoneOrForMe() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val a = hen.messaging.sendText("dana", "one")
+        val b = hen.messaging.sendText("dana", "two")
+        val theirs = dana.messaging.sendText("hen", "three")
+        advanceUntilIdle()
+        assertNotNull(hen.store.message(a.id)!!.deliveredAt, "when it reached them (Info)")
+        // For everyone: only mine go (theirs and an unknown id are skipped).
+        assertEquals(2, hen.messaging.deleteMessages(listOf(a.id, b.id, theirs.id, "no-such-id")))
+        advanceUntilIdle()
+        assertNull(hen.store.message(a.id))
+        assertNull(hen.store.message(b.id))
+        assertTrue(dana.store.message(a.id)!!.deleted && dana.store.message(b.id)!!.deleted)
+        assertEquals("three", hen.store.message(theirs.id)?.body)
+        // For me: theirs, here only; nothing reaches dana.
+        assertEquals(1, hen.messaging.deleteForMe(listOf(theirs.id, "no-such-id")))
+        advanceUntilIdle()
+        assertNull(hen.store.message(theirs.id))
+        assertEquals("three", dana.store.message(theirs.id)?.body)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun theCaretRidesWithLiveTextAndLiveEdits() = runTest {
+        // 2026-11-24 (hen): where the writer's caret is, live.
+        val frame = Content(edit = EditContent("m1", "hello", stage = EditContent.LIVE, selStart = 2, selEnd = 4), typing = TypingContent(true, "hey", 3, 3))
+        val back = ContentCodec.decode(ContentCodec.encode(frame))!!
+        assertEquals(2, back.edit!!.selStart)
+        assertEquals(4, back.edit!!.selEnd)
+        assertEquals(3, back.typing!!.selStart)
+        // An older frame has none.
+        assertEquals(-1, ContentCodec.decode(ContentCodec.encode(Content(typing = TypingContent(true, "x"))))!!.typing!!.selStart)
+
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        hen.messaging.setTalkSettings(hen.messaging.talkSettings().copy(liveTyping = true, liveTypingFor = mapOf("dana" to true)))
+        val sent = hen.messaging.sendText("dana", "hello")
+        advanceUntilIdle()
+        hen.messaging.editLive(sent.id, "hello you", 6, 9)
+        hen.messaging.draft("dana", "and", 1, 1)
+        advanceTimeBy(500)
+        assertEquals(6, dana.state.liveEdits[sent.id]?.selStart)
+        assertEquals(9, dana.state.liveEdits[sent.id]?.selEnd)
+        assertEquals(1, dana.state.drafts["hen"]?.selStart)
+        // A caret move alone goes too.
+        hen.messaging.draft("dana", "and", 3, 3)
+        advanceTimeBy(500)
+        assertEquals(3, dana.state.drafts["hen"]?.selStart)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun aLiveEditShowsAndGoesOnCancelOrAfterAWhile() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val sent = hen.messaging.sendText("dana", "hello")
+        advanceUntilIdle()
+        // Live typing off: only that it is being edited.
+        hen.messaging.editLive(sent.id, "hello th")
+        advanceTimeBy(500)
+        assertTrue(sent.id in dana.state.liveEdits)
+        assertNull(dana.state.liveEdits[sent.id]!!.text, "no letters with Live typing off")
+        assertTrue(server.ephemeral.last(), "live only")
+        hen.messaging.editLive(sent.id, null)
+        advanceTimeBy(500)
+        assertFalse(sent.id in dana.state.liveEdits, "a cancel clears it")
+        assertEquals("hello", dana.store.message(sent.id)!!.body)
+        // Live typing on: the letters, then gone after a while without a word.
+        hen.messaging.setTalkSettings(hen.messaging.talkSettings().copy(liveTyping = true, liveTypingFor = mapOf("dana" to true)))
+        hen.messaging.editLive(sent.id, "hello there")
+        advanceTimeBy(500)
+        assertEquals("hello there", dana.state.liveEdits[sent.id]?.text)
+        hen.stop()
+        advanceTimeBy(Draft.FRESH_MS + 1_000)
+        assertFalse(sent.id in dana.state.liveEdits, "it fades")
+        dana.stop()
+    }
+
+    @Test
+    fun writingBackReadsTheirMessagesFirst() = runTest {
+        // 2026-11-24 (hen): typing or a live draft to them counts as read, the receipt before the draft.
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val first = dana.messaging.sendText("hen", "are you there?")
+        advanceUntilIdle()
+        assertEquals(MessageStatus.DELIVERED, dana.store.message(first.id)!!.status)
+        hen.messaging.sendTyping("dana", true)
+        advanceUntilIdle()
+        assertEquals(MessageStatus.READ, dana.store.message(first.id)!!.status, "typing reads")
+        assertNull(hen.state.unread["dana"])
+
+        // With live typing: the receipt is there by the time the draft shows.
+        hen.messaging.setTalkSettings(hen.messaging.talkSettings().copy(liveTyping = true, liveTypingFor = mapOf("dana" to true)))
+        val second = dana.messaging.sendText("hen", "hello?")
+        advanceUntilIdle()
+        var readWhenDraftCame: MessageStatus? = null
+        hen.messaging.draft("dana", "y")
+        while (readWhenDraftCame == null) {
+            advanceTimeBy(10)
+            if ("hen" in dana.state.drafts) readWhenDraftCame = dana.store.message(second.id)!!.status
+        }
+        assertEquals(MessageStatus.READ, readWhenDraftCame, "read before the draft")
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
     fun anOfflineTextWaitsInTheOutbox() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)
@@ -518,6 +689,21 @@ class MessagingTest {
         advanceUntilIdle()
         assertEquals("wake up", hen.store.messagesWith("dana").single().body)
         assertEquals(com.chencohen.ptt.relay.SocketState.Stopped, hen.state.socket, "closed again after the wake-up")
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun theGenderTravelsWithTheProfile() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        dana.messaging.setMyGender(Gender.FEMALE)
+        advanceUntilIdle()
+        assertEquals(Gender.FEMALE, hen.state.contacts.first { it.user == "dana" }.theirGender)
+        dana.messaging.setMyGender(Gender.NOT_SET)
+        advanceUntilIdle()
+        assertEquals(Gender.NOT_SET, hen.state.contacts.first { it.user == "dana" }.theirGender)
         listOf(hen, dana).forEach { it.stop() }
     }
 

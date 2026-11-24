@@ -48,13 +48,17 @@ internal class Groups(
     private val onText: (Group, TextMessage) -> Unit,
     /** A clip's key in a group (a burst or a voice message): from [author], at the server's time. */
     private val onClip: (group: Group, author: String, clip: ClipContent, at: Long) -> Unit = { _, _, _, _ -> },
-    private val onTyping: (Group, String, Boolean, String?) -> Unit,
+    private val onTyping: (Group, String, TypingContent) -> Unit,
     /** A member device's live talk key in the group's room. */
     private val onTalkKey: (identity: String, key: TalkKeyContent) -> Unit = { _, _ -> },
     /** A call's signalling in the group, from [author]. */
     private val onCall: (group: Group, author: String, call: CallContent, at: Long) -> Unit = { _, _, _, _ -> },
     /** A member read messages in the group (2026-11-23, hen: read circles in groups). */
     private val onRead: (group: Group, author: String, ids: List<String>) -> Unit = { _, _, _ -> },
+    /** An edit of a text in the group (its author's; EditContent). */
+    private val onEdit: (group: Group, author: String, edit: EditContent) -> Unit = { _, _, _ -> },
+    /** A message in the group deleted by its author (DeleteContent). */
+    private val onDelete: (group: Group, author: String, delete: DeleteContent) -> Unit = { _, _, _ -> },
     private val attempts: Int = 3,
 ) {
     private fun self(): EnrolledDevice = me() ?: throw IllegalStateException("This phone isn't registered")
@@ -420,7 +424,9 @@ internal class Groups(
             )
             onText(group, message)
         }
-        content.typing?.let { if (author != self.user) onTyping(group, author, it.typing, it.draft) }
+        content.typing?.let { if (author != self.user) onTyping(group, author, it) }
+        content.edit?.let { onEdit(group, author, it) }
+        content.delete?.let { onDelete(group, author, it) }
         content.receipt?.takeIf { it.read && author != self.user }?.let { onRead(group, author, it.ids) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }
         content.talkKey?.let { onTalkKey("$author.${envelope.senderDevice}", it) }

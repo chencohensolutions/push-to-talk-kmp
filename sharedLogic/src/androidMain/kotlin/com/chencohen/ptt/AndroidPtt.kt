@@ -281,9 +281,27 @@ fun sendTyping(context: Context, chat: String, typing: Boolean) {
 }
 
 /** Live typing from the quick-reply window: its line to [chat] is [text] now ("" when sent or emptied). */
-fun sendDraft(context: Context, chat: String, text: String) {
+fun sendDraft(context: Context, chat: String, text: String, selStart: Int = -1, selEnd: Int = -1) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { if (text.isEmpty()) messaging.draftDone(chat) else messaging.draft(chat, text) }
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { if (text.isEmpty()) messaging.draftDone(chat) else messaging.draft(chat, text, selStart, selEnd) }
+}
+
+/** Edit my sent text from the quick-reply window (2026-11-24, hen). */
+fun editText(context: Context, id: String, body: String) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editText(id, body) }
+}
+
+/** Delete messages for everyone (mine only) or for me, from the quick-reply window. */
+fun deleteMessages(context: Context, ids: List<String>, forEveryone: Boolean) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { if (forEveryone) messaging.deleteMessages(ids) else messaging.deleteForMe(ids) }
+}
+
+/** Editing live from the quick-reply window (null: cancelled). */
+fun editLive(context: Context, id: String, text: String?, selStart: Int = -1, selEnd: Int = -1) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editLive(id, text, selStart, selEnd) }
 }
 
 /** Changes Talk's settings from outside the screens (the reply bubble's Video). */

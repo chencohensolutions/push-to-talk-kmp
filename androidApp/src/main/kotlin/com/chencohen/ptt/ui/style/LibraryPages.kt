@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -43,16 +44,20 @@ internal fun SettingsScaffold(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val insets = barsRoom()
-    Box(Modifier.fillMaxSize().background(LibraryColors.Background)) {
+    // The title bar on its own solid band, the page scrolling below it (2026-11-24, hen: it was drawn over the first
+    // card when scrolled).
+    Column(Modifier.fillMaxSize().background(LibraryColors.Background)) {
+        TitleBar(title, back, solid = true)
         Column(
             Modifier
+                .weight(1f)
+                .clipToBounds()
                 .then(if (imePadding) Modifier.imePadding() else Modifier)
                 .verticalScroll(rememberScrollState())
-                .padding(top = insets.calculateTopPadding() + 64.dp, bottom = insets.calculateBottomPadding() + 24.dp),
+                .padding(bottom = insets.calculateBottomPadding() + 24.dp),
             verticalArrangement = verticalArrangement,
             content = content,
         )
-        TitleBar(title, back, Modifier.align(Alignment.TopCenter))
     }
 }
 
@@ -106,11 +111,13 @@ internal fun TitleBar(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     caption: String? = null,
+    /** On a band of its own (the page scrolls below it), not floating over the page. */
+    solid: Boolean = false,
 ) {
     Row(
         modifier
             .fillMaxWidth()
-            .background(LibraryColors.TopFade)
+            .background(if (solid) androidx.compose.ui.graphics.Brush.verticalGradient(listOf(LibraryColors.Background, LibraryColors.Background)) else LibraryColors.TopFade)
             .statusBarRoom()
             .padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
         verticalAlignment = Alignment.CenterVertically,

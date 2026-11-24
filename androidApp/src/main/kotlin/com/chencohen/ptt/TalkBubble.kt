@@ -583,10 +583,14 @@ object TalkBubble {
             frame = holder
             view = root
             // Slides up from below the bottom edge.
+            // Slides up and fades in, gently, untouchable for 1 s (OverlayArrival).
             root.translationY = dp(400).toFloat()
             root.post {
-                root.translationY = (root.height + params.y).toFloat()
-                root.animate().translationY(0f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+                OverlayArrival.arrive(wm, holder, params, root, (root.height + params.y).toFloat()) { a ->
+                    // All but the video: its surface stays solid.
+                    root.background?.alpha = (a * 255).toInt()
+                    for (i in 0 until root.childCount) root.getChildAt(i).takeIf { it !== videoBox }?.alpha = a
+                }
             }
             Log.i(TAG, "shown")
             main.post(pulse)

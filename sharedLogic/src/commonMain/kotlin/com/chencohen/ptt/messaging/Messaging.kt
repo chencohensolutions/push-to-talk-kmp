@@ -56,6 +56,12 @@ data class MessagingState(
      * message comes, the line is emptied, or after [Messaging.DRAFT_FOR] without a word.
      */
     val drafts: Map<String, Draft> = emptyMap(),
+    /**
+     * Texts being edited by their author right now (2026-11-24, hen), by message id: the text as it stands ([Draft.text]
+     * null when the author keeps it hidden: only that it is being edited). Gone at the edit, its cancel, or after
+     * [Draft.FRESH_MS] without a word.
+     */
+    val liveEdits: Map<String, LiveEdit> = emptyMap(),
     /** Contacts whose Talk screen or reply bubble for this chat is open now (HereContent): until when. */
     val here: Map<String, Long> = emptyMap(),
     /** How many texts from each contact aren't read yet. */
@@ -153,7 +159,13 @@ data class TalkSettings(
 }
 
 /** A draft written live by someone ([MessagingState.drafts]): its text and when it last changed. */
-data class Draft(val text: String, val at: Long) {
+/** A text being edited live: [text] as it stands (null: hidden), as of [at]; the editor's caret/selection (-1: none). */
+data class LiveEdit(val text: String?, val at: Long, val selStart: Int = -1, val selEnd: Int = -1)
+
+/** What is written live and where the caret is in it (-1: not said). */
+internal data class LiveText(val text: String, val start: Int = -1, val end: Int = -1)
+
+data class Draft(val text: String, val at: Long, val selStart: Int = -1, val selEnd: Int = -1) {
     companion object {
         /** A live draft fades this long after its last word. */
         const val FRESH_MS = 20_000L
@@ -269,9 +281,11 @@ internal class Messaging(
             }
             if (changed) publish()
         },
-        onTyping = { group, author, typing, draft ->
+        onEdit = { group, author, edit -> takeEdit(group.chat, author, mine = author == device()?.user, edit) },
+        onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
+        onTyping = { group, author, typing ->
             val key = typingKey(group.chat, author)
-            _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing, draft)) }
+            _state.update { it.copy(typing = if (typing.typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing.typing, typing.draft, typing.selStart, typing.selEnd)) }
         },
     )
 
@@ -391,7 +405,7 @@ internal class Messaging(
         foreground = true
         open()
         // Once a run: this user's email to contacts (some paired since it was last said).
-        if (!profileShared && settings.myEmail != null) {
+        if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET)) {
             profileShared = true
             scope.launch {
                 socket.state.first { it is SocketState.Live }
@@ -1139,6 +1153,15 @@ internal class Messaging(
 
     val myEmail: String? get() = settings.myEmail
 
+    /** How the app refers to this user (Gender), shared with contacts. */
+    val myGender: Int get() = settings.myGender
+
+    fun setMyGender(gender: Int) {
+        if (gender == settings.myGender) return
+        settings.myGender = gender
+        shareProfile()
+    }
+
     /** This user's own email ([email] blank: none), shared with every paired contact (ProfileContent). */
     fun setMyEmail(email: String) {
         settings.myEmail = email.trim().take(254).ifBlank { null }
@@ -1153,7 +1176,7 @@ internal class Messaging(
         scope.launch {
             for (c in contacts) {
                 try {
-                    sender.send(c.user, Content(profile = ProfileContent(email)), pushKind = PushKind.NONE)
+                    sender.send(c.user, Content(profile = ProfileContent(email, settings.myGender)), pushKind = PushKind.NONE)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -1327,6 +1350,9 @@ internal class Messaging(
     }
 
     suspend fun sendTyping(user: String, typing: Boolean) {
+        // Writing to them means what they wrote was read (2026-11-24, hen): the receipt goes first, so their read
+        // circle moves to the end before "typing…" or the draft shows.
+        if (typing) markRead(user)
         if (socket.state.value !is SocketState.Live) return
         Group.idOf(user)?.let { id ->
             try {
@@ -1346,13 +1372,13 @@ internal class Messaging(
         }
     }
 
-    private fun withDraft(drafts: Map<String, Draft>, key: String, typing: Boolean, draft: String?): Map<String, Draft> = when {
+    private fun withDraft(drafts: Map<String, Draft>, key: String, typing: Boolean, draft: String?, selStart: Int = -1, selEnd: Int = -1): Map<String, Draft> = when {
         !typing || draft?.isEmpty() == true -> drafts - key
-        draft != null -> drafts + (key to Draft(draft.take(4_000), now()))
+        draft != null -> drafts + (key to Draft(draft.take(4_000), now(), selStart, selEnd))
         else -> drafts
     }
 
-    private val draftWanted = HashMap<String, String>()
+    private val draftWanted = HashMap<String, LiveText>()
     private val draftSending = HashSet<String>()
 
     /**
@@ -1360,22 +1386,24 @@ internal class Messaging(
      * Send: never stored, never pushed), at most every [DRAFT_EVERY] with the latest text; again every few seconds
      * while it stays, so it doesn't fade on the other phone.
      */
-    fun draft(user: String, text: String) {
+    fun draft(user: String, text: String, selStart: Int = -1, selEnd: Int = -1) {
         if (!talkSettings().liveTypingTo(user)) return
-        draftWanted[user] = text
+        draftWanted[user] = LiveText(text, selStart, selEnd)
         if (!draftSending.add(user)) return
         scope.launch {
-            var sent: String? = null
+            var sent: LiveText? = null
             var sentAt = 0L
+            // Read before the draft shows (as for typing).
+            if (text.isNotEmpty()) markRead(user)
             try {
                 while (true) {
                     val want = draftWanted[user] ?: break
-                    if (want != sent || (want.isNotEmpty() && now() - sentAt > DRAFT_FOR / 2)) {
+                    if (want != sent || (want.text.isNotEmpty() && now() - sentAt > DRAFT_FOR / 2)) {
                         sendDraft(user, want)
                         sent = want
                         sentAt = now()
                     }
-                    if (want.isEmpty()) break
+                    if (want.text.isEmpty()) break
                     kotlinx.coroutines.delay(DRAFT_EVERY)
                     if (draftWanted[user] == sent && now() - sentAt < DRAFT_FOR / 2) {
                         // Nothing new: wait for a change (or the keep-alive).
@@ -1397,9 +1425,10 @@ internal class Messaging(
         draftWanted.remove(user)
     }
 
-    private suspend fun sendDraft(user: String, text: String) {
+    private suspend fun sendDraft(user: String, live: LiveText) {
         if (socket.state.value !is SocketState.Live) return
-        val content = Content(typing = TypingContent(typing = text.isNotEmpty(), draft = text))
+        val text = live.text
+        val content = Content(typing = TypingContent(typing = text.isNotEmpty(), draft = text, selStart = live.start, selEnd = live.end))
         try {
             Group.idOf(user)?.let { id ->
                 groups.send(id, content, PushKind.NONE, ephemeral = true)
@@ -1410,6 +1439,163 @@ internal class Messaging(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Edits this user's own text [id] to [body] (2026-11-24, hen): here at once ("edited"), then end to end to the chat
+     * (its people and this user's other phones), kept and pushed silently like a text. Only texts (no clip, no call).
+     */
+    suspend fun editText(id: String, body: String): Boolean {
+        val message = store.message(id)?.takeIf { it.outgoing && it.clip == null && it.call == null } ?: return false
+        val text = body.trim().take(4_000)
+        if (text.isEmpty() || text == message.body) {
+            editLive(id, null)
+            return false
+        }
+        val at = now()
+        store.putMessage(message.copy(body = text, editedAt = at))
+        publish()
+        editWanted.remove(id)
+        val content = Content(edit = EditContent(id, text, at, EditContent.FINAL))
+        try {
+            Group.idOf(message.user)?.let { group -> groups.send(group, content, PushKind.SYNC) } ?: sender.send(message.user, content, pushKind = PushKind.SYNC)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return false
+        }
+        return true
+    }
+
+    /**
+     * Deletes this user's own message [id] for everyone (2026-11-24, hen): gone here (its clip's file too), then end
+     * to end to the chat (its people and this user's other phones), kept and pushed silently like a text.
+     */
+    suspend fun deleteMessage(id: String): Boolean {
+        val message = store.message(id)?.takeIf { it.outgoing && !it.deleted } ?: return false
+        editWanted.remove(id)
+        store.removeMessage(message)
+        if (message.clip != null) talk.forgetClip(id)
+        publish()
+        val content = Content(delete = DeleteContent(id))
+        try {
+            Group.idOf(message.user)?.let { group -> groups.send(group, content, PushKind.SYNC) } ?: sender.send(message.user, content, pushKind = PushKind.SYNC)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return false
+        }
+        return true
+    }
+
+    /** Deletes [ids] for everyone: only this user's own (each as [deleteMessage]); how many went. */
+    suspend fun deleteMessages(ids: List<String>): Int = ids.count { deleteMessage(it) }
+
+    /** Deletes [ids] from this phone only (2026-11-24, hen: "Delete for me"): anyone's, nothing is sent. */
+    fun deleteForMe(ids: List<String>): Int {
+        var gone = 0
+        for (id in ids) {
+            val message = store.message(id) ?: continue
+            editWanted.remove(id)
+            store.removeMessage(message)
+            if (message.clip != null) talk.forgetClip(id)
+            gone++
+        }
+        if (gone > 0) publish()
+        return gone
+    }
+
+    /** A delete from [author] in [chat] (as [takeEdit]): this user's own on another phone goes; theirs leaves a mark. */
+    private fun takeDelete(chat: String, author: String?, mine: Boolean, delete: DeleteContent) {
+        val message = store.message(delete.id)?.takeIf {
+            it.user == chat && it.outgoing == mine && !it.deleted && (author == null || mine || it.author == author)
+        } ?: return
+        if (message.clip != null) talk.forgetClip(message.id)
+        if (mine) store.removeMessage(message) else store.putMessage(message.copy(body = "", clip = null, deleted = true, editedAt = null))
+        _state.update { it.copy(liveEdits = it.liveEdits - delete.id) }
+        publish()
+    }
+
+    private val editWanted = HashMap<String, LiveText?>()
+    private val editSending = HashSet<String>()
+
+    /**
+     * Editing [id] live: [text] as it stands now, null when the edit ended unchanged (cancel). Live only, as live
+     * typing: the letters go when Live typing is on for the chat, else only that it is being edited.
+     */
+    fun editLive(id: String, text: String?, selStart: Int = -1, selEnd: Int = -1) {
+        val message = store.message(id)?.takeIf { it.outgoing && it.clip == null && it.call == null } ?: return
+        if (text == null) {
+            editWanted.remove(id)
+            scope.launch { sendEdit(message.user, EditContent(id, stage = EditContent.CANCEL)) }
+            return
+        }
+        val shown = talkSettings().liveTypingTo(message.user)
+        // The caret goes with the letters only (Live typing on).
+        editWanted[id] = if (shown) LiveText(text, selStart, selEnd) else LiveText("")
+        if (!editSending.add(id)) return
+        scope.launch {
+            var sent: LiveText? = null
+            var sentAt = 0L
+            try {
+                while (true) {
+                    val want = editWanted[id] ?: break
+                    if (want != sent || now() - sentAt > DRAFT_FOR / 2) {
+                        sendEdit(message.user, EditContent(id, want.text, stage = EditContent.LIVE, hidden = !shown, selStart = want.start, selEnd = want.end))
+                        sent = want
+                        sentAt = now()
+                    }
+                    kotlinx.coroutines.delay(DRAFT_EVERY)
+                    if (editWanted[id] == sent && now() - sentAt < DRAFT_FOR / 2) kotlinx.coroutines.delay(DRAFT_EVERY)
+                }
+            } finally {
+                editSending.remove(id)
+            }
+        }
+    }
+
+    private suspend fun sendEdit(user: String, edit: EditContent) {
+        if (socket.state.value !is SocketState.Live) return
+        val content = Content(edit = edit)
+        try {
+            Group.idOf(user)?.let { id ->
+                groups.send(id, content, PushKind.NONE, ephemeral = true)
+                return
+            }
+            val contact = store.contact(user)?.takeIf { it.paired && !it.blocked } ?: return
+            sender.send(contact.user, content, pushKind = PushKind.NONE, ephemeral = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * An edit came from [author] (in [chat]): applied only to a text of theirs ([mine]: this user's own, from another
+     * of their phones) that this phone has; any other id is ignored.
+     */
+    private fun takeEdit(chat: String, author: String?, mine: Boolean, edit: EditContent) {
+        val message = store.message(edit.id)?.takeIf {
+            it.user == chat && it.outgoing == mine && it.clip == null && it.call == null && (author == null || mine || it.author == author)
+        } ?: return
+        when (edit.stage) {
+            EditContent.FINAL -> {
+                if (edit.body.isBlank()) return
+                if ((message.editedAt ?: 0L) <= edit.editedAt) store.putMessage(message.copy(body = edit.body.take(4_000), editedAt = edit.editedAt))
+                _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
+                publish()
+            }
+            EditContent.LIVE -> {
+                if (mine) return
+                val at = now()
+                _state.update { it.copy(liveEdits = it.liveEdits + (edit.id to LiveEdit(if (edit.hidden) null else edit.body.take(4_000), at, if (edit.hidden) -1 else edit.selStart, if (edit.hidden) -1 else edit.selEnd))) }
+                scope.launch {
+                    kotlinx.coroutines.delay(Draft.FRESH_MS)
+                    _state.update { s -> if (s.liveEdits[edit.id]?.at == at) s.copy(liveEdits = s.liveEdits - edit.id) else s }
+                }
+            }
+            else -> _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
         }
     }
 
@@ -1461,6 +1647,8 @@ internal class Messaging(
                 val id = text.id.ifEmpty { envelope.id }
                 if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt))
             }
+            content.edit?.let { takeEdit(to, null, mine = true, it) }
+            content.delete?.let { takeDelete(to, null, mine = true, it) }
             content.clip?.let { talk.receiveClip(to, self.user, it, envelope.serverTimestamp, outgoingCopy = true) }
             content.talkKey?.let { live.takeKey("${self.user}.${envelope.senderDevice}", it) }
             content.call?.let { calls.receive(to, self.user, it, envelope.serverTimestamp, ownCopy = true) }
@@ -1485,6 +1673,8 @@ internal class Messaging(
             }
             if (!read) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
         }
+        content.edit?.let { takeEdit(contact.user, null, mine = false, it) }
+        content.delete?.let { takeDelete(contact.user, null, mine = false, it) }
         content.talkKey?.let { live.takeKey("${contact.user}.${envelope.senderDevice}", it) }
         content.call?.let { calls.receive(contact.user, contact.user, it, envelope.serverTimestamp, ownCopy = false) }
         content.clip?.let { clip ->
@@ -1502,7 +1692,13 @@ internal class Messaging(
             for (id in receipt.ids) {
                 val message = store.message(id)?.takeIf { it.outgoing && it.user == contact.user } ?: continue
                 if (message.status.ordinal < status.ordinal || message.status == MessageStatus.PENDING) {
-                    store.putMessage(message.copy(status = status, readAt = if (status == MessageStatus.READ) now() else message.readAt))
+                    store.putMessage(
+                        message.copy(
+                            status = status,
+                            readAt = if (status == MessageStatus.READ) now() else message.readAt,
+                            deliveredAt = message.deliveredAt ?: now(),
+                        ),
+                    )
                 }
             }
         }
@@ -1510,15 +1706,16 @@ internal class Messaging(
             _state.update {
                 it.copy(
                     typing = if (typing.typing) it.typing + (contact.user to now() + TYPING_FOR) else it.typing - contact.user,
-                    drafts = withDraft(it.drafts, contact.user, typing.typing, typing.draft),
+                    drafts = withDraft(it.drafts, contact.user, typing.typing, typing.draft, typing.selStart, typing.selEnd),
                 )
             }
         }
         content.profile?.let { profile ->
             store.contact(contact.user)?.let { c ->
                 val email = profile.email.trim().take(254).ifBlank { null }
-                if (c.theirEmail != email) {
-                    store.putContact(c.copy(theirEmail = email))
+                val gender = profile.gender.takeIf { it == Gender.MALE || it == Gender.FEMALE } ?: Gender.NOT_SET
+                if (c.theirEmail != email || c.theirGender != gender) {
+                    store.putContact(c.copy(theirEmail = email, theirGender = gender))
                     publish()
                 }
             }

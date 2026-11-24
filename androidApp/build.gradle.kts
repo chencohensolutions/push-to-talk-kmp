@@ -41,6 +41,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.junit)
+    testImplementation(libs.junit)
 }
 
 android {
@@ -65,6 +66,10 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
+    }
+    // The message sound stays uncompressed in the APK (2026-11-23, hen: lossless WAV).
+    androidResources {
+        noCompress += "wav"
     }
     packaging {
         resources {
@@ -98,6 +103,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        // "fast" (2026-11-24, hen): a release build (minified, not debuggable) signed with the debug key, so it installs
+        // over a debug install on the S25 without losing its enrollment, to judge smoothness as a release would be.
+        create("fast") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
         }
     }
     compileOptions {
@@ -154,7 +166,8 @@ fun releaseKeystore(): Map<String, String>? {
 // Release builds go to phones only: the face detector's emulator (x86_64) library, 9.7 MB, stays out of them
 // (Follow my face then just doesn't frame on an x86_64 release install). Debug builds keep it for the emulators.
 androidComponents {
-    onVariants(selector().withBuildType("release")) { variant ->
+    onVariants(selector().all()) { variant ->
+        if (variant.buildType != "release" && variant.buildType != "fast") return@onVariants
         variant.packaging.jniLibs.excludes.add("lib/x86_64/libface_detector_v2_jni.so")
     }
 }

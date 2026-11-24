@@ -70,3 +70,6 @@ a wrong code ("Check the message with the link"; 10 wrong ones end the invite); 
 invite is for another address; the email has an account already (register with a code from the server's owner); no
 name. A failed registration says "Ask
 <inviter> for a new invite link." instead of the enroll-code command.
+
+**How should the app refer to you?** (2026-11-23, hen): under the name in the invite step, Male, Female or Not set
+(the default); saved at once and shared with contacts once the app runs; changeable in Settings.
