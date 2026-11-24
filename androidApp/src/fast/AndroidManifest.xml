@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The fast (test) build only: a hook to live-type a given text letter by letter, for testing live typing on an
+     emulator whose keyboard can't type it (Hebrew). Only the shell (adb) holds DUMP, so no app can use it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver
+            android:name=".TestTyping"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.chencohen.ptt.TEST_TYPE" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
