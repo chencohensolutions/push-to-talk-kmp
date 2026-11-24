@@ -275,6 +275,8 @@ internal fun ConversationScreen(
         val list = androidx.compose.foundation.lazy.rememberLazyListState()
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         var unseen by androidx.compose.runtime.remember(user) { androidx.compose.runtime.mutableStateOf(false) }
+        // How many came in while scrolled up (the scroll-down button's badge).
+        var unseenCount by remember(user) { androidx.compose.runtime.mutableIntStateOf(0) }
         val newest = messages.lastOrNull()
         // Their live drafts and the messages they became share one item (one key), so a draft turns into its message
         // in place (2026-11-24, hen).
@@ -291,6 +293,7 @@ internal fun ConversationScreen(
                 unseen = false
             } else {
                 unseen = true
+                if (!newest.outgoing) unseenCount++
             }
         }
         val atBottom by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
@@ -339,7 +342,12 @@ internal fun ConversationScreen(
         // Their draft counts as a new message for scrolling: appearing or growing at the bottom, the list glides to it.
         val draftText = shownDrafts.joinToString("\n") { it.second }
         LaunchedEffect(draftText) { if (draftText.isNotEmpty() && list.firstVisibleItemIndex <= 1) list.glideToEnd() }
-        LaunchedEffect(atBottom) { if (atBottom) unseen = false }
+        LaunchedEffect(atBottom) {
+            if (atBottom) {
+                unseen = false
+                unseenCount = 0
+            }
+        }
         val pairs = remember(messages, talk.own?.clip, talk.playing?.clip) { ReadMarks.overlappingVideos(messages, System.currentTimeMillis()) }
         val pairedEarlier = remember(pairs) { pairs.values.toSet() }
         val byId = remember(messages) { messages.associateBy { it.id } }
@@ -514,16 +522,37 @@ internal fun ConversationScreen(
                     )
                 }
             }
-            if (unseen) {
-                Text(
-                    stringResource(R.string.chat_new_message),
-                    color = LibraryColors.OnInverse,
-                    style = LibraryType.Small,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)
-                        .background(LibraryColors.Inverse, androidx.compose.foundation.shape.CircleShape)
-                        .clickable(role = Role.Button) { scope.launch { list.animateScrollToItem(0) } }
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                )
+            // Scrolled up more than a screen (2026-11-24, hen): a round ⌄ above the writing bubble, on their side (the
+            // right in Hebrew), with how many came in meanwhile; a tap glides to the end.
+            val farUp by androidx.compose.runtime.remember {
+                androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex > list.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1) }
+            }
+            androidx.compose.animation.AnimatedVisibility(
+                farUp || unseen,
+                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(180), initialScale = 0.7f),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) + androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(150), targetScale = 0.7f),
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = floatingRoom + 12.dp),
+            ) {
+                val label = stringResource(R.string.chat_new_message)
+                Box {
+                    Box(
+                        Modifier.size(44.dp).shadow(6.dp, androidx.compose.foundation.shape.CircleShape)
+                            .background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
+                            .clickable(role = Role.Button, onClickLabel = label) {
+                                scope.launch { list.animateScrollToItem(0) }
+                                unseenCount = 0
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(LibraryIcons.ChevronDown, label, tint = LibraryColors.OnBackground) }
+                    if (unseenCount > 0) {
+                        Text(
+                            unseenCount.toString(), color = Color.White, style = LibraryType.Tiny,
+                            modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
+                                .background(com.chencohen.ptt.ui.style.Pink, androidx.compose.foundation.shape.CircleShape)
+                                .padding(horizontal = 6.dp, vertical = 1.dp),
+                        )
+                    }
+                }
             }
             // Floating at the bottom: this phone's draft (or a voice message's recording), then the buttons.
             // How far the keyboard is open, 0 to 1, as it animates: the button row folds away by the same amount.

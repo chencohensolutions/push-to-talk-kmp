@@ -185,3 +185,9 @@ counts; an unknown id is ignored (MessagingTest).
 a date this year, else the full date; calendar days in the phone's time zone), and a small pill floating under the
 header with the day of the topmost message on screen when it isn't today, crossfading as the day changes and fading
 away at today's messages (DaysTest).
+
+
+**Scroll to the end** (2026-11-24, hen): scrolled up more than a screen (or with new messages below), a round ⌄
+appears (scale and fade) above the writing bubble on their side (the right in Hebrew), clear of the buttons, with a
+badge of how many came in meanwhile; a tap glides to the end and clears it; at the end it goes. It replaces the "New
+message" chip.
