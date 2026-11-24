@@ -81,6 +81,7 @@ import com.chencohen.ptt.ui.contacts.ConversationScreen
 import com.chencohen.ptt.ui.contacts.GroupChat
 import com.chencohen.ptt.ui.home.liveDrafts
 import com.chencohen.ptt.ui.home.liveCarets
+import com.chencohen.ptt.ui.home.viewingIn
 import androidx.compose.ui.draw.clip
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryIcons
@@ -148,6 +149,7 @@ object QuickReplyWindow {
     private fun show(context: Context, which: String) {
         // Switching away from one left unanswered: its notification, silent.
         chat.value?.takeIf { it != which && !answered }?.let { notifications?.unanswered(it) }
+        if (chat.value != which) setWindowChat(context, null)
         answered = false
         typed.value = ""
         chat.value = which
@@ -216,6 +218,7 @@ object QuickReplyWindow {
         if (talking.value) endTalk(app, send = false)
         val v = view ?: return@post
         val leaving = chat.value
+        setWindowChat(app, null)
         leaving?.let {
             if (typed.value.isNotBlank()) {
                 sendTyping(app, it, false)
@@ -265,6 +268,8 @@ object QuickReplyWindow {
 
     /** What [chat] wrote counts as read now (writing, talking or sending from the window): the receipt goes at once. */
     private fun readNow(context: Context, chat: String) {
+        // From here on, what comes in is read at once, and they're told it's in view (Messaging.windowChat).
+        setWindowChat(context, chat)
         answered = true
         notifications?.answered(chat)
         CoroutineScope(Dispatchers.Default).launch { runCatching { markReadFromNotification(context, chat) } }
@@ -387,6 +392,8 @@ object QuickReplyWindow {
                 pushVideo = pushVideo,
                 presences = state.presence,
                 liveEdits = state.liveEdits,
+                viewing = viewingIn(state.viewing, current, System.currentTimeMillis(), Group.idOf(current) != null),
+                direction = state.talkSettings.directionOf(current),
                 draftCarets = liveCarets(state.drafts, current, Group.idOf(current) != null),
                 warmCamera = { which -> preview(context, which) },
                 group = Group.idOf(current)?.let {

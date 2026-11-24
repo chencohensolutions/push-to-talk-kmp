@@ -25,3 +25,11 @@ invite".
   not verified until you compare safety numbers."
 
 A friend who joins shows in Chats as "<their name> · <user name>", paired, not verified.
+
+
+**Waiting invites** (2026-11-24, hen; 1.4.22): under the form, when there are some, the invites still waiting to be
+used (the server's `invites`): who each is for (the email, or anyone with the link), when it was made and when it ends,
+and a red Cancel (asked once more in the row; `cancelInvite`): it stops working at once and leaves the list. Read
+again when the screen opens and after an invite is made. **Links**: everything an invite sends (share, copy, the mail
+draft) and its QR code carry the link's web form (`https://chencohensolutions.github.io/push-to-talk-server-go/invite#…`,
+a verified App Link); Talk's scanner reads both forms.

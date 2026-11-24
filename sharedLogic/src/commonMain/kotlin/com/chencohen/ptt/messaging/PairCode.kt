@@ -49,7 +49,7 @@ data class PairCode(
         /** What a scan read: a code, a code of a newer version, or something else. */
         fun parse(text: String): PairCodeParse {
             val url = try {
-                Url(text.trim())
+                Url(com.chencohen.ptt.AppLinks.toApp(text.trim()))
             } catch (_: Exception) {
                 return PairCodeParse.NotACode
             }

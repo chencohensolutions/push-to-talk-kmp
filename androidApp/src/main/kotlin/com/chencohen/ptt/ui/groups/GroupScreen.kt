@@ -45,6 +45,8 @@ import com.chencohen.ptt.ui.style.SettingsScaffold
 class GroupActions(
     /** Live typing to this group (its own switch). */
     val setLiveTyping: (Boolean) -> Unit = {},
+    /** This chat's direction (ChatDirection). */
+    val setDirection: (Int) -> Unit = {},
     val back: () -> Unit = {},
     val accept: () -> Unit = {},
     val decline: () -> Unit = {},
@@ -68,7 +70,7 @@ class GroupActions(
  * invitation to answer, the members with how each is known to this phone, and leave or delete in red.
  */
 @Composable
-internal fun GroupScreen(me: String, group: Group?, contacts: List<Contact>, actions: GroupActions, notifyOnly: Boolean = false, quickTalk: Boolean = false, liveTyping: Boolean = false) {
+internal fun GroupScreen(me: String, group: Group?, contacts: List<Contact>, actions: GroupActions, notifyOnly: Boolean = false, quickTalk: Boolean = false, liveTyping: Boolean = false, direction: Int = 0) {
     val context = LocalContext.current
     SettingsScaffold(title = group?.let { groupName(it) } ?: "", back = actions.back, imePadding = true) {
         if (group == null) {
@@ -136,6 +138,7 @@ internal fun GroupScreen(me: String, group: Group?, contacts: List<Contact>, act
             com.chencohen.ptt.ui.talk.QuickTalkCard(quickTalk, actions.setQuickTalk)
             com.chencohen.ptt.ui.talk.WhenAwayCard(notifyOnly, actions.setNotifyOnly)
             com.chencohen.ptt.ui.talk.LiveTypingCard(liveTyping, actions.setLiveTyping)
+            com.chencohen.ptt.ui.talk.ChatDirectionCard(direction, actions.setDirection)
         }
         SectionTitle(stringResource(R.string.group_members))
         SettingsCard {

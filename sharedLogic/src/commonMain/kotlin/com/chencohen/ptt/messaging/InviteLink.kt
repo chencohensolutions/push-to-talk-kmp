@@ -63,7 +63,7 @@ data class InviteLink(
 
         /** An invite link; null for anything else, or one with a part missing or malformed. */
         fun parse(text: String): InviteLink? {
-            val url = runCatching { Url(text.trim()) }.getOrNull() ?: return null
+            val url = runCatching { Url(com.chencohen.ptt.AppLinks.toApp(text.trim())) }.getOrNull() ?: return null
             if (url.protocol.name != PairCode.SCHEME || url.host != HOST) return null
             val version = url.parameters["v"]?.toIntOrNull() ?: return null
             if (version > VERSION) return null
@@ -94,6 +94,6 @@ data class InviteLink(
 
         /** The first invite link in [text] (as a chat app sends it, with words around it). */
         fun find(text: String): InviteLink? =
-            IN_TEXT.findAll(text).firstNotNullOfOrNull { parse(it.value.trimEnd('.', ',', ';', ')', ']', '!', '?')) }
+            IN_TEXT.findAll(com.chencohen.ptt.AppLinks.toApp(text)).firstNotNullOfOrNull { parse(it.value.trimEnd('.', ',', ';', ')', ']', '!', '?')) }
     }
 }

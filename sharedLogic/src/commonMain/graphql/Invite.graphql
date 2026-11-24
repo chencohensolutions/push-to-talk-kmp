@@ -35,3 +35,12 @@ mutation EnrollWithInvite($input: InviteEnrollInput!) {
     ... on InviteRejected { reason }
   }
 }
+
+# This user's invites waiting to be used, and stopping one (2026-11-24, hen: Invite a friend's waiting list).
+query WaitingInvites {
+  invites { id email createdAt expiresAt }
+}
+
+mutation CancelInvite($id: String!) {
+  cancelInvite(id: $id)
+}

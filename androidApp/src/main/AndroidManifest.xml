@@ -93,6 +93,22 @@
 
                 <data android:scheme="ptt" android:host="link" />
             </intent-filter>
+            <!-- The same links as web addresses (AppLinks, 2026-11-24: mail apps drop ptt:// links), the repo's
+                 GitHub Pages; the words after # are the link's. Verified through
+                 https://chencohensolutions.github.io/.well-known/assetlinks.json (the release and debug keys), so a
+                 tap opens Talk straight away; without Talk, the page there. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="https" android:host="chencohensolutions.github.io" />
+                <data android:path="/push-to-talk-server-go/enroll" />
+                <data android:path="/push-to-talk-server-go/invite" />
+                <data android:path="/push-to-talk-server-go/link" />
+                <data android:path="/push-to-talk-server-go/pair" />
+            </intent-filter>
         </activity>
             <!-- The server's pushes (FCM): a wake-up, then the phone takes its queue. -->
         <!-- The "Talk" account in Android Contacts: its authenticator (nothing to sign in to) and sync adapter. -->

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The gendered strings (x_m, x_f, x_many) are found by name (Gendered.kt), so the resource shrinker can't see them in
+     use and took them out of release builds: every contact read as "not set" there (2026-11-24, hen: "I set testbot
+     as male and I still see him כותב/ת"). Keep them. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@string/*_m,@string/*_f,@string/*_many" />

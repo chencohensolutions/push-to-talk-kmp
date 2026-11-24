@@ -170,7 +170,8 @@ class MessagingTest {
         ).format()
         val message = MadeInvite(link, "dana@example.com", 0, "hen", "042917", "$link&p=042917").message("Nov 29, 2026")
         assertEquals("hen invited you to Talk", message.subject)
-        assertContains(message.body, "Open this link on your phone: $link\n")
+        // In its web form, which mail and chat apps let you tap (AppLinks).
+        assertContains(message.body, "Open this link on your phone: ${com.chencohen.ptt.AppLinks.web(link)}\n")
         assertContains(message.body, "type this code: 042 917")
         assertContains(message.body, "until Nov 29, 2026")
 
@@ -185,7 +186,7 @@ class MessagingTest {
         val mailto = message.mailto("dana@example.com")
         assertTrue(mailto.startsWith("mailto:dana@example.com?subject=hen%20invited%20you%20to%20Talk&body=hen%20invited"), mailto)
         assertContains(mailto, "%0D%0A%0D%0A1.%20Install")
-        assertContains(mailto, "ptt%3A%2F%2Finvite%3Fv%3D1%26code%3Dabc123456defghijklmnop")
+        assertContains(mailto, "https%3A%2F%2Fchencohensolutions.github.io%2Fpush-to-talk-server-go%2Finvite%23v%3D1%26code%3Dabc123456defghijklmnop")
         assertContains(mailto, "weren%E2%80%99t")
         assertEquals(1, mailto.count { it == '&' }, "the link's own & is encoded")
     }
@@ -476,9 +477,11 @@ class MessagingTest {
         // A conversation on screen reads what comes in at once, with no notification.
         hen.messaging.openChat = "dana"
         val second = dana.messaging.sendText("hen", "again")
-        advanceUntilIdle()
+        // Not until idle: the open chat keeps telling dana it is in view (ViewingContent, every 20 s).
+        advanceTimeBy(2_000)
         assertEquals(MessageStatus.READ, dana.store.message(second.id)!!.status)
         assertEquals(1, notified.size)
+        hen.messaging.openChat = null
         listOf(hen, dana).forEach { it.stop() }
     }
 
@@ -596,6 +599,87 @@ class MessagingTest {
     }
 
     @Test
+    fun aLateLiveEditAfterTheSavedEditShowsNothing() = runTest {
+        // 2026-11-24 (hen): "Editing…" stayed on the other phone after the edit was saved.
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        hen.messaging.setTalkSettings(hen.messaging.talkSettings().copy(liveTyping = true, liveTypingFor = mapOf("dana" to true)))
+        val sent = hen.messaging.sendText("dana", "see you at 5")
+        advanceUntilIdle()
+        hen.messaging.editLive(sent.id, "see you at 6")
+        advanceTimeBy(500)
+        assertTrue(sent.id in dana.state.liveEdits)
+        assertTrue(hen.messaging.editText(sent.id, "see you at 6"))
+        advanceTimeBy(500)
+        assertFalse(sent.id in dana.state.liveEdits, "the saved edit ends the live view")
+        assertEquals("see you at 6", dana.store.message(sent.id)!!.body)
+        // A live frame written before the save that comes late: ignored.
+        val editedAt = dana.store.message(sent.id)!!.editedAt!!
+        dana.messaging.takeEdit("hen", null, mine = false, EditContent(sent.id, "see you at 5:30", editedAt - 1, EditContent.LIVE))
+        assertFalse(sent.id in dana.state.liveEdits, "a late live frame doesn't bring it back")
+        // A new live edit after it does show.
+        dana.messaging.takeEdit("hen", null, mine = false, EditContent(sent.id, "see you at 7", editedAt + 1, EditContent.LIVE))
+        assertTrue(sent.id in dana.state.liveEdits)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun theyAreViewingWhileTheChatIsOpenInFront() = runTest {
+        // 2026-11-24 (hen): the read circle stays put when they have the chat open.
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        dana.messaging.openChat = "hen"
+        advanceTimeBy(500)
+        assertTrue("dana" in hen.state.viewing, "dana has it open")
+        assertTrue(server.ephemeral.last(), "live only")
+        // What hen sends is read at once there.
+        val sent = hen.messaging.sendText("dana", "hi")
+        advanceTimeBy(1_000)
+        assertEquals(MessageStatus.READ, hen.store.message(sent.id)!!.status)
+        dana.messaging.openChat = null
+        advanceTimeBy(500)
+        assertFalse("dana" in hen.state.viewing, "she left it")
+        // The quick-reply window counts once answered there.
+        dana.messaging.windowChat = "hen"
+        advanceTimeBy(500)
+        assertTrue("dana" in hen.state.viewing)
+        dana.messaging.windowChat = null
+        advanceTimeBy(500)
+        // Hiding being online: not told.
+        dana.messaging.setPresenceVisible(false)
+        dana.messaging.openChat = "hen"
+        advanceTimeBy(500)
+        assertFalse("dana" in hen.state.viewing)
+        dana.messaging.openChat = null
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
+    fun waitingInvitesAreListedAndCanBeCanceled() = runTest {
+        // 2026-11-24 (hen): Invite a friend's waiting list.
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val first = hen.messaging.newInvite("friend@example.com")
+        val second = hen.messaging.newInvite(null)
+        advanceUntilIdle()
+        val waiting = hen.messaging.waitingInvites()
+        assertEquals(2, waiting.size)
+        assertEquals(listOf(second.id, first.id), waiting.map { it.id }, "a made invite knows its id in the list")
+        assertEquals(listOf(null, "friend@example.com"), waiting.map { it.email }, "newest first")
+        assertTrue(hen.messaging.cancelInvite(waiting.first().id))
+        assertEquals(listOf("friend@example.com"), hen.messaging.waitingInvites().map { it.email })
+        assertFalse(dana.messaging.cancelInvite(waiting.last().id), "only one's own")
+        assertFalse(hen.messaging.cancelInvite("nothing"))
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
     fun aLiveEditShowsAndGoesOnCancelOrAfterAWhile() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)
@@ -618,9 +702,14 @@ class MessagingTest {
         hen.messaging.editLive(sent.id, "hello there")
         advanceTimeBy(500)
         assertEquals("hello there", dana.state.liveEdits[sent.id]?.text)
-        hen.stop()
+        hen.messaging.editLive(sent.id, null)
+        advanceTimeBy(500)
+        // A live view whose author went quiet (no end ever came): it fades on its own.
+        dana.messaging.takeEdit("hen", null, mine = false, EditContent(sent.id, "hello again", 2_000_000L, EditContent.LIVE))
+        assertTrue(sent.id in dana.state.liveEdits)
         advanceTimeBy(Draft.FRESH_MS + 1_000)
         assertFalse(sent.id in dana.state.liveEdits, "it fades")
+        hen.stop()
         dana.stop()
     }
 

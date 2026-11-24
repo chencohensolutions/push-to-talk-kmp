@@ -73,3 +73,13 @@ name. A failed registration says "Ask
 
 **How should the app refer to you?** (2026-11-23, hen): under the name in the invite step, Male, Female or Not set
 (the default); saved at once and shared with contacts once the app runs; changeable in Settings.
+
+
+**Links as web addresses** (2026-11-24, hen: Gmail drops `ptt://` links). Every `ptt://<kind>?<words>` link (enroll,
+invite, link, pair) also has a web form, `https://chencohensolutions.github.io/push-to-talk-server-go/<kind>#<words>`: the
+app repo's GitHub Pages (branch gh-pages). The words after `#` never reach GitHub. The page there opens Talk with the
+`ptt://` link ("Open in Talk", an Android intent falling back to the latest release; on Android it tries at once), shows
+the link to copy, and says how to get the app. The app takes the web form too: a verified App Link (autoVerify) for those four
+paths, through https://chencohensolutions.github.io/.well-known/assetlinks.json (repo chencohensolutions.github.io, the
+release and debug keys), so with Talk installed a tap opens it straight away and reads it as its `ptt://` link
+(`AppLinks`), when opened or pasted. Invite messages carry the web form; the server's enrollment mail too.

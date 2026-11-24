@@ -732,7 +732,7 @@ data class EnrollmentLink(
  */
 fun parseEnrollmentLink(link: String): EnrollmentLink? {
     val url = try {
-        Url(link.trim())
+        Url(com.chencohen.ptt.AppLinks.toApp(link.trim()))
     } catch (e: Exception) {
         return null
     }
@@ -755,13 +755,13 @@ enum class PasteResult { LINK, CODE, NOTHING }
 const val LINK_SCHEME = "ptt"
 
 /** Whether [text] holds an Add contact code (`ptt://pair?…`), which only an enrolled phone can use. */
-internal fun isContactCode(text: String): Boolean = text.contains("${LINK_SCHEME}://${com.chencohen.ptt.messaging.PairCode.HOST}?")
+internal fun isContactCode(text: String): Boolean = com.chencohen.ptt.AppLinks.toApp(text).contains("${LINK_SCHEME}://${com.chencohen.ptt.messaging.PairCode.HOST}?")
 
 private val LINK_IN_TEXT = Regex("""ptt://enroll\?[^\s<>"']+""")
 
 /** The first `ptt://enroll?…` link in [text] that [parseEnrollmentLink] reads, without punctuation a sentence put after it. */
 fun findEnrollmentLink(text: String): EnrollmentLink? =
-    LINK_IN_TEXT.findAll(text).firstNotNullOfOrNull { parseEnrollmentLink(it.value.trimEnd('.', ',', ';', ')', ']', '!', '?')) }
+    LINK_IN_TEXT.findAll(com.chencohen.ptt.AppLinks.toApp(text)).firstNotNullOfOrNull { parseEnrollmentLink(it.value.trimEnd('.', ',', ';', ')', ']', '!', '?')) }
 
 internal fun cleanCode(input: String): String {
     val pasted = input.any(Char::isWhitespace) || input.count(Char::isLetterOrDigit) > CODE_LENGTH

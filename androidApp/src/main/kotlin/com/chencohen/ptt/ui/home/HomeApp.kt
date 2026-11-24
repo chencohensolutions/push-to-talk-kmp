@@ -508,15 +508,18 @@ fun HomeApp(
                             setNotifyOnly = { on -> setNotifyOnly(Group.chatOf(id), on) },
                             setLiveTyping = { on -> setLiveTyping(Group.chatOf(id), on) },
                             setQuickTalk = { on -> setQuickTalk(Group.chatOf(id), on) },
+                            setDirection = { d -> onTalkSettings(messagingState.talkSettings.withDirection(Group.chatOf(id), d)) },
                         ),
                         notifyOnly = Group.chatOf(id) in messagingState.talkSettings.notifyOnly,
                         liveTyping = messagingState.talkSettings.liveTypingTo(Group.chatOf(id)),
+                        direction = messagingState.talkSettings.directionOf(Group.chatOf(id)),
                         quickTalk = Group.chatOf(id) in messagingState.talkSettings.quickTalk,
                     )
                 }
                 name == "invite" -> {
                     val pairingState by pairing.state.collectAsStateWithLifecycle()
                     DisposableEffect(page) { onDispose { pairing.clearInvite() } }
+                    LaunchedEffect(page) { pairing.refreshWaiting() }
                     InviteScreen(
                         state = pairingState,
                         actions = InviteActions(
@@ -553,6 +556,7 @@ fun HomeApp(
                                 clipboard?.setPrimaryClip(ClipData.newPlainText(message.subject, message.body))
                                 messages.post(resources.getString(R.string.invite_copied))
                             },
+                            cancel = { id -> pairing.cancelInvite(id) },
                             another = pairing::clearInvite,
                         ),
                     )
@@ -618,6 +622,8 @@ fun HomeApp(
                         pushVideo = messagingState.talkSettings.pushVideoFor(user),
                         presences = messagingState.presence,
                         liveEdits = messagingState.liveEdits,
+                        viewing = viewingIn(messagingState.viewing, user, System.currentTimeMillis(), Group.idOf(user) != null),
+                        direction = messagingState.talkSettings.directionOf(user),
                         warmCamera = messaging::warmCamera,
                         group = Group.idOf(user)?.let { id ->
                             val me = state.device?.user.orEmpty()
@@ -707,10 +713,12 @@ fun HomeApp(
                             setNotifyOnly = { on -> setNotifyOnly(user, on) },
                             setQuickTalk = { on -> setQuickTalk(user, on) },
                             setLiveTyping = { on -> setLiveTyping(user, on) },
+                            setDirection = { d -> onTalkSettings(messagingState.talkSettings.withDirection(user, d)) },
                         ),
                         notifyOnly = user in messagingState.talkSettings.notifyOnly,
                         quickTalk = user in messagingState.talkSettings.quickTalk,
                         liveTyping = messagingState.talkSettings.liveTypingTo(user),
+                        direction = messagingState.talkSettings.directionOf(user),
                     )
                 }
                 name.startsWith("kept/") && pageUser != null && keptCalls[pageUser] != null -> {
@@ -1243,6 +1251,11 @@ private fun saveBurst(context: android.content.Context, id: String, title: Strin
 }
 
 /** Live drafts in [chat] still fresh at [now]: (who, text); who is null in a one-to-one chat. */
+/** Who has [chat] in view now: the contact, or a group's members (MessagingState.viewing). */
+internal fun viewingIn(viewing: Map<String, Long>, chat: String, now: Long, group: Boolean): Set<String> =
+    if (group) viewing.filter { (k, until) -> k.startsWith("$chat/") && until > now }.keys.map { it.substringAfter('/') }.toSet()
+    else setOfNotNull(chat.takeIf { (viewing[chat] ?: 0L) > now })
+
 /** Where each live writer's caret is in [chat]: by who ("" one-to-one), start to end; only those that said. */
 internal fun liveCarets(drafts: Map<String, com.chencohen.ptt.messaging.Draft>, chat: String, group: Boolean): Map<String, Pair<Int, Int>> =
     if (group) {

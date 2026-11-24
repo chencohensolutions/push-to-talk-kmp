@@ -59,7 +59,7 @@ data class LinkCode(
 
         /** A Link a phone code; null for anything else, or one with a part missing or malformed. */
         fun parse(text: String): LinkCode? {
-            val url = runCatching { Url(text.trim()) }.getOrNull() ?: return null
+            val url = runCatching { Url(com.chencohen.ptt.AppLinks.toApp(text.trim())) }.getOrNull() ?: return null
             if (url.protocol.name != PairCode.SCHEME || url.host != HOST) return null
             val version = url.parameters["v"]?.toIntOrNull() ?: return null
             if (version > VERSION) return null

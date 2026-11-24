@@ -47,6 +47,8 @@ internal data class Content(
     @ProtoNumber(19) val edit: EditContent? = null,
     /** The author deleted their message for everyone (2026-11-24, hen). Older apps skip the field. */
     @ProtoNumber(20) val delete: DeleteContent? = null,
+    /** The sender has this chat open and in view, or left it ([ViewingContent]); live only. Older apps skip it. */
+    @ProtoNumber(21) val viewing: ViewingContent? = null,
 )
 
 /** What a user shares with their paired contacts about themselves: their email ("" none; Settings › Contacts). */
@@ -81,6 +83,13 @@ internal data class EditContent(
         const val CANCEL = 2
     }
 }
+
+/**
+ * The chat is open on the sender's phone and in view ([open]), so what comes in is read at once there (2026-11-24, hen:
+ * the read circle). Said again every 20 s; false when they leave it. Only from those who show when they're online.
+ */
+@Serializable
+internal data class ViewingContent(@ProtoNumber(1) val open: Boolean = false)
 
 /** Message [id] deleted by its author, for everyone. */
 @Serializable

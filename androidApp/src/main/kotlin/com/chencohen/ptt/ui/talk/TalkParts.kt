@@ -377,6 +377,26 @@ internal fun LiveTypingCard(on: Boolean, set: (Boolean) -> Unit) {
     }
 }
 
+/** A contact's or group's Chat direction (2026-11-24, hen): follow the phone (the default), right to left, left to right. */
+@Composable
+internal fun ChatDirectionCard(direction: Int, set: (Int) -> Unit) {
+    com.chencohen.ptt.ui.style.SectionTitle(stringResource(R.string.chat_direction))
+    com.chencohen.ptt.ui.style.SettingsCard {
+        val d = com.chencohen.ptt.messaging.ChatDirection
+        ChoiceRow(stringResource(R.string.chat_direction_follow), stringResource(R.string.chat_direction_follow_body), direction == d.FOLLOW) { set(d.FOLLOW) }
+        ChoiceRow(stringResource(R.string.chat_direction_rtl), null, direction == d.RTL) { set(d.RTL) }
+        ChoiceRow(stringResource(R.string.chat_direction_ltr), null, direction == d.LTR) { set(d.LTR) }
+    }
+    com.chencohen.ptt.ui.style.PageNote(stringResource(R.string.chat_direction_body), top = 6)
+}
+
+/** The layout a chat with [direction] (ChatDirection) has, on a phone laid out [phone]. */
+internal fun chatLayout(direction: Int, phone: androidx.compose.ui.unit.LayoutDirection): androidx.compose.ui.unit.LayoutDirection = when (direction) {
+    com.chencohen.ptt.messaging.ChatDirection.RTL -> androidx.compose.ui.unit.LayoutDirection.Rtl
+    com.chencohen.ptt.messaging.ChatDirection.LTR -> androidx.compose.ui.unit.LayoutDirection.Ltr
+    else -> phone
+}
+
 /** A contact's or group's Quick talk switch: on, it is a page of the Talk tab (docs/screens/quick-talk.md). */
 @Composable
 internal fun QuickTalkCard(on: Boolean, set: (Boolean) -> Unit) {

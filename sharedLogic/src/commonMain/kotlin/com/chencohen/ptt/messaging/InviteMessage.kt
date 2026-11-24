@@ -47,7 +47,7 @@ class InviteMessage(
         /** Six digits as "123 456". */
         fun spaced(passcode: String): String = if (passcode.length == 6) passcode.take(3) + " " + passcode.drop(3) else passcode
 
-        private val LINK = Regex("""ptt://\S+""")
+        private val LINK = Regex("""(ptt://|https://)\S+""")
         private val PASSCODE = Regex("""(?<![0-9A-Za-z])(\d{3})[ -]?(\d{3})(?![0-9A-Za-z])""")
 
         /**

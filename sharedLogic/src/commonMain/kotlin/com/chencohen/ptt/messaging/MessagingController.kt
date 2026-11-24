@@ -144,6 +144,9 @@ class MessagingController internal constructor(
     /** Edit my sent text [id] (2026-11-24, hen). */
     fun editText(id: String, body: String) = onWork { messaging.editText(id, body) }
 
+    /** The quick-reply window's chat, once answered there (Messaging.windowChat); null when it closes. */
+    fun setWindowChat(chat: String?) = onWork { messaging.windowChat = chat }
+
     /** Delete my message [id] for everyone (2026-11-24, hen). */
     fun deleteMessage(id: String) = onWork { messaging.deleteMessage(id) }
 

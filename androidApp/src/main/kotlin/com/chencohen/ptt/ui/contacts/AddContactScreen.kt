@@ -105,7 +105,7 @@ private fun Showing(state: PairingState, user: String?, actions: AddContactActio
     Column(Modifier.fillMaxWidth().padding(horizontal = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         when {
             state.code != null -> {
-                QrImage(state.code!!, stringResource(R.string.add_code_label), Modifier.padding(top = 8.dp))
+                QrImage(com.chencohen.ptt.AppLinks.web(state.code!!), stringResource(R.string.add_code_label), Modifier.padding(top = 8.dp))
                 if (user != null) {
                     Text(user, color = LibraryColors.OnBackground, style = LibraryType.PageTitle, modifier = Modifier.padding(top = 16.dp))
                 }

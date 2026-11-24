@@ -292,6 +292,12 @@ fun editText(context: Context, id: String, body: String) {
     kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editText(id, body) }
 }
 
+/** The quick-reply window was answered in [chat] (null: it closed): what comes in there is read at once, and they're told it's in view. */
+fun setWindowChat(context: Context, chat: String?) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.windowChat = chat }
+}
+
 /** Delete messages for everyone (mine only) or for me, from the quick-reply window. */
 fun deleteMessages(context: Context, ids: List<String>, forEveryone: Boolean) {
     val messaging = hub(context)

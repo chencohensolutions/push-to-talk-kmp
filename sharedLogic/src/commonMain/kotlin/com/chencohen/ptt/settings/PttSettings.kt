@@ -234,6 +234,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_LIVE_TYPING_KNOWN)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
         set(value) = store.putString(KEY_LIVE_TYPING_KNOWN, json.encodeToString(value.sorted()))
 
+    /** Chat direction per contact or group (TalkSettings.directionFor). */
+    var directionFor: Map<String, Int>
+        get() = store.getString(KEY_DIRECTION_FOR)?.let { runCatching { json.decodeFromString<Map<String, Int>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_DIRECTION_FOR, json.encodeToString(value))
+
     /** Voice or Video per contact or group (TalkSettings.videoFor). */
     var videoFor: Map<String, Boolean>
         get() = store.getString(KEY_VIDEO_FOR)?.let { runCatching { json.decodeFromString<Map<String, Boolean>>(it) }.getOrNull() }.orEmpty()
@@ -265,6 +270,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_MY_EMAIL = "my_email"
         private const val KEY_PUSH_VIDEO = "talk_push_video"
         private const val KEY_VIDEO_FOR = "talk_video_for"
+        private const val KEY_DIRECTION_FOR = "chat_direction_for"
         private const val KEY_LIVE_TYPING = "live_typing"
         private const val KEY_LIVE_TYPING_FOR = "live_typing_for"
         private const val KEY_MY_GENDER = "my_gender"

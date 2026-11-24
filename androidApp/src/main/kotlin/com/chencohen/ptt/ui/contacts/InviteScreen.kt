@@ -12,6 +12,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Icon
+import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -49,6 +54,8 @@ class InviteActions(
     val email: (MadeInvite) -> Unit = {},
     val copy: (MadeInvite) -> Unit = {},
     val another: () -> Unit = {},
+    /** A waiting invite canceled (it stops working; 2026-11-24, hen). */
+    val cancel: (String) -> Unit = {},
 )
 
 /**
@@ -95,7 +102,8 @@ internal fun InviteScreen(state: PairingState, actions: InviteActions) {
             ) {
                 // Face to face, the QR code carries the passcode too: the friend in the room needs nothing else.
                 // What is sent (Email, Share, Copy) has the link and the code apart.
-                QrImage(invite.faceToFace, stringResource(R.string.invite_code_label), Modifier.padding(top = 8.dp))
+                // The web form (2026-11-24, hen): any camera app opens it; Talk's own scanner reads both.
+                QrImage(com.chencohen.ptt.AppLinks.web(invite.faceToFace), stringResource(R.string.invite_code_label), Modifier.padding(top = 8.dp))
                 Text(stringResource(R.string.invite_qr_note), color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center)
                 val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(invite.expiresAt))
                 Text(
@@ -123,6 +131,49 @@ internal fun InviteScreen(state: PairingState, actions: InviteActions) {
                 SecondaryButton(stringResource(R.string.invite_copy), { actions.copy(invite) }, Modifier.fillMaxWidth(), icon = LibraryIcons.Copy)
                 SecondaryButton(stringResource(R.string.invite_another), actions.another, Modifier.fillMaxWidth())
                 Text(stringResource(R.string.invite_note), color = LibraryColors.Muted, style = LibraryType.Caption, textAlign = TextAlign.Center)
+            }
+        }
+        WaitingInvites(state.waiting, actions.cancel)
+    }
+}
+
+/**
+ * The invites still waiting to be used (2026-11-24, hen): who each is for, when it was made and when it ends, and a red
+ * Cancel (asked once more in the row: Cancel invite / Keep); a canceled one folds away. Only when there are some.
+ */
+@Composable
+private fun WaitingInvites(waiting: List<com.chencohen.ptt.messaging.WaitingInvite>, cancel: (String) -> Unit) {
+    androidx.compose.animation.AnimatedVisibility(waiting.isNotEmpty()) {
+        Column(Modifier.fillMaxWidth().padding(top = 24.dp)) {
+            com.chencohen.ptt.ui.style.SectionTitle(stringResource(R.string.invite_waiting))
+            com.chencohen.ptt.ui.style.SettingsCard {
+                waiting.forEach { invite ->
+                    androidx.compose.runtime.key(invite.id) {
+                        var asking by remember { mutableStateOf(false) }
+                        Row(
+                            Modifier.fillMaxWidth().animateContentSize().padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(invite.email ?: stringResource(R.string.invite_waiting_anyone), color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+                                val made = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(invite.createdAt))
+                                Text(stringResource(R.string.invite_waiting_line, made, DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(invite.expiresAt))), color = LibraryColors.Muted, style = LibraryType.Caption)
+                            }
+                            if (asking) {
+                                Text(
+                                    stringResource(R.string.invite_waiting_cancel), color = LibraryColors.Warning, style = LibraryType.RowTitle,
+                                    modifier = Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button) { cancel(invite.id) }.padding(8.dp),
+                                )
+                                Icon(LibraryIcons.Close, stringResource(R.string.library_back), tint = LibraryColors.Muted, modifier = Modifier.clickable { asking = false }.padding(8.dp))
+                            } else {
+                                Text(
+                                    stringResource(R.string.invite_waiting_cancel), color = LibraryColors.Warning, style = LibraryType.Small,
+                                    modifier = Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button) { asking = true }.padding(8.dp),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
