@@ -140,6 +140,14 @@ class AndroidTalkVideoCapture(
 
 
     override fun start(onFrame: (TalkVideo.Frame) -> Unit): Boolean {
+        // Let go while idle (a minute untouched): opened again now, and waited for up to half a second, so the burst
+        // starts as video rather than voice only (2026-11-24, hen). The microphone starts after this, so the sound
+        // waits too; nothing is lost.
+        if (synchronized(lock) { encoder == null }) {
+            warm()
+            val until = System.currentTimeMillis() + WAIT_FOR_CAMERA_MS
+            while (synchronized(lock) { encoder == null } && System.currentTimeMillis() < until) Thread.sleep(20)
+        }
         val enc = synchronized(lock) {
             val enc = encoder ?: return false
             sink = onFrame
@@ -765,3 +773,6 @@ object AndroidTalkVideoOut : TalkVideoOut {
     private const val IDLE_MS = 60_000L
     private const val MAX_WAIT_MS = 1_000L
 }
+
+/** How long a press waits for a camera let go while idle to open again. */
+private const val WAIT_FOR_CAMERA_MS = 500L
