@@ -822,4 +822,12 @@
     <string name="face_style_ink">דיו</string>
     <string name="settings_picture_title">התמונה שלך</string>
     <string name="settings_picture_body">ציור של הפנים שלך, שנעשה בטלפון</string>
+    <string name="face_expressions">הפרצופים שלך, לשליחה בצ׳אטים</string>
+    <string name="face_expr_neutral">פרצוף</string>
+    <string name="face_expr_smile">מחייך</string>
+    <string name="face_expr_laugh">צוחק</string>
+    <string name="face_expr_sad">עצוב</string>
+    <string name="face_expr_surprised">מופתע</string>
+    <string name="face_expr_wink">קורץ</string>
+    <string name="face_expr_angry">כועס</string>
 </resources>

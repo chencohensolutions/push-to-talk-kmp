@@ -819,4 +819,12 @@
     <string name="face_style_ink">Ink</string>
     <string name="settings_picture_title">Your picture</string>
     <string name="settings_picture_body">A drawing of your face, made on this phone</string>
+    <string name="face_expressions">Your faces, to send in chats</string>
+    <string name="face_expr_neutral">Face</string>
+    <string name="face_expr_smile">Smiling</string>
+    <string name="face_expr_laugh">Laughing</string>
+    <string name="face_expr_sad">Sad</string>
+    <string name="face_expr_surprised">Surprised</string>
+    <string name="face_expr_wink">Winking</string>
+    <string name="face_expr_angry">Angry</string>
 </resources>

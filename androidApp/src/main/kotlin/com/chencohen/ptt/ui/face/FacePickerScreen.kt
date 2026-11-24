@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -91,6 +92,14 @@ internal fun FacePickerScreen(onboarding: Boolean, done: () -> Unit) {
     val drawn = remember { mutableStateMapOf<FaceStyle, Bitmap>() }
     var chosen by remember { mutableStateOf<FaceStyle?>(null) }
     var saving by remember { mutableStateOf(false) }
+    // The chosen style's faces: each expression, for the emoticons (2026-11-24, hen).
+    var set by remember { mutableStateOf<Map<com.chencohen.ptt.face.Expression, Bitmap>?>(null) }
+    LaunchedEffect(prepared, chosen) {
+        set = null
+        val p = prepared ?: return@LaunchedEffect
+        val s = chosen ?: return@LaunchedEffect
+        set = runCatching { FaceMaker.drawSet(context, p, s) }.onFailure { android.util.Log.w("FacePicker", "no expressions", it) }.getOrNull()
+    }
     val hasPicture = faceOf("") != null
 
     // The first style's model starts downloading as the step opens; the rest follow, one by one.
@@ -150,6 +159,10 @@ internal fun FacePickerScreen(onboarding: Boolean, done: () -> Unit) {
                     }
                 }
             }
+            set?.let { faces ->
+                Text(stringResource(R.string.face_expressions), color = LibraryColors.Muted, style = LibraryType.Body, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp))
+                FacesRow(faces)
+            }
             val pickedNow = chosen?.let { drawn[it] }
             if (pickedNow != null) {
                 PrimaryButton(stringResource(R.string.face_use), {
@@ -173,6 +186,32 @@ internal fun FacePickerScreen(onboarding: Boolean, done: () -> Unit) {
             else if (hasPicture) TextAction(stringResource(R.string.face_remove), { com.chencohen.ptt.setMyPicture(context, null); finish() }, destructive = true)
         }
     }
+}
+
+/** The expressions in a row, each on light above and dark below. */
+@Composable
+private fun FacesRow(faces: Map<com.chencohen.ptt.face.Expression, Bitmap>) {
+    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(faces.entries.filter { it.key != com.chencohen.ptt.face.Expression.NEUTRAL }.toList(), key = { it.key.code }) { (e, b) ->
+            val image = remember(b) { b.asImageBitmap() }
+            Column(
+                Modifier.clip(RoundedCornerShape(12.dp)).background(Brush.verticalGradient(0.5f to Color(0xFFF4F4F2), 0.5f to Color(0xFF1C1E20))).padding(6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Image(image, stringResource(expressionName(e)), contentScale = ContentScale.Fit, modifier = Modifier.size(72.dp))
+            }
+        }
+    }
+}
+
+internal fun expressionName(e: com.chencohen.ptt.face.Expression): Int = when (e) {
+    com.chencohen.ptt.face.Expression.NEUTRAL -> R.string.face_expr_neutral
+    com.chencohen.ptt.face.Expression.SMILE -> R.string.face_expr_smile
+    com.chencohen.ptt.face.Expression.LAUGH -> R.string.face_expr_laugh
+    com.chencohen.ptt.face.Expression.SAD -> R.string.face_expr_sad
+    com.chencohen.ptt.face.Expression.SURPRISED -> R.string.face_expr_surprised
+    com.chencohen.ptt.face.Expression.WINK -> R.string.face_expr_wink
+    com.chencohen.ptt.face.Expression.ANGRY -> R.string.face_expr_angry
 }
 
 /** One style: the face on light and dark at once (split down the middle), its name, a ring while its model comes. */

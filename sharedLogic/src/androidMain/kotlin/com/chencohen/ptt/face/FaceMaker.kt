@@ -141,7 +141,7 @@ object FaceMaker {
     }
 
     /** A photo made ready: the head, square, [SIZE] px, and the person's outline (0–1 each pixel). */
-    class Prepared internal constructor(val crop: Bitmap, internal val mask: FloatArray)
+    class Prepared internal constructor(val crop: Bitmap, internal val mask: FloatArray, internal val landmarks: Landmarks?)
 
     /**
      * Finds the face in [photo] (upright) and cuts out the head only (2026-11-24, hen: "the face illustration should be
@@ -170,10 +170,11 @@ object FaceMaker {
             android.graphics.PointF(face.centerX().toFloat(), face.bottom.toFloat()),
             android.graphics.PointF(face.right.toFloat(), face.centerY().toFloat()),
         )).map { android.graphics.PointF((it.x - left) * scale, (it.y - top) * scale) }
-        Prepared(crop, headOnly(segment(context, crop), jaw))
+        val landmarks = found.landmarks?.map { p: Pair<Float, Float> -> (p.first - left) * scale to (p.second - top) * scale }
+        Prepared(crop, headOnly(segment(context, crop), jaw), landmarks)
     }
 
-    private class Found(val box: Rect, val jaw: List<android.graphics.PointF>)
+    private class Found(val box: Rect, val jaw: List<android.graphics.PointF>, val landmarks: Landmarks?)
 
     private suspend fun findFace(photo: Bitmap): Found? {
         val detector = FaceDetection.getClient(
@@ -188,7 +189,7 @@ object FaceMaker {
                         // The face's outline, its lower half: the jaw from ear to ear.
                         val outline = face?.getContour(com.google.mlkit.vision.face.FaceContour.FACE)?.points.orEmpty()
                         val middle = face?.boundingBox?.centerY()?.toFloat() ?: 0f
-                        c.resume(face?.let { Found(it.boundingBox, outline.filter { p -> p.y >= middle }.sortedBy { p -> p.x }) })
+                        c.resume(face?.let { Found(it.boundingBox, outline.filter { p -> p.y >= middle }.sortedBy { p -> p.x }, Landmarks.of(it)) })
                     }
                     .addOnFailureListener { c.resume(null) }
             }
@@ -283,7 +284,23 @@ object FaceMaker {
     }
 
     /** [prepared] drawn in [style]: the 256 px picture (alpha outside the person). */
-    suspend fun draw(context: Context, prepared: Prepared, style: FaceStyle): Bitmap? = withContext(Dispatchers.Default) {
+    suspend fun draw(context: Context, prepared: Prepared, style: FaceStyle): Bitmap? =
+        drawFull(context, prepared, style)?.let { Bitmap.createScaledBitmap(it, OUT, OUT, true) }
+
+    /**
+     * [prepared] drawn in [style] with each [Expression] (2026-11-24, hen: the faces as emoticons): the style once, then
+     * the face bent into each expression on the phone (Expressions); 256 px each, alpha outside the head.
+     */
+    suspend fun drawSet(context: Context, prepared: Prepared, style: FaceStyle): Map<Expression, Bitmap>? = withContext(Dispatchers.Default) {
+        val full = drawFull(context, prepared, style) ?: return@withContext null
+        val marks = prepared.landmarks
+        Expression.entries.associateWith { e ->
+            val bent = if (e == Expression.NEUTRAL || marks == null) full else Expressions.make(full, marks, e, style.ink)
+            Bitmap.createScaledBitmap(bent, OUT, OUT, true)
+        }
+    }
+
+    private suspend fun drawFull(context: Context, prepared: Prepared, style: FaceStyle): Bitmap? = withContext(Dispatchers.Default) {
         if (!download(context, style)) return@withContext null
         initialize(context)
         val pixels = IntArray(SIZE * SIZE).also { prepared.crop.getPixels(it, 0, SIZE, 0, 0, SIZE, SIZE) }
@@ -314,8 +331,7 @@ object FaceMaker {
                 out[i] = withAlpha(Color.rgb(r, g, b), prepared.mask[i])
             }
         }
-        val full = Bitmap.createBitmap(out, SIZE, SIZE, Bitmap.Config.ARGB_8888)
-        Bitmap.createScaledBitmap(full, OUT, OUT, true)
+        Bitmap.createBitmap(out, SIZE, SIZE, Bitmap.Config.ARGB_8888)
     }
 
     /** The picture as sent: WebP with alpha, about 15 KB. */
