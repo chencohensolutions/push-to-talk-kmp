@@ -132,6 +132,22 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
         set(value) = store.putString(KEY_NOTIFY_ONLY, json.encodeToString(value.sorted()))
 
+    /**
+     * The chats whose push-to-talk voice, push-to-video and "both live becomes a call" are on (2026-11-24, hen: talk
+     * isn't kept as messages unless the chat asks; all off by default).
+     */
+    var keepVoiceChats: Set<String>
+        get() = store.getString(KEY_KEEP_VOICE)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
+        set(value) = store.putString(KEY_KEEP_VOICE, json.encodeToString(value.sorted()))
+
+    var keepVideoChats: Set<String>
+        get() = store.getString(KEY_KEEP_VIDEO)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
+        set(value) = store.putString(KEY_KEEP_VIDEO, json.encodeToString(value.sorted()))
+
+    var bothLiveCallChats: Set<String>
+        get() = store.getString(KEY_BOTH_LIVE_CALL)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
+        set(value) = store.putString(KEY_BOTH_LIVE_CALL, json.encodeToString(value.sorted()))
+
     /** Kept calls already downloaded from the server (by id): their Download button is gone. */
     var downloadedCalls: Set<String>
         get() = store.getString(KEY_DOWNLOADED_CALLS)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
@@ -289,6 +305,9 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_DEFAULT_TALK = "talk_default_chat"
         private const val KEY_HARDWARE_BUTTONS = "talk_hardware_buttons"
         private const val KEY_NOTIFY_ONLY = "talk_notify_only"
+        private const val KEY_KEEP_VOICE = "talk_keep_voice"
+        private const val KEY_KEEP_VIDEO = "talk_keep_video"
+        private const val KEY_BOTH_LIVE_CALL = "talk_both_live_call"
         private const val KEY_DOWNLOADED_CALLS = "calls_downloaded"
         private const val KEY_SAVE_CALLS = "save_calls"
         private const val KEY_AUTO_DL = "call_auto_download"

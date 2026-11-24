@@ -51,6 +51,11 @@ internal data class Content(
     @ProtoNumber(21) val viewing: ViewingContent? = null,
     /** A reaction with one of the sender's faces to a message (2026-11-24, hen). Older apps skip it. */
     @ProtoNumber(22) val reaction: ReactionContent? = null,
+    /**
+     * The sender wants the floor of this chat while someone holds it (2026-11-24, hen: "both live"): they are live,
+     * waiting their turn; false when they stopped. Live only. Older apps skip it.
+     */
+    @ProtoNumber(23) val liveWaiting: ViewingContent? = null,
 )
 
 /** One expression of the sender's face ([code]: Expression code), a small WebP with alpha. */

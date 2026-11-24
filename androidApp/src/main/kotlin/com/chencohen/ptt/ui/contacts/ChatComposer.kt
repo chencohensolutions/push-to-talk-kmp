@@ -478,7 +478,7 @@ internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifi
  * tap shows when they read it.
  */
 @Composable
-internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
+internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean, here: Boolean = false) {
     var showTime by remember { androidx.compose.runtime.mutableStateOf(false) }
     val label = com.chencohen.ptt.genderedString(R.string.chat_read_up_to_here, user, user)
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
@@ -489,17 +489,8 @@ internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
                     color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(end = 6.dp),
                 )
             }
-            // Their face when they have one (2026-11-24, hen), free-standing and a little larger; else the letter circle.
-            val face = com.chencohen.ptt.ui.face.faceOf(user)
             val tap = Modifier.clickable(role = Role.Button, onClickLabel = label) { showTime = !showTime }.semantics { contentDescription = label }
-            if (face != null) {
-                androidx.compose.foundation.Image(face, null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.size(26.dp).then(tap))
-            } else {
-                Box(
-                    Modifier.size(20.dp).background(LibraryColors.Mine, CircleShape).then(tap),
-                    contentAlignment = Alignment.Center,
-                ) { Text(user.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.Tiny) }
-            }
+            HereFace(user, here, tap)
         }
     }
     @Suppress("UNUSED_EXPRESSION") end
@@ -653,7 +644,7 @@ internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = t
  * lists who read and when.
  */
 @Composable
-internal fun GroupReaders(readers: List<Pair<String, Long>>) {
+internal fun GroupReaders(readers: List<Pair<String, Long>>, here: Set<String> = emptySet()) {
     var open by remember { androidx.compose.runtime.mutableStateOf(false) }
     val label = stringResource(R.string.chat_read_by, readers.joinToString(", ") { it.first })
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
@@ -663,11 +654,8 @@ internal fun GroupReaders(readers: List<Pair<String, Long>>) {
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                readers.take(3).forEach { (who, _) ->
-                    Box(Modifier.size(20.dp).background(LibraryColors.Mine, CircleShape), contentAlignment = Alignment.Center) {
-                        Text(who.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.Tiny)
-                    }
-                }
+                // Those in the chat now first, each with their ring (2026-11-24, hen: "so it could work on groups").
+                readers.sortedByDescending { it.first in here }.take(3).forEach { (who, _) -> HereFace(who, who in here, Modifier) }
                 if (readers.size > 3) Text("+${readers.size - 3}", color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(start = 2.dp))
             }
             androidx.compose.animation.AnimatedVisibility(open) {
@@ -697,3 +685,38 @@ internal fun VideoPair(earlier: TextMessage, later: TextMessage, bubble: @Compos
     }
 }
 
+
+/**
+ * [user]'s face (or letter) at the end of what they read (2026-11-24, hen, "B"): while they have this chat open
+ * ([here]), full size and bright with a slow teal ring breathing around it; after, smaller and grey.
+ */
+@Composable
+internal fun HereFace(user: String, here: Boolean, modifier: Modifier) {
+    val face = com.chencohen.ptt.ui.face.faceOf(user)
+    val grow by androidx.compose.animation.core.animateFloatAsState(if (here) 1f else 0f, tween(400), label = "here")
+    val breath by androidx.compose.animation.core.rememberInfiniteTransition(label = "breath").animateFloat(
+        0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(1400, easing = androidx.compose.animation.core.FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "ring",
+    )
+    val size = (20f + 8f * grow).dp
+    val teal = LibraryColors.Accent
+    val grey = androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0.25f + 0.75f * grow) }
+    Box(
+        modifier.size(size + 8.dp).drawBehind {
+            if (grow > 0f) drawCircle(teal.copy(alpha = breath * grow), radius = this.size.minDimension / 2f - 1.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx()))
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (face != null) {
+            androidx.compose.foundation.Image(
+                face, null, contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                colorFilter = androidx.compose.ui.graphics.ColorFilter.colorMatrix(grey),
+                modifier = Modifier.size(size).graphicsLayer { alpha = 0.6f + 0.4f * grow },
+            )
+        } else {
+            Box(
+                Modifier.size(size - 4.dp).background(if (here) LibraryColors.Mine else LibraryColors.Raised, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Text(user.take(1).uppercase(), color = if (here) LibraryColors.OnMine else LibraryColors.Muted, style = LibraryType.Tiny) }
+        }
+    }
+}

@@ -314,6 +314,9 @@ class MessagingController internal constructor(
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     fun pressTalk(chat: String) = onWork { messaging.talk.press(chat) }
 
+    /** This user is live and waiting for [chat]'s floor (both live), or not. */
+    fun sendLiveWaiting(chat: String, waiting: Boolean) = onWork { messaging.sendLiveWaiting(chat, waiting) }
+
     /** A Talk screen shown ([on]) or left: the microphone open ahead of a press, or closed. */
     fun warmMicrophone(on: Boolean) = onWork { messaging.talk.warmMicrophone(on) }
 

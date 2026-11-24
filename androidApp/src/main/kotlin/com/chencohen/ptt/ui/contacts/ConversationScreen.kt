@@ -510,7 +510,7 @@ private fun ConversationScreenIn(
                 val oneDraft = if (group == null) shownDrafts.firstOrNull() else null
                 if (group == null) {
                     if (oneDraft != null) liveItem(live.key(null), LiveLine.Draft(null, oneDraft.second, draftCarets[""]))
-                    else if (circleAtEnd) liveItem(live.key(null), LiveLine.Circle(reader?.readAt))
+                    else if (circleAtEnd) liveItem(live.key(null), LiveLine.Circle(reader?.readAt, here = viewing.isNotEmpty()))
                 } else {
                     shownDrafts.forEach { (who, text) -> liveItem(live.key(who), LiveLine.Draft(who, text, draftCarets[who.orEmpty()])) }
                 }
@@ -537,10 +537,10 @@ private fun ConversationScreenIn(
                     if (message.id in pairedEarlier) return@forEach
                     if (reader != null && message.id == reader.id && !circleAtEnd) {
                         // The same item as the circle at the end (one key): when they read on, it slides down to the end.
-                        liveItem(if (oneDraft == null) live.key(null) else "reader", LiveLine.Circle(reader.readAt))
+                        liveItem(if (oneDraft == null) live.key(null) else "reader", LiveLine.Circle(reader.readAt, here = viewing.isNotEmpty()))
                     }
                     groupReaders[message.id]?.let { readers ->
-                        item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { GroupReaders(readers) } }
+                        item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { GroupReaders(readers, viewing) } }
                     }
                     val liveKey = live.morphed[message.id]
                     if (liveKey != null) {
@@ -779,14 +779,10 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
                         Icon(LibraryIcons.Shield, stringResource(R.string.contact_safety_verified), tint = LibraryColors.Muted, modifier = Modifier.padding(start = 4.dp).size(16.dp))
                     }
                 }
-                val line = when {
-                    header.typing -> com.chencohen.ptt.genderedString(R.string.chat_typing, user)
-                    header.presence?.online == true -> stringResource(R.string.chat_online)
-                    header.presence?.lastSeen != null -> stringResource(R.string.chat_last_seen, lastSeen(header.presence.lastSeen!!))
-                    else -> null
-                }
-                if (line != null) {
-                    Text(line, color = if (header.typing || header.presence?.online == true) LibraryColors.Accent else LibraryColors.Muted, style = LibraryType.Caption)
+                // No general "online" or "last seen" (2026-11-24, hen: "useless"): whether they are in this chat shows
+                // at its end, their face with a ring (ReaderCircle). Only typing is said here.
+                if (header.typing) {
+                    Text(com.chencohen.ptt.genderedString(R.string.chat_typing, user), color = LibraryColors.Accent, style = LibraryType.Caption)
                 }
             }
         }
@@ -1036,7 +1032,7 @@ internal class LiveKeys(private var lastNewest: String?) {
 
 /** What their live item shows: their circle, their draft, or the message the draft became. */
 internal sealed interface LiveLine {
-    data class Circle(val readAt: Long?) : LiveLine
+    data class Circle(val readAt: Long?, val here: Boolean = false) : LiveLine
     data class Draft(val who: String?, val text: String, val caret: Pair<Int, Int>? = null) : LiveLine
     data class Message(val message: TextMessage, val who: String?, val lastDraft: String?) : LiveLine
 }
@@ -1057,7 +1053,7 @@ private fun LiveLineView(line: LiveLine, draftUser: String?) {
         },
         label = "circle and draft",
     ) { circle ->
-        if (circle) ReaderCircle(draftUser.orEmpty(), (line as? LiveLine.Circle)?.readAt, end = false)
+        if (circle) ReaderCircle(draftUser.orEmpty(), (line as? LiveLine.Circle)?.readAt, end = false, here = (line as? LiveLine.Circle)?.here == true)
         else bubble?.let { LiveBubble(it, draftUser) }
     }
 }

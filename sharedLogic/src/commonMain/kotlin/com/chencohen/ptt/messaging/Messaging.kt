@@ -69,6 +69,8 @@ data class MessagingState(
      * user sends is read at once (ViewingContent; 2026-11-24, hen: the read circle): until when.
      */
     val viewing: Map<String, Long> = emptyMap(),
+    /** Contacts (a group's members: "chat/author") live and waiting for this user's floor in the chat now: until when. */
+    val liveWaiting: Map<String, Long> = emptyMap(),
     /** How many texts from each contact aren't read yet. */
     val unread: Map<String, Int> = emptyMap(),
     /** Each conversation's texts, oldest first, by user (a group's by [Group.chat]). */
@@ -161,7 +163,18 @@ data class TalkSettings(
      * [ChatDirection.RTL] or [ChatDirection.LTR]. This phone's only; never sent.
      */
     val directionFor: Map<String, Int> = emptyMap(),
+    /**
+     * Push-to-talk kept in the chat as messages (2026-11-24, hen): voice and video each per chat, off by default; off,
+     * a burst leaves only a muted line once it ends. Voice messages from the mic button always stay.
+     */
+    val keepVoice: Set<String> = emptySet(),
+    val keepVideo: Set<String> = emptySet(),
+    /** Both sides hands-free in the chat becomes a video call after 10 s, without asking (off by default). */
+    val bothLiveCall: Set<String> = emptySet(),
 ) {
+    /** Whether [clip]'s burst in [chat] stays as a message (voice messages always do). */
+    fun keeps(chat: String, clip: Clip): Boolean = clip.kind == ClipKind.VOICE || (if (clip.video) chat in keepVideo else chat in keepVoice)
+
     /** [chat]'s direction (ChatDirection). */
     fun directionOf(chat: String): Int = directionFor[chat] ?: ChatDirection.FOLLOW
 
@@ -297,6 +310,30 @@ internal class Messaging(
         }
     }
 
+    /** Tells [chat] this user is live and waiting for the floor there ([waiting]), or not any more. */
+    fun sendLiveWaiting(chat: String, waiting: Boolean) {
+        scope.launch {
+            if (socket.state.value !is SocketState.Live) return@launch
+            val content = Content(liveWaiting = ViewingContent(waiting))
+            try {
+                Group.idOf(chat)?.let { id ->
+                    groups.send(id, content, PushKind.NONE, ephemeral = true)
+                    return@launch
+                }
+                val contact = store.contact(chat)?.takeIf { it.paired && !it.blocked } ?: return@launch
+                sender.send(contact.user, content, pushKind = PushKind.NONE, ephemeral = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun takeLiveWaiting(key: String, waiting: Boolean) {
+        val until = now() + HERE_FOR
+        _state.update { it.copy(liveWaiting = if (waiting) it.liveWaiting + (key to until) else it.liveWaiting - key) }
+    }
+
     /** [key] (a contact, or a group's "chat/author") viewing the chat with this user, or not. */
     private fun takeViewing(key: String, open: Boolean) {
         val until = now() + HERE_FOR
@@ -375,6 +412,7 @@ internal class Messaging(
         onEdit = { group, author, edit -> takeEdit(group.chat, author, mine = author == device()?.user, edit) },
         onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
         onViewing = { group, author, open -> if (author != device()?.user) takeViewing(typingKey(group.chat, author), open) },
+        onLiveWaiting = { group, author, waiting -> if (author != device()?.user) takeLiveWaiting(typingKey(group.chat, author), waiting) },
         onReaction = { group, author, reaction -> takeReaction(group.chat, if (author == device()?.user) null else author, reaction) },
         onProfile = { _, author, profile -> if (author != device()?.user) takePicture(author, profile, contact = store.contact(author)?.paired == true) },
         onTyping = { group, author, typing ->
@@ -575,6 +613,9 @@ internal class Messaging(
         lowBatteryNoWake = settings.lowBatteryNoWake,
         videoFor = settings.videoFor,
         directionFor = settings.directionFor,
+        keepVoice = settings.keepVoiceChats,
+        keepVideo = settings.keepVideoChats,
+        bothLiveCall = settings.bothLiveCallChats,
         liveTyping = settings.liveTyping,
         liveTypingFor = settings.liveTypingFor,
         liveTypingKnown = settings.liveTypingKnown,
@@ -609,6 +650,9 @@ internal class Messaging(
         settings.lowBatteryNoWake = talk.lowBatteryNoWake
         if (talk.videoFor != before.videoFor) settings.videoFor = talk.videoFor
         if (talk.directionFor != before.directionFor) settings.directionFor = talk.directionFor
+        settings.keepVoiceChats = talk.keepVoice
+        settings.keepVideoChats = talk.keepVideo
+        settings.bothLiveCallChats = talk.bothLiveCall
         settings.liveTyping = talk.liveTyping
         if (talk.liveTypingFor != before.liveTypingFor) settings.liveTypingFor = talk.liveTypingFor
         // The default turned on: the chats there are now keep theirs (off unless set), only new ones follow it.
@@ -1962,6 +2006,7 @@ internal class Messaging(
             }
         }
         content.viewing?.let { takeViewing(contact.user, it.open) }
+        content.liveWaiting?.let { takeLiveWaiting(contact.user, it.open) }
         content.here?.let { here ->
             // From when the server took it: one that waited (this phone was away) is already over.
             val until = minOf(now(), envelope.serverTimestamp.takeIf { it > 0 } ?: now()) + HERE_FOR
