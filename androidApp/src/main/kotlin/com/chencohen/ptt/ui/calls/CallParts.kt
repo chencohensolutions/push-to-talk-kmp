@@ -1034,36 +1034,33 @@ private fun CompactCall(call: CallUi, title: String, transport: LiveKitCallTrans
 
 /**
  * A video call inside the chat (2026-11-24, hen: "both live becomes a video call in the chat"), under the header in the
- * push-to-video panel's place: side by side, each filling its share (no bars), theirs from the start side and mine at
- * the end; in a group two of theirs at most, then "+N".
+ * push-to-video panel's place and the same size: boxes 23.6% of the screen high, 3:4, side by side and centred, theirs
+ * from the start side and mine at the end; in a group two of theirs at most, then "+N".
  */
 @Composable
 fun ChatCallTop(call: CallUi, title: String, transport: LiveKitCallTransport?) {
     val room by (transport?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
     val changes by (transport?.changes ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
-    Row(Modifier.fillMaxWidth().height(280.dp).clip(shape).background(Color.Black), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        val r = room
-        val remote = if (r != null) remoteVideo(r, changes) else emptyList()
-        val own = r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
-        if (r != null && remote.isNotEmpty()) {
-            val shown = remote.take(2)
-            shown.forEachIndexed { i, (_, track) ->
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    VideoView(r, track, Modifier.fillMaxSize(), fill = true)
+    val r = room
+    val remote = if (r != null) remoteVideo(r, changes) else emptyList()
+    val own = r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
+    val shown = remote.take(2)
+    val count = shown.size.coerceAtLeast(1) + (if (own != null) 1 else 0)
+    com.chencohen.ptt.ui.contacts.LiveBoxes(List(count) { 3f / 4f }) { i, box ->
+        Box(box) {
+            when {
+                i < shown.size && r != null -> {
+                    VideoView(r, shown[i].second, Modifier.fillMaxSize(), fill = true)
                     if (i == shown.lastIndex && remote.size > shown.size) {
                         Text(
                             "+${remote.size - shown.size}", color = Color.White, style = LibraryType.Small,
-                            modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
                         )
                     }
                 }
+                i == 0 && shown.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Avatar(call.chat, size = 56.dp, name = title) }
+                r != null && own != null -> VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = true)
             }
-        } else {
-            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) { Avatar(call.chat, size = 72.dp, name = title) }
-        }
-        if (r != null && own != null) {
-            Box(Modifier.weight(1f).fillMaxHeight()) { VideoView(r, own, Modifier.fillMaxSize(), mirror = true, fill = true) }
         }
     }
 }

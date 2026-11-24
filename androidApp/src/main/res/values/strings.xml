@@ -840,7 +840,7 @@
     <string name="talk_both_live">You\u2019re both live</string>
     <string name="talk_make_call">Make it a call</string>
     <string name="talk_stop">Stop</string>
-    <string name="talk_lock_hint">Slide up to stay live</string>
+    <string name="talk_lock_hint">Slide up for hands-free video</string>
     <string name="talk_trace_my_video">You sent live video</string>
     <string name="talk_trace_my_voice">You talked</string>
     <string name="talk_trace_video">%1$s sent live video</string>

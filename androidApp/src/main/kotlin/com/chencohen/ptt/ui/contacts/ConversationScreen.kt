@@ -339,6 +339,9 @@ private fun ConversationScreenIn(
         var handsFree by remember(user) { mutableStateOf(false) }
         var standby by remember(user) { mutableStateOf(false) }
         var standbySince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
+        var sliding by remember(user) { mutableStateOf(false) }
+        // The newest actions (a video setting just changed is in them), for what runs after a delay.
+        val actionsNow by androidx.compose.runtime.rememberUpdatedState(actions)
         // Both live, and the call it can become: worked out further down, shown here under the panel.
         var bothLiveNow by remember(user) { mutableStateOf(false) }
         val makeCallNow = remember(user) { arrayOf<() -> Unit>({}) }
@@ -509,14 +512,18 @@ private fun ConversationScreenIn(
                     }
                     // The camera needs a moment to be free again, or the next one goes as voice only.
                     delay(800)
-                    if (handsFreeNow) actions.startVoice()
+                    if (handsFreeNow) actionsNow.startVoice()
                 }
             }
         }
         androidx.compose.runtime.DisposableEffect(user) { onDispose { if (handsFreeNow) actions.finishVoice(true) } }
         // Kept open while live hands-free or in standby (2026-11-24: after a minute untouched it was let go, so the next
         // renewal went out as voice only).
-        com.chencohen.ptt.ui.talk.WarmCamera(user, pushVideo && canWrite && !chatLive.anyCall && (!cameraIdle || handsFree || standby || talkingHere), warmCamera)
+        // Hands-free video (2026-11-24, hen): the camera opens as the finger starts sliding up from the Talk button, so the
+        // video starts fast at the lock.
+        com.chencohen.ptt.ui.talk.WarmCamera(user, canWrite && !chatLive.anyCall && (sliding || (pushVideo && (handsFree || standby || talkingHere))), warmCamera)
+        // Push is voice, except hands-free (slid up to the lock): this chat's video setting is set for it and back.
+        LaunchedEffect(handsFree, standby, pushVideo, talk.own?.chat) { if (!handsFree && !standby && pushVideo && talk.own?.chat != user) actions.setPushVideo?.invoke(false) }
         // Their floor ended while I'm live in standby: mine starts.
         LaunchedEffect(standby, theyHold) {
             if (standby && !theyHold) {
@@ -905,7 +912,24 @@ private fun ConversationScreenIn(
                     ) {
                         if (chatLive.call == null) {
                             ChatButtons(
-                                false, talkingHere || standby, recordingVoice, actions, video = pushVideo, handsFree = handsFree, lock = { handsFree = true },
+                                false, talkingHere || standby, recordingVoice, actions, video = false, handsFree = handsFree,
+                                // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.
+                                lock = {
+                                    actions.setPushVideo?.invoke(true)
+                                    handsFree = true
+                                    val wasStandby = standby
+                                    if (!wasStandby) actions.finishVoice(true)
+                                    chainScope.launch {
+                                        var waited = 0
+                                        while (ownNow != null && waited < 3_000) {
+                                            delay(100)
+                                            waited += 100
+                                        }
+                                        delay(300)
+                                        if (handsFreeNow && !standby) actionsNow.startVoice()
+                                    }
+                                },
+                                sliding = { sliding = it },
                                 // One preview at a time: while the panel shows my camera, the button's corner doesn't.
                                 thumb = !myPanel,
                                 stopLive = {

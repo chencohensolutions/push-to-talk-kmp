@@ -3,8 +3,11 @@ package com.chencohen.ptt
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -17,72 +20,106 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.compose.ui.graphics.asAndroidBitmap
 import com.chencohen.ptt.messaging.Group
+import kotlinx.coroutines.launch
 
 /**
- * The reply bubble (docs/screens/notifications.md, "Reply bubble"; 2026-11-22, hen): with Settings › Talk › Reply
- * bubble over other apps on and Android's "Display over other apps" allowed, a burst that plays while the phone is in
- * use (and the app isn't on screen) shows a bar at the bottom of the screen, above the navigation bar: who talks, and a
- * big Talk button in the middle. Hold it to talk back and let go to send; a tap starts talking and the next tap sends.
- * It slides up from the bottom edge and stays until a touch outside it (not while talking), ✕, or opening the app,
- * then slides down off the screen (hen, 19:05). Without the permission the heads-up notification is all there is.
+ * The floating window (docs/screens/notifications.md, "Floating window"; 2026-11-24, hen picked "A, a small pill at
+ * the bottom"): with Settings › Talk › Reply bubble over other apps on and Android's "Display over other apps" allowed,
+ * someone talking while the phone is in use (and the app isn't on screen) shows two small floating pieces, and the app
+ * beneath stays usable (a touch outside closes nothing):
+ *
+ * - At the top centre, sliding down from the top edge: their video, 23.6% of the screen's height and as wide as the
+ *   picture's own shape (no crop, no bars), rounded with a thin teal outline and "Name · 0:04" inside. While I send
+ *   video my own picture shows there (coral outline, "You · LIVE 0:03"), side by side with theirs when both are live,
+ *   with "You're both live · Make it a call" under them. Drag moves it, a swipe up puts it away, a tap opens the chat
+ *   (the video goes on there without a break).
+ * - Voice (2026-11-24, hen, "c, but remove the wave, make the green circle glow as the voice"): no top box; the pill
+ *   grows to show the talker's face in a teal ring that glows with their voice (brightness, glow and thickness), their
+ *   name and the time. My own voice push the same, with my face and my microphone.
+ * - At the bottom, about 24 dp above the navigation bar: one pill, Chat · Push-to-talk · Close. Hold the push button
+ *   for voice push-to-talk and let go to send (a tap starts it and the next tap sends). Sliding up while holding, to
+ *   the camera-and-lock target above the button (2026-11-24, hen: "holding the button transmitting audio, sliding the
+ *   button up open hands free video"), switches to hands-free video: the camera (warmed as the finger starts to slide)
+ *   sends, my box shows at the top, and the button becomes a coral "■ Stop · 0:42" until tapped (renewed every 55 s,
+ *   as the server ends a floor at 60 s). There is no Voice | Video switch and no hands-free voice any more. A call
+ *   ringing turns the pill into Answer and Decline.
  */
 object TalkBubble {
     private const val TAG = "TalkBubble"
     private const val SLIDE_MS = 250L
-    /** Their picture's area: at most this share of the screen's height. */
-    private const val MAX_SHARE = 0.45f
+    /** The top box's height: this share of the screen's (hen). */
+    private const val TOP_SHARE = 0.236f
     private const val HOLD_MS = 350L
+    /** Slid up this far while holding: hands-free. */
+    private const val LOCK_DP = 56
+    /** Hands-free is let go and taken again before the server's 60 s floor ends. */
+    private const val RENEW_MS = 55_000L
 
     private val main = Handler(Looper.getMainLooper())
-    private var view: LinearLayout? = null
-    /**
-     * The window itself: holds [view] against its bottom edge, so whatever shows above the button (the time, this
-     * phone's camera, their video) grows the window upwards while the button stays where the finger is (2026-11-23,
-     * hen: "it should extend upwards while the buttons stay fixed").
-     */
-    private var frame: android.widget.FrameLayout? = null
-    private var title: TextView? = null
-    private var line: TextView? = null
-    private var videoBox: android.widget.FrameLayout? = null
-    private var videoSwitch: android.widget.ImageView? = null
+
+    // The bottom pill (its own window).
+    private var pillWindow: LinearLayout? = null
+    private var pill: LinearLayout? = null
+    private var chatButton: ImageView? = null
+    private var button: ImageView? = null
+    private var closeButton: ImageView? = null
+    /** The finger started sliding up: the camera opens, so the video starts fast at the lock. */
+    private var warming = false
+    private var pushBox: FrameLayout? = null
+    private var stopPill: TextView? = null
+    private var lockHint: ImageView? = null
+    // Who talks, by voice, at the pill's start: their face (or mine) in a ring glowing with the voice.
+    private var who: LinearLayout? = null
+    private var whoRing: GlowRing? = null
+    private var whoFace: ImageView? = null
+    private var whoLetter: TextView? = null
+    private var whoName: TextView? = null
+    private var whoTime: TextView? = null
+    /** Whose face the ring shows now ("" mine), so it is loaded once. */
+    private var whoShown: String? = null
+
+    // The top box (its own window).
+    private var topWindow: FrameLayout? = null
+    private var topCard: LinearLayout? = null
+    private var theirBox: FrameLayout? = null
+    private var theirTag: TextView? = null
     private var videoSurface: android.view.Surface? = null
-    /** The burst now has video (push-to-video). */
-    private var burstVideo = false
-    private var button: android.widget.ImageView? = null
-    /** Voice | Video beside the button (2026-11-23, hen), remembered per contact (TalkSettings.videoFor). */
-    private var voiceTab: android.widget.ImageView? = null
-    private var videoTab: android.widget.ImageView? = null
-    /** This phone's camera while it sends video from here. */
-    private var ownView: android.view.TextureView? = null
-    private var ownBox: android.widget.FrameLayout? = null
-    private var ownSurface: android.view.Surface? = null
-    /** A word after the time while talking ("camera busy"). */
-    private var note: String? = null
-    private var sendingVideo = false
-    private var hereDot: TextView? = null
-    private var videoCall: android.widget.ImageView? = null
-    private var actions: LinearLayout? = null
-    /** A call ringing here while the bubble shows: the bubble is its Answer (2026-11-22, hen). */
-    private var ringing: com.chencohen.ptt.calls.CallUi? = null
+    private var myBox: FrameLayout? = null
+    private var mySurface: android.view.Surface? = null
+    private var myTag: TextView? = null
+    private var bothChip: TextView? = null
+    private var topHiding = false
+
     private var chat: String? = null
+    private var title: String = ""
+    private var from: String? = null
+    /** Their burst plays now; with video. */
+    private var burstLive = false
+    private var burstVideo = false
+    private var burstSince = 0L
+    /** Swiped up: the top box stays away until their next burst. */
+    private var topPutAway = false
     private var talking = false
     private var talkStarted = 0L
-    private val tick = object : Runnable {
-        override fun run() {
-            if (!talking) return
-            val s = (System.currentTimeMillis() - talkStarted) / 1000
-            line?.text = "%d:%02d".format(s / 60, s % 60) + (note?.let { " · $it" } ?: "")
-            main.postDelayed(this, 500)
-        }
-    }
+    private var locked = false
+    private var lockSince = 0L
+    private var downY = 0f
+    private var sendingVideo = false
+    private var previewOn = false
+    private var ringing: com.chencohen.ptt.calls.CallUi? = null
+    /** The last picture's shape and turn, kept when the burst ends (no sideways frame as it goes). */
+    private var lastShown: com.chencohen.ptt.talk.AndroidTalkVideoOut.Shown? = null
 
-    /** The bubble is on screen now. */
-    val showing: Boolean get() = view != null
+    /** The floating window is on screen now. */
+    val showing: Boolean get() = pillWindow != null
 
-    /** The bubble may show now: the setting, Android's permission, the phone in use and unlocked. */
+    /** The floating window may show now: the setting, Android's permission, the phone in use and unlocked. */
     fun allowed(context: Context): Boolean {
         if (!messagingState(context).value.talkSettings.replyBubble) return false
         if (!Settings.canDrawOverlays(context)) return false
@@ -90,234 +127,205 @@ object TalkBubble {
         return !context.getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked
     }
 
-    /** [from] talks in [chat] now ([live]) or just did (the reply window). */
-    fun show(context: Context, chat: String, title: String, live: Boolean, video: Boolean = false) = main.post {
-        if (view == null) {
-            if (!allowed(context)) return@post
-            if (!add(context.applicationContext)) return@post
+    /** [who] talks in [chat] now ([live], with [video]) or just did (the pill stays for a reply). */
+    fun show(context: Context, chat: String, title: String, live: Boolean, video: Boolean = false, who: String? = null) = main.post {
+        val app = context.applicationContext
+        if (pillWindow == null) {
+            if (!allowed(app)) return@post
+            if (!addPill(app)) return@post
         }
+        if (this.chat != chat) setHere(app, chat)
         this.chat = chat
-        this.title?.text = title
-        if (this.chat != chat) setHere(context, chat)
+        this.title = title
+        if (who != null) from = who
+        if (live && !burstLive) {
+            // Their next burst: the top box comes back even if it was put away.
+            burstSince = System.currentTimeMillis()
+            topPutAway = false
+        }
+        burstLive = live
         burstVideo = live && video
-        showVideo(context)
-        showMode(context)
+        if (!live) burstSince = 0L
+        refreshTop(app)
+        showMode(app)
     }
 
-    /**
-     * After something above the button shows or goes: the window takes the new height with its bottom edge where it was
-     * (the content stays against it), and what came in above grows in from the bottom up.
-     */
-    private fun fit(animate: Boolean = false, done: () -> Unit = {}) {
-        val root = view ?: return done()
-        val holder = frame ?: return done()
-        val lp = holder.layoutParams as? WindowManager.LayoutParams ?: return done()
-        root.measure(
-            View.MeasureSpec.makeMeasureSpec(lp.width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-        )
-        val target = root.measuredHeight
-        // The content at its full height against the window's bottom edge, whatever the window's height is meanwhile:
-        // while it grows the content is uncovered from the bottom up, and nothing in it moves.
-        root.layoutParams?.let { p ->
-            if (p.height != target) {
-                p.height = target
-                root.layoutParams = p
+    /** The app came on screen, or the floating window isn't wanted any more. */
+    fun dismiss() = main.post { if (!talking) dismissNow() }
+
+    private fun dp(context: Context, v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), context.resources.displayMetrics).toInt()
+
+    // ---- The bottom pill ----------------------------------------------------------------------------------------
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun addPill(context: Context): Boolean {
+        val wm = context.getSystemService(WindowManager::class.java)
+        fun dp(v: Int) = dp(context, v)
+        val bars = wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.navigationBars())
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            background = GradientDrawable().apply { cornerRadius = dp(40).toFloat(); setColor(0xF2191D1C.toInt()) }
+            elevation = dp(8).toFloat()
+        }
+        fun round(icon: Int, label: Int, size: Int, color: Int, onClick: () -> Unit) = ImageView(context).apply {
+            setImageResource(icon)
+            val pad = size / 4
+            setPadding(pad, pad, pad, pad)
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
+            contentDescription = context.getString(label)
+            setOnClickListener { onClick() }
+        }
+        chatButton = round(R.drawable.ic_bubble_chat, R.string.talk_action_chat, dp(34), 0x33FFFFFF) { chat?.let { intoChat(context, it) } }
+        // The push button: hold for voice, slide up to the lock for hands-free video.
+        val push = FrameLayout(context).apply { clipChildren = false; clipToPadding = false }
+        button = ImageView(context).apply {
+            setImageResource(R.drawable.ic_bubble_mic)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(11), dp(11), dp(11), dp(11))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(PINK) }
+            contentDescription = context.getString(R.string.bubble_talk_hint)
+            setOnTouchListener { v, e -> touch(context, v, e) }
+        }
+        push.addView(button, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.CENTER))
+        pushBox = push
+        // Hands-free: the push button's place shows a coral "■ Stop · 0:42"; a tap stops.
+        stopPill = TextView(context).apply {
+            visibility = View.GONE
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(16), 0, dp(16), 0)
+            background = GradientDrawable().apply { cornerRadius = dp(23).toFloat(); setColor(PINK) }
+            contentDescription = context.getString(R.string.talk_stop)
+            setOnClickListener {
+                locked = false
+                endTalk(context, send = true)
             }
         }
-        resizing?.cancel()
-        resizing = null
-        val wm = holder.context.getSystemService(WindowManager::class.java)
-        if (!animate || lp.height == target) {
-            if (lp.height != target) {
-                lp.height = target
-                runCatching { wm.updateViewLayout(holder, lp) }
-            }
-            return done()
+        // Who talks by voice: a face in a ring glowing with the voice, the name and the time.
+        who = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            setPadding(0, 0, dp(6), 0)
         }
-        // About 200 ms from the old height to the new, the bottom edge (and the button) where it is.
-        resizing = android.animation.ValueAnimator.ofInt(lp.height, target).apply {
-            duration = 200
-            interpolator = android.view.animation.DecelerateInterpolator()
-            addUpdateListener {
-                if (frame !== holder) return@addUpdateListener
-                lp.height = it.animatedValue as Int
-                runCatching { wm.updateViewLayout(holder, lp) }
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) = done()
-            })
-            start()
+        val faceBox = FrameLayout(context).apply { clipChildren = false }
+        whoRing = GlowRing(context)
+        whoFace = ImageView(context).apply { visibility = View.GONE; scaleType = ImageView.ScaleType.FIT_CENTER }
+        whoLetter = TextView(context).apply {
+            setTextColor(Color.WHITE); textSize = 15f; gravity = Gravity.CENTER
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
         }
-    }
-
-    private var resizing: android.animation.ValueAnimator? = null
-
-    /** Whether a press here sends the camera too: this contact's Voice | Video. */
-    private fun videoMode(context: Context): Boolean = chat?.let { messagingState(context).value.talkSettings.pushVideoFor(it) } ?: false
-
-    /** Voice | Video shows the contact's choice; the button a camera in Video. */
-    private fun showMode(context: Context) {
-        val video = videoMode(context)
-        fun mark(v: android.widget.ImageView?, on: Boolean) {
-            (v?.background as? GradientDrawable)?.setColor(if (on) Color.WHITE else Color.TRANSPARENT)
-            v?.setColorFilter(if (on) 0xFF191D1C.toInt() else Color.WHITE)
-            v?.isSelected = on
+        faceBox.addView(whoRing, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER))
+        faceBox.addView(whoLetter, FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER))
+        faceBox.addView(whoFace, FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER))
+        who!!.addView(faceBox, LinearLayout.LayoutParams(dp(60), dp(60)))
+        val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(4), 0, dp(4), 0) }
+        whoName = TextView(context).apply { setTextColor(Color.WHITE); textSize = 14f; maxLines = 1; setTypeface(typeface, android.graphics.Typeface.BOLD) }
+        whoTime = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 12f }
+        words.addView(whoName)
+        words.addView(whoTime)
+        who!!.addView(words)
+        closeButton = round(R.drawable.ic_bubble_close, R.string.bubble_close, dp(34), 0x33FFFFFF) { closeOrDecline(context) }
+        val gap = dp(10)
+        row.addView(who, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        row.addView(chatButton, LinearLayout.LayoutParams(dp(34), dp(34)))
+        row.addView(push, LinearLayout.LayoutParams(dp(56), dp(56)).apply { marginStart = gap; marginEnd = gap })
+        row.addView(stopPill, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)).apply { marginStart = gap; marginEnd = gap })
+        row.addView(closeButton, LinearLayout.LayoutParams(dp(34), dp(34)))
+        // The lock, above the push button while it is held (the window grows upwards; the pill stays put).
+        lockHint = ImageView(context).apply {
+            setImageResource(R.drawable.ic_bubble_lock)
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+            background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(0xF2191D1C.toInt()) }
+            visibility = View.GONE
         }
-        mark(voiceTab, !video)
-        mark(videoTab, video)
-        if (!talking && ringing == null) {
-            button?.setImageResource(if (video) R.drawable.ic_bubble_video else R.drawable.ic_bubble_mic)
-            button?.contentDescription = context.getString(if (video) R.string.bubble_video_hint else R.string.bubble_talk_hint)
+        val holder = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            clipChildren = false
+            addView(lockHint, LinearLayout.LayoutParams(dp(42), dp(58)).apply { bottomMargin = dp(8) })
+            addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            // Room for the shadow.
+            setPadding(dp(8), dp(8), dp(8), dp(8))
         }
-    }
-
-    /** Voice | Video chosen here: kept for this contact; Video without the camera allowed asks for it in the app. */
-    private fun chooseMode(context: Context, video: Boolean) {
-        val chat = chat ?: return
-        if (talking || video == videoMode(context)) return
-        val settings = messagingState(context).value.talkSettings
-        setTalkSettings(context, settings.withVideoFor(chat, video))
-        Log.i(TAG, "$chat: ${if (video) "video" else "voice"} from the bubble")
-        if (video && context.checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            runCatching {
-                context.startActivity(
-                    Intent(context, MainActivity::class.java).setAction(TalkNotifications.ACTION_TALK).putExtra(Notifications.EXTRA_USER, chat)
-                        .putExtra(MainActivity.EXTRA_ASK_CAMERA, true)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                )
-            }
-            dismissNow()
-            return
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            // The app beneath stays usable: touches outside the pill go to it, and nothing closes on them.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = bars.bottom + dp(24) - dp(8)
+            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+            title = "Talk pill"
         }
-        main.postDelayed({
-            showMode(context)
-            showVideo(context)
-        }, 100)
-    }
-
-    /** Sending video from here: the box shows this phone's camera (their picture gives way). */
-    private fun showOwn(context: Context, @Suppress("UNUSED_PARAMETER") on: Boolean) = showVideo(context)
-
-    /** The last picture's shape and turn, kept when the burst ends (no sideways frame as it goes). */
-    private var lastShown: com.chencohen.ptt.talk.AndroidTalkVideoOut.Shown? = null
-
-    /** A video burst came in this window's time: the room for the picture stays, so the window doesn't change size. */
-    private var seenVideo = false
-
-    /** This phone's camera shows here (the window's Voice | Video is Video): kept open by Talk's service. */
-    private var previewOn = false
-
-    /**
-     * What the box above the button shows (2026-11-23, hen): their video burst while it plays (unless the bubble's Video
-     * is off); this phone's camera while it sends, or, in Video, between bursts; a quick crossfade (180 ms) between the
-     * two. The box keeps its room once the window is in Video or a video came (hidden, not gone), so the window keeps its
-     * size and nothing under the finger moves.
-     */
-    private fun showVideo(context: Context) {
-        videoSwitch?.visibility = View.GONE
-        if (burstVideo) seenVideo = true
-        val camera = context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        val callOn = messagingState(context).value.call != null
-        // Their video burst, always (2026-11-23, hen: the bubble's own Video switch went, it was redundant).
-        val theirs = burstVideo
-        // This phone's camera, small beside the button, in Video (and while it sends).
-        val mine = sendingVideo || (videoMode(context) && camera && !callOn && ringing == null)
-        if (mine && !previewOn) preview(context, true) else if (!mine && previewOn && !sendingVideo) preview(context, false)
-        ownBox?.visibility = if (mine) View.VISIBLE else View.INVISIBLE
-        if (mine) ownSurface?.let { com.chencohen.ptt.talkVideoCapture?.setPreview(it) } else ownSurface?.let { s -> com.chencohen.ptt.talkVideoCapture?.clearPreview(s) {} }
-        val box = videoBox ?: return
-        if (theirs) {
-            // Opens upwards (about 200 ms), the buttons where they are.
-            shapeBox(box)
-            if (box.visibility != View.VISIBLE) {
-                box.visibility = View.VISIBLE
-                fit(animate = true)
-            }
-            main.removeCallbacks(turn)
-            main.post(turn)
-        } else if (box.visibility == View.VISIBLE) {
-            main.removeCallbacks(turn)
-            closeBox(box)
+        return try {
+            wm.addView(holder, params)
+            pillWindow = holder
+            pill = row
+            // Slides up and fades in, untouchable for a moment (OverlayArrival).
+            row.post { OverlayArrival.arrive(wm, holder, params, row, (row.height + params.y + dp(16)).toFloat()) { a -> row.alpha = a } }
+            Log.i(TAG, "shown")
+            main.post(pulse)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "can't show the floating window", e)
+            false
         }
     }
 
-    /**
-     * Their picture's area: as wide as the window, as tall as its shape (2026-11-23, hen: "no black bars, only video"),
-     * at most [MAX_SHARE] of the screen's height; then the picture fills it, cropped a little. Rounded, nothing behind.
-     * True when its size changed.
-     */
-    private fun shapeBox(box: android.widget.FrameLayout): Boolean {
-        val video = box.findViewWithTag<View>("video") ?: return false
-        val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
-        lastShown = shown
-        val rotation = shown?.rotation ?: 0
-        val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 4f / 3f
-        val turned = rotation % 180 != 0
-        val upright = if (turned) 1f / aspect else aspect
-        val holder = frame ?: return false
-        val lp = holder.layoutParams as? WindowManager.LayoutParams ?: return false
-        val pad = (view?.paddingLeft ?: 0) + (view?.paddingRight ?: 0)
-        val w = (lp.width - pad).coerceAtLeast(1)
-        val most = (box.resources.displayMetrics.heightPixels * MAX_SHARE).toInt()
-        val h = minOf((w / upright).toInt(), most)
-        // The picture covers the area: as wide, and as tall as its shape (cropped top and bottom past the cap).
-        val cw = maxOf(w.toFloat(), h * upright)
-        val ch = cw / upright
-        contentSize = cw to ch
-        val (vw, vh) = if (turned) ch.toInt() to cw.toInt() else cw.toInt() to ch.toInt()
-        val vp = video.layoutParams
-        if (vp.width != vw || vp.height != vh) {
-            vp.width = vw
-            vp.height = vh
-            video.layoutParams = vp
-        }
-        video.rotation = rotation.toFloat()
-        val bp = box.layoutParams
-        if (bp.width != w || bp.height != h) {
-            bp.width = w
-            bp.height = h
-            box.layoutParams = bp
-            return true
-        }
-        return false
-    }
-
-    /** The picture's size as laid out (it may be bigger than the area: cropped). */
-    private var contentSize = 0f to 0f
-
-    /** Closes their picture's area: the window shrinks over it (200 ms), then it goes. */
-    private fun closeBox(box: android.widget.FrameLayout) {
-        val holder = frame
-        val lp = holder?.layoutParams as? WindowManager.LayoutParams
-        if (lp == null) {
-            box.visibility = View.GONE
-            fit()
-            return
-        }
-        val from = lp.height
-        box.visibility = View.INVISIBLE
-        resizing?.cancel()
-        val boxH = box.height + ((box.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.let { it.topMargin + it.bottomMargin } ?: 0)
-        val wm = holder.context.getSystemService(WindowManager::class.java)
-        resizing = android.animation.ValueAnimator.ofInt(from, from - boxH).apply {
-            duration = 200
-            interpolator = android.view.animation.DecelerateInterpolator()
-            addUpdateListener {
-                if (frame !== holder) return@addUpdateListener
-                lp.height = it.animatedValue as Int
-                runCatching { wm.updateViewLayout(holder, lp) }
+    /** A camera preview's TextureView: [surface] is told its Surface (null when it goes). */
+    private fun ownTexture(context: Context, surface: (android.view.Surface?) -> Unit) = android.view.TextureView(context).apply {
+        surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+            private var mine: android.view.Surface? = null
+            override fun onSurfaceTextureAvailable(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                texture.setDefaultBufferSize(com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH, com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT)
+                mine = android.view.Surface(texture).also(surface)
+                main.post { pickPreview() }
             }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    if (videoBox === box && box.visibility == View.INVISIBLE) {
-                        box.visibility = View.GONE
-                        fit()
-                    }
+
+            override fun onSurfaceTextureSizeChanged(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
+            override fun onSurfaceTextureDestroyed(texture: android.graphics.SurfaceTexture): Boolean {
+                val gone = mine ?: return true
+                mine = null
+                surface(null)
+                val capture = com.chencohen.ptt.talkVideoCapture ?: run { gone.release(); return true }
+                capture.clearPreview(gone) {
+                    gone.release()
+                    texture.release()
                 }
-            })
-            start()
+                return false
+            }
+
+            override fun onSurfaceTextureUpdated(texture: android.graphics.SurfaceTexture) {}
         }
+    }
+
+    private fun cameraAllowed(context: Context) =
+        context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /** The push button's icon, and the camera kept open while warming or sending video. */
+    private fun showMode(context: Context) {
+        if (!talking && ringing == null) {
+            button?.setImageResource(R.drawable.ic_bubble_mic)
+            button?.contentDescription = context.getString(R.string.bubble_talk_hint)
+        }
+        val wantCamera = (warming || sendingVideo) && ringing == null
+        if (wantCamera && !previewOn) preview(context, true) else if (!wantCamera && previewOn) preview(context, false)
+        pickPreview()
+    }
+
+    /** The camera draws into my box at the top while I send video. */
+    private fun pickPreview() {
+        val capture = com.chencohen.ptt.talkVideoCapture ?: return
+        val mine = mySurface ?: return
+        if (sendingVideo) capture.setPreview(mine) else capture.clearPreview(mine) {}
     }
 
     /** Asks Talk's service to keep the camera open for the window's preview ([on]) or let it go. */
@@ -332,116 +340,347 @@ object TalkBubble {
         }.onFailure { Log.w(TAG, "no camera preview", it) }
     }
 
-    /** Keeps the picture upright and its shape as the sender's camera says, while it shows. */
-    private val turn = object : Runnable {
-        override fun run() {
-            val box = videoBox ?: return
-            if (box.visibility != View.VISIBLE) return
-            val video = box.findViewWithTag<View>("video") ?: return
-            // A new shape (the next video, or the phone turned there): the window follows, over 200 ms.
-            if (shapeBox(box)) fit(animate = true)
-            val bp = box.layoutParams
-            follow(box.context, video, bp.width.toFloat(), bp.height.toFloat(), contentSize.first, contentSize.second)
-            main.postDelayed(this, 300)
+    private fun touch(context: Context, v: View, e: MotionEvent): Boolean {
+        // Ringing: the button answers.
+        ringing?.let {
+            if (e.actionMasked == MotionEvent.ACTION_UP) answer(context)
+            return true
+        }
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (talking) {
+                    // A tap (or the lock) started it; this one sends.
+                    locked = false
+                    endTalk(context, send = true)
+                } else {
+                    locked = false
+                    warming = false
+                    downY = e.rawY
+                    startTalk(context, video = false)
+                    showLockHint(true)
+                }
+                v.isPressed = true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val up = downY - e.rawY
+                // Starting to slide up: the camera opens now, so the video starts fast at the lock.
+                if (talking && !locked && !warming && up > dp(context, 16) && cameraAllowed(context)) {
+                    warming = true
+                    showMode(context)
+                }
+                // At the lock: hands-free video until Stop. The voice so far goes as it is; the video burst follows.
+                if (talking && !locked && up > dp(context, LOCK_DP)) {
+                    if (!cameraAllowed(context)) {
+                        chat?.let { askCamera(context, it) }
+                        return true
+                    }
+                    locked = true
+                    lockSince = System.currentTimeMillis()
+                    v.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+                    showLockHint(false)
+                    showLocked(true)
+                    endTalk(context, send = true, keepLock = true)
+                    main.postDelayed({
+                        if (locked && !talking && pillWindow != null) {
+                            startTalk(context, video = true)
+                            main.removeCallbacks(renew)
+                            main.postDelayed(renew, RENEW_MS)
+                        }
+                    }, 400)
+                    Log.i(TAG, "hands-free video")
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                v.isPressed = false
+                showLockHint(false)
+                if (warming && !locked) {
+                    warming = false
+                    showMode(context)
+                }
+                // Held: letting go sends. A short tap (or the lock) keeps talking until the next one.
+                if (talking && !locked && System.currentTimeMillis() - talkStarted >= HOLD_MS) endTalk(context, send = true)
+                else if (talking && e.actionMasked == MotionEvent.ACTION_UP) v.performClick()
+            }
+        }
+        return true
+    }
+
+    /** The lock above the push button while it is held. */
+    private fun showLockHint(on: Boolean) {
+        val lock = lockHint ?: return
+        val push = pushBox ?: return
+        if (on) {
+            // Over the push button, wherever it sits in the pill.
+            val holder = pillWindow ?: return
+            val at = IntArray(2).also { push.getLocationInWindow(it) }[0] + push.width / 2
+            lock.translationX = (at - holder.width / 2).toFloat()
+            lock.alpha = 0f
+            lock.visibility = View.VISIBLE
+            lock.animate().alpha(1f).setDuration(150).start()
+        } else if (lock.visibility == View.VISIBLE) {
+            lock.visibility = View.GONE
         }
     }
 
-    /** Follow face's place now: zoom and offset (from the picture's centre); glides there in half a second. */
-    private var followAt = Triple(1f, 0f, 0f)
-    private var followFaceSeen = 0L
+    /** Hands-free: the push button's place is "■ Stop · 0:42". */
+    private fun showLocked(on: Boolean) {
+        pushBox?.visibility = if (on) View.GONE else View.VISIBLE
+        stopPill?.visibility = if (on) View.VISIBLE else View.GONE
+        updateStop()
+    }
+
+    private fun updateStop() {
+        val stop = stopPill ?: return
+        if (stop.visibility != View.VISIBLE) return
+        val s = ((System.currentTimeMillis() - lockSince) / 1000).coerceAtLeast(0)
+        stop.text = "■  " + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
+    }
+
+    /** Hands-free at 55 s: let go and taken again at once. */
+    private val renew = object : Runnable {
+        override fun run() {
+            val root = pillWindow ?: return
+            if (!talking || !locked) return
+            val context = root.context
+            endTalk(context, send = true, keepLock = true)
+            main.postDelayed({
+                if (locked && !talking && pillWindow != null) {
+                    startTalk(context, video = true)
+                    main.postDelayed(this, RENEW_MS)
+                }
+            }, 900)
+        }
+    }
+
+    /** The camera isn't allowed yet: the chat opens, where Android asks. */
+    private fun askCamera(context: Context, chat: String) {
+        if (talking) endTalk(context, send = true)
+        runCatching {
+            context.startActivity(
+                Intent(context, MainActivity::class.java).setAction(TalkNotifications.ACTION_TALK).putExtra(Notifications.EXTRA_USER, chat)
+                    .putExtra(MainActivity.EXTRA_ASK_CAMERA, true)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            )
+        }
+        dismissNow()
+    }
+
+    private fun startTalk(context: Context, video: Boolean) {
+        val chat = chat ?: return
+        // Video (hands-free): the camera too, unless a call has it (then voice only).
+        val wantVideo = video && cameraAllowed(context)
+        val callOn = messagingState(context).value.call != null
+        sendingVideo = wantVideo && !callOn
+        talking = true
+        talkStarted = System.currentTimeMillis()
+        // Glows while held.
+        (button?.background as? GradientDrawable)?.apply { setColor(PINK); setStroke(dp(context, 4), 0x80FFB3A8.toInt()) }
+        button?.setImageResource(R.drawable.ic_bubble_send)
+        button?.contentDescription = context.getString(R.string.bubble_send)
+        showMode(context)
+        refreshTop(context)
+        runCatching {
+            context.startForegroundService(
+                Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_TALK_BACK).putExtra(TalkReadyService.EXTRA_CHAT, chat)
+                    .putExtra(TalkReadyService.EXTRA_VIDEO, sendingVideo),
+            )
+        }.onFailure {
+            Log.w(TAG, "can't talk back from the floating window: the Talk screen opens", it)
+            talking = false
+            openTalk(context, chat)
+            dismissNow()
+        }
+    }
+
+    private fun endTalk(context: Context, send: Boolean, keepLock: Boolean = false) {
+        if (!talking) return
+        talking = false
+        if (!keepLock) {
+            locked = false
+            warming = false
+            main.removeCallbacks(renew)
+            showLocked(false)
+        }
+        runCatching {
+            context.startService(Intent(context, TalkReadyService::class.java).setAction(if (send) TalkReadyService.ACTION_SEND else TalkReadyService.ACTION_CANCEL_TALK))
+        }
+        (button?.background as? GradientDrawable)?.apply { setColor(PINK); setStroke(0, Color.TRANSPARENT) }
+        sendingVideo = false
+        showMode(context)
+        refreshTop(context)
+    }
+
+    /** Close; while a call rings, Decline. */
+    private fun closeOrDecline(context: Context) {
+        if (ringing != null) {
+            context.sendBroadcast(Intent(context, CallActionReceiver::class.java).setAction(CallNotifications.ACTION_DECLINE))
+            callGone(context)
+            return
+        }
+        if (talking) endTalk(context, send = true)
+        dismissNow()
+    }
+
+    // ---- The top box --------------------------------------------------------------------------------------------
 
     /**
-     * Follow face in the bubble (2026-11-23, hen; the same choice as in calls and on the Talk screen): the sender's face
-     * positions keep the face near the upper third, head and shoulders about 45% of the height, small moves left alone.
+     * What the top box shows now: their video and mine (side by side, with the both-live chip), or nothing; and, for
+     * voice, who talks in the pill.
      */
-    private fun follow(context: Context, video: View, w: Float, h: Float, cw: Float, ch: Float) {
-        val on = context.getSharedPreferences("call_view", Context.MODE_PRIVATE).getBoolean(com.chencohen.ptt.ui.talk.FOLLOW_TALK, false)
-        // Where the face will be when this glide ends (the clip's own clock): no lag behind the picture.
-        val face = if (on) com.chencohen.ptt.talk.AndroidTalkVideoOut.faceAt(aheadMs = 300) else null
-        // No closer than filling the area: Follow face only slides the crop (when the picture is cropped to fit).
-        val most = 1f
-        val now = android.os.SystemClock.elapsedRealtime()
-        if (face != null) followFaceSeen = now
-        val want = if (face != null) {
-            val p = com.chencohen.ptt.calls.CallGrid.place(w, h, cw, ch, face.x, face.y, face.h, maxZoom = most, targetY = 0.4f, fixedZoom = 1f)
-            // From the top left corner (CallGrid) to the view's own pivot, its centre.
-            Triple(p.scale, p.x - (1 - p.scale) * cw / 2, p.y - (1 - p.scale) * ch / 2)
-        } else if (on && now - followFaceSeen < 1_500) {
-            followAt
-        } else {
-            Triple(1f, 0f, 0f)
+    private fun refreshTop(context: Context) {
+        refreshWho(context)
+        val theirsVideo = burstVideo && !topPutAway
+        val mine = sendingVideo
+        if (!theirsVideo && !mine) {
+            hideTop()
+            return
         }
-        val (s0, x0, y0) = followAt
-        val first = followAt == Triple(1f, 0f, 0f) && face != null
-        if (want != followAt) {
-            followAt = want
-            video.animate().scaleX(want.first).scaleY(want.first).translationX(want.second).translationY(want.third)
-                .setDuration(if (first) 0L else 300L).setInterpolator(android.view.animation.LinearInterpolator()).start()
+        if (topWindow == null || topHiding) addTop(context)
+        theirBox?.visibility = if (theirsVideo) View.VISIBLE else View.GONE
+        myBox?.visibility = if (mine) View.VISIBLE else View.GONE
+        bothChip?.visibility = if (bothLive(context)) View.VISIBLE else View.GONE
+        shapeTop(context)
+        pickPreview()
+        main.removeCallbacks(topTick)
+        main.post(topTick)
+    }
+
+    /** Both live: I send while their video plays, or while they wait for my floor. */
+    private fun bothLive(context: Context): Boolean {
+        val chat = chat ?: return false
+        if (!sendingVideo) return false
+        val waiting = (messagingState(context).value.liveWaiting[chat] ?: 0L) > System.currentTimeMillis()
+        return burstVideo || waiting
+    }
+
+    /**
+     * Voice (2026-11-24, hen, "c"): the pill shows who talks, their face (or mine) in a ring glowing with the voice,
+     * the name and the time; nothing at the top.
+     */
+    private fun refreshWho(context: Context) {
+        val theirVoice = burstLive && !burstVideo
+        val myVoice = talking && !sendingVideo
+        val shown = when {
+            theirVoice -> from ?: ""
+            myVoice -> ""
+            else -> null
+        }
+        val row = who ?: return
+        if (shown == null) {
+            row.visibility = View.GONE
+            whoShown = null
+            return
+        }
+        row.visibility = View.VISIBLE
+        whoName?.text = if (theirVoice) title else context.getString(R.string.talk_panel_you)
+        if (whoShown == shown) return
+        whoShown = shown
+        val name = whoName?.text?.toString().orEmpty()
+        whoLetter?.text = name.take(1).uppercase()
+        whoLetter?.visibility = View.VISIBLE
+        whoFace?.visibility = View.GONE
+        val app = context.applicationContext as? TalkApp ?: return
+        app.scope.launch {
+            val id = com.chencohen.ptt.ui.face.Faces.ids(app).value[shown] ?: return@launch
+            val face = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, shown, id) }.getOrNull() ?: return@launch
+            main.post {
+                if (whoShown != shown) return@post
+                whoFace?.setImageBitmap(face.asAndroidBitmap())
+                whoFace?.visibility = View.VISIBLE
+                whoLetter?.visibility = View.GONE
+            }
         }
     }
 
-    /** The app came on screen, or the bubble isn't wanted any more. */
-    fun dismiss() = main.post { if (!talking) dismissNow() }
+    /** The boxes' sizes: 23.6% of the screen's height, each as wide as its picture's shape. */
+    private fun shapeTop(context: Context) {
+        val h = (context.resources.displayMetrics.heightPixels * TOP_SHARE).toInt()
+        theirBox?.takeIf { it.visibility == View.VISIBLE }?.let { box ->
+            val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
+            lastShown = shown
+            val rotation = shown?.rotation ?: 0
+            val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 3f / 4f
+            val turned = rotation % 180 != 0
+            val upright = if (turned) 1f / aspect else aspect
+            val w = (h * upright).toInt()
+            size(box, w, h)
+            box.findViewWithTag<View>("video")?.let { v ->
+                val (vw, vh) = if (turned) h to w else w to h
+                val lp = v.layoutParams
+                if (lp.width != vw || lp.height != vh) {
+                    lp.width = vw
+                    lp.height = vh
+                    v.layoutParams = lp
+                }
+                v.rotation = rotation.toFloat()
+            }
+        }
+        myBox?.takeIf { it.visibility == View.VISIBLE }?.let { box ->
+            val upright = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+            size(box, (h * upright).toInt(), h)
+        }
+    }
 
-    /** Slides down off the screen, then goes. */
-    private fun dismissNow() {
-        val v = view ?: return
-        val params = v.layoutParams as? WindowManager.LayoutParams
-        v.animate().translationY((v.height + (params?.y ?: 0)).toFloat()).setDuration(SLIDE_MS)
-            .setInterpolator(android.view.animation.AccelerateInterpolator())
-            .withEndAction { if (view === v) remove() }
-            .start()
+    private fun size(v: View, w: Int, h: Int) {
+        val lp = v.layoutParams
+        if (lp.width != w || lp.height != h) {
+            lp.width = w
+            lp.height = h
+            v.layoutParams = lp
+        }
+    }
+
+    /** The tags' time and the pictures' shape, while the top box shows. */
+    private val topTick = object : Runnable {
+        override fun run() {
+            val window = topWindow ?: return
+            if (topHiding) return
+            fun clock(since: Long): String {
+                val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
+                return "%d:%02d".format(s / 60, s % 60)
+            }
+            theirTag?.text = "$title · ${clock(if (burstSince > 0) burstSince else System.currentTimeMillis())}"
+            myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(if (locked) lockSince else talkStarted)
+            shapeTop(window.context)
+            main.postDelayed(this, 250)
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun add(context: Context): Boolean {
+    private fun addTop(context: Context) {
+        topWindow?.let { old ->
+            // Still sliding away: back at once.
+            topHiding = false
+            topCard?.animate()?.cancel()
+            topCard?.translationY = 0f
+            if (old.isAttachedToWindow) return
+        }
         val wm = context.getSystemService(WindowManager::class.java)
-        fun dp(v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), context.resources.displayMetrics).toInt()
-        val metrics = wm.currentWindowMetrics
-        val bars = metrics.windowInsets.getInsets(WindowInsets.Type.navigationBars() or WindowInsets.Type.displayCutout())
-        val root = LinearLayout(context).apply {
+        fun dp(v: Int) = dp(context, v)
+        val bars = wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
+        val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(12), dp(10), dp(12), dp(16))
-            background = GradientDrawable().apply { cornerRadius = dp(32).toFloat(); setColor(0xF2191D1C.toInt()) }
+        }
+        val boxes = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
             elevation = dp(8).toFloat()
         }
-        val top = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        // No ✕ (2026-11-22, hen): a touch outside closes it. Icons only: the name, no hint line.
-        top.addView(View(context), LinearLayout.LayoutParams(dp(40), dp(40)))
-        val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
-        title = TextView(context).apply { setTextColor(Color.WHITE); textSize = 19f; maxLines = 1; gravity = Gravity.CENTER; setTypeface(typeface, android.graphics.Typeface.BOLD) }
-        // A green dot by the name: their Talk screen or bubble for this chat is open now ("here").
-        hereDot = TextView(context).apply { text = "●"; setTextColor(HERE); textSize = 12f; visibility = View.GONE; setPadding(dp(6), 0, 0, 0) }
-        val nameRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        nameRow.addView(title)
-        nameRow.addView(hereDot)
-        line = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 15f; maxLines = 1; gravity = Gravity.CENTER; visibility = View.INVISIBLE }
-        words.addView(nameRow)
-        words.addView(line)
-        top.addView(words, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        // As wide as ✕, so the words are centred over the button.
-        videoSwitch = android.widget.ImageView(context).apply {
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
-            visibility = View.GONE
-            setOnClickListener {
-                val settings = messagingState(context).value.talkSettings
-                setTalkSettings(context, settings.copy(bubbleVideo = !settings.bubbleVideo))
-                main.postDelayed({ showVideo(context) }, 100)
-            }
-        }
-        top.addView(View(context), LinearLayout.LayoutParams(dp(40), dp(40)))
-        // The burst's picture, drawn in step with the voice (AndroidTalkVideoOut).
-        videoBox = android.widget.FrameLayout(context).apply {
-            visibility = View.GONE
-            // Rounded, nothing behind the picture.
+        fun outlined(box: FrameLayout, color: Int = TEAL) = box.apply {
             outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(v: View, outline: android.graphics.Outline) = outline.setRoundRect(0, 0, v.width, v.height, dp(16).toFloat())
+                override fun getOutline(v: View, outline: android.graphics.Outline) = outline.setRoundRect(0, 0, v.width, v.height, dp(18).toFloat())
             }
             clipToOutline = true
+            foreground = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(Color.TRANSPARENT); setStroke(dp(1).coerceAtLeast(2), color) }
+            setBackgroundColor(Color.BLACK)
+        }
+        // Their video, drawn in step with the voice (AndroidTalkVideoOut); the same decoder moves to the chat on a tap.
+        val theirs = outlined(FrameLayout(context)).apply {
+            visibility = View.GONE
             addView(
                 android.view.TextureView(context).apply {
+                    tag = "video"
                     surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
                         override fun onSurfaceTextureAvailable(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {
                             videoSurface = android.view.Surface(texture).also { com.chencohen.ptt.talk.AndroidTalkVideoOut.attach(it) }
@@ -456,250 +695,178 @@ object TalkBubble {
 
                         override fun onSurfaceTextureUpdated(texture: android.graphics.SurfaceTexture) {}
                     }
-                    // Turned upright as the sender's camera says.
-                    tag = "video"
                 },
-                android.widget.FrameLayout.LayoutParams(dp(240), dp(180), Gravity.CENTER),
+                FrameLayout.LayoutParams(dp(120), dp(160), Gravity.CENTER),
             )
-        }
-        // Their video opens the chat, where it goes on in the top panel without a break (2026-11-24, hen: "open the
-        // chat with the video stay connected"): the same decoder moves to the chat's view.
-        videoBox!!.setOnClickListener { chat?.let { intoChat(context, it) } }
-        videoBox!!.addView(
-            TextView(context).apply {
-                text = context.getString(R.string.talk_action_chat) + "  ⤢"
+            theirTag = TextView(context).apply {
                 setTextColor(Color.WHITE)
-                textSize = 13f
-                setPadding(dp(10), dp(4), dp(10), dp(4))
-                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0x80000000.toInt()) }
-            },
-            android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) },
-        )
-        root.addView(videoBox, LinearLayout.LayoutParams(dp(240), dp(240)).apply { bottomMargin = dp(8); gravity = Gravity.CENTER_HORIZONTAL })
-        root.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        button = android.widget.ImageView(context).apply {
-            setImageResource(R.drawable.ic_bubble_mic)
-            scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(26), dp(26), dp(26), dp(26))
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(PINK) }
-            contentDescription = context.getString(R.string.bubble_talk_hint)
-            setOnTouchListener { v, e -> touch(context, v, e) }
-        }
-        // Voice | Video beside the button, the other side as wide, so the button stays centred.
-        val modes = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(3), dp(3), dp(3), dp(3))
-            background = GradientDrawable().apply { cornerRadius = dp(24).toFloat(); setColor(0x33FFFFFF) }
-        }
-        fun tab(icon: Int, label: Int, video: Boolean) = android.widget.ImageView(context).apply {
-            setImageResource(icon)
-            setPadding(dp(8), dp(8), dp(8), dp(8))
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT) }
-            contentDescription = context.getString(label)
-            setOnClickListener { chooseMode(context, video) }
-        }
-        voiceTab = tab(R.drawable.ic_bubble_mic, R.string.talk_mode_voice, false)
-        videoTab = tab(R.drawable.ic_bubble_video, R.string.talk_mode_video, true)
-        modes.addView(voiceTab, LinearLayout.LayoutParams(dp(38), dp(38)))
-        modes.addView(videoTab, LinearLayout.LayoutParams(dp(38), dp(38)).apply { topMargin = dp(2) })
-        val buttonRow = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        buttonRow.addView(modes, LinearLayout.LayoutParams(dp(54), LinearLayout.LayoutParams.WRAP_CONTENT).apply { }.also { modes.gravity = Gravity.CENTER })
-        buttonRow.addView(button, LinearLayout.LayoutParams(dp(96), dp(96)).apply { marginStart = dp(20); marginEnd = dp(20) })
-        // This phone's camera, small, on the other side of the button (in Video): 3:4 upright, rounded.
-        ownBox = android.widget.FrameLayout(context).apply {
-            visibility = View.INVISIBLE
-            outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(v: View, outline: android.graphics.Outline) = outline.setRoundRect(0, 0, v.width, v.height, dp(10).toFloat())
+                textSize = 12f
+                maxLines = 1
+                setPadding(dp(8), dp(3), dp(8), dp(3))
+                background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0x80000000.toInt()) }
             }
-            clipToOutline = true
-                ownView = android.view.TextureView(context).apply {
-                    surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {
-                            texture.setDefaultBufferSize(com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH, com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT)
-                            ownSurface = android.view.Surface(texture).also { if (previewOn || sendingVideo) com.chencohen.ptt.talkVideoCapture?.setPreview(it) }
-                        }
-
-                        override fun onSurfaceTextureSizeChanged(texture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
-                        override fun onSurfaceTextureDestroyed(texture: android.graphics.SurfaceTexture): Boolean {
-                            val gone = ownSurface ?: return true
-                            ownSurface = null
-                            val capture = com.chencohen.ptt.talkVideoCapture ?: run { gone.release(); return true }
-                            capture.clearPreview(gone) {
-                                gone.release()
-                                texture.release()
-                            }
-                            return false
-                        }
-
-                        override fun onSurfaceTextureUpdated(texture: android.graphics.SurfaceTexture) {}
-                    }
+            addView(theirTag, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) })
+        }
+        // Mine while I send video, beside theirs (at the end side): a coral outline, "● You · LIVE 0:03".
+        val mine = outlined(FrameLayout(context), PINK).apply {
+            visibility = View.GONE
+            addView(ownTexture(context) { s -> mySurface = s }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            myTag = TextView(context).apply {
+                setTextColor(Color.WHITE)
+                textSize = 12f
+                maxLines = 1
+                setPadding(dp(8), dp(3), dp(8), dp(3))
+                background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0x80000000.toInt()) }
+            }
+            addView(myTag, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) })
+        }
+        boxes.addView(theirs, LinearLayout.LayoutParams(dp(120), dp(160)))
+        boxes.addView(mine, LinearLayout.LayoutParams(dp(120), dp(160)).apply { marginStart = dp(6) })
+        card.addView(boxes)
+        // Both live: "You're both live · Make it a call" under the boxes; a tap starts a video call.
+        bothChip = TextView(context).apply {
+            visibility = View.GONE
+            text = context.getString(R.string.talk_both_live) + " · " + context.getString(R.string.talk_make_call)
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), PINK) }
+            setOnClickListener {
+                val chat = chat ?: return@setOnClickListener
+                if (talking) {
+                    locked = false
+                    endTalk(context, send = true)
                 }
-                // Upright, 3:4, as the camera draws it.
-            addView(ownView, android.widget.FrameLayout.LayoutParams(dp(54), dp(72), Gravity.CENTER))
+                call(context, chat, true)
+                dismissNow()
+            }
         }
-        buttonRow.addView(ownBox, LinearLayout.LayoutParams(dp(54), dp(72)))
-        root.addView(buttonRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
-        // Under the button, icons only: Video (the burst's pictures), Chat, Voice call, Video call.
-        fun small(icon: Int, label: Int, onClick: () -> Unit) = android.widget.ImageView(context).apply {
-            setImageResource(icon)
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
-            contentDescription = context.getString(label)
-            setOnClickListener { onClick() }
+        card.addView(bothChip, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        val holder = FrameLayout(context).apply {
+            clipChildren = false
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            addView(card, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         }
-        actions = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        val gap = LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(8); marginEnd = dp(8) }
-        videoSwitch!!.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
-        actions!!.addView(small(R.drawable.ic_bubble_chat, R.string.talk_action_chat) { chat?.let { intoChat(context, it) } }, LinearLayout.LayoutParams(gap))
-        actions!!.addView(small(R.drawable.ic_bubble_call, R.string.call_voice) { chat?.let { call(context, it, false) }; dismissNow() }, LinearLayout.LayoutParams(gap))
-        videoCall = small(R.drawable.ic_bubble_video, R.string.call_video) { chat?.let { call(context, it, true) }; dismissNow() }
-        actions!!.addView(videoCall, LinearLayout.LayoutParams(gap))
-        root.addView(actions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
-        // A touch outside it closes it (not while talking).
-        root.setOnTouchListener { _, e ->
-            if (e.actionMasked == MotionEvent.ACTION_OUTSIDE && !talking) dismissNow()
-            false
-        }
-        val margin = dp(12)
         val params = WindowManager.LayoutParams(
-            metrics.bounds.width() - bars.left - bars.right - 2 * margin,
+            WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            // Above the navigation bar, in reach of a thumb.
-            y = bars.bottom + margin
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = bars.top
             if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
-            title = "Talk reply"
+            title = "Talk video"
         }
-        val holder = android.widget.FrameLayout(context).apply {
-            clipChildren = false
-            addView(root, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
-            // A touch outside the window closes it (not while talking).
-            setOnTouchListener { _, e ->
-                if (e.actionMasked == MotionEvent.ACTION_OUTSIDE && !talking) dismissNow()
-                false
-            }
-        }
-        // The window as tall as what shows, set before each change shows (fit), its bottom edge fixed.
-        root.measure(
-            View.MeasureSpec.makeMeasureSpec(params.width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-        )
-        params.height = root.measuredHeight
-        return try {
+        card.setOnTouchListener(TopTouch(context, wm, holder, params))
+        try {
             wm.addView(holder, params)
-            frame = holder
-            view = root
-            // Slides up from below the bottom edge.
-            // Slides up and fades in, gently, untouchable for 1 s (OverlayArrival).
-            root.translationY = dp(400).toFloat()
-            root.post {
-                OverlayArrival.arrive(wm, holder, params, root, (root.height + params.y).toFloat()) { a ->
-                    // All but the video: its surface stays solid.
-                    root.background?.alpha = (a * 255).toInt()
-                    for (i in 0 until root.childCount) root.getChildAt(i).takeIf { it !== videoBox }?.alpha = a
-                }
-            }
-            Log.i(TAG, "shown")
-            main.post(pulse)
-            true
         } catch (e: Exception) {
-            Log.w(TAG, "can't show the bubble", e)
-            false
+            Log.w(TAG, "can't show the top box", e)
+            return
         }
+        topWindow = holder
+        topCard = card
+        theirBox = theirs
+        myBox = mine
+        topHiding = false
+        // Slides down from the top edge.
+        card.translationY = -dp(320).toFloat()
+        card.animate().translationY(0f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
     }
 
-    private fun touch(context: Context, v: View, e: MotionEvent): Boolean {
-        // Ringing: the button answers.
-        ringing?.let {
-            if (e.actionMasked == MotionEvent.ACTION_UP) answer(context)
+    /** Drag moves the top box; a swipe up puts it away (until their next burst); a tap opens the chat. */
+    private class TopTouch(val context: Context, val wm: WindowManager, val window: View, val params: WindowManager.LayoutParams) : View.OnTouchListener {
+        private var x0 = 0f
+        private var y0 = 0f
+        private var px = 0
+        private var py = 0
+        private var moved = false
+        private var t0 = 0L
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouch(v: View, e: MotionEvent): Boolean {
+            val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    x0 = e.rawX
+                    y0 = e.rawY
+                    px = params.x
+                    py = params.y
+                    moved = false
+                    t0 = System.currentTimeMillis()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - x0
+                    val dy = e.rawY - y0
+                    if (!moved && kotlin.math.hypot(dx, dy) > slop) moved = true
+                    if (moved) {
+                        params.x = px + dx.toInt()
+                        params.y = (py + dy.toInt()).coerceAtLeast(0)
+                        runCatching { wm.updateViewLayout(window, params) }
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dy = e.rawY - y0
+                    val fast = System.currentTimeMillis() - t0 < 400
+                    when {
+                        !moved -> chat?.let { intoChat(context, it) }
+                        // Up and quick, or dragged up past the top: put away.
+                        (fast && dy < -dp(context, 40)) || py + dy < -dp(context, 24) -> {
+                            topPutAway = true
+                            params.y = py.coerceAtLeast(0)
+                            hideTop()
+                        }
+                    }
+                }
+            }
             return true
         }
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                if (talking) {
-                    // A tap started it; this one sends.
-                    endTalk(context, send = true)
-                } else {
-                    startTalk(context)
-                }
-                v.isPressed = true
-            }
-            MotionEvent.ACTION_UP -> {
-                v.isPressed = false
-                // Held: letting go sends. A short tap keeps talking until the next one.
-                if (talking && System.currentTimeMillis() - talkStarted >= HOLD_MS) endTalk(context, send = true) else if (talking) v.performClick()
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                v.isPressed = false
-                if (talking && System.currentTimeMillis() - talkStarted >= HOLD_MS) endTalk(context, send = true)
-            }
-        }
-        return true
     }
 
-    private fun startTalk(context: Context) {
-        val chat = chat ?: return
-        // Video: the camera too, unless a call has it (then voice only, said after the time).
-        val wantVideo = videoMode(context) && context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        val callOn = messagingState(context).value.call != null
-        sendingVideo = wantVideo && !callOn
-        note = if (wantVideo && callOn) context.getString(R.string.bubble_camera_busy) else null
-        talking = true
-        talkStarted = System.currentTimeMillis()
-        (button?.background as? GradientDrawable)?.setColor(TEAL)
-        line?.visibility = View.VISIBLE
-        line?.text = "0:00"
-        button?.setImageResource(R.drawable.ic_bubble_send)
-        button?.contentDescription = context.getString(R.string.bubble_send)
-        main.post(tick)
-        if (sendingVideo) showOwn(context, true)
-        runCatching {
-            context.startForegroundService(
-                Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_TALK_BACK).putExtra(TalkReadyService.EXTRA_CHAT, chat)
-                    .putExtra(TalkReadyService.EXTRA_VIDEO, sendingVideo),
-            )
-        }.onFailure {
-            Log.w(TAG, "can't talk back from the bubble: the Talk screen opens", it)
-            talking = false
-            openTalk(context, chat)
-            dismissNow()
+    /** Slides the top box up off the screen, then it goes. */
+    private fun hideTop() {
+        val window = topWindow ?: return
+        if (topHiding) return
+        topHiding = true
+        main.removeCallbacks(topTick)
+        val card = topCard
+        val done = {
+            if (topWindow === window && topHiding) removeTop()
         }
+        if (card == null) {
+            done()
+            return
+        }
+        card.animate().translationY(-(card.height + dp(card.context, 40)).toFloat()).setDuration(SLIDE_MS)
+            .setInterpolator(android.view.animation.AccelerateInterpolator()).withEndAction(done).start()
     }
 
-    private fun endTalk(context: Context, send: Boolean) {
-        if (!talking) return
-        talking = false
-        main.removeCallbacks(tick)
-        runCatching {
-            context.startService(Intent(context, TalkReadyService::class.java).setAction(if (send) TalkReadyService.ACTION_SEND else TalkReadyService.ACTION_CANCEL_TALK))
-        }
-        (button?.background as? GradientDrawable)?.setColor(PINK)
-        line?.visibility = View.INVISIBLE
-        note = null
-        if (sendingVideo) {
-            sendingVideo = false
-            showOwn(context, false)
-        }
-        showMode(context)
+    private fun removeTop() {
+        val window = topWindow ?: return
+        topWindow = null
+        main.removeCallbacks(topTick)
+        videoSurface?.let { com.chencohen.ptt.talk.AndroidTalkVideoOut.detach(it) }
+        videoSurface = null
+        topCard = null
+        theirBox = null
+        theirTag = null
+        myBox = null
+        myTag = null
+        bothChip = null
+        topHiding = false
+        runCatching { window.context.getSystemService(WindowManager::class.java).removeView(window) }
     }
 
-    /**
-     * Shows that someone talks: a ring around the bar that pulses with the voice (teal; green while a call rings), the
-     * button growing with this phone's voice while it talks, and the green dot and a glowing Video call while the
-     * other user is "here".
-     */
+    // ---- The pulse, calls, leaving --------------------------------------------------------------------------------
+
+    /** A ring around the pill pulses with the voice (teal; green while a call rings). */
     private val pulse = object : Runnable {
         override fun run() {
-            val root = view ?: return
-            val context = root.context
+            val row = pill ?: return
+            val context = row.context
             val state = messagingState(context).value
-            val chat = chat
             val theirs = state.talk.playing?.takeIf { it.chat == chat }
             val level = when {
                 talking -> com.chencohen.ptt.talk.TalkAudio.micLevel
@@ -708,63 +875,47 @@ object TalkBubble {
             }.coerceIn(0f, 1f)
             val density = context.resources.displayMetrics.density
             val active = talking || theirs != null || ringing != null
-            (root.background as? GradientDrawable)?.setStroke(
-                if (active) (density * (2 + 6 * level)).toInt().coerceAtLeast((2 * density).toInt()) else 0,
+            (row.background as? GradientDrawable)?.setStroke(
+                if (active) (density * (1.5f + 4 * level)).toInt().coerceAtLeast((1.5f * density).toInt()) else 0,
                 if (ringing != null) HERE else TEAL,
             )
             val scale = 1f + 0.15f * (if (talking) level else 0f)
             button?.scaleX = scale
             button?.scaleY = scale
-            val here = chat != null && (state.here[chat] ?: 0L) > System.currentTimeMillis()
-            hereDot?.visibility = if (here) View.VISIBLE else View.GONE
-            (videoCall?.background as? GradientDrawable)?.setColor(if (here) TEAL else 0x33FFFFFF)
+            // Who talks by voice: the ring glows with their voice, or mine.
+            if (who?.visibility == View.VISIBLE) {
+                whoRing?.level(if (whoShown == "") com.chencohen.ptt.talk.TalkAudio.micLevel else com.chencohen.ptt.talk.TalkAudio.playLevel)
+                val since = if (whoShown == "") talkStarted else burstSince
+                val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
+                whoTime?.text = "%d:%02d".format(s / 60, s % 60)
+            }
+            updateStop()
             main.postDelayed(this, 60)
         }
     }
 
-    /**
-     * A call rings while the bubble shows: the bubble becomes it (2026-11-22, hen): the caller's name, a big green
-     * Answer, and Decline under it. Android's own ringing (its notification) goes on as well.
-     */
-    fun incoming(context: Context, call: com.chencohen.ptt.calls.CallUi, name: String) = main.post {
-        if (view == null) return@post
+    /** A call rings while the floating window shows: the pill becomes Answer (the push button) and Decline (Close). */
+    fun incoming(context: Context, call: com.chencohen.ptt.calls.CallUi, @Suppress("UNUSED_PARAMETER") name: String) = main.post {
+        if (pillWindow == null) return@post
+        if (talking) endTalk(context, send = true)
         ringing = call
-        title?.text = name
         (button?.background as? GradientDrawable)?.setColor(HERE)
         button?.setImageResource(if (call.video) R.drawable.ic_bubble_video else R.drawable.ic_bubble_call)
         button?.contentDescription = context.getString(R.string.call_answer)
-        actions?.let { row ->
-            for (i in 0 until row.childCount) row.getChildAt(i).visibility = View.GONE
-            row.addView(
-                android.widget.ImageView(context).apply {
-                    tag = "decline"
-                    setImageResource(R.drawable.ic_bubble_close)
-                    val pad = (10 * context.resources.displayMetrics.density).toInt()
-                    setPadding(pad, pad, pad, pad)
-                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.RED) }
-                    contentDescription = context.getString(R.string.call_decline)
-                    setOnClickListener {
-                        context.sendBroadcast(Intent(context, CallActionReceiver::class.java).setAction(CallNotifications.ACTION_DECLINE))
-                        callGone(context)
-                    }
-                },
-                LinearLayout.LayoutParams((44 * context.resources.displayMetrics.density).toInt(), (44 * context.resources.displayMetrics.density).toInt()),
-            )
-        }
+        (closeButton?.background as? GradientDrawable)?.setColor(Color.RED)
+        closeButton?.contentDescription = context.getString(R.string.call_decline)
+        chatButton?.visibility = View.GONE
+        showMode(context)
     }
 
-    /** The call stopped ringing (answered, declined, missed): the bubble is the talk bar again. */
+    /** The call stopped ringing (answered, declined, missed): the pill is Chat · Push · Close again. */
     fun callGone(context: Context) = main.post {
         if (ringing == null) return@post
         ringing = null
         (button?.background as? GradientDrawable)?.setColor(PINK)
-        button?.setImageResource(R.drawable.ic_bubble_mic)
-        button?.contentDescription = context.getString(R.string.bubble_talk_hint)
-        actions?.let { row ->
-            row.findViewWithTag<View>("decline")?.let { row.removeView(it) }
-            for (i in 0 until row.childCount) row.getChildAt(i).visibility = View.VISIBLE
-        }
-        showVideo(context)
+        (closeButton?.background as? GradientDrawable)?.setColor(0x33FFFFFF)
+        closeButton?.contentDescription = context.getString(R.string.bubble_close)
+        chatButton?.visibility = View.VISIBLE
         showMode(context)
     }
 
@@ -778,14 +929,13 @@ object TalkBubble {
     }
 
     /**
-     * To the chat: it opens under the bubble with their video already in its top panel, and the bubble's picture grows
-     * a little and fades into it (200 ms) instead of sliding away, so the video reads as one moving up.
+     * To the chat: it opens under the floating window with their video already in its top panel (the same decoder
+     * moves there), and the top box grows a little and fades into it (200 ms) instead of sliding away.
      */
     private fun intoChat(context: Context, chat: String) {
         openChat(context, chat)
-        val v = view ?: return
-        videoBox?.animate()?.scaleX(1.15f)?.scaleY(1.15f)?.setDuration(200)?.start()
-        v.animate().alpha(0f).setDuration(200).withEndAction { if (view === v) remove() }.start()
+        topCard?.animate()?.scaleX(1.1f)?.scaleY(1.1f)?.alpha(0f)?.setDuration(200)?.start()
+        pill?.animate()?.alpha(0f)?.setDuration(200)?.withEndAction { remove() }?.start() ?: remove()
     }
 
     private fun openChat(context: Context, chat: String) = runCatching {
@@ -812,38 +962,52 @@ object TalkBubble {
         }
     }
 
+    /** Both pieces slide away (the pill down, the top box up), then go. */
+    private fun dismissNow() {
+        val row = pill ?: return remove()
+        hideTop()
+        row.animate().translationY((row.height + dp(row.context, 60)).toFloat()).setDuration(SLIDE_MS)
+            .setInterpolator(android.view.animation.AccelerateInterpolator())
+            .withEndAction { if (pill === row) remove() }
+            .start()
+    }
+
     private fun remove() {
-        val v = view ?: return
-        view = null
+        val window = pillWindow
+        val context = window?.context
+        removeTop()
+        if (window == null || context == null) return
+        pillWindow = null
+        pill = null
         main.removeCallbacks(pulse)
-        setHere(v.context, null)
-        ringing = null
-        hereDot = null
-        videoCall = null
-        actions = null
-        videoSurface?.let { com.chencohen.ptt.talk.AndroidTalkVideoOut.detach(it) }
-        videoSurface = null
-        videoBox = null
-        videoSwitch = null
-        burstVideo = false
-        voiceTab = null
-        videoTab = null
-        followAt = Triple(1f, 0f, 0f)
-        if (previewOn) preview(v.context, false)
+        main.removeCallbacks(renew)
+        setHere(context, null)
+        if (previewOn) preview(context, false)
         previewOn = false
-        seenVideo = false
-        ownView = null
-        ownBox = null
-        sendingVideo = false
-        note = null
-        title = null
-        line = null
+        ringing = null
+        chatButton = null
         button = null
+        closeButton = null
+        pushBox = null
+        stopPill = null
+        lockHint = null
+        who = null
+        whoRing = null
+        whoFace = null
+        whoLetter = null
+        whoName = null
+        whoTime = null
+        whoShown = null
+        talking = false
+        locked = false
+        sendingVideo = false
+        burstLive = false
+        burstVideo = false
+        burstSince = 0L
+        topPutAway = false
         chat = null
-        main.removeCallbacks(tick)
-        val f = frame
-        frame = null
-        runCatching { v.context.getSystemService(WindowManager::class.java).removeView(f ?: v) }
+        from = null
+        runCatching { context.getSystemService(WindowManager::class.java).removeView(window) }
         Log.i(TAG, "gone")
     }
 
@@ -854,6 +1018,48 @@ object TalkBubble {
             context.getString(R.string.playing_group, who, runCatching { chatName(context, chat) }.getOrDefault(chat))
         } else {
             who
+        }
+    }
+
+    /**
+     * A teal ring around the talker's face that glows with the voice (2026-11-24, hen: "make the green circle glow as
+     * the voice"): brightness, glow and thickness follow the level, smoothed 60 ms up and 200 ms down (VoiceLevel).
+     */
+    private class GlowRing(context: Context) : View(context) {
+        private var level = 0f
+        private var target = 0f
+        private var last = 0L
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = TEAL }
+        private val density = context.resources.displayMetrics.density
+
+        fun level(v: Float) {
+            target = v.coerceIn(0f, 1f)
+            postInvalidateOnAnimation()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val now = android.os.SystemClock.uptimeMillis()
+            val dt = if (last == 0L) 16f else (now - last).toFloat().coerceIn(1f, 100f)
+            last = now
+            level = com.chencohen.ptt.talk.VoiceLevel.smooth(level, target, dt)
+            val cx = width / 2f
+            val cy = height / 2f
+            // The ring just outside the 36 dp face.
+            val r = 19.5f * density
+            val thick = (2f + 2.5f * level) * density
+            // The glow: rings further out, fainter, as far as the voice is loud.
+            val glow = 7f * density * level
+            var g = glow
+            while (g > 0.5f * density) {
+                paint.strokeWidth = 2f * density
+                paint.alpha = (90 * level * (1 - g / (glow + 0.01f))).toInt().coerceIn(0, 255)
+                canvas.drawCircle(cx, cy, r + thick / 2 + g, paint)
+                g -= 1.5f * density
+            }
+            paint.strokeWidth = thick
+            paint.alpha = (255 * (0.55f + 0.45f * level)).toInt()
+            canvas.drawCircle(cx, cy, r, paint)
+            if (kotlin.math.abs(level - target) > 0.005f) postInvalidateOnAnimation()
         }
     }
 

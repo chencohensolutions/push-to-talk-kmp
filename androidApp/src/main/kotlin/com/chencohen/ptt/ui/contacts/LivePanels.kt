@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -78,41 +79,76 @@ private fun LiveTag(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** The live videos' height: this share of the screen's (2026-11-24, hen: the same size as the floating window). */
+internal const val LIVE_VIDEO_SHARE = 0.236f
+
+/**
+ * Boxes of the given shapes (width for 1 high), [LIVE_VIDEO_SHARE] of the screen high, side by side and centred, 6 dp
+ * apart; all shrunk together only if they'd be wider than the space. [content] gets each box's index.
+ */
+@Composable
+internal fun LiveBoxes(shapes: List<Float>, modifier: Modifier = Modifier, content: @Composable (Int, Modifier) -> Unit) {
+    val screen = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+        val gap = 6.dp
+        var h = screen * LIVE_VIDEO_SHARE
+        val wide = h * shapes.sum() + gap * (shapes.size - 1).coerceAtLeast(0)
+        if (wide > maxWidth) h *= (maxWidth - gap * (shapes.size - 1).coerceAtLeast(0)) / (h * shapes.sum())
+        Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
+            shapes.forEachIndexed { i, shape ->
+                val box = RoundedCornerShape(18.dp)
+                content(i, Modifier.size(h * shape, h).shadow(6.dp, box).clip(box).background(Color.Black))
+            }
+        }
+    }
+}
+
 /**
  * Push-to-video under the header (2026-11-24, hen: "when two sides push to video show videos at top side by side; when
- * I push show the video on the top, never on bottom"): theirs (or, in a group, whoever holds the floor: [who] named)
- * and mine, each filling its half with no bars, theirs at the start side and mine at the end; one alone takes the whole
- * width. Slides down in 250 ms when the first starts, back up when the last ends; it always pushes the chat down.
+ * I push show the video on the top, never on bottom"; then "the video should be the same size" as the floating
+ * window): theirs (or, in a group, whoever holds the floor: [who] named) and mine, each a box 23.6% of the screen high
+ * and as wide as its picture's own shape (no crop, no bars), rounded, centred, theirs at the start side and mine at the
+ * end. Slides down in 250 ms when the first starts, back up when the last ends; it always pushes the chat down.
  * [waitingFor]: mine queued behind someone else's floor (a group).
  */
 @Composable
 internal fun LivePanel(
     theirs: Boolean, who: String?, theirSince: Long,
     mine: Boolean, mySince: Long, waitingFor: String?, handsFree: Boolean,
-    height: Dp = 280.dp,
 ) {
+    val shown by com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.collectAsState()
+    var lastShown by remember { androidx.compose.runtime.mutableStateOf(shown) }
+    if (shown != null) lastShown = shown
+    val s = shown ?: lastShown
+    val theirShape = if (s != null && s.width > 0 && s.height > 0) {
+        val a = s.width.toFloat() / s.height
+        if (s.rotation % 180 != 0) 1f / a else a
+    } else 3f / 4f
+    val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+    // Kept while the panel slides away, so it doesn't empty first.
+    var lastSides by remember { androidx.compose.runtime.mutableStateOf(theirs to mine) }
+    if (theirs || mine) lastSides = theirs to mine
+    val (t, m) = lastSides
     AnimatedVisibility(
         theirs || mine,
         enter = expandVertically(tween(PANEL_MS), expandFrom = Alignment.Top) + slideInVertically(tween(PANEL_MS)) { -it },
         exit = shrinkVertically(tween(PANEL_MS), shrinkTowards = Alignment.Top) + slideOutVertically(tween(PANEL_MS)) { -it },
     ) {
-        val shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
-        Row(Modifier.fillMaxWidth().height(height).shadow(8.dp, shape).clip(shape).background(Color.Black), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            AnimatedVisibility(theirs, Modifier.weight(1f), enter = fadeIn(tween(PANEL_MS)), exit = fadeOut(tween(150))) {
-                Box(Modifier.fillMaxSize()) {
-                    // Filling its box (no bars); Follow face slides the crop. Its pill is at the top, the tag at the bottom.
+        val sides = listOfNotNull(if (t) "theirs" else null, if (m) "mine" else null)
+        LiveBoxes(sides.map { if (it == "theirs") theirShape else myShape }) { i, box ->
+            if (sides[i] == "theirs") {
+                Box(box) {
                     com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
                     val words = listOfNotNull(who, stringResource(R.string.talk_panel_live), elapsedSince(theirSince)).joinToString(" · ")
-                    LiveTag(words, Modifier.align(Alignment.BottomStart).padding(10.dp))
+                    LiveTag(words, Modifier.align(Alignment.BottomStart).padding(8.dp))
                 }
-            }
-            AnimatedVisibility(mine, Modifier.weight(1f), enter = fadeIn(tween(PANEL_MS)), exit = fadeOut(tween(150))) {
-                Box(Modifier.fillMaxSize()) {
+            } else {
+                Box(box) {
                     com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true)
                     val me = stringResource(R.string.talk_panel_you)
                     val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor)
                     else listOfNotNull(me, stringResource(if (handsFree) R.string.talk_panel_hands_free else R.string.talk_panel_live), elapsedSince(mySince)).joinToString(" · ")
-                    LiveTag(words, Modifier.align(Alignment.BottomStart).padding(10.dp))
+                    LiveTag(words, Modifier.align(Alignment.BottomStart).padding(8.dp))
                 }
             }
         }

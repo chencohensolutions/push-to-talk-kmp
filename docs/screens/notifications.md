@@ -35,30 +35,32 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   **Play again**.
 - **Talk back** (2026-11-22, hen: the Talk screen, not a voice message): opens that conversation's Talk screen, the
   big hold-to-talk button with the microphone already open; over the lock screen Android asks to unlock first.
-- **Reply bubble** (Settings › Talk › Reply bubble over other apps, off by default; needs Android's "Display over
-  other apps", asked for when it's turned on): while the phone is in use and unlocked and the app isn't on screen, a
-  woken burst also shows a bar at the bottom of the screen, full width with a margin, above the navigation bar. It
-  slides up from the bottom edge: the sender (and the group) centred, a round Video switch while the burst has video,
-  and under them a big round button with a microphone. Hold it to talk back and let go to send, or tap to start and
-  tap again (a check mark) to send. Icons only, no ✕ and no hint line (2026-11-22, hen); TalkBack reads their names.
-  It stays until a touch outside it (not while talking) or opening the app, and slides down off the screen.
-- **In the reply bubble** (2026-11-22, hen): a ring around the bar pulses teal with the voice while they talk;
-  while this phone talks, the button turns teal, grows with the voice, and a seconds counter shows under the name.
-  Under the button, small round icons: Video (the burst's pictures on or off), Chat, Voice call, Video call. A green dot
-  by the name says they are "here": their Talk screen or bubble for this chat is open now (HereContent, said end to
-  end every 20 s, gone 30 s after the last); then Video call glows teal, a video call they'll see at once. A call that
-  rings while the bubble shows turns it into the call: the caller's name, a big green Answer, and a red Decline.
-- **Voice | Video in the reply bubble** (2026-11-23, hen): a small upright switch beside the big button (a microphone
-  over a camera). Video turns the button into a camera: holding it sends push-to-video, with this phone's camera shown
-  in the bubble while it sends (the camera opens on the press, about half a second before the voice starts). The choice
-  is kept per contact or group, the same one the Talk screen's Voice | Video shows, and the bubble opens with it the
-  next time that contact talks. Video without the camera allowed opens the Talk screen, where Android asks. In a call
-  the camera is the call's: the press sends voice only, and "camera busy in the call, voice only" shows by the time.
-- **From the bubble's video to the chat** (2026-11-24, hen: "open the chat with the video stay connected"): a tap on
-  their video, or on its "Chat ⤢" tag, or on the Chat icon, opens the chat; their video goes on in the chat's live
-  panel without a break (the same decoder moves to the chat's picture), and the bubble's picture grows a little and
-  fades into it (200 ms) instead of sliding away. Leaving the app while their video plays live puts it back in the
-  bubble, the same way.
+- **Floating window** (2026-11-24, hen picked "A, a small pill at the bottom"; voice "c, but remove the wave, make
+  the green circle glow as the voice"). Settings › Talk › Reply bubble over other apps (off by default; needs
+  Android's "Display over other apps", asked for when it's turned on). While the phone is in use and unlocked and the
+  app isn't on screen, someone talking shows two small floating pieces; the app beneath stays usable, and a touch
+  outside closes nothing (only Close, or a swipe up on the top box).
+  - **At the bottom**, about 24 dp above the navigation bar, one pill: Chat (34 dp) · Push-to-talk (46 dp) · Close
+    (34 dp). Hold Push for voice push-to-talk and let go to send (a tap starts it, the next tap sends); it glows while
+    held. A camera-and-lock target shows above it while held: sliding up to it (56 dp) sends the voice so far and
+    switches to hands-free video (2026-11-24, hen: "sliding the button up open hands free video"; the camera opens as
+    the finger starts to slide), and the button becomes a coral "■ Stop · 0:42" (renewed at 55 s, as the server ends a
+    floor at 60 s). No Voice | Video switch and no hands-free voice any more. A ring around the pill pulses with the
+    voice. A call ringing turns the pill into Answer (the push button, green) and Decline (Close, red). Voice and video
+    calls start from the chat.
+  - **Voice**: nothing at the top; the pill grows to show who talks at its start: their face in a teal ring that glows
+    with their voice (brightness, glow and thickness follow the level, 60 ms up and 200 ms down), their name and the
+    time. My own voice push looks the same, with my face and my microphone's level.
+  - **Video**: a box at the top centre slides down from the top edge (250 ms): 23.6% of the screen high and as wide as
+    the picture's own shape (no crop, no bars), rounded 18 dp with a thin teal outline, "Name · 0:04" inside its
+    bottom-start corner. While I send video my camera shows the same way (coral outline, "● You · LIVE 0:03"),
+    side by side with theirs when both are live, and "You're both live · Make it a call" under them (a tap starts a
+    video call). Drag moves it; a swipe up puts it away until their next burst; a tap opens the chat.
+- **From the floating video to the chat** (2026-11-24, hen: "open the chat with the video stay connected"): a tap on
+  the top box, or on the pill's Chat, opens the chat; their video goes on in the chat's live
+  panel without a break (the same decoder moves to the chat's picture), and the top box grows a little and fades into
+  it (200 ms) instead of sliding away. Leaving the app while their video plays live puts it back in the floating
+  window, the same way.
 - **Picture-in-picture**: an answered video call goes on in Android's small floating window when the app is left
   (dragged and resized by Android), the other's video filling it and this phone's in a corner, with Hang up.
 - **Video in the reply bubble** (on by default; 2026-11-22, hen: a received video plays): a video burst's picture

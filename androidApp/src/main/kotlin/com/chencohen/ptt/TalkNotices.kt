@@ -67,7 +67,7 @@ object TalkPlaying {
         app.scope.launch {
             val playing = messagingState(app).value.talk.playing ?: return@launch
             if (!playing.live || quiet || chatInFront(app) == playing.chat || !TalkBubble.allowed(app)) return@launch
-            TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video)
+            TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video, who = playing.from)
         }
     }
 
@@ -80,7 +80,7 @@ object TalkPlaying {
             lastClip = playing.clip
             post(app, playing.chat, playing.from, playing.playedMs, live = true, video = playing.video)
             // Not over the chat it is in (2026-11-24, hen: the talk window covered the chat's own buttons).
-            if (!quiet && TalkBubble.allowed(app) && chatInFront(app) != playing.chat) TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video)
+            if (!quiet && TalkBubble.allowed(app) && chatInFront(app) != playing.chat) TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video, who = playing.from)
         } else {
             val (chat, from) = shown ?: return
             shown = null

@@ -843,7 +843,7 @@
     <string name="talk_both_live">שניכם בשידור</string>
     <string name="talk_make_call">להפוך לשיחה</string>
     <string name="talk_stop">עצירה</string>
-    <string name="talk_lock_hint">להחליק למעלה כדי להישאר בשידור</string>
+    <string name="talk_lock_hint">להחליק למעלה לשידור וידאו רציף</string>
     <string name="talk_trace_my_video">שלחת וידאו חי</string>
     <string name="talk_trace_my_voice">דיברת</string>
     <string name="talk_trace_video">%1$s שלח/ה וידאו חי</string>
