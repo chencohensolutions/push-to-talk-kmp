@@ -24,18 +24,19 @@ import java.io.ByteArrayOutputStream
 object ClipThumbs {
     private const val TAG = "ClipThumbs"
     private val cache = LruCache<String, Bitmap>(24)
-    private val missing = HashSet<String>()
+    /** Clips whose first picture didn't decode, and when: not tried again for a while. */
+    private val missing = HashMap<String, Long>()
 
     fun cached(id: String): Bitmap? = cache.get(id)
 
     suspend fun load(context: Context, id: String): Bitmap? {
         cache.get(id)?.let { return it }
-        if (id in missing) return null
+        synchronized(missing) { missing[id]?.let { at -> if (System.currentTimeMillis() - at < 30_000) return null } }
         val contents = runCatching { com.chencohen.ptt.clipContents(context, id) }.getOrNull() ?: return null
         val key = contents.frames.firstOrNull { it.key } ?: return null
         val bitmap = withContext(Dispatchers.Default) { runCatching { decode(key) }.onFailure { Log.w(TAG, "no picture for $id", it) }.getOrNull() }
         if (bitmap == null) {
-            synchronized(missing) { missing += id }
+            synchronized(missing) { missing[id] = System.currentTimeMillis() }
             return null
         }
         cache.put(id, bitmap)

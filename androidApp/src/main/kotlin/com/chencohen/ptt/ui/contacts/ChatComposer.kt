@@ -525,7 +525,15 @@ internal fun VideoClipContent(
     val context = androidx.compose.ui.platform.LocalContext.current
     val clip = message.clip ?: return
     var thumb by remember(message.id) { androidx.compose.runtime.mutableStateOf(com.chencohen.ptt.ui.talk.ClipThumbs.cached(message.id)) }
-    LaunchedEffect(message.id, clip.kept, live) { if (thumb == null && !live) thumb = com.chencohen.ptt.ui.talk.ClipThumbs.load(context, message.id) }
+    // Its first picture; the clip may not be here yet (still coming, or not uploaded yet): tried again until it is
+    // (2026-11-24, hen: "when sending video the recipient see blank").
+    LaunchedEffect(message.id, clip.kept, live) {
+        var tries = 0
+        while (thumb == null && !live && tries++ < 60) {
+            thumb = com.chencohen.ptt.ui.talk.ClipThumbs.load(context, message.id)
+            if (thumb == null) kotlinx.coroutines.delay(1_500)
+        }
+    }
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
     val label = stringResource(R.string.clip_play)
     val ratio = thumb?.let { it.width.toFloat() / it.height } ?: 0.75f
