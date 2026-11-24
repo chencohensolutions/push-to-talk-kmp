@@ -321,7 +321,11 @@ private fun ConversationScreenIn(
         val videoPanel = (talk.playing?.let { it.chat == user && it.video && it.live } == true) ||
             (talk.talkers[user]?.let { t -> messages.firstOrNull { it.id == t.clip }?.clip?.video } == true) ||
             (pushVideo && talk.own?.chat == user && talk.own?.phase != TalkPhase.VOICE)
-        if (talkLine != null && !videoPanel && (talk.talkers[user] != null || talk.own?.chat == user)) {
+        // Talking itself shows in the live panel or the voice bar (2026-11-24, hen); the line is left for the rest
+        // (busy, refused, offline, a voice message, my other phone).
+        val talkingShown = talk.own?.takeIf { it.chat == user }?.phase.let { it == TalkPhase.TALKING || it == TalkPhase.REQUESTING } ||
+            (talk.own?.chat != user && talk.talkers[user] != null)
+        if (talkLine != null && !videoPanel && !talkingShown && (talk.talkers[user] != null || talk.own?.chat == user)) {
             Text(
                 talkLine,
                 color = LibraryColors.Accent,
@@ -356,6 +360,19 @@ private fun ConversationScreenIn(
                 myPanel, sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
                 sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
             )
+            // Voice push-to-talk (2026-11-24, hen, mock A): a slim live bar, under the video panel when the other
+            // side is on video.
+            val playingHere = talk.playing?.takeIf { it.chat == user && it.live }
+            val theirTalker = talk.talkers[user]?.takeIf { talk.own?.clip != it.clip }
+            val theirVoice = when {
+                playingHere != null && !playingHere.video -> VoiceSide(playingHere.from, if (group != null) playingHere.from else contact?.name ?: user, false, theirTalker?.since ?: theirSince.takeIf { it > 0 } ?: System.currentTimeMillis())
+                playingHere == null && theirTalker != null && allMessages.firstOrNull { it.id == theirTalker.clip }?.clip?.video != true ->
+                    VoiceSide(theirTalker.user, if (group != null) theirTalker.user else contact?.name ?: user, false, theirTalker.since)
+                else -> null
+            }
+            val myVoice = talk.own?.takeIf { it.chat == user && !pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
+                ?.let { VoiceSide("", stringResource(R.string.talk_panel_you), true, it.startedAt) }
+            VoiceBar(listOfNotNull(theirVoice, myVoice))
             BothLiveChip(bothLiveNow && actions.callInChat != null) { makeCallNow[0]() }
         }
         if (contact?.changedKey != null) {

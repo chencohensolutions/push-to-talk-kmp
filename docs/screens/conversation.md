@@ -255,6 +255,14 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   oldest line in view fades at the list's top edge. While my camera shows in the panel, the small preview on the Talk
   button's corner is hidden (one preview at a time). A voice-only press shows no panel (the line under the header
   says it).
+- **The voice bar** (2026-11-24, hen: a voice push "isn't really showing"; mock A). While someone pushes voice, a
+  slim bar (56 dp) slides down under the header (250 ms) and pushes the chat down: their face with a breathing teal
+  ring, "Sharon is talking" (gendered), the sound as a wave moving in from the end (from the voice level, every 70 ms),
+  and a teal dot with the time. My own voice push shows the same bar, "You're talking", with my microphone's wave;
+  both at once show both faces and "Sharon and you are talking". In a group it is the floor holder's face and name.
+  When one side is on video and the other on voice, the video panel shows the video and the bar sits right under it.
+  It slides back up when the talking ends. The header's "talking" line is gone (the bar or the panel says it); the
+  line under the header is kept only for the rest (busy, refused, offline, recording a voice message, my other phone).
 - **Not kept by default.** A push-to-talk burst stays in the chat as a voice or video message only when the chat's
   "Keep voice in chat" / "Keep videos in chat" is on (contact or group page, In the chat; both off by default). Off,
   nothing shows while it is live (the panel does), and once it ends a muted centred line stays: "hen sent live video ·
