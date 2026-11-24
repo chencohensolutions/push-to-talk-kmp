@@ -319,6 +319,7 @@ private fun ConversationScreenIn(
             }
         }
         val videoPanel = (talk.playing?.let { it.chat == user && it.video && it.live } == true) ||
+            (talk.talkers[user]?.let { t -> messages.firstOrNull { it.id == t.clip }?.clip?.video } == true) ||
             (pushVideo && talk.own?.chat == user && talk.own?.phase != TalkPhase.VOICE)
         if (talkLine != null && !videoPanel && (talk.talkers[user] != null || talk.own?.chat == user)) {
             Text(
@@ -333,10 +334,14 @@ private fun ConversationScreenIn(
         if (chatLive.call != null) {
             chatLive.call.top()
         } else {
+            // Playing here, or heard live through the room (sound there, pictures from its segments): their floor, with
+            // video.
+            val talker = talk.talkers[user]?.takeIf { t -> talk.own?.clip != t.clip && allMessages.firstOrNull { it.id == t.clip }?.clip?.video == true }
             val theirs = talk.playing?.takeIf { it.chat == user && it.video && it.live && fullVideo == null }
+            val theirClip = theirs?.clip ?: talker?.clip
             var theirSince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
-            LaunchedEffect(theirs?.clip) { if (theirs != null) theirSince = talk.talkers[user]?.since ?: System.currentTimeMillis() }
-            TheirLivePanel(theirs != null, if (group != null) theirs?.from else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis())
+            LaunchedEffect(theirClip) { if (theirClip != null) theirSince = talk.talkers[user]?.since ?: System.currentTimeMillis() }
+            TheirLivePanel(theirClip != null && fullVideo == null, if (group != null) (theirs?.from ?: talker?.user) else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis())
         }
         if (contact?.changedKey != null) {
             HomeCard(
@@ -468,6 +473,8 @@ private fun ConversationScreenIn(
                         delay(100)
                         waited += 100
                     }
+                    // The camera needs a moment to be free again, or the next one goes as voice only.
+                    delay(800)
                     if (handsFreeNow) actions.startVoice()
                 }
             }
@@ -486,7 +493,8 @@ private fun ConversationScreenIn(
             actions.finishVoice(true)
             actions.callInChat?.invoke()
         }
-        LaunchedEffect(bothLive) { chatLive.onBothLive(bothLive) }
+        // Home takes a video call from this chat at once while I'm live here (either side tapped Make it a call).
+        LaunchedEffect(handsFree) { chatLive.onBothLive(handsFree) }
         LaunchedEffect(bothLive, chatLive.autoCall) {
             if (bothLive && chatLive.autoCall && actions.callInChat != null) {
                 delay(10_000)
@@ -610,7 +618,8 @@ private fun ConversationScreenIn(
                     }
                     // A burst the chat doesn't keep: nothing while it is live (the panels show it), then a muted line.
                     if (message.clip != null && !message.deleted && !keeps(message)) {
-                        val liveNow = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id || (talk.playing?.clip == message.id && talk.playing?.live == true)
+                        // Still being recorded (waiting for the floor) or live: nothing yet.
+                        val liveNow = message.clip!!.durationMs < 500 || talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id || (talk.playing?.clip == message.id && talk.playing?.live == true)
                         if (!liveNow) item(key = message.id) {
                             Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) {
                                 TalkTrace(message, if (group != null) message.author ?: message.user else contact?.name ?: user)

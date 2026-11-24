@@ -701,6 +701,9 @@ internal class Talk(
         burst.video = clip.video
         // Already playing (the floor's news came first, and it started then): its pictures begin now, before any
         // packet (none opens without this key). 2026-11-22: later bursts showed no video.
+        // Heard live through the room (sound only there): its pictures still come from its segments (2026-11-24: the
+        // top panel stayed empty while testbot sent video hands-free).
+        if (clip.video && burst.heardLive && !burst.playing) videoOut?.begin(burst.id)
         if (clip.video && burst.playing) {
             videoOut?.begin(burst.id)
             _state.update { s -> if (s.playing?.clip == burst.id) s.copy(playing = s.playing.copy(video = true)) else s }
@@ -725,6 +728,7 @@ internal class Talk(
             }
             if (live?.hearsLive(burst.chat, identity) == true) {
                 burst.heardLive = true
+                if (burst.video) videoOut?.begin(burst.id)
                 sendFrame(TalkAckFrame(TalkAck(burst.id)))
                 return drain(burst)
             }
@@ -799,7 +803,8 @@ internal class Talk(
                 break
             }
             val audio = if (burst.video) {
-                burst.splitter.split(packets, { frame -> if (burst.playing) videoOut?.frame(burst.id, frame) }) { face -> if (burst.playing) videoOut?.face(burst.id, face) }
+                val pictures = burst.playing || burst.heardLive
+                burst.splitter.split(packets, { frame -> if (pictures) videoOut?.frame(burst.id, frame) }) { face -> if (pictures) videoOut?.face(burst.id, face) }
             } else {
                 packets
             }
@@ -811,6 +816,7 @@ internal class Talk(
         val last = burst.lastIndex ?: return
         if (burst.next <= last) return
         if (burst.playing) burst.playback?.finish()
+        if (burst.heardLive && burst.video && !burst.playing) videoOut?.end(burst.id)
         keep(burst)
     }
 

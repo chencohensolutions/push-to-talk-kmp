@@ -857,7 +857,7 @@ fun HomeApp(
             val callHere = messagingState.call
             LaunchedEffect(callHere?.id, callHere?.phase) {
                 val c = callHere ?: return@LaunchedEffect
-                if (c.incoming && c.phase == com.chencohen.ptt.calls.CallPhase.RINGING && c.chat == bothLiveIn) {
+                if (c.incoming && c.video && c.phase == com.chencohen.ptt.calls.CallPhase.RINGING && c.chat == bothLiveIn) {
                     inChatCallFor = c.chat
                     callPermissions(true) { messaging.acceptCall() }
                 }
