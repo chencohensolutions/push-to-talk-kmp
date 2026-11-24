@@ -1074,7 +1074,13 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
             androidx.compose.animation.AnimatedContent(
                 differs to text,
                 contentKey = { it.first },
-                transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200))) },
+                // Its size follows the text at once, never eased and never clipped (2026-11-24, hen: with Hebrew the
+                // bubble's eased width cut the first letter as each new one came): the first letter stays put, the
+                // bubble's end grows where the new letter is.
+                transitionSpec = {
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)))
+                        .using(androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() })
+                },
                 label = "draft text",
             ) { (_, t) ->
                 // Their caret where it is (2026-11-24, hen), or, not said, a bar at the end.
