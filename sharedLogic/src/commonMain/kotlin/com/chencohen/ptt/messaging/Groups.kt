@@ -48,7 +48,7 @@ internal class Groups(
     private val onText: (Group, TextMessage) -> Unit,
     /** A clip's key in a group (a burst or a voice message): from [author], at the server's time. */
     private val onClip: (group: Group, author: String, clip: ClipContent, at: Long) -> Unit = { _, _, _, _ -> },
-    private val onTyping: (Group, String, Boolean, String?) -> Unit,
+    private val onTyping: (Group, String, TypingContent) -> Unit,
     /** A member device's live talk key in the group's room. */
     private val onTalkKey: (identity: String, key: TalkKeyContent) -> Unit = { _, _ -> },
     /** A call's signalling in the group, from [author]. */
@@ -424,7 +424,7 @@ internal class Groups(
             )
             onText(group, message)
         }
-        content.typing?.let { if (author != self.user) onTyping(group, author, it.typing, it.draft) }
+        content.typing?.let { if (author != self.user) onTyping(group, author, it) }
         content.edit?.let { onEdit(group, author, it) }
         content.delete?.let { onDelete(group, author, it) }
         content.receipt?.takeIf { it.read && author != self.user }?.let { onRead(group, author, it.ids) }

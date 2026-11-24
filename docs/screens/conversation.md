@@ -191,3 +191,11 @@ away at today's messages (DaysTest).
 appears (scale and fade) above the writing bubble on their side (the right in Hebrew), clear of the buttons, with a
 badge of how many came in meanwhile; a tap glides to the end and clears it; at the end it goes. It replaces the "New
 message" chip.
+
+
+**Their caret** (2026-11-24, hen): with Live typing on, the writer's caret (and selection) goes with the live text, a
+caret move alone too, at most 10 a second (TypingContent and EditContent `selStart`/`selEnd`, optional, -1 when not
+said; older apps skip them). In their live draft and in a message they are editing, a thin blinking caret in the accent
+colour at that place, placed by the text's own layout (right to left and mixed text land right), gliding between
+places; a selection gets a soft highlight. Gone with the draft or the edit (save, cancel, timeout). Without a caret said
+(an older app), the draft shows a bar at its end as before (MessagingTest).

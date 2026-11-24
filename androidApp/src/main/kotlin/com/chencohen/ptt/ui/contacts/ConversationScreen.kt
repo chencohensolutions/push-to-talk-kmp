@@ -3,6 +3,7 @@ package com.chencohen.ptt.ui.contacts
 import androidx.compose.foundation.background
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.graphicsLayer
@@ -21,6 +22,7 @@ import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
@@ -96,7 +98,7 @@ class ConversationActions(
     /** Typing started (true) or stopped; already throttled here. */
     val typing: (Boolean) -> Unit = {},
     /** Live typing (the setting): the line now, as written ("" when sent or emptied). */
-    val draft: (String) -> Unit = {},
+    val draft: (text: String, selStart: Int, selEnd: Int) -> Unit = { _, _, _ -> },
     /** The Talk button in the header: Talk mode. */
     val openTalk: () -> Unit = {},
     val playClip: (String) -> Unit = {},
@@ -123,7 +125,7 @@ class ConversationActions(
     /** Messages deleted, for everyone (mine only) or for me (sent once their Undo has passed). */
     val delete: (ids: List<String>, forEveryone: Boolean) -> Unit = { _, _ -> },
     /** Editing [id] live: the text as it stands (null: cancelled). */
-    val editLive: (id: String, text: String?) -> Unit = { _, _ -> },
+    val editLive: (id: String, text: String?, selStart: Int, selEnd: Int) -> Unit = { _, _, _, _ -> },
     /** Writing started (the draft opened): what they wrote counts as read (the quick-reply window). */
     val answering: () -> Unit = {},
     /** Push-to-talk or push-to-video for this chat (remembered per contact); null: no switch. */
@@ -168,6 +170,8 @@ internal fun ConversationScreen(
     embeddedHeader: (@Composable () -> Unit)? = null,
     /** The window's arrival (OverlayArrival): how solid all but a playing video is (0.5, then 1). */
     seeThrough: Float = 1f,
+    /** Where each live writer's caret is (who, "" in a one-to-one chat; start to end). */
+    draftCarets: Map<String, Pair<Int, Int>> = emptyMap(),
     /** Their texts being edited live (MessagingState.liveEdits). */
     liveEdits: Map<String, com.chencohen.ptt.messaging.LiveEdit> = emptyMap(),
 ) {
@@ -324,7 +328,7 @@ internal fun ConversationScreen(
             flight.land()
         }
         // Leaving the chat ends a live draft (it fades on the other phone).
-        androidx.compose.runtime.DisposableEffect(user) { onDispose { actions.draft("") } }
+        androidx.compose.runtime.DisposableEffect(user) { onDispose { actions.draft("", -1, -1) } }
         // Push-to-video from the chat (2026-11-23, hen): the camera kept open while the chat shows, so a press sends
         // it at once; what this phone sends shows live in its bubble at the end of the chat, and stays as the video.
         // Released after a minute untouched (2026-11-24, hen), opened again at the next touch.
@@ -413,10 +417,10 @@ internal fun ConversationScreen(
                 val circleAtEnd = reader != null && ReadMarks.atEnd(messages)
                 if (group == null) {
                     val oneDraft = shownDrafts.firstOrNull()
-                    if (oneDraft != null) liveItem(live.key(null), LiveLine.Draft(null, oneDraft.second))
+                    if (oneDraft != null) liveItem(live.key(null), LiveLine.Draft(null, oneDraft.second, draftCarets[""]))
                     else if (circleAtEnd) liveItem(live.key(null), LiveLine.Circle(reader?.readAt))
                 } else {
-                    shownDrafts.forEach { (who, text) -> liveItem(live.key(who), LiveLine.Draft(who, text)) }
+                    shownDrafts.forEach { (who, text) -> liveItem(live.key(who), LiveLine.Draft(who, text, draftCarets[who.orEmpty()])) }
                 }
                 // The messages, and their circle right after the last one of mine they read (it glides down as they read).
                 // Two videos at once, one each side: side by side, the later one lower by when it started.
@@ -458,10 +462,10 @@ internal fun ConversationScreen(
                                     edit,
                                     change = { v ->
                                         edit.value = v
-                                        actions.editLive(message.id, v.text)
+                                        actions.editLive(message.id, v.text, v.selection.start, v.selection.end)
                                     },
                                     done = { save ->
-                                        if (save) actions.edit(message.id, edit.value.text) else actions.editLive(message.id, null)
+                                        if (save) actions.edit(message.id, edit.value.text) else actions.editLive(message.id, null, -1, -1)
                                     },
                                     gone = { edits.gone(edit) },
                                 )
@@ -805,7 +809,8 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                     liveEdit?.text ?: message.body,
                     color = if (mine) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Body,
                     onTextLayout = { textLayout = it },
-                    modifier = Modifier.onGloballyPositioned { textPlace[1] = it },
+                    modifier = Modifier.onGloballyPositioned { textPlace[1] = it }
+                        .then(if (liveEdit?.text != null && liveEdit.selEnd >= 0) Modifier.liveCaret(textLayout, liveEdit.selStart, liveEdit.selEnd) else Modifier),
                 )
             }
             val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
@@ -920,7 +925,7 @@ internal class LiveKeys(private var lastNewest: String?) {
 /** What their live item shows: their circle, their draft, or the message the draft became. */
 internal sealed interface LiveLine {
     data class Circle(val readAt: Long?) : LiveLine
-    data class Draft(val who: String?, val text: String) : LiveLine
+    data class Draft(val who: String?, val text: String, val caret: Pair<Int, Int>? = null) : LiveLine
     data class Message(val message: TextMessage, val who: String?, val lastDraft: String?) : LiveLine
 }
 
@@ -984,9 +989,14 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                 transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200))) },
                 label = "draft text",
             ) { (_, t) ->
+                // Their caret where it is (2026-11-24, hen), or, not said, a bar at the end.
+                val caret = (line as? LiveLine.Draft)?.caret?.takeIf { it.second >= 0 }
+                var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
                 Text(
-                    if (message == null) "$t\u258F" else t,
+                    if (message == null && caret == null) "$t\u258F" else t,
                     color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * s), style = LibraryType.Body,
+                    onTextLayout = { layout = it },
+                    modifier = if (message == null && caret != null) Modifier.liveCaret(layout, caret.first, caret.second) else Modifier,
                 )
             }
             if (message != null) {
@@ -1102,6 +1112,32 @@ internal fun dayLabel(day: Long): String {
         ago <= 6 -> java.text.SimpleDateFormat("EEEE", locale).format(Date(day))
         thisYear -> java.text.SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(locale, "dMMMM"), locale).format(Date(day))
         else -> java.text.SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(locale, "dMMMMyyyy"), locale).format(Date(day))
+    }
+}
+
+/**
+ * Their caret, live (2026-11-24, hen): a thin blinking bar at [end] in the text laid out as [layout] (its own layout,
+ * so right to left and mixed text land right), gliding between places; [start]..[end] selected: a soft highlight.
+ */
+@Composable
+internal fun Modifier.liveCaret(layout: androidx.compose.ui.text.TextLayoutResult?, start: Int, end: Int): Modifier {
+    if (layout == null || end < 0) return this
+    val length = layout.layoutInput.text.length
+    val at = end.coerceIn(0, length)
+    val rect = layout.getCursorRect(at)
+    val glide = androidx.compose.animation.core.tween<Float>(120)
+    val x by androidx.compose.animation.core.animateFloatAsState(rect.left, glide, label = "caret x")
+    val y by androidx.compose.animation.core.animateFloatAsState(rect.top, glide, label = "caret y")
+    val blink by androidx.compose.animation.core.rememberInfiniteTransition(label = "caret").animateFloat(
+        1f, 0.15f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween<Float>(530), androidx.compose.animation.core.RepeatMode.Reverse), label = "blink",
+    )
+    val from = start.coerceIn(0, length)
+    val selection = if (start >= 0 && from != at) layout.getPathForRange(minOf(from, at), maxOf(from, at)) else null
+    val color = LibraryColors.Accent
+    return this.drawWithContent {
+        if (selection != null) drawPath(selection, color.copy(alpha = 0.25f))
+        drawContent()
+        drawRect(color.copy(alpha = blink), androidx.compose.ui.geometry.Offset(x - 1.dp.toPx(), y), androidx.compose.ui.geometry.Size(2.dp.toPx(), rect.height))
     }
 }
 
@@ -1516,9 +1552,9 @@ private fun PinnedDraft(
             transformOrigin = sideOrigin(mine = true, rtl = rtl, y = 0.5f)
         },
         bubbleModifier = Modifier.onGloballyPositioned { draft.bounds = it.boundsInWindow() },
+        caret = { value, range -> actions.draft(value, range.start, range.end) },
         change = { value ->
             draft.text = value
-            actions.draft(value)
             val now = System.currentTimeMillis()
             if (value.isBlank()) {
                 if (draft.lastTyping != 0L) actions.typing(false)
@@ -1534,7 +1570,7 @@ private fun PinnedDraft(
                 sent(body, draft.bounds)
                 sends++
                 actions.send(body)
-                actions.draft("")
+                actions.draft("", -1, -1)
                 draft.text = ""
                 draft.lastTyping = 0L
             }

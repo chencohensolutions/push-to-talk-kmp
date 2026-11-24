@@ -565,6 +565,37 @@ class MessagingTest {
     }
 
     @Test
+    fun theCaretRidesWithLiveTextAndLiveEdits() = runTest {
+        // 2026-11-24 (hen): where the writer's caret is, live.
+        val frame = Content(edit = EditContent("m1", "hello", stage = EditContent.LIVE, selStart = 2, selEnd = 4), typing = TypingContent(true, "hey", 3, 3))
+        val back = ContentCodec.decode(ContentCodec.encode(frame))!!
+        assertEquals(2, back.edit!!.selStart)
+        assertEquals(4, back.edit!!.selEnd)
+        assertEquals(3, back.typing!!.selStart)
+        // An older frame has none.
+        assertEquals(-1, ContentCodec.decode(ContentCodec.encode(Content(typing = TypingContent(true, "x"))))!!.typing!!.selStart)
+
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        hen.messaging.setTalkSettings(hen.messaging.talkSettings().copy(liveTyping = true, liveTypingFor = mapOf("dana" to true)))
+        val sent = hen.messaging.sendText("dana", "hello")
+        advanceUntilIdle()
+        hen.messaging.editLive(sent.id, "hello you", 6, 9)
+        hen.messaging.draft("dana", "and", 1, 1)
+        advanceTimeBy(500)
+        assertEquals(6, dana.state.liveEdits[sent.id]?.selStart)
+        assertEquals(9, dana.state.liveEdits[sent.id]?.selEnd)
+        assertEquals(1, dana.state.drafts["hen"]?.selStart)
+        // A caret move alone goes too.
+        hen.messaging.draft("dana", "and", 3, 3)
+        advanceTimeBy(500)
+        assertEquals(3, dana.state.drafts["hen"]?.selStart)
+        listOf(hen, dana).forEach { it.stop() }
+    }
+
+    @Test
     fun aLiveEditShowsAndGoesOnCancelOrAfterAWhile() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)

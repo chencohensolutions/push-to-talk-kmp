@@ -71,6 +71,9 @@ internal data class EditContent(
     @ProtoNumber(3) val editedAt: Long = 0,
     @ProtoNumber(4) val stage: Int = FINAL,
     @ProtoNumber(5) val hidden: Boolean = false,
+    /** LIVE: where the editor's caret is in [body], and the selection's end (2026-11-24, hen); -1: not said. */
+    @ProtoNumber(6) val selStart: Int = -1,
+    @ProtoNumber(7) val selEnd: Int = -1,
 ) {
     companion object {
         const val FINAL = 0
@@ -234,6 +237,9 @@ internal data class TypingContent(
      * written, deletions included; "" when it was emptied. Older apps skip it and see only "typing".
      */
     @ProtoNumber(2) val draft: String? = null,
+    /** Where the writer's caret is in [draft] (2026-11-24, hen), and the selection's end; -1: not said. */
+    @ProtoNumber(3) val selStart: Int = -1,
+    @ProtoNumber(4) val selEnd: Int = -1,
 )
 
 /**

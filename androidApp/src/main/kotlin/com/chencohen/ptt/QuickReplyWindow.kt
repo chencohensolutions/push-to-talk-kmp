@@ -80,6 +80,7 @@ import com.chencohen.ptt.ui.contacts.ConversationHeader
 import com.chencohen.ptt.ui.contacts.ConversationScreen
 import com.chencohen.ptt.ui.contacts.GroupChat
 import com.chencohen.ptt.ui.home.liveDrafts
+import com.chencohen.ptt.ui.home.liveCarets
 import androidx.compose.ui.draw.clip
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryIcons
@@ -386,6 +387,7 @@ object QuickReplyWindow {
                 pushVideo = pushVideo,
                 presences = state.presence,
                 liveEdits = state.liveEdits,
+                draftCarets = liveCarets(state.drafts, current, Group.idOf(current) != null),
                 warmCamera = { which -> preview(context, which) },
                 group = Group.idOf(current)?.let {
                     GroupChat(
@@ -414,9 +416,9 @@ object QuickReplyWindow {
                     },
                     retry = { openChat(context, current) },
                     typing = { on -> sendTyping(context, current, on) },
-                    draft = { text ->
+                    draft = { text, s, e ->
                         typed.value = text
-                        sendDraft(context, current, text)
+                        sendDraft(context, current, text, s, e)
                     },
                     playClip = { id -> CoroutineScope(Dispatchers.Default).launch { runCatching { playClip(context, id) } } },
                     stopClip = { CoroutineScope(Dispatchers.Default).launch { runCatching { stopTalkPlayback(context) } } },
@@ -433,7 +435,7 @@ object QuickReplyWindow {
                     // Writing back reads them (2026-11-24, hen); only showing the window doesn't.
                     answering = { readNow(context, current) },
                     edit = { id, body -> editText(context, id, body) },
-                    editLive = { id, text -> editLive(context, id, text) },
+                    editLive = { id, text, s, e -> editLive(context, id, text, s, e) },
                     delete = { ids, everyone -> deleteMessages(context, ids, everyone) },
                 ),
                 seeThrough = seeThrough.floatValue,

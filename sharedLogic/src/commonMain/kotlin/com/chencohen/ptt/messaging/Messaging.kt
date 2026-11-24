@@ -159,10 +159,13 @@ data class TalkSettings(
 }
 
 /** A draft written live by someone ([MessagingState.drafts]): its text and when it last changed. */
-/** A text being edited live: [text] as it stands (null: hidden), as of [at]. */
-data class LiveEdit(val text: String?, val at: Long)
+/** A text being edited live: [text] as it stands (null: hidden), as of [at]; the editor's caret/selection (-1: none). */
+data class LiveEdit(val text: String?, val at: Long, val selStart: Int = -1, val selEnd: Int = -1)
 
-data class Draft(val text: String, val at: Long) {
+/** What is written live and where the caret is in it (-1: not said). */
+internal data class LiveText(val text: String, val start: Int = -1, val end: Int = -1)
+
+data class Draft(val text: String, val at: Long, val selStart: Int = -1, val selEnd: Int = -1) {
     companion object {
         /** A live draft fades this long after its last word. */
         const val FRESH_MS = 20_000L
@@ -280,9 +283,9 @@ internal class Messaging(
         },
         onEdit = { group, author, edit -> takeEdit(group.chat, author, mine = author == device()?.user, edit) },
         onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
-        onTyping = { group, author, typing, draft ->
+        onTyping = { group, author, typing ->
             val key = typingKey(group.chat, author)
-            _state.update { it.copy(typing = if (typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing, draft)) }
+            _state.update { it.copy(typing = if (typing.typing) it.typing + (key to now() + TYPING_FOR) else it.typing - key, drafts = withDraft(it.drafts, key, typing.typing, typing.draft, typing.selStart, typing.selEnd)) }
         },
     )
 
@@ -1369,13 +1372,13 @@ internal class Messaging(
         }
     }
 
-    private fun withDraft(drafts: Map<String, Draft>, key: String, typing: Boolean, draft: String?): Map<String, Draft> = when {
+    private fun withDraft(drafts: Map<String, Draft>, key: String, typing: Boolean, draft: String?, selStart: Int = -1, selEnd: Int = -1): Map<String, Draft> = when {
         !typing || draft?.isEmpty() == true -> drafts - key
-        draft != null -> drafts + (key to Draft(draft.take(4_000), now()))
+        draft != null -> drafts + (key to Draft(draft.take(4_000), now(), selStart, selEnd))
         else -> drafts
     }
 
-    private val draftWanted = HashMap<String, String>()
+    private val draftWanted = HashMap<String, LiveText>()
     private val draftSending = HashSet<String>()
 
     /**
@@ -1383,24 +1386,24 @@ internal class Messaging(
      * Send: never stored, never pushed), at most every [DRAFT_EVERY] with the latest text; again every few seconds
      * while it stays, so it doesn't fade on the other phone.
      */
-    fun draft(user: String, text: String) {
+    fun draft(user: String, text: String, selStart: Int = -1, selEnd: Int = -1) {
         if (!talkSettings().liveTypingTo(user)) return
-        draftWanted[user] = text
+        draftWanted[user] = LiveText(text, selStart, selEnd)
         if (!draftSending.add(user)) return
         scope.launch {
-            var sent: String? = null
+            var sent: LiveText? = null
             var sentAt = 0L
             // Read before the draft shows (as for typing).
             if (text.isNotEmpty()) markRead(user)
             try {
                 while (true) {
                     val want = draftWanted[user] ?: break
-                    if (want != sent || (want.isNotEmpty() && now() - sentAt > DRAFT_FOR / 2)) {
+                    if (want != sent || (want.text.isNotEmpty() && now() - sentAt > DRAFT_FOR / 2)) {
                         sendDraft(user, want)
                         sent = want
                         sentAt = now()
                     }
-                    if (want.isEmpty()) break
+                    if (want.text.isEmpty()) break
                     kotlinx.coroutines.delay(DRAFT_EVERY)
                     if (draftWanted[user] == sent && now() - sentAt < DRAFT_FOR / 2) {
                         // Nothing new: wait for a change (or the keep-alive).
@@ -1422,9 +1425,10 @@ internal class Messaging(
         draftWanted.remove(user)
     }
 
-    private suspend fun sendDraft(user: String, text: String) {
+    private suspend fun sendDraft(user: String, live: LiveText) {
         if (socket.state.value !is SocketState.Live) return
-        val content = Content(typing = TypingContent(typing = text.isNotEmpty(), draft = text))
+        val text = live.text
+        val content = Content(typing = TypingContent(typing = text.isNotEmpty(), draft = text, selStart = live.start, selEnd = live.end))
         try {
             Group.idOf(user)?.let { id ->
                 groups.send(id, content, PushKind.NONE, ephemeral = true)
@@ -1513,14 +1517,14 @@ internal class Messaging(
         publish()
     }
 
-    private val editWanted = HashMap<String, String?>()
+    private val editWanted = HashMap<String, LiveText?>()
     private val editSending = HashSet<String>()
 
     /**
      * Editing [id] live: [text] as it stands now, null when the edit ended unchanged (cancel). Live only, as live
      * typing: the letters go when Live typing is on for the chat, else only that it is being edited.
      */
-    fun editLive(id: String, text: String?) {
+    fun editLive(id: String, text: String?, selStart: Int = -1, selEnd: Int = -1) {
         val message = store.message(id)?.takeIf { it.outgoing && it.clip == null && it.call == null } ?: return
         if (text == null) {
             editWanted.remove(id)
@@ -1528,16 +1532,17 @@ internal class Messaging(
             return
         }
         val shown = talkSettings().liveTypingTo(message.user)
-        editWanted[id] = if (shown) text else ""
+        // The caret goes with the letters only (Live typing on).
+        editWanted[id] = if (shown) LiveText(text, selStart, selEnd) else LiveText("")
         if (!editSending.add(id)) return
         scope.launch {
-            var sent: String? = null
+            var sent: LiveText? = null
             var sentAt = 0L
             try {
                 while (true) {
                     val want = editWanted[id] ?: break
                     if (want != sent || now() - sentAt > DRAFT_FOR / 2) {
-                        sendEdit(message.user, EditContent(id, want, stage = EditContent.LIVE, hidden = !shown))
+                        sendEdit(message.user, EditContent(id, want.text, stage = EditContent.LIVE, hidden = !shown, selStart = want.start, selEnd = want.end))
                         sent = want
                         sentAt = now()
                     }
@@ -1584,7 +1589,7 @@ internal class Messaging(
             EditContent.LIVE -> {
                 if (mine) return
                 val at = now()
-                _state.update { it.copy(liveEdits = it.liveEdits + (edit.id to LiveEdit(if (edit.hidden) null else edit.body.take(4_000), at))) }
+                _state.update { it.copy(liveEdits = it.liveEdits + (edit.id to LiveEdit(if (edit.hidden) null else edit.body.take(4_000), at, if (edit.hidden) -1 else edit.selStart, if (edit.hidden) -1 else edit.selEnd))) }
                 scope.launch {
                     kotlinx.coroutines.delay(Draft.FRESH_MS)
                     _state.update { s -> if (s.liveEdits[edit.id]?.at == at) s.copy(liveEdits = s.liveEdits - edit.id) else s }
@@ -1701,7 +1706,7 @@ internal class Messaging(
             _state.update {
                 it.copy(
                     typing = if (typing.typing) it.typing + (contact.user to now() + TYPING_FOR) else it.typing - contact.user,
-                    drafts = withDraft(it.drafts, contact.user, typing.typing, typing.draft),
+                    drafts = withDraft(it.drafts, contact.user, typing.typing, typing.draft, typing.selStart, typing.selEnd),
                 )
             }
         }

@@ -99,7 +99,10 @@ internal fun ComposeBubble(
     bubbleModifier: Modifier = Modifier,
     /** Its field took the focus. */
     focused: () -> Unit = {},
+    /** The text and where the caret is in it, at every change, the caret moving too (live typing shows it). */
+    caret: (String, androidx.compose.ui.text.TextRange) -> Unit = { _, _ -> },
 ) {
+    var selection by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.TextRange(text.length)) }
     val coral = com.chencohen.ptt.ui.style.Pink
     Box(modifier.fillMaxWidth(), contentAlignment = MySide) {
         if (!editing && text.isEmpty()) {
@@ -141,8 +144,14 @@ internal fun ComposeBubble(
                 Text(stringResource(R.string.chat_my_draft), color = coral, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     BasicTextField(
-                        value = text,
-                        onValueChange = { change(it.take(4_000)) },
+                        value = androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(selection.start.coerceIn(0, text.length), selection.end.coerceIn(0, text.length))),
+                        onValueChange = { v ->
+                            val t = v.text.take(4_000)
+                            val moved = v.selection != selection
+                            selection = v.selection
+                            if (t != text) change(t)
+                            if (t != text || moved) caret(t, v.selection)
+                        },
                         textStyle = style,
                         cursorBrush = SolidColor(coral),
                         maxLines = 6,

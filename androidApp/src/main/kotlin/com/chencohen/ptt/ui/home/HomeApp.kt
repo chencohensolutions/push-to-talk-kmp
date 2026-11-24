@@ -614,6 +614,7 @@ fun HomeApp(
                         messages = messagingState.conversations[user].orEmpty(),
                         header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
                         drafts = liveDrafts(messagingState.drafts, user, now, Group.idOf(user) != null),
+                        draftCarets = liveCarets(messagingState.drafts, user, Group.idOf(user) != null),
                         pushVideo = messagingState.talkSettings.pushVideoFor(user),
                         presences = messagingState.presence,
                         liveEdits = messagingState.liveEdits,
@@ -647,7 +648,7 @@ fun HomeApp(
                             },
                             retry = messaging::retry,
                             typing = { messaging.typing(user, it) },
-                            draft = { text -> if (text.isEmpty()) messaging.draftDone(user) else messaging.draft(user, text) },
+                            draft = { text, s, e -> if (text.isEmpty()) messaging.draftDone(user) else messaging.draft(user, text, s, e) },
                             playClip = messaging::playClip,
                             saveClip = { id -> saveBurst(context, id, nameOf(user), messages) },
                             stopClip = messaging::stopPlaying,
@@ -661,7 +662,7 @@ fun HomeApp(
                             playKept = ::playKept,
                             setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.withVideoFor(user, on)) },
                             edit = { id, body -> messaging.editText(id, body) },
-                            editLive = { id, text -> messaging.editLive(id, text) },
+                            editLive = { id, text, s, e -> messaging.editLive(id, text, s, e) },
                             delete = { ids, everyone -> messaging.deleteMessages(ids, everyone) },
                         ),
                         talk = messagingState.talk,
@@ -1238,6 +1239,14 @@ private fun saveBurst(context: android.content.Context, id: String, title: Strin
 }
 
 /** Live drafts in [chat] still fresh at [now]: (who, text); who is null in a one-to-one chat. */
+/** Where each live writer's caret is in [chat]: by who ("" one-to-one), start to end; only those that said. */
+internal fun liveCarets(drafts: Map<String, com.chencohen.ptt.messaging.Draft>, chat: String, group: Boolean): Map<String, Pair<Int, Int>> =
+    if (group) {
+        drafts.filter { (k, d) -> k.startsWith("$chat/") && d.selEnd >= 0 }.map { (k, d) -> k.substringAfter('/') to (d.selStart to d.selEnd) }.toMap()
+    } else {
+        drafts[chat]?.takeIf { it.selEnd >= 0 }?.let { mapOf("" to (it.selStart to it.selEnd)) } ?: emptyMap()
+    }
+
 internal fun liveDrafts(drafts: Map<String, com.chencohen.ptt.messaging.Draft>, chat: String, now: Long, group: Boolean): List<Pair<String?, String>> =
     if (group) {
         drafts.filter { (k, d) -> k.startsWith("$chat/") && now - d.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }
