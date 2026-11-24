@@ -727,8 +727,11 @@ fun HomeApp(
                         val result = com.chencohen.ptt.ui.calls.saveKeptCall(context, ready.file, chatName(message.user), message.at)
                         saving = false
                         when (result) {
-                            is com.chencohen.ptt.ui.calls.KeptSave.Saved -> messages.post(resources.getString(R.string.kept_saved, result.where), resources.getString(R.string.call_share)) {
-                                com.chencohen.ptt.ui.calls.shareKeptCall(context, result.uri)
+                            is com.chencohen.ptt.ui.calls.KeptSave.Saved -> {
+                                messaging.markCallDownloaded(message.id)
+                                messages.post(resources.getString(R.string.kept_saved, result.where), resources.getString(R.string.call_share)) {
+                                    com.chencohen.ptt.ui.calls.shareKeptCall(context, result.uri)
+                                }
                             }
                             is com.chencohen.ptt.ui.calls.KeptSave.FolderGone -> messages.post(resources.getString(R.string.kept_folder_gone, result.folder), resources.getString(R.string.calls_folder_pick)) {
                                 push("callsettings")
@@ -745,6 +748,7 @@ fun HomeApp(
                             if (ready != null && !saving) keptScope.launch { saveNow(ready) }
                         },
                         saving = saving,
+                        downloaded = message.id in messagingState.talkSettings.downloadedCalls,
                     )
                     // From the call log's Save: once it's ready, save it.
                     LaunchedEffect(load) {
@@ -979,7 +983,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                         Spacer(Modifier.height(96.dp))
                         EmptyTab(LibraryIcons.Call, stringResource(R.string.calls_empty))
                     } else {
-                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact, actions.shareCall, actions.playKept, actions.saveKept)
+                        com.chencohen.ptt.ui.calls.CallsList(calls, actions.chatName, actions.call, actions.openContact, actions.shareCall, actions.playKept, actions.saveKept, state.messaging.talkSettings.downloadedCalls)
                     }
                 }
             }

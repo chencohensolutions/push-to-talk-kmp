@@ -64,6 +64,7 @@ class KeptCallDownloadWorker(context: Context, params: WorkerParameters) : Corou
                 return if (runAttemptCount < MAX_TRIES) Result.retry() else Result.failure()
             }
             saveKeptCall(app, load.file, chatName(app, message.user), message.at)
+            markCallDownloaded(app, callId)
             Log.i("CallDownloads", "saved call $callId to this phone")
             Result.success()
         } catch (e: Exception) {

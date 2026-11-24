@@ -339,6 +339,9 @@ class MessagingController internal constructor(
 
     fun setTalkSettings(settings: TalkSettings) = onWork { messaging.setTalkSettings(settings) }
 
+    /** Records that a kept call was downloaded from the server, so its Download button is gone. */
+    fun markCallDownloaded(id: String) = onWork { messaging.markCallDownloaded(id) }
+
     private fun act(done: (ContactResult) -> Unit, block: suspend () -> Unit) {
         scope.launch {
             val result = try {

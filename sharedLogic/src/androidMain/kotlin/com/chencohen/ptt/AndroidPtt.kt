@@ -323,6 +323,9 @@ suspend fun readCallBlob(context: Context, id: String, onBytes: suspend (ByteArr
 /** The chat entry of call [id]; its CallEntry carries keptKey once the server kept the call. */
 fun callMessage(context: Context, id: String): com.chencohen.ptt.messaging.TextMessage? = hub(context).store.message(id)
 
+/** Records that a kept call was downloaded from the server, so its Download button is gone. */
+fun markCallDownloaded(context: Context, id: String) = hub(context).markCallDownloaded(id)
+
 /** A talk notification's Play: the burst from the chat's history. */
 suspend fun playClip(context: Context, id: String) {
     val messaging = hub(context)

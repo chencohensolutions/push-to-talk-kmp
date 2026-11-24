@@ -88,6 +88,8 @@ data class TalkSettings(
     val hardwareButtons: Boolean = false,
     /** Chats set to Notify only. */
     val notifyOnly: Set<String> = emptySet(),
+    /** Kept calls already downloaded from the server (by id): their Download button is gone. */
+    val downloadedCalls: Set<String> = emptySet(),
     /** Settings › Calls › Save calls (phase 6). */
     val saveCalls: com.chencohen.ptt.calls.SaveCalls = com.chencohen.ptt.calls.SaveCalls.OFF,
     /** Settings › Calls › Save calls › Download saved calls: a call this phone saved is fetched to the phone on its end. */
@@ -458,6 +460,7 @@ internal class Messaging(
         defaultChat = settings.defaultTalkChat,
         hardwareButtons = settings.hardwareButtons,
         notifyOnly = settings.notifyOnlyChats,
+        downloadedCalls = settings.downloadedCalls,
         saveCalls = settings.saveCalls?.let { name -> com.chencohen.ptt.calls.SaveCalls.entries.firstOrNull { it.name == name } } ?: com.chencohen.ptt.calls.SaveCalls.OFF,
         autoDownloadCalls = settings.autoDownloadCalls,
         autoDownloadWifiOnly = settings.autoDownloadWifiOnly,
@@ -488,6 +491,7 @@ internal class Messaging(
         settings.defaultTalkChat = talk.defaultChat
         settings.hardwareButtons = talk.hardwareButtons
         settings.notifyOnlyChats = talk.notifyOnly
+        settings.downloadedCalls = talk.downloadedCalls
         settings.saveCalls = talk.saveCalls.name
         settings.autoDownloadCalls = talk.autoDownloadCalls
         settings.autoDownloadWifiOnly = talk.autoDownloadWifiOnly
@@ -516,6 +520,13 @@ internal class Messaging(
         if (known != before.liveTypingKnown) settings.liveTypingKnown = known
         val talk = talk.copy(liveTypingKnown = known)
         _state.update { it.copy(talkSettings = talk) }
+    }
+
+    /** Records that a kept call was downloaded from the server, so its Download button is gone (idempotent). */
+    fun markCallDownloaded(id: String) {
+        val talk = _state.value.talkSettings
+        if (id in talk.downloadedCalls) return
+        setTalkSettings(talk.copy(downloadedCalls = talk.downloadedCalls + id))
     }
 
     /** Stay connected's service started ([on]) or stopped: /ws stays open in the background while it runs. */
