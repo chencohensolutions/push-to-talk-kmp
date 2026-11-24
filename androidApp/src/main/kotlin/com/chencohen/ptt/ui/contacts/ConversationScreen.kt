@@ -488,7 +488,7 @@ private fun ConversationScreenIn(
         androidx.compose.runtime.DisposableEffect(user) { onDispose { if (handsFreeNow) actions.finishVoice(true) } }
         // Kept open while live hands-free or in standby (2026-11-24: after a minute untouched it was let go, so the next
         // renewal went out as voice only).
-        com.chencohen.ptt.ui.talk.WarmCamera(user, pushVideo && canWrite && (!cameraIdle || handsFree || standby || talkingHere), warmCamera)
+        com.chencohen.ptt.ui.talk.WarmCamera(user, pushVideo && canWrite && !chatLive.anyCall && (!cameraIdle || handsFree || standby || talkingHere), warmCamera)
         // Their floor ended while I'm live in standby: mine starts.
         LaunchedEffect(standby, theyHold) {
             if (standby && !theyHold) {
@@ -1903,4 +1903,6 @@ class ChatLive(
     val autoCall: Boolean = false,
     val call: InChatCall? = null,
     val onBothLive: (Boolean) -> Unit = {},
+    /** A call is on (any chat): the camera is the call's; push-to-video takes it back when it ends. */
+    val anyCall: Boolean = false,
 )

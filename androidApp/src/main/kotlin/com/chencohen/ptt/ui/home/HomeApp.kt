@@ -660,6 +660,7 @@ fun HomeApp(
                                 )
                             },
                             onBothLive = { on -> bothLiveIn = if (on) user else bothLiveIn?.takeIf { it != user } },
+                            anyCall = messagingState.call?.let { it.phase != com.chencohen.ptt.calls.CallPhase.ENDED } == true,
                         ),
                         warmCamera = messaging::warmCamera,
                         group = Group.idOf(user)?.let { id ->
