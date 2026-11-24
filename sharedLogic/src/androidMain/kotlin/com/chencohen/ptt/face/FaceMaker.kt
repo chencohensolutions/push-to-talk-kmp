@@ -37,11 +37,11 @@ import kotlin.math.roundToInt
  *   BGR 0–255 out, made by tools/face/convert.py from the authors' frozen graphs.
  * - Informative Drawings (carolineec/informative-drawings, MIT): Ink (contour); RGB 0–1 in, lines 0–1 out.
  */
-enum class FaceStyle(val file: String, val bytes: Long, val ink: Boolean = false) {
-    SOFT("face_soft.tflite", 3_250_464),
-    PAINTED("face_painted.tflite", 3_250_464),
-    HAND_DRAWN("face_handdrawn.tflite", 3_250_464),
-    INK("face_ink.tflite", 8_602_592, ink = true),
+enum class FaceStyle(val file: String, val bytes: Long, val sha256: String, val ink: Boolean = false) {
+    SOFT("face_soft.tflite", 3_250_464, "79c982b8c256d5232b74da2e7271b1226e729a62fca4b1bcbff96da790442576"),
+    PAINTED("face_painted.tflite", 3_250_464, "8b422088cd2848b78467739ceab1237fd84a17552c5dafb1086807a940ba69d3"),
+    HAND_DRAWN("face_handdrawn.tflite", 3_250_464, "71d1124c4cba2e8ae50c3a2e600052165426e0e89ea7eb1c746a678a48506fa5"),
+    INK("face_ink.tflite", 8_602_592, "161125875aab07c0d0517c6331be136a00ce2d39a1ba61827c7a12ad29ccc6d8", ink = true),
 }
 
 /** Where a style's model is: [done] of [total] bytes here, ready, or failed (no network: try again). */
@@ -107,6 +107,11 @@ object FaceMaker {
                     }
                 }
                 if (part.length() != style.bytes) error("got ${part.length()} bytes of ${style.bytes}")
+                // The model is only used when it is exactly the one this app was built with.
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                part.inputStream().use { input -> val buffer = ByteArray(64 * 1024); while (true) { val n = input.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) } }
+                val sum = digest.digest().joinToString("") { "%02x".format(it) }
+                if (sum != style.sha256) error("${style.file}: SHA-256 $sum, expected ${style.sha256}")
                 part.renameTo(target)
                 state.value = ModelProgress(style.bytes, style.bytes, ready = true)
                 true
