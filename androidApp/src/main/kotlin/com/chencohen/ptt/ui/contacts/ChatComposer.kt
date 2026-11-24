@@ -10,6 +10,7 @@ import androidx.compose.ui.draw.shadow
 import com.chencohen.ptt.messaging.ReadMarks.Tick
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.asImageBitmap
@@ -104,70 +105,89 @@ internal fun ComposeBubble(
 ) {
     var selection by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.TextRange(text.length)) }
     val coral = com.chencohen.ptt.ui.style.Pink
+    // One element, resting ("Write a message…", dashed) or writing (coral outline), morphing both ways in 250 ms on the
+    // keyboard's easing (2026-11-24, hen); with text in it, it stays writing. Same size in both (no jump), anchored on
+    // my side, no label.
+    val open by androidx.compose.animation.core.animateFloatAsState(
+        if (editing || text.isNotEmpty()) 1f else 0f,
+        tween(250, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "writing",
+    )
+    val style = LibraryType.Body.copy(color = LibraryColors.OnBackground)
+    val label = stringResource(R.string.chat_send)
+    val hint = stringResource(R.string.chat_write_hint)
+    // From 38.2% of the row (1 − 0.618, the golden ratio) growing with the text, at once, up to 85%, then wrapping;
+    // past 6 lines it scrolls inside with the caret in view.
+    val width = draftWidth(text, style, chrome = 14.dp + 8.dp + 8.dp + 36.dp)
+    val dash = LibraryColors.Muted.copy(alpha = 0.6f)
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     Box(modifier.fillMaxWidth(), contentAlignment = MySide) {
-        if (!editing && text.isEmpty()) {
-            val hint = stringResource(R.string.chat_write_hint)
-            val dash = LibraryColors.Muted.copy(alpha = 0.6f)
-            Text(
-                hint,
-                color = LibraryColors.Muted,
-                style = LibraryType.Body,
-                // 38.2% of the row (1 − 0.618, the golden ratio; 2026-11-24, hen), anchored on my side.
-                modifier = Modifier
-                    .fillMaxWidth(DRAFT_MIN)
-                    .drawBehind {
+        Row(
+            bubbleModifier.width(width)
+                .shadow(6.dp + 2.dp * open, LibraryShapes.Card)
+                .background(LibraryColors.Background.copy(alpha = 0.92f + 0.08f * open), LibraryShapes.Card)
+                .drawBehind {
+                    if (open < 1f) {
                         drawRoundRect(
-                            dash,
+                            dash.copy(alpha = dash.alpha * (1f - open)),
                             cornerRadius = CornerRadius(16.dp.toPx()),
                             style = Stroke(width = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))),
                         )
                     }
-                    .shadow(6.dp, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                    .background(LibraryColors.Background.copy(alpha = 0.92f), androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                    .clickable(role = Role.Button, onClickLabel = hint, onClick = startEditing)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            )
-        } else {
-            // From the empty one's width (38.2% of the row, so nothing shrinks as the first letter goes in), growing with
-            // the text, at once, up to 85%, then wrapping; past 6 lines it scrolls inside with the caret in view.
-            val style = LibraryType.Body.copy(color = LibraryColors.OnBackground)
-            val label = stringResource(R.string.chat_send)
-            val width = draftWidth(text, style, chrome = 14.dp + 8.dp + 8.dp + 36.dp)
-            Column(
-                bubbleModifier.width(width)
-                    .shadow(8.dp, LibraryShapes.Card)
-                    .background(LibraryColors.Background, LibraryShapes.Card)
-                    .border(1.5.dp, coral, LibraryShapes.Card)
-                    .background(coral.copy(alpha = 0.08f), LibraryShapes.Card)
-                    .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            ) {
-                Text(stringResource(R.string.chat_my_draft), color = coral, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
-                Row(verticalAlignment = Alignment.Bottom) {
-                    BasicTextField(
-                        value = androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(selection.start.coerceIn(0, text.length), selection.end.coerceIn(0, text.length))),
-                        onValueChange = { v ->
-                            val t = v.text.take(4_000)
-                            val moved = v.selection != selection
-                            selection = v.selection
-                            if (t != text) change(t)
-                            if (t != text || moved) caret(t, v.selection)
-                        },
-                        textStyle = style,
-                        cursorBrush = SolidColor(coral),
-                        maxLines = 6,
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
-                        modifier = Modifier.weight(1f).padding(bottom = 6.dp).focusRequester(focus)
-                            .onFocusChanged { if (it.isFocused) focused() },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        Modifier.size(36.dp)
-                            .background(if (text.isNotBlank()) coral else coral.copy(alpha = 0.3f), CircleShape)
-                            .clickable(enabled = text.isNotBlank(), role = Role.Button, onClickLabel = label, onClick = send),
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(LibraryIcons.ArrowUp, label, tint = Color.White, modifier = Modifier.size(18.dp)) }
                 }
-            }
+                .border(1.5.dp, coral.copy(alpha = open), LibraryShapes.Card)
+                .background(coral.copy(alpha = 0.08f * open), LibraryShapes.Card)
+                .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(selection.start.coerceIn(0, text.length), selection.end.coerceIn(0, text.length))),
+                onValueChange = { v ->
+                    val t = v.text.take(4_000)
+                    val moved = v.selection != selection
+                    selection = v.selection
+                    if (t != text) change(t)
+                    if (t != text || moved) caret(t, v.selection)
+                },
+                textStyle = style,
+                // The caret fades in with the morph.
+                cursorBrush = SolidColor(coral.copy(alpha = open)),
+                maxLines = 6,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
+                decorationBox = { field ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        // The resting words fade and slide a little as the caret comes.
+                        if (text.isEmpty() && open < 1f) {
+                            Text(
+                                hint, color = LibraryColors.Muted, style = LibraryType.Body, maxLines = 1,
+                                modifier = Modifier.graphicsLayer {
+                                    alpha = 1f - open
+                                    translationX = 12.dp.toPx() * open * (if (rtl) -1f else 1f)
+                                },
+                            )
+                        }
+                        field()
+                    }
+                },
+                modifier = Modifier.weight(1f).focusRequester(focus)
+                    .semantics { contentDescription = hint }
+                    .onFocusChanged {
+                        if (it.isFocused) {
+                            focused()
+                            if (!editing) startEditing()
+                        }
+                    },
+            )
+            Spacer(Modifier.width(8.dp))
+            Box(
+                Modifier.size(36.dp).graphicsLayer {
+                    alpha = open
+                    scaleX = 0.7f + 0.3f * open
+                    scaleY = 0.7f + 0.3f * open
+                }
+                    .background(if (text.isNotBlank()) coral else coral.copy(alpha = 0.3f), CircleShape)
+                    .clickable(enabled = text.isNotBlank() && open > 0.5f, role = Role.Button, onClickLabel = label, onClick = send),
+                contentAlignment = Alignment.Center,
+            ) { Icon(LibraryIcons.ArrowUp, label, tint = Color.White, modifier = Modifier.size(18.dp)) }
         }
     }
 }

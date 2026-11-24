@@ -1485,11 +1485,6 @@ private fun SendFlightOverlay(flight: SendFlight) {
     ) {
         // The label folds away above the text, which keeps its size and moves with the box.
         Column {
-            Box(Modifier.layout { m, c ->
-                val pl = m.measure(c)
-                val h = (pl.height * (1f - p)).toInt()
-                layout(pl.width, h) { pl.placeWithLayer(0, 0) { alpha = 1f - p } }
-            }) { Text(stringResource(R.string.chat_my_draft), color = coral, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp)) }
             Text(text, color = androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.OnMine, p), style = LibraryType.Body)
         }
         Row(Modifier.align(Alignment.BottomEnd).graphicsLayer { alpha = p }, verticalAlignment = Alignment.CenterVertically) {

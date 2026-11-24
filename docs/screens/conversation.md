@@ -199,3 +199,11 @@ said; older apps skip them). In their live draft and in a message they are editi
 colour at that place, placed by the text's own layout (right to left and mixed text land right), gliding between
 places; a selection gets a soft highlight. Gone with the draft or the edit (save, cancel, timeout). Without a caret said
 (an older app), the draft shows a bar at its end as before (MessagingTest).
+
+
+**The writing bubble, one element** (2026-11-24, hen; 1.4.19): no "Your message" label. Resting ("Write a message…",
+dashed) and writing (coral outline, caret, Send) are one element that morphs both ways in 250 ms on the keyboard's
+easing: the dash fades into the coral outline, the fill deepens, the resting words fade and slide a little as the
+caret fades in, Send scales in; empty on leaving, the exact reverse; with text in it, it stays writing. The same size
+in both (no jump), anchored on my side at 38.2% of the row. A tap on it (or its focus) starts writing. Send's flight
+has no label to fold either.
