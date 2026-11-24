@@ -37,12 +37,30 @@ internal object Faces {
 
     fun cached(user: String, id: String): ImageBitmap? = cache.get("$user/$id")
 
+    suspend fun loadFace(context: Context, user: String, code: Int, id: String): ImageBitmap? {
+        cached("$user#$code", id)?.let { return it }
+        val bytes = com.chencohen.ptt.faceImageOf(context, user, code) ?: return null
+        return withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
+            ?.also { cache.put("$user#$code/$id", it) }
+    }
+
     suspend fun load(context: Context, user: String, id: String): ImageBitmap? {
         cached(user, id)?.let { return it }
         val bytes = pictureOf(context, user) ?: return null
         return withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }
             ?.also { cache.put("$user/$id", it) }
     }
+}
+
+/** [user]'s face in expression [code] (this user's own: ""), or null while it loads or when there is none. */
+@Composable
+internal fun faceOf(user: String, code: Int): ImageBitmap? {
+    if (code == com.chencohen.ptt.face.Expression.NEUTRAL.code) return faceOf(user)
+    val context = LocalContext.current
+    val ids by Faces.ids(context).collectAsState()
+    val id = ids[user] ?: return null
+    val face by produceState(Faces.cached("$user#$code", id), user, id, code) { value = Faces.loadFace(context, user, code, id) }
+    return face
 }
 
 /** [user]'s face (this user's own: ""), or null while it loads or when they have none. */

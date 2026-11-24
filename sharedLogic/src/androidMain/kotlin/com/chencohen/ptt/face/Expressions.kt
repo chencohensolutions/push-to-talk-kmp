@@ -12,14 +12,6 @@ import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
-/** A face's expression (2026-11-24, hen: "used as emoticons, smiling, sad etc"); [code] is what goes on the wire. */
-enum class Expression(val code: Int) {
-    NEUTRAL(0), SMILE(1), LAUGH(2), SAD(3), SURPRISED(4), WINK(5), ANGRY(6);
-
-    companion object {
-        fun of(code: Int): Expression? = entries.firstOrNull { it.code == code }
-    }
-}
 
 /** Where the face's parts are (in the crop's pixels): the mouth's outline, each eye's and each brow's. */
 class Landmarks internal constructor(

@@ -49,7 +49,20 @@ internal data class Content(
     @ProtoNumber(20) val delete: DeleteContent? = null,
     /** The sender has this chat open and in view, or left it ([ViewingContent]); live only. Older apps skip it. */
     @ProtoNumber(21) val viewing: ViewingContent? = null,
+    /** A reaction with one of the sender's faces to a message (2026-11-24, hen). Older apps skip it. */
+    @ProtoNumber(22) val reaction: ReactionContent? = null,
 )
+
+/** One expression of the sender's face ([code]: Expression code), a small WebP with alpha. */
+@Serializable
+internal data class FaceImage(@ProtoNumber(1) val code: Int = 0, @ProtoNumber(2) val image: ByteArray = ByteArray(0)) {
+    override fun equals(other: Any?): Boolean = other is FaceImage && code == other.code && image.contentEquals(other.image)
+    override fun hashCode(): Int = code
+}
+
+/** The sender reacted to message [id] with their face [face] (Expression code + 1); 0 takes the reaction back. */
+@Serializable
+internal data class ReactionContent(@ProtoNumber(1) val id: String = "", @ProtoNumber(2) val face: Int = 0)
 
 /**
  * What a user shares with their paired contacts about themselves: their email ("" none; Settings › Contacts), and
@@ -69,6 +82,10 @@ internal data class ProfileContent(
      * pictures): send it again. Only this flag counts in such a profile.
      */
     @ProtoNumber(5) val needPicture: Boolean = false,
+    /** The face in each expression (2026-11-24, hen: the faces as emoticons), with [picture]'s bytes only. */
+    @ProtoNumber(6) val faces: List<FaceImage> = emptyList(),
+    /** How many expressions the sender's picture has (said with or without the bytes): a phone with fewer asks again. */
+    @ProtoNumber(7) val faceCount: Int = 0,
 ) {
     override fun equals(other: Any?): Boolean = other is ProfileContent && email == other.email && gender == other.gender &&
         pictureId == other.pictureId && picture.contentEquals(other.picture) && needPicture == other.needPicture
@@ -168,6 +185,8 @@ internal data class TextContent(
     @ProtoNumber(2) val sentAt: Long = 0,
     /** The text's own id, the same on every phone: what receipts name. */
     @ProtoNumber(3) val id: String = "",
+    /** One of the sender's own faces instead of words (2026-11-24, hen): its Expression code + 1; 0 none. [body] has an emoji for older apps. */
+    @ProtoNumber(4) val face: Int = 0,
 )
 
 /**

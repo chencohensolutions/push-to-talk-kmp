@@ -415,6 +415,8 @@ object QuickReplyWindow {
                 actions = ConversationActions(
                     back = { close(context) },
                     openContact = { openChat(context, current) },
+                    sendFace = { code, fallback -> readNow(context, current); com.chencohen.ptt.sendFace(context, current, code, fallback) },
+                    react = { id, code -> com.chencohen.ptt.react(context, id, code) },
                     send = { body ->
                         typed.value = ""
                         answered = true

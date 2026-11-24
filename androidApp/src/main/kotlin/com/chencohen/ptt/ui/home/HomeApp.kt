@@ -655,6 +655,8 @@ fun HomeApp(
                         actions = ConversationActions(
                             back = ::pop,
                             openContact = { Group.idOf(user)?.let { push("group/$it") } ?: push("contact/$user") },
+                            sendFace = { code, fallback -> com.chencohen.ptt.sendFace(context, user, code, fallback) },
+                            react = { id, code -> com.chencohen.ptt.react(context, id, code) },
                             send = { body ->
                                 messaging.sendText(user, body) { result ->
                                     if (result is ContactResult.Failed) messages.post(resources.getString(R.string.contact_failed, result.message))
@@ -1070,10 +1072,18 @@ private fun TopBar(state: HomeState, tab: HomeTab, openSettings: () -> Unit, mod
     }
 }
 
-/** The user's first letter in an ink circle (no pictures yet); opens Settings. */
+/** The user's own face (2026-11-24, hen), else their first letter in an ink circle; opens Settings. */
 @Composable
 private fun ProfileCircle(user: String?, onClick: () -> Unit) {
     val label = stringResource(R.string.chats_profile)
+    val face = com.chencohen.ptt.ui.face.faceOf("")
+    if (face != null) {
+        androidx.compose.foundation.Image(
+            face, label, contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            modifier = Modifier.size(44.dp).clickable(role = Role.Button, onClick = onClick),
+        )
+        return
+    }
     Box(
         Modifier
             .size(40.dp)

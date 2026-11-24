@@ -169,11 +169,15 @@ internal fun FacePickerScreen(onboarding: Boolean, done: () -> Unit) {
                     saving = true
                     scope.launch {
                         val bytes = withContext(Dispatchers.Default) { FaceMaker.encode(pickedNow) }
-                        com.chencohen.ptt.setMyPicture(context, bytes)
+                        // The expressions too, for the emoticons (each about 12 KB).
+                        val faces = withContext(Dispatchers.Default) {
+                            set.orEmpty().filterKeys { it != com.chencohen.ptt.face.Expression.NEUTRAL }.map { (e, b) -> e.code to FaceMaker.encode(b) }.toMap()
+                        }
+                        com.chencohen.ptt.setMyFaces(context, bytes, faces)
                         saving = false
                         finish()
                     }
-                }, Modifier.fillMaxWidth().padding(top = 8.dp), busy = saving)
+                }, Modifier.fillMaxWidth().padding(top = 8.dp), enabled = set != null && !saving, busy = saving || set == null)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 // The selfie is the main action until a picture is drawn; then Use this picture is.

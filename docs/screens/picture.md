@@ -1,6 +1,6 @@
 # Your picture
 
-Settings › Account › Your picture, and once after enrolling (or after updating to the version with pictures), before
+Settings › Account › Your picture (the own face in the top corner of home opens Settings), and once after enrolling (or after updating to the version with pictures), before
 home. See docs/design.md, "Pictures".
 
 - **Before a photo:** the current picture (or a letter circle), a line on what it is, **Take a selfie** (the camera app,
@@ -16,3 +16,16 @@ home. See docs/design.md, "Pictures".
 - From Settings, with a picture: **Remove my picture** (red text).
 - The picture shows free-standing, with no disc and no circle crop, wherever a letter circle was. The reader circle
   becomes the face at 26 dp.
+- **Your faces, to send in chats:** under the styles, the chosen style's face in each expression (smiling, laughing,
+  sad, surprised, winking, angry), each over light and dark. Use this picture keeps the picture and the faces; it waits
+  until they are drawn.
+- The picture is the head only: face and hair, nothing below the jaw line.
+
+## Faces in chats
+
+- **Sending:** with a picture, the own face sits at the start of the writing line; a tap opens a row of the faces above
+  it, and a tap on one sends it. It shows free-standing, 112 dp, with no bubble, and can't be edited.
+- **Reacting:** a long press selects a message; with one selected, the faces show in a row under the selection bar,
+  and a tap reacts (the same face again takes it back). Reactions show under the message as the reacters' own faces,
+  26 dp, a little overlapped.
+- Someone without faces (an older app) sees the matching emoji.

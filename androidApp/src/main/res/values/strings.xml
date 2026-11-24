@@ -827,4 +827,5 @@
     <string name="face_expr_surprised">Surprised</string>
     <string name="face_expr_wink">Winking</string>
     <string name="face_expr_angry">Angry</string>
+    <string name="face_send">Send one of your faces</string>
 </resources>

@@ -557,6 +557,18 @@ calls). People without one keep the letter circle.
 - **Downloaded on first use** from the app repository's release `face-models-1`, one at a time, the first as the
   Your picture step opens, each tile with its own progress ring. Without a network the step still opens and Skip
   works. The fast build carries them in its assets for testing.
+- **Head only** (2026-11-24, hen): the crop is about 1.9 face sizes around the face; below the jaw line (ML Kit's face
+  contour) the outline fades out over a few pixels, and only what joins the head is kept.
+- **Expressions** (2026-11-24, hen: "used as emoticons"): smiling, laughing, sad, surprised, winking, angry, made on
+  the phone from the same drawing (`Expressions`): ML Kit's lip, eye and brow contours; the drawing moved around them
+  with soft gaussian displacements (mouth corners, lids, brows); an open mouth painted between the lips' inner edges
+  for laughing and surprise (teeth for laughing), a closed lid painted for the wink. Nothing learned, no extra model,
+  so no licence question. Each is a 256 px WebP with alpha like the picture.
+- **Faces as messages and reactions.** `TextContent.face` (the Expression code + 1) sends one of the sender's faces;
+  its `body` is the matching emoji, which apps without faces show. `ReactionContent` (field 22) reacts to a message
+  with one of the reacter's faces (0 takes it back). Each phone draws the face from the sender's own set, so only its
+  owner can send it. The set travels with the picture (`ProfileContent.faces`, about 12 KB each, only where the
+  picture's bytes go); `faceCount` lets a phone with fewer ask again (`needPicture`).
 - **End to end.** `ProfileContent` carries `pictureId` ("-": none) and, only to a chat that doesn't have that id yet,
   the picture's bytes (at most 96 KB taken). Contacts get it with the profile (email, gender); each group gets it as a
   group message. Which id each chat was sent is kept (`picture_sent`), so the profile said again at each start sends no

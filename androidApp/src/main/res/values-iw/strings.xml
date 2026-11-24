@@ -830,4 +830,5 @@
     <string name="face_expr_surprised">מופתע</string>
     <string name="face_expr_wink">קורץ</string>
     <string name="face_expr_angry">כועס</string>
+    <string name="face_send">שליחת אחד הפרצופים שלך</string>
 </resources>

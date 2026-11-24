@@ -318,6 +318,44 @@ class GroupsTest {
     }
 
     @Test
+    fun facesTravelAsStickersAndReactions() = runTest {
+        // 2026-11-24 (hen): the face's expressions go with the picture; a face is sent as a message; a face reacts.
+        val server = FakeServer()
+        val (hen, dana, noa) = trip(server)
+        val id = makeTrip(hen, dana, noa)
+        val smile = ByteArray(500) { 7 }
+        hen.messaging.setMyPicture(ByteArray(900) { 1 }, mapOf(1 to smile, 3 to ByteArray(400) { 3 }))
+        advanceUntilIdle()
+        assertEquals(listOf(1, 3), dana.messaging.faceCodes("hen"))
+        assertContentEquals(smile, noa.messaging.face("hen", 1), "a group member who isn't a contact too")
+        // Dana's phone had an app without faces then: told of the picture again, it asks, and gets them.
+        val pictureId = dana.store.pictureId("hen")!!
+        dana.store.putPicture("hen", pictureId, ByteArray(900) { 1 })
+        hen.messaging.shareProfile()
+        advanceUntilIdle()
+        assertEquals(listOf(1, 3), dana.messaging.faceCodes("hen"), "asked for again")
+
+        hen.messaging.sendFace("dana", 1, "x")
+        advanceUntilIdle()
+        val got = dana.state.conversations["hen"]!!.last()
+        assertEquals(2, got.face)
+        assertEquals("x", got.body, "what an app without faces shows")
+
+        dana.messaging.react(got.id, 3)
+        advanceUntilIdle()
+        assertEquals(4, hen.state.conversations["dana"]!!.last().reactions["dana"])
+        assertEquals(4, dana.state.conversations["hen"]!!.last().reactions[""])
+        dana.messaging.react(got.id, null)
+        advanceUntilIdle()
+        assertTrue(hen.state.conversations["dana"]!!.last().reactions.isEmpty(), "taken back")
+
+        hen.messaging.sendFace(Group.chatOf(id), 2, "y")
+        advanceUntilIdle()
+        assertEquals(3, noa.chat(id).last().face)
+        listOf(hen, dana, noa).forEach { it.stop() }
+    }
+
+    @Test
     fun groupChangedEnvelopesCarryTheGroup() = runTest {
         val server = FakeServer()
         val hen = GroupPhone(server, "hen", this, 1)
