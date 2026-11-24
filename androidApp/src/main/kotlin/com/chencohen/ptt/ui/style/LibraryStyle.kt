@@ -275,6 +275,7 @@ internal object LibraryIcons {
     val VideoOff = icon("VideoOff", false, "M17 10l5-3v10l-5-3", "M10 6h5a2 2 0 0 1 2 2v5", "M15 18H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2", "M2 2l20 20")
     val MicOff = icon("MicOff", false, "M9 9v3a3 3 0 0 0 5.1 2.1", "M15 9.3V6a3 3 0 0 0-5.9-.7", "M17 16.9A7 7 0 0 1 5 12", "M19 11a7 7 0 0 1-.4 2.3", "M12 18v3", "M2 2l20 20")
     val Speaker = icon("Speaker", false, "M11 5L6 9H2v6h4l5 4z", "M15.5 8.5a5 5 0 0 1 0 7", "M19 5a10 10 0 0 1 0 14")
+    val SpeakerOff = icon("SpeakerOff", false, "M11 5L6 9H2v6h4l5 4z", "M22 9l-6 6", "M16 9l6 6")
     val Flip = icon("Flip", false, "M3 12a9 9 0 0 1 15-6.7L21 8", "M21 3v5h-5", "M21 12a9 9 0 0 1-15 6.7L3 16", "M3 21v-5h5")
     val ArrowDown = icon("ArrowDown", false, "M12 5v14", "M6 13l6 6 6-6")
     val ArrowUp = icon("ArrowUp", false, "M12 19V5", "M6 11l6-6 6 6")

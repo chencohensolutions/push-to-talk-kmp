@@ -246,6 +246,8 @@ internal fun ConversationScreen(
                         { selected.clear(); edits.start(Editing(m.id, m.body, m.body.length, 0)) }
                     },
                     info = one?.let { m -> { sheet = ChatSheet.Info(m.id) } },
+                    // A burst or voice message: Save as file (it was the long press; now that selects).
+                    save = one?.takeIf { it.clip != null && !it.deleted }?.let { m -> actions.saveClip?.let { s -> { selected.clear(); s(m.id) } } },
                     delete = { sheet = ChatSheet.Delete(chosen.map { it.id }, chosen.all { it.outgoing && !it.deleted }) },
                 )
             } else {
@@ -362,7 +364,20 @@ internal fun ConversationScreen(
         var floatingHeight by remember { androidx.compose.runtime.mutableIntStateOf(0) }
         // As measured, every frame (no animation of its own: it moves with the keyboard and the row).
         val floatingRoom = with(density) { floatingHeight.toDp() }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        val autoplay = remember(user) { VideoAutoplay() }
+        // A video playing here with sound stops (muted autoplay takes over) when another is the most visible one, or
+        // it leaves the screen (2026-11-24, hen).
+        val withSound = talk.playing?.takeIf { it.video && fullVideo == null }?.clip
+        LaunchedEffect(withSound) {
+            if (withSound == null) return@LaunchedEffect
+            androidx.compose.runtime.snapshotFlow {
+                val shown = list.layoutInfo.visibleItemsInfo.any { (it.key as? String)?.let { k -> k == withSound || k == "pair@$withSound" || k.endsWith(withSound) } == true }
+                val other = autoplay.current?.takeIf { it != withSound }
+                !shown || other != null
+            }.collect { leave -> if (leave) actions.stopClip() }
+        }
+        Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { autoplay.viewport = it.boundsInWindow() }) {
+          androidx.compose.runtime.CompositionLocalProvider(LocalVideoAutoplay provides autoplay) {
             LazyColumn(
                 Modifier.fillMaxSize().pointerInput(Unit) {
                     // A tap on the chat puts the keyboard away (the draft stays).
@@ -487,6 +502,7 @@ internal fun ConversationScreen(
                                     bubbleModifier = if (liveVideo) Modifier else Modifier.graphicsLayer { alpha = seeThrough },
                                     liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
                                     startEdit = if (message.outgoing && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
+                                    doubleTap = if (message.clip?.video == true && selected.isEmpty()) { { actions.playClip(message.id) } } else null,
                                     selected = message.id in selected,
                                     select = { if (message.id in selected) selected.remove(message.id) else selected.add(message.id) },
                                     selecting = selected.isNotEmpty(),
@@ -497,6 +513,7 @@ internal fun ConversationScreen(
                 }
                 newerDay?.let { divider(it) }
             }
+          }
             // The day of the topmost message on screen, floating under the header when it isn't today (2026-11-24, hen).
             val topDay by androidx.compose.runtime.remember(messages) {
                 androidx.compose.runtime.derivedStateOf {
@@ -731,6 +748,8 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     liveEdit: com.chencohen.ptt.messaging.LiveEdit? = null,
     /** Mine: a double tap edits it, the caret at the tapped character ([Int] the bubble's width now, in pixels). */
     startEdit: ((Int, Int) -> Unit)? = null,
+    /** A double tap on it (a video burst: play it here with sound). */
+    doubleTap: (() -> Unit)? = null,
     /** Selected (a long press; then a tap adds or removes it). */
     selected: Boolean = false,
     select: (() -> Unit)? = null,
@@ -754,14 +773,14 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 .onSizeChanged { bubbleWidth = it.width }
                 .onGloballyPositioned { textPlace[0] = it }
                 .then(
-                    if (startEdit != null || select != null) Modifier.pointerInput(message.id, startEdit != null, selecting) {
+                    if (startEdit != null || select != null || doubleTap != null) Modifier.pointerInput(message.id, startEdit != null, selecting, doubleTap != null) {
                         // Anywhere on the bubble (2026-11-24, hen: a one-letter message is a small target): a long
                         // press selects it; a double tap on mine edits it, on the text the caret at that character,
                         // elsewhere the nearest place, its end; while selecting, a tap adds or removes it.
                         detectTapGestures(
                             onLongPress = if (select != null && !selecting) { _ -> select() } else null,
                             onTap = if (select != null && selecting) { _ -> select() } else null,
-                            onDoubleTap = if (startEdit == null) null else { at ->
+                            onDoubleTap = if (startEdit == null) doubleTap?.let { d -> { _: androidx.compose.ui.geometry.Offset -> d() } } else { at ->
                             val bubble = textPlace[0]
                             val text = textPlace[1]
                             val layout = textLayout
@@ -799,7 +818,12 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                     transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))) },
                     label = "live video",
                 ) { isLive ->
-                    if (isLive) LiveVideoBubble(mine, liveSince ?: message.at, framed = false) else VideoClipContent(message, live, onInverse = mine, play = actions.playVideo, save = actions.saveClip, compact = compact)
+                    if (isLive) {
+                        // Playing with sound here: a tap opens it full screen.
+                        Box(Modifier.clickable(role = Role.Button) { actions.playVideo(message.id) }) { LiveVideoBubble(mine, liveSince ?: message.at, framed = false) }
+                    } else {
+                        VideoClipContent(message, live, onInverse = mine, play = actions.playVideo, save = actions.saveClip, compact = compact, playHere = actions.playClip)
+                    }
                 }
             } else if (message.clip != null) {
                 ClipContent(message, playing, live, actions.playClip, actions.stopClip, onInverse = mine, save = actions.saveClip)
@@ -1157,7 +1181,7 @@ private fun canWriteHere(group: GroupChat?, contact: Contact?) = if (group != nu
  * Edit (one text of mine), Info (one) and Delete on the end side. Icons follow the reading direction.
  */
 @Composable
-private fun SelectionBar(count: Int, close: () -> Unit, edit: (() -> Unit)?, info: (() -> Unit)?, delete: () -> Unit) {
+private fun SelectionBar(count: Int, close: () -> Unit, edit: (() -> Unit)?, info: (() -> Unit)?, delete: () -> Unit, save: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         val closeLabel = stringResource(R.string.chat_close_selection)
         Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = closeLabel, onClick = close), contentAlignment = Alignment.Center) {
@@ -1170,6 +1194,7 @@ private fun SelectionBar(count: Int, close: () -> Unit, edit: (() -> Unit)?, inf
                 Icon(icon, label, tint = tint)
             }
         androidx.compose.animation.AnimatedVisibility(edit != null) { action(LibraryIcons.Edit, stringResource(R.string.chat_edit)) { edit?.invoke() } }
+        androidx.compose.animation.AnimatedVisibility(save != null) { action(LibraryIcons.Download, stringResource(R.string.kept_save)) { save?.invoke() } }
         androidx.compose.animation.AnimatedVisibility(info != null) { action(LibraryIcons.Info, stringResource(R.string.chat_info)) { info?.invoke() } }
         action(LibraryIcons.Trash, stringResource(R.string.chat_delete), LibraryColors.Warning, delete)
     }

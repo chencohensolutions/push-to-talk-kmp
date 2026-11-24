@@ -207,3 +207,13 @@ easing: the dash fades into the coral outline, the fill deepens, the resting wor
 caret fades in, Send scales in; empty on leaving, the exact reverse; with text in it, it stays writing. The same size
 in both (no jump), anchored on my side at 38.2% of the row. A tap on it (or its focus) starts writing. Send's flight
 has no label to fold either.
+
+
+**Video bubbles play by themselves** (2026-11-24, hen; 1.4.20): no play mark. The video most on screen (at least 60%
+of it) plays in its bubble, muted and looping, one at a time (side-by-side videos count each); it stops as it leaves
+the screen and while the app isn't in front. Its frames come from the clip kept on the phone, decoded on their own
+thread into the bubble at their own times (`InlineVideo`, `VideoAutoplay`). A speaker-off mark in its corner (the end
+side, a single tap) or a double tap on it plays it here with sound from the start (a single tap on it does nothing,
+so scrolling can't start one); a tap while it plays opens it full screen; a long press selects it, as any message
+(Save as file is in the selection's header now, for a burst or voice message); another video
+becoming the most visible one, or scrolling it away, stops the sound. The same in the quick-reply window.
