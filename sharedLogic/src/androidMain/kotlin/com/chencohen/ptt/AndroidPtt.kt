@@ -135,6 +135,8 @@ private fun hub(context: Context): Messaging {
         com.chencohen.ptt.talk.TalkAudio.appContext = context.applicationContext
         it.talk.player = com.chencohen.ptt.talk.AndroidTalkPlayer()
         it.talk.volume = com.chencohen.ptt.talk.AndroidTalkVolume(context)
+        // Other apps dimmed while a push is heard in the live room (TalkDuck; the focus shared with TalkReady).
+        it.talk.duck = com.chencohen.ptt.talk.AndroidTalkFocus.roomDuck(context)
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }

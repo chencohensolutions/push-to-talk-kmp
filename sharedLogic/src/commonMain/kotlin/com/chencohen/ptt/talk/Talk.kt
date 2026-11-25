@@ -159,6 +159,9 @@ interface TalkPrefs {
 
     /** Settings › Talk › Unmute for incoming talk (TalkUnmute). */
     val unmute: Boolean get() = false
+
+    /** Settings › Talk › Lower other audio while someone talks (TalkDuck). */
+    val lowerOthers: Boolean get() = true
 }
 
 /**
@@ -212,6 +215,13 @@ internal class Talk(
     /** The media volume, for Unmute for incoming talk; null: left alone. */
     var volume: TalkVolume? = null
     private val unmute = TalkUnmute({ volume }, { prefs.unmute })
+
+    /** Other apps' sound, dimmed while someone is heard live (TalkDuck); null: left alone. */
+    var duck: AudioDuck? = null
+    private val dimmer = TalkDuck(scope) { duck?.takeIf { prefs.lowerOthers } }
+
+    /** Other apps are dimmed for a push heard live now (TalkDuck). */
+    val ducking: Boolean get() = dimmer.holding
 
     /** The live path (phase 5b); null without it. */
     var live: LiveTalk? = null
@@ -678,6 +688,7 @@ internal class Talk(
                 scope.launch {
                     delay(STALE_TALKER_MS)
                     _state.update { st -> st.withoutTalker(s.burstId) }
+                    dimmer.quiet(s.burstId)
                 }
                 val self = me() ?: return
                 // Another phone of this user talking: shown, not played.
@@ -691,6 +702,7 @@ internal class Talk(
             TalkEvent.ENDED -> {
                 val talker = _state.value.talking[chat]?.firstOrNull { it.clip == s.burstId } ?: _state.value.talkers[chat]?.takeIf { it.clip == s.burstId }
                 _state.update { state -> state.withoutTalker(s.burstId) }
+                dimmer.quiet(s.burstId)
                 // Heard live (LiveKit): heard, and, with no clip stream counted, as long as the floor was held.
                 if (talker != null) {
                     store.message(s.burstId)?.let { m ->
@@ -918,6 +930,8 @@ internal class Talk(
             if (live?.hearsLive(burst.chat, identity) == true) {
                 burst.heardLive = true
                 live?.heard(waited)
+                // Others' music dims while it's heard (2026-11-25, hen).
+                dimmer.heard(burst.id)
                 // Heard through the room, the app off screen: the same as a burst that plays (the talk session or
                 // Talk ready for its sound, the floating window) (2026-11-25, hen: "i didn't see the testbot push").
                 if (!awake()) runCatching { host?.prepareToPlay(burst.chat, burst.from) }
@@ -1010,6 +1024,7 @@ internal class Talk(
         if (burst.next <= last) return
         if (burst.playing) burst.playback?.finish()
         if (burst.heardLive && burst.video && !burst.playing) videoOut?.end(burst.id)
+        if (burst.heardLive) dimmer.quiet(burst.id)
         keep(burst)
     }
 

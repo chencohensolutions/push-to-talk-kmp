@@ -359,7 +359,8 @@ what was shown (the server sends HIGH only to phones that registered notificatio
     screen, so it has while-in-use rights. It holds no connection, wake lock or timer, with a silent notification on
     its own least-important channel ("Talk is ready", Stop until the next app open; the channel can be turned off in
     Android's settings and the service keeps working). A woken burst takes transient audio focus through it
-    (`TalkReady`) and plays as media: the loudspeaker (or the headset in use) at media volume. The focus goes back
+    (`TalkReady`, through `AndroidTalkFocus`, shared with the room's dimming; none with Lower other audio while
+    someone talks off) and plays as media: the loudspeaker (or the headset in use) at media volume. The focus goes back
     20 s after the last burst. Never started at boot (Android would mute it).
   - **The call session** when Talk is ready isn't running (after a restart until the app is opened, or stopped) or focus is refused: a Telecom talk session (Core-Telecom `CallsManager.addCall`, an incoming audio
     call the app answers itself, "Talk · Family", run by `TalkSessionService` as a phone-call service), in which the
@@ -406,6 +407,15 @@ through ptt-server's `/rtc` (mTLS, like `/ws`), and `serverInfo.liveTalk` says w
   **`talk/LiveKitTalkTransport.kt`**: LiveKit 2.30 with the same mTLS OkHttp client (pinned key and the server's CA),
   frame encryption per sender (`BaseKeyProvider`, no shared key, frames dropped while a cryptor isn't ready), no
   audio handler (the room takes no audio focus and doesn't change the audio mode while it only listens).
+- **Other apps dimmed** (2026-11-25, hen: "Sharon now listen to audio on other app and barely hear me"; Settings ›
+  Talk › Lower other audio while someone talks, on by default): while someone else's push is heard in the room (chat
+  open, the floating window, or in the background), `TalkDuck` (sharedLogic) holds transient audio focus, "others may
+  duck" (`AndroidTalkFocus`: usage media, content speech), so music and videos in other apps go quieter. The first
+  heard burst takes it; it goes back 2 s (`RELEASE_AFTER_MS`) after the last heard burst ends (its floor's end, all its
+  segments in, or the stale-floor limit), so a push right after keeps the music down. Refused: talk plays anyway.
+  Own pushes never take it. `AndroidTalkFocus` is the one focus holder for the room and Talk is ready (`TalkReady`),
+  so they don't fight: asked when the first takes it, given back when the last lets go. Off: neither takes focus,
+  other apps play on at full volume. Some music apps pause rather than dim (their own choice).
 - **The microphone** is published only for a burst and unpublished (stopped) after it, so the microphone indicator
   shows only while talking (R3). While in the room the clip records from that same microphone (the track's sink,
   encoded to Opus by `SampleCapture`), so it isn't opened twice. The talker's phone publishes at the press, without

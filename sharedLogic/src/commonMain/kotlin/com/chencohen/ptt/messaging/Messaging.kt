@@ -140,6 +140,8 @@ data class TalkSettings(
     val bubbleVideo: Boolean = true,
     /** Settings › Talk › Unmute for incoming talk (on by default; TalkUnmute). */
     val unmuteForTalk: Boolean = true,
+    /** Settings › Talk › Lower other audio while someone talks (on by default; TalkDuck). */
+    val lowerOthersForTalk: Boolean = true,
     /** Settings › Calls › Ringtone: Talk's soft chime (the default; 2026-11-22, hen), or the phone's own ringtone. */
     val softRing: Boolean = true,
     /** Settings › Notifications › Message sound: Talk's soft chime (the default; 2026-11-22, hen), or the phone's sound. */
@@ -594,6 +596,7 @@ internal class Messaging(
             override fun notifyOnly(chat: String): Boolean = chat in settings.notifyOnlyChats
 
             override val unmute: Boolean get() = settings.unmuteForTalk
+            override val lowerOthers: Boolean get() = settings.lowerOthersForTalk
         },
         publish = ::publish,
         awake = { foreground || stayConnected },
@@ -773,6 +776,7 @@ internal class Messaging(
         pushVideo = settings.pushVideo,
         bubbleVideo = settings.bubbleVideo,
         unmuteForTalk = settings.unmuteForTalk,
+        lowerOthersForTalk = settings.lowerOthersForTalk,
         softRing = settings.softRing,
         softMessage = settings.softMessage,
         video60 = settings.video60,
@@ -812,6 +816,7 @@ internal class Messaging(
         settings.pushVideo = talk.pushVideo
         settings.bubbleVideo = talk.bubbleVideo
         settings.unmuteForTalk = talk.unmuteForTalk
+        settings.lowerOthersForTalk = talk.lowerOthersForTalk
         settings.softRing = talk.softRing
         settings.softMessage = talk.softMessage
         settings.video60 = talk.video60

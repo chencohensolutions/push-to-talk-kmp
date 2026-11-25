@@ -99,7 +99,8 @@ object TalkReady {
         private set
 
     private var ending: Job? = null
-    private var focus: android.media.AudioFocusRequest? = null
+    /** It holds AndroidTalkFocus (shared with the live room's TalkDuck). */
+    private var focused = false
 
     /** Ready to play a woken burst as media: the service runs and audio focus is granted. */
     fun play(app: TalkApp): Boolean {
@@ -110,24 +111,17 @@ object TalkReady {
             return false
         }
         val audio = app.getSystemService(android.media.AudioManager::class.java)
-        val request = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-            .setAudioAttributes(
-                android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            )
-            .setOnAudioFocusChangeListener { }
-            .build()
-        val result = audio.requestAudioFocus(request)
-        if (result != android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            // Android 17 refuses focus to an app without while-in-use rights, or a phone call is on.
-            Log.w(TAG, "audio focus refused ($result): the call session plays it")
-            return false
+        // Lower other audio while someone talks off (2026-11-25, hen): no focus, the others play on at full volume.
+        if (messagingState(app).value.talkSettings.lowerOthersForTalk) {
+            if (!com.chencohen.ptt.talk.AndroidTalkFocus.take(app, "ready")) {
+                // Android 17 refuses focus to an app without while-in-use rights, or a phone call is on.
+                Log.w(TAG, "audio focus refused: the call session plays it")
+                return false
+            }
+            focused = true
         }
-        focus = request
         active = true
-        Log.i(TAG, "audio focus granted; media ${audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)}/${audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)}")
+        Log.i(TAG, "ready to play; media ${audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)}/${audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)}")
         return true
     }
 
@@ -144,8 +138,8 @@ object TalkReady {
     fun done(context: Context) {
         ending?.cancel()
         ending = null
-        focus?.let { context.getSystemService(android.media.AudioManager::class.java).abandonAudioFocusRequest(it) }
-        focus = null
+        if (focused) com.chencohen.ptt.talk.AndroidTalkFocus.release(context, "ready")
+        focused = false
         active = false
     }
 }

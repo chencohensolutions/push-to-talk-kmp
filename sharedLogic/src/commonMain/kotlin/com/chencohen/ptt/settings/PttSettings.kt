@@ -218,6 +218,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_UNMUTE_FOR_TALK) != "false"
         set(value) = store.putString(KEY_UNMUTE_FOR_TALK, value.toString())
 
+    /** Settings › Talk › Lower other audio while someone talks: on unless turned off (2026-11-25, hen; TalkDuck). */
+    var lowerOthersForTalk: Boolean
+        get() = store.getString(KEY_LOWER_OTHERS_FOR_TALK) != "false"
+        set(value) = store.putString(KEY_LOWER_OTHERS_FOR_TALK, value.toString())
+
     /** Settings › Calls › Ringtone: Talk's soft chime unless the phone's ringtone was chosen. */
     var softRing: Boolean
         get() = store.getString(KEY_SOFT_RING) != "false"
@@ -308,6 +313,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_LIVE_TYPING_KNOWN = "live_typing_known"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
+        private const val KEY_LOWER_OTHERS_FOR_TALK = "lower_others_for_talk"
         private const val KEY_SOFT_RING = "call_soft_ring"
         private const val KEY_SOFT_MESSAGE = "message_soft_sound"
         private const val KEY_VIDEO_60 = "video_60fps"

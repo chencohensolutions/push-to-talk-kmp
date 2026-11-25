@@ -678,6 +678,8 @@
     <string name="overlay_ask_allow">לאשר</string>
     <string name="overlay_ask_later">לא עכשיו</string>
     <string name="talk_unmute">הפעלת השמע כשמדברים אליי</string>
+    <string name="talk_lower_others">הנמכת הקול באפליקציות אחרות כשמדברים אליי</string>
+    <string name="talk_lower_others_body">מוזיקה וסרטונים באפליקציות אחרות נשמעים חלש יותר בזמן שמישהו מדבר אליכם, וחוזרים לעוצמה הרגילה שתי שניות אחרי שהוא מסיים.</string>
     <string name="talk_unmute_body">כשמישהו מדבר אליכם ועוצמת המדיה כבויה, היא עולה ל־60% בזמן שהוא מדבר, ואחר כך נכבית שוב. לא במצב נא לא להפריע.</string>
     <string name="quick_reply_open">פתיחת השיחה</string>
     <string name="quick_reply_close">סגירה</string>

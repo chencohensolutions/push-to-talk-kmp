@@ -675,6 +675,8 @@
     <string name="overlay_ask_allow">Allow</string>
     <string name="overlay_ask_later">Not now</string>
     <string name="talk_unmute">Unmute for incoming talk</string>
+    <string name="talk_lower_others">Lower other audio while someone talks</string>
+    <string name="talk_lower_others_body">Music and videos in other apps get quieter while you hear someone, and come back 2 seconds after they stop.</string>
     <string name="talk_unmute_body">When someone talks to you and the media volume is off, turn it up to 60% while they talk, then back off. Not in Do Not Disturb.</string>
     <string name="quick_reply_open">Open the chat</string>
     <string name="quick_reply_close">Close</string>

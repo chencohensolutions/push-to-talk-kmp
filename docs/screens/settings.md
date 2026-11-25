@@ -92,6 +92,10 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
   media volume is 0 turns it up to 60% (`TalkUnmute`), with Android's volume bar showing, for as long as bursts play
   (the queued ones and the catch-up too), then back to 0; a volume the user changed meanwhile stays. Nothing changes in
   Do Not Disturb, on a fixed-volume phone or in a call, and the ringer is never touched.
+- **In the background › Lower other audio while someone talks** (on by default; 2026-11-25, hen): while someone
+  else's push is heard, music and videos in other apps go quieter (transient audio focus, "may duck"; `TalkDuck`) and
+  come back 2 s after the last one ends. Off: no audio focus is taken for talk, other apps play at full volume. Some
+  music apps pause instead of dimming.
 - **In the background › Stay connected** (a switch, off by default): a foreground service keeps the connection, so
   talk plays at once and buttons work with the screen off; a note says it uses a little more battery and that, off,
   the server wakes the phone when someone talks. After a restart it resumes when the app is opened (Android starts

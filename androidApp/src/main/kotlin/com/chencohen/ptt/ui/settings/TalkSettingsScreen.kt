@@ -127,6 +127,11 @@ internal fun TalkSettingsScreen(
                 change(settings.copy(unmuteForTalk = it))
             }
             RowDivider()
+            // On by default (2026-11-25, hen): music and videos in other apps go quieter while someone talks.
+            SwitchRow(stringResource(R.string.talk_lower_others), stringResource(R.string.talk_lower_others_body), settings.lowerOthersForTalk) {
+                change(settings.copy(lowerOthersForTalk = it))
+            }
+            RowDivider()
             SwitchRow(stringResource(R.string.talk_stay_connected), stringResource(R.string.talk_stay_connected_body), settings.stayConnected) {
                 change(settings.copy(stayConnected = it))
             }
