@@ -317,6 +317,18 @@ class MessagingController internal constructor(
     /** This user is live and waiting for [chat]'s floor (both live), or not. */
     fun sendLiveWaiting(chat: String, waiting: Boolean) = onWork { messaging.sendLiveWaiting(chat, waiting) }
 
+    /** "Make it a call" in [chat]'s talk room; [fallback] runs when this phone isn't in that room (the usual call). */
+    fun startRoomCall(chat: String, video: Boolean, fallback: () -> Unit) {
+        scope.launch {
+            val ok = withContext(work) { messaging.startRoomCall(chat, video) }
+            if (!ok) fallback()
+        }
+    }
+
+    fun endRoomCall() = onWork { messaging.endRoomCall() }
+
+    fun setRoomCallMedia(microphone: Boolean, camera: Boolean) = onWork { messaging.setRoomCallMedia(microphone, camera) }
+
     /** A Talk screen shown ([on]) or left: the microphone open ahead of a press, or closed. */
     fun warmMicrophone(on: Boolean) = onWork { messaging.talk.warmMicrophone(on) }
 

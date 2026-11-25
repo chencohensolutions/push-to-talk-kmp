@@ -44,6 +44,12 @@ interface TalkTransport {
     /** The chat is on screen ([on]): the microphone's track waits in the room, muted, so a press only unmutes it. */
     suspend fun prepareAudio(on: Boolean) {}
 
+    /** A call in the room ([on]): the microphone (and the camera, [video]) stay unmuted, outside the floor. */
+    suspend fun setCall(on: Boolean, video: Boolean) {
+        setTalking(on)
+        setVideo(on && video)
+    }
+
     /** [identity]'s audio is coming through the room now, and opens (its key works). */
     fun hears(identity: String): Boolean
 
@@ -125,6 +131,9 @@ internal class LiveTalk(
     private var warmChat: String? = null
     private var warmUntil = 0L
     private var warmSince = 0L
+    /** A call in the room is on (its media stay open, whatever the floor does). */
+    @kotlin.concurrent.Volatile private var inCall = false
+
     /** When this phone joined its current room: whether it was in already when a burst started (the readout). */
     var joinedAt = 0L
         private set
@@ -196,6 +205,8 @@ internal class LiveTalk(
             }
         }
         if (_state.value.room != chat) return
+        // A call in the room keeps its media whatever the floor does.
+        if (inCall) return
         if (audio) runCatching { t.setTalking(on) }
         if (on && video) runCatching { t.setVideo(true) } else if (!on) runCatching { t.setVideo(false) }
     }
@@ -216,6 +227,16 @@ internal class LiveTalk(
     /** The clip of [identity]'s burst plays: its live audio, if it comes late, isn't played over it. */
     fun silence(chat: String, identity: String) {
         if (audio && _state.value.room == chat) transport?.silence(identity)
+    }
+
+    /** A call in [chat]'s room (both live became one): its media stay open; false when not in that room. */
+    suspend fun call(chat: String, on: Boolean, video: Boolean): Boolean {
+        val t = transport ?: return false
+        if (on && _state.value.room != chat) return false
+        inCall = on
+        runCatching { t.setCall(on, video) }
+        if (on) lastBurst = now()
+        return true
     }
 
     /** A burst is heard through the room, [waitedMs] after its start came (the readout and the log). */

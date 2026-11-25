@@ -539,7 +539,7 @@ private fun ConversationScreenIn(
         // renewal went out as voice only).
         // Hands-free video (2026-11-24, hen): the camera opens as the finger starts sliding up from the Talk button, so the
         // video starts fast at the lock.
-        com.chencohen.ptt.ui.talk.WarmCamera(user, canWrite && !chatLive.anyCall && (sliding || cameraHeld || (pushVideo && (handsFree || standby || talkingHere))), warmCamera)
+        com.chencohen.ptt.ui.talk.WarmCamera(user, canWrite && !chatLive.anyCall && (sliding || cameraHeld || chatLive.roomCallCamera || (pushVideo && (handsFree || standby || talkingHere))), warmCamera)
         // Push is voice, except hands-free (slid up to the lock): this chat's video setting is set for it and back.
         LaunchedEffect(handsFree, standby, pushVideo, talk.own?.chat) { if (!handsFree && !standby && pushVideo && talk.own?.chat != user) actions.setPushVideo?.invoke(false) }
         // Their floor ended while I'm live in standby: mine starts.
@@ -577,6 +577,13 @@ private fun ConversationScreenIn(
                 actions.finishVoice(false)
                 standby = true
                 standbySince = System.currentTimeMillis()
+            }
+        }
+        // A call in this chat (the room's or the usual): hands-free and standby end, the call carries the media now.
+        LaunchedEffect(chatLive.call != null) {
+            if (chatLive.call != null) {
+                handsFree = false
+                standby = false
             }
         }
         // Home takes a video call from this chat at once while I'm live here (either side tapped Make it a call).
@@ -2005,4 +2012,6 @@ class ChatLive(
     val anyCall: Boolean = false,
     /** Settings › Talk › Get camera ready while talking: the camera opens, unseen, at finger-down on Push. */
     val cameraReady: Boolean = true,
+    /** A call in this chat's talk room with this phone's camera on: the camera stays open for it. */
+    val roomCallCamera: Boolean = false,
 )

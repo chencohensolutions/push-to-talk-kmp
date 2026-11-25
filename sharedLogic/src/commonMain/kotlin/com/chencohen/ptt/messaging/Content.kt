@@ -62,6 +62,11 @@ internal data class Content(
      * as PUSH_WARM when open. Older apps skip it.
      */
     @ProtoNumber(24) val warm: ViewingContent? = null,
+    /**
+     * Both live became a call in the talk room itself (2026-11-25, hen: "instant"): both microphones (and cameras, if
+     * live) stay open there until either ends it ([ViewingContent.open] false). Older apps skip it.
+     */
+    @ProtoNumber(25) val roomCall: ViewingContent? = null,
 )
 
 /** One expression of the sender's face ([code]: Expression code), a small WebP with alpha. */

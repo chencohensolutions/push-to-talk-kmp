@@ -642,7 +642,18 @@ fun HomeApp(
                             keeps = { m -> m.clip?.let { messagingState.talkSettings.keeps(user, it) } ?: true },
                             liveWaiting = viewingIn(messagingState.liveWaiting, user, System.currentTimeMillis(), Group.idOf(user) != null),
                             autoCall = user in messagingState.talkSettings.bothLiveCall,
-                            call = messagingState.call?.takeIf { it.chat == user && inChatCallFor == user && it.phase != com.chencohen.ptt.calls.CallPhase.ENDED && !inPip }?.let { c ->
+                            roomCallCamera = messagingState.roomCall?.takeIf { it.chat == user }?.camera == true,
+                            // Both live made it a call in the talk room itself (2026-11-25, hen): no new room.
+                            call = messagingState.roomCall?.takeIf { it.chat == user }?.let { rc ->
+                                com.chencohen.ptt.ui.contacts.InChatCall(
+                                    top = { com.chencohen.ptt.ui.contacts.RoomCallTop(rc, user, chatName(user), state.device?.user.orEmpty()) },
+                                    bottom = {
+                                        com.chencohen.ptt.ui.contacts.RoomCallBottom(rc, end = { messaging.endRoomCall() }) { mic, cam ->
+                                            messaging.setRoomCallMedia(mic, cam)
+                                        }
+                                    },
+                                )
+                            } ?: messagingState.call?.takeIf { it.chat == user && inChatCallFor == user && it.phase != com.chencohen.ptt.calls.CallPhase.ENDED && !inPip }?.let { c ->
                                 val transport = remember { runCatching { com.chencohen.ptt.callTransport(context) }.getOrNull() }
                                 com.chencohen.ptt.ui.contacts.InChatCall(
                                     top = { com.chencohen.ptt.ui.calls.ChatCallTop(c, chatName(user), transport) },
@@ -707,8 +718,11 @@ fun HomeApp(
                             call = { video -> call(user, video) },
                             sendLiveWaiting = { waiting -> messaging.sendLiveWaiting(user, waiting) },
                             callInChat = {
-                                inChatCallFor = user
-                                call(user, true)
+                                // In the talk room already: it becomes the call at once; else the usual call.
+                                messaging.startRoomCall(user, video = messagingState.talkSettings.pushVideoFor(user)) {
+                                    inChatCallFor = user
+                                    call(user, true)
+                                }
                             },
                             shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                             playKept = ::playKept,

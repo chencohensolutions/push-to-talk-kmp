@@ -73,6 +73,8 @@ data class MessagingState(
     val viewing: Map<String, Long> = emptyMap(),
     /** Contacts (a group's members: "chat/author") live and waiting for this user's floor in the chat now: until when. */
     val liveWaiting: Map<String, Long> = emptyMap(),
+    /** A call in a chat's talk room (both live became one; 2026-11-25, hen): which chat, since when, with video. */
+    val roomCall: RoomCall? = null,
     /** How many texts from each contact aren't read yet. */
     val unread: Map<String, Int> = emptyMap(),
     /** Each conversation's texts, oldest first, by user (a group's by [Group.chat]). */
@@ -322,6 +324,71 @@ internal class Messaging(
         } else {
             live.cool(chat)
             host?.warm(chat, false)
+        }
+    }
+
+    /**
+     * "Make it a call" while both are live (2026-11-25, hen: instant, no reconnect): the chat's talk room becomes the call.
+     * Floor bursts stop, both microphones (and cameras, [video]) stay open in the room, the other phones are told
+     * (Content.roomCall) and do the same. False when this phone isn't in that room (the usual call starts instead).
+     */
+    suspend fun startRoomCall(chat: String, video: Boolean, tell: Boolean = true): Boolean {
+        if (!LIVE_TALK_AUDIO || _state.value.roomCall?.chat == chat) return _state.value.roomCall?.chat == chat
+        talk.release(send = true)
+        if (!live.call(chat, true, video)) return false
+        _state.update { it.copy(roomCall = RoomCall(chat, now(), video, microphone = true, camera = video)) }
+        if (tell) sendRoomCall(chat, true)
+        return true
+    }
+
+    /** The room call ends ([tell]: the others are told): the media mute, and the call log gets its line. */
+    suspend fun endRoomCall(tell: Boolean = true) {
+        val c = _state.value.roomCall ?: return
+        _state.update { it.copy(roomCall = null) }
+        live.call(c.chat, false, false)
+        if (tell) sendRoomCall(c.chat, false)
+        store.putMessage(
+            TextMessage(
+                id = "room-" + c.chat + "-" + c.since, user = c.chat, outgoing = true, body = "", at = c.since, read = true,
+                call = CallEntry(c.video, CallOutcome.ANSWERED, now() - c.since),
+            ),
+        )
+        publish()
+    }
+
+    /** In a room call: this phone's microphone and camera on or off. */
+    suspend fun setRoomCallMedia(microphone: Boolean, camera: Boolean) {
+        val c = _state.value.roomCall ?: return
+        live.transport?.let { t ->
+            runCatching { t.setTalking(microphone) }
+            runCatching { t.setVideo(camera) }
+        }
+        _state.update { it.copy(roomCall = c.copy(microphone = microphone, camera = camera)) }
+    }
+
+    private suspend fun sendRoomCall(chat: String, open: Boolean) {
+        try {
+            val content = Content(roomCall = ViewingContent(open))
+            Group.idOf(chat)?.let { id ->
+                groups.send(id, content, PushKind.NONE)
+                return
+            }
+            val contact = store.contact(chat)?.takeIf { it.paired && !it.blocked } ?: return
+            sender.send(contact.user, content, pushKind = PushKind.NONE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /** The other side made it a call ([open]) or ended it. */
+    internal fun takeRoomCall(chat: String, open: Boolean) {
+        scope.launch {
+            if (open) {
+                startRoomCall(chat, video = talk.sendVideo(chat), tell = false)
+            } else if (_state.value.roomCall?.chat == chat) {
+                endRoomCall(tell = false)
+            }
         }
     }
 
@@ -2099,6 +2166,7 @@ internal class Messaging(
         content.viewing?.let { takeViewing(contact.user, it.open) }
         content.liveWaiting?.let { takeLiveWaiting(contact.user, it.open) }
         if (!contact.blocked) content.warm?.let { takeWarm(contact.user, it.open) }
+        if (!contact.blocked) content.roomCall?.let { takeRoomCall(contact.user, it.open) }
         content.here?.let { here ->
             // From when the server took it: one that waited (this phone was away) is already over.
             val until = minOf(now(), envelope.serverTimestamp.takeIf { it > 0 } ?: now()) + HERE_FOR
@@ -2228,3 +2296,6 @@ interface WarmHost {
     /** [chat] warmed this phone ([on]), or the warm-up ended ([chat] null: all). Shows nothing, lights nothing. */
     fun warm(chat: String?, on: Boolean)
 }
+
+/** A call in a chat's talk room (both live became one): [since] when, [video] whether cameras were live. */
+data class RoomCall(val chat: String, val since: Long, val video: Boolean, val microphone: Boolean = true, val camera: Boolean = video)

@@ -598,7 +598,12 @@ voice), so the picture arrives as the voice does instead of in clip segments ove
   the server started the floor its first picture came ("LiveKit · first +380 ms", or "clips · first +900 ms · behind
   120 ms"); every build logs the same per burst under the `TalkDelay` tag.
 - **Server.** Nothing changed: the talk token already lets a device publish any track.
-- **Not yet:** "Make it a call" still starts a separate video call (its own room), as before.
+- **Make it a call** (2026-11-25, hen: "instant"): while both are live in the chat, the talk room itself becomes the
+  call (`Messaging.startRoomCall`, `Content.roomCall` field 25): floor bursts stop, both microphones (and cameras, if
+  live) stay unmuted in the room, no reconnect, no new room; the chat shows the call in place (`RoomCallTop`,
+  `RoomCallBottom`: time, End, microphone, camera), and the call log gets a line when it ends. Not yet: a Telecom
+  call session for it, Save calls (the server's `recordCall` knows call rooms only), and the floating window's chip
+  (it still starts the usual call). Not in the room: the usual video call starts, as before.
 
 ## Voice back in the talk room, and the silent warm-up (2026-11-24/25, hen)
 

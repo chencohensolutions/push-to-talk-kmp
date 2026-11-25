@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -367,4 +368,55 @@ internal fun StopLive(size: Dp, stop: () -> Unit) {
             Text(label, color = Color.White, style = LibraryType.Tiny, modifier = Modifier.padding(top = 4.dp))
         }
     }
+}
+
+/**
+ * The call in the talk room (2026-11-25, hen: both live becomes a call "instantly"): theirs and mine as in the live
+ * panel, a video box for each side whose camera is on and a voice pill otherwise, side by side.
+ */
+@Composable
+internal fun RoomCallTop(call: com.chencohen.ptt.messaging.RoomCall, them: String, theirName: String, me: String) {
+    val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
+    val theirs = arriving.values.firstOrNull { it.identity.substringBeforeLast('.') != me }
+    val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+    val shapes = listOfNotNull(theirs?.aspect, if (call.camera) myShape else null)
+    LiveBoxes(
+        shapes,
+        before = { if (theirs == null) VoicePill(VoiceSide(them, theirName, false, call.since)) },
+        after = { if (!call.camera) VoicePill(VoiceSide("", stringResource(R.string.talk_panel_you), true, call.since)) },
+    ) { i, box ->
+        Box(box) {
+            if (i == 0 && theirs != null) com.chencohen.ptt.ui.talk.RoomVideoView(theirs, Modifier.fillMaxSize())
+            else com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true)
+        }
+    }
+}
+
+/** The room call's bar: its time and End, then the microphone and the camera. */
+@Composable
+internal fun RoomCallBottom(call: com.chencohen.ptt.messaging.RoomCall, end: () -> Unit, media: (microphone: Boolean, camera: Boolean) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Row(
+            Modifier.fillMaxWidth().background(LibraryColors.Accent, RoundedCornerShape(16.dp)).padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(stringResource(R.string.call_in_chat, elapsedSince(call.since)), color = Color.White, style = LibraryType.RowTitle, modifier = Modifier.weight(1f))
+            Text(
+                stringResource(R.string.call_end), color = Color.White, style = LibraryType.RowTitle,
+                modifier = Modifier.background(LibraryColors.Error, CircleShape).clickable(role = Role.Button, onClick = end).padding(horizontal = 18.dp, vertical = 10.dp),
+            )
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp).navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            RoundToggle(if (call.microphone) com.chencohen.ptt.ui.style.LibraryIcons.Mic else com.chencohen.ptt.ui.style.LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute)) { media(!call.microphone, call.camera) }
+            RoundToggle(if (call.camera) com.chencohen.ptt.ui.style.LibraryIcons.Video else com.chencohen.ptt.ui.style.LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on)) { media(call.microphone, !call.camera) }
+        }
+    }
+}
+
+@Composable
+private fun RoundToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).background(LibraryColors.Raised, CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { androidx.compose.material3.Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(22.dp)) }
 }
