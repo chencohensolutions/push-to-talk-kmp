@@ -26,6 +26,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.compose.ui.graphics.asAndroidBitmap
 import com.chencohen.ptt.messaging.Group
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -741,10 +742,13 @@ object TalkBubble {
         val who = from ?: return
         if (picture || theirFaceOf == who) return
         theirFaceOf = who
+        Log.i(TAG, "their face until the first picture ($who)")
         val app = context.applicationContext as? TalkApp ?: return
         app.scope.launch {
-            val id = com.chencohen.ptt.ui.face.Faces.ids(app).value[who] ?: return@launch
-            val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, who, id) }.getOrNull() ?: return@launch
+            // In a process just woken the faces' list may not be read yet: waited for a moment.
+            // In a process just woken the faces' list may not be published yet: the picture is read directly then.
+            val id = kotlinx.coroutines.withTimeoutOrNull(1_000) { com.chencohen.ptt.ui.face.Faces.ids(app).first { it.containsKey(who) } }?.get(who) ?: "-"
+            val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, who, id) }.getOrNull() ?: run { Log.i(TAG, "no face for $who"); return@launch }
             main.post { if (theirFace === faceView) faceView.setImageBitmap(bitmap.asAndroidBitmap()) }
         }
     }
@@ -1220,7 +1224,7 @@ object TalkBubble {
             face.visibility = View.GONE
             val app = context.applicationContext as? TalkApp ?: return
             app.scope.launch {
-                val id = com.chencohen.ptt.ui.face.Faces.ids(app).value[user] ?: return@launch
+                val id = kotlinx.coroutines.withTimeoutOrNull(1_000) { com.chencohen.ptt.ui.face.Faces.ids(app).first { it.containsKey(user) } }?.get(user) ?: "-"
                 val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, user, id) }.getOrNull() ?: return@launch
                 main.post {
                     if (shown != user) return@post
