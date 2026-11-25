@@ -611,9 +611,13 @@ object TalkBubble {
         val mine = sendingVideo || goingLive
         val voice = !topPutAway && ((burstLive && !burstVideo) || (talking && !sendingVideo))
         if (!theirsVideo && !mine && !voice) {
-            hideTop()
+            // Nothing live for a moment (one push ending as the next starts): the window waits before it goes, so it
+            // isn't taken away and brought back (2026-11-25, hen: "move up out of screen and down again").
+            main.removeCallbacks(hideSoon)
+            main.postDelayed(hideSoon, 900)
             return
         }
+        main.removeCallbacks(hideSoon)
         if (topWindow == null || topHiding) addTop(context)
         // "The pill becomes the video" (2026-11-24, hen): a voice pill turning into video grows into the box, and back.
         val theirPillWas = theirPill?.view?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }
@@ -676,6 +680,9 @@ object TalkBubble {
         pill.alpha = 0f
         pill.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(SLIDE_MS).start()
     }
+
+    /** The top window goes once nothing has been live for a moment. */
+    private val hideSoon = Runnable { hideTop() }
 
     /** Both live: I send while their video plays, or while they wait for my floor. */
     private fun bothLive(context: Context): Boolean {
@@ -1173,6 +1180,7 @@ object TalkBubble {
         main.removeCallbacks(pulse)
         main.removeCallbacks(renew)
         main.removeCallbacks(burstOver)
+        main.removeCallbacks(hideSoon)
         setHere(context, null)
         if (previewOn) preview(context, false)
         previewOn = false

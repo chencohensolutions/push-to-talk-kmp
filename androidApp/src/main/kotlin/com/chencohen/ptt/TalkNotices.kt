@@ -102,7 +102,8 @@ object TalkPlaying {
     /** Someone else holds a floor now (its voice heard through the room, not played from a clip). */
     private fun heardInRoom(app: TalkApp, talk: TalkUiState): com.chencohen.ptt.talk.NowPlaying? {
         val me = myUser(app)
-        val (chat, t) = talk.talkers.entries.firstOrNull { (c, t) -> t.user != me && talk.own?.chat != c }?.toPair() ?: return null
+        // Theirs whatever this phone does in the same chat (both live: pressing here mustn't make theirs "end").
+        val (chat, t) = talk.talkers.entries.firstOrNull { (_, t) -> t.user != me && t.clip != talk.own?.clip }?.toPair() ?: return null
         val video = com.chencohen.ptt.talk.LiveTalkVideo.arriving.value.containsKey("${t.user}.${t.device}") ||
             messagingState(app).value.conversations[chat]?.firstOrNull { it.id == t.clip }?.clip?.video == true
         return com.chencohen.ptt.talk.NowPlaying(chat, t.clip, t.user, live = true, video = video)
