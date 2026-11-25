@@ -649,3 +649,18 @@ iOS, as the plan says, once phases 5b and 6 are tried on phones.
 The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3
 adds them. That file holds only public identifiers; the server's service-account key never goes in git.
+
+## Open issues
+
+### A push saved as kept message bubbles (parked 2026-11-25, hen: "fix this later")
+
+At 12:50 a quick push from the S25 to testbot (voice, then slide up to video) ended as two kept bubbles on hen's side, a
+0:01 voice and a 0:01 video, although testbot's keep switches were off. The pushes after it folded into the quiet line as
+they should.
+
+Likely cause: Talk.finish keeps any push that never got the floor (`!out.granted`: the start frame failed, or no answer
+within GRANT_WAIT, so toVoice) as a voice message (ClipKind.VOICE, kept, sent by deliverVoice with ClipContent.VOICE). The
+slide-up ends the voice burst and starts the video one 300 ms after the first lets go, so both can miss the grant together.
+Since the burst was already heard live through the talk room, it should still be delivered, but as a burst (BURST kind,
+folded into the session's line on both phones), not as a kept voice message. To do: reproduce with a quick
+press, slide and Stop; log each message's kind and keep decision; add a test.

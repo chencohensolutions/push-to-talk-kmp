@@ -42,6 +42,45 @@ object LiveTalkVideo {
      */
     val local = MutableStateFlow<VideoTrack?>(null)
 
+    /**
+     * Whether this phone's camera picture is coming through the room's track now (a frame in the last second): the own
+     * box shows the face until it does, never a black box (2026-11-25, hen: "after several tries the camera is black").
+     */
+    val localPicture = MutableStateFlow(false)
+
+    private var localWatch: LocalWatch? = null
+
+    /** Watches [track]'s frames for [localPicture] (null: stops). */
+    internal fun watchLocal(track: VideoTrack?) {
+        localWatch?.let { w -> w.track.removeRenderer(w); w.stop() }
+        localWatch = null
+        localPicture.value = false
+        if (track != null) localWatch = LocalWatch(track).also { track.addRenderer(it) }
+    }
+
+    private class LocalWatch(val track: VideoTrack) : VideoSink {
+        @Volatile private var last = 0L
+        private val main = android.os.Handler(android.os.Looper.getMainLooper())
+        private val check = object : Runnable {
+            override fun run() {
+                localPicture.value = SystemClock.elapsedRealtime() - last < STALE_MS
+                main.postDelayed(this, 250)
+            }
+        }
+
+        init {
+            main.post(check)
+        }
+
+        override fun onFrame(frame: VideoFrame) {
+            val first = last == 0L
+            last = SystemClock.elapsedRealtime()
+            if (first) localPicture.value = true
+        }
+
+        fun stop() = main.removeCallbacks(check)
+    }
+
     /** Sets a renderer up for the room's video (its EGL context). False when there is no room. */
     fun initRenderer(renderer: io.livekit.android.renderer.TextureViewRenderer): Boolean {
         val r = room ?: return false

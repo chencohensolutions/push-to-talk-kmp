@@ -128,12 +128,14 @@ class LiveKitTalkTransport(
         mic = null
         talkingNow = false
         muting?.cancel()
+        stopping?.cancel()
         camera?.let { c -> runCatching { c.stop() } }
         camera = null
         capturing = false
         liveVideo = false
         ready = false
         LiveTalkVideo.local.value = null
+        LiveTalkVideo.watchLocal(null)
         LiveTalkVideo.gone(null)
         LiveTalkVideo.room = null
         events?.cancel()
@@ -278,19 +280,41 @@ class LiveKitTalkTransport(
     private suspend fun capture(track: io.livekit.android.room.track.LocalVideoTrack, on: Boolean) = capturingLock.withLock {
         if (on == capturing) return@withLock
         capturing = on
-        if (!on) LiveTalkVideo.local.value = null
+        if (!on) {
+            LiveTalkVideo.local.value = null
+            LiveTalkVideo.watchLocal(null)
+        }
         withContext(Dispatchers.IO) { runCatching { if (on) track.startCapture() else track.stopCapture() } }
-        if (on) LiveTalkVideo.local.value = track
+        if (on) {
+            LiveTalkVideo.local.value = track
+            LiveTalkVideo.watchLocal(track)
+        }
     }
 
     override suspend fun readyVideo(on: Boolean) {
         val room = room ?: return
         ready = on
         if (on) {
+            stopping?.cancel()
             val track = prepareVideo(room) ?: return
             capture(track, true)
         } else if (!liveVideo) {
-            camera?.let { capture(it, false) }
+            stopLater()
+        }
+    }
+
+    /** A pending stop of the camera's reading ([LINGER_MS] after the last release), let go by a new press. */
+    private var stopping: Job? = null
+
+    /**
+     * Stops reading the camera a little after a release: a quick press again uses the camera as it runs (2026-11-25,
+     * hen: "quick press should reuse the running camera"), instead of closing it and opening it anew.
+     */
+    private fun stopLater() {
+        stopping?.cancel()
+        stopping = scope.launch {
+            kotlinx.coroutines.delay(LINGER_MS)
+            if (!ready && !liveVideo) camera?.let { capture(it, false) }
         }
     }
 
@@ -298,6 +322,7 @@ class LiveKitTalkTransport(
         val room = room ?: return
         val publication = { room.localParticipant.getTrackPublication(Track.Source.CAMERA) }
         if (on) {
+            stopping?.cancel()
             val track = prepareVideo(room) ?: return
             liveVideo = true
             capture(track, true)
@@ -307,7 +332,7 @@ class LiveKitTalkTransport(
             val track = camera ?: return
             liveVideo = false
             publication()?.muted = true
-            if (!ready) capture(track, false)
+            if (!ready && track === camera) stopLater()
         }
     }
 
@@ -489,6 +514,8 @@ class LiveKitTalkTransport(
 
         /** The microphone stays unmuted this long after the release, so the last words still on their way leave. */
         const val TAIL_MS = 300L
+        /** How long the camera keeps reading into the room after a release, for a quick press again. */
+        const val LINGER_MS = 2_000L
 
         /** LiveKit takes the key as a string it derives the AES key from: the 32 random bytes, in base64. */
         fun encode(key: ByteArray): String = Base64.encodeToString(key, Base64.NO_WRAP)

@@ -480,8 +480,15 @@ class AndroidTalkVideoCapture(
         runCatching { faceReader?.close() }
         faceReader = null
         config = null
-        val t = synchronized(lock) { thread.also { thread = null; handler = null } }
-        t?.quitSafely()
+        // A press that came while this was closing wants the camera again: the thread stays and the camera opens anew
+        // (2026-11-25, hen: "after several tries ... the camera is not initiated": the thread was let go under a new
+        // opening, which then never finished).
+        val t = synchronized(lock) { if (warmWanted) null else thread.also { thread = null; handler = null } }
+        if (t == null) {
+            if (warmWanted) handler?.post { if (camera == null && warmWanted) open() }
+            return
+        }
+        t.quitSafely()
     }
 
     private fun startsWith(a: ByteArray, prefix: ByteArray) = a.size >= prefix.size && prefix.indices.all { a[it] == prefix[it] }
@@ -817,4 +824,4 @@ object AndroidTalkVideoOut : TalkVideoOut {
 }
 
 /** How long a press waits for a camera let go while idle to open again. */
-private const val WAIT_FOR_CAMERA_MS = 500L
+private const val WAIT_FOR_CAMERA_MS = 1_000L
