@@ -361,8 +361,12 @@ private fun ConversationScreenIn(
         // already becoming the box (2026-11-25, hen: "the voice pill should transition to video, not leave the screen
         // and enter again").
         var goingLive by remember(user) { mutableStateOf(false) }
-        LaunchedEffect(goingLive, sendingVideo != null) {
-            if (sendingVideo != null) goingLive = false
+        var goingLiveAt by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
+        // Until the video burst itself starts (the voice one, once Video is set, briefly counts as "sending video" too:
+        // that ended the hold early and the panel left and came back; 2026-11-25, hen).
+        val videoBurstStarted = sendingVideo != null && sendingVideo.startedAt > goingLiveAt
+        LaunchedEffect(goingLive, videoBurstStarted) {
+            if (videoBurstStarted) goingLive = false
             else if (goingLive) {
                 delay(4_000)
                 goingLive = false
@@ -411,7 +415,7 @@ private fun ConversationScreenIn(
             LaunchedEffect(theirVoice) {
                 if (theirVoice != null) theirVoiceHeld = theirVoice
                 else {
-                    delay(1_200)
+                    delay(2_500)
                     theirVoiceHeld = null
                 }
             }
@@ -897,7 +901,10 @@ private fun ConversationScreenIn(
                 }
             }
             // The live pills and boxes, floating over the chat under the header.
-            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) { liveOverlay() }
+            var liveTop by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().onGloballyPositioned { liveTop = it.positionInWindow().y.toInt() }) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalLiveTop provides liveTop) { liveOverlay() }
+            }
             // Floating at the bottom: this phone's draft (or a voice message's recording), then the buttons.
             // How far the keyboard is open, 0 to 1, as it animates: the button row folds away by the same amount.
             val imeNow = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
@@ -965,6 +972,7 @@ private fun ConversationScreenIn(
                                 false, talkingHere || standby, recordingVoice, actions, video = false, handsFree = handsFree,
                                 // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.
                                 lock = {
+                                    goingLiveAt = System.currentTimeMillis()
                                     goingLive = true
                                     actions.setPushVideo?.invoke(true)
                                     handsFree = true

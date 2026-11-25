@@ -84,6 +84,9 @@ private fun LiveTag(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** How far below the screen's top edge the live overlay sits (px): it slides in from the edge itself. */
+internal val LocalLiveTop = androidx.compose.runtime.compositionLocalOf { 0 }
+
 /** The live videos' height: this share of the screen's (2026-11-24, hen: the same size as the floating window). */
 internal const val LIVE_VIDEO_SHARE = 0.236f
 
@@ -159,10 +162,13 @@ internal fun LivePanel(
     var last by remember { androidx.compose.runtime.mutableStateOf(Triple(theirs to mine, theirVoice, myVoice)) }
     if (any) last = Triple(theirs to mine, theirVoice, myVoice)
     val (videos, tv, mv) = last
+    val liveTop = LocalLiveTop.current
     AnimatedVisibility(
         any,
-        enter = fadeIn(tween(PANEL_MS)) + slideInVertically(tween(PANEL_MS)) { -it },
-        exit = fadeOut(tween(PANEL_MS)) + slideOutVertically(tween(PANEL_MS)) { -it },
+        // From the screen's very top edge, over the header (2026-11-25, hen), and back up the same way; no fade, so it
+        // reads as one thing travelling.
+        enter = slideInVertically(tween(PANEL_MS + 50)) { -(it + liveTop) },
+        exit = slideOutVertically(tween(PANEL_MS)) { -(it + liveTop) },
     ) {
         val screen = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.TopCenter) {
@@ -190,7 +196,17 @@ internal fun LivePanel(
                     val me = stringResource(R.string.talk_panel_you)
                     val side = mv ?: VoiceSide("", me, true, mySince)
                     val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor) else listOf(me, elapsedSince(mySince)).joinToString(" · ")
-                    LiveSlot(videos.second, true, h * myShape, h, side, words) { box ->
+                    // Mine is ready once the camera's picture is there (the room's track), or a moment after.
+                    val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsState()
+                    var settled by remember { androidx.compose.runtime.mutableStateOf(false) }
+                    LaunchedEffect(videos.second) {
+                        settled = false
+                        if (videos.second) {
+                            kotlinx.coroutines.delay(700)
+                            settled = true
+                        }
+                    }
+                    LiveSlot(videos.second, local != null || settled, h * myShape, h, side, words) { box ->
                         com.chencohen.ptt.ui.talk.PushVideoPreview(box, cover = true)
                     }
                 }

@@ -57,6 +57,8 @@ object TalkBubble {
     /** The top box's height: this share of the screen's (hen). */
     private const val TOP_SHARE = 0.236f
     private const val HOLD_MS = 350L
+    /** How long their item stays after a burst ends, in case the next (voice into video) follows at once. */
+    private const val BURST_HOLD_MS = 2_500L
     /** The pill window's fixed width. */
     private const val PILL_WINDOW_DP = 300
     /** Slid up this far while holding: hands-free. */
@@ -146,14 +148,35 @@ object TalkBubble {
         this.chat = chat
         this.title = title
         if (who != null) from = who
+        main.removeCallbacks(burstOver)
+        if (!live && burstLive) {
+            // Their burst ended: its pill (or box) stays a moment, so voice turning into video is one item that
+            // changes, not one leaving and another coming (2026-11-25, hen: "move up out of screen and down again").
+            burstOverApp = app
+            main.postDelayed(burstOver, BURST_HOLD_MS)
+            showMode(app)
+            return@post
+        }
         if (live && !burstLive) {
             // Their next burst: the top box comes back even if it was put away.
-            burstSince = System.currentTimeMillis()
+            if (burstSince == 0L) burstSince = System.currentTimeMillis()
             topPutAway = false
         }
         burstLive = live
         burstVideo = live && video
         if (!live) burstSince = 0L
+        refreshTop(app)
+        showMode(app)
+    }
+
+    private var burstOverApp: Context? = null
+
+    /** Their burst ended and no other followed within [BURST_HOLD_MS]: now it goes. */
+    private val burstOver = Runnable {
+        val app = burstOverApp ?: return@Runnable
+        burstLive = false
+        burstVideo = false
+        burstSince = 0L
         refreshTop(app)
         showMode(app)
     }
@@ -1149,6 +1172,7 @@ object TalkBubble {
         pill = null
         main.removeCallbacks(pulse)
         main.removeCallbacks(renew)
+        main.removeCallbacks(burstOver)
         setHere(context, null)
         if (previewOn) preview(context, false)
         previewOn = false
