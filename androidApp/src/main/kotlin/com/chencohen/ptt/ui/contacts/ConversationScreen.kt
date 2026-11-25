@@ -318,7 +318,7 @@ private fun ConversationScreenIn(
                 when {
                     embeddedHeader != null -> Box(Modifier.graphicsLayer { alpha = seeThrough }) { embeddedHeader() }
                     group != null -> GroupHeader(group, actions, canTalk)
-                    else -> Header(user, contact, header, actions, canTalk)
+                    else -> Header(user, contact, header, actions, canTalk, here = viewing.isNotEmpty())
                 }
             }
         }
@@ -1187,6 +1187,19 @@ private const val ENFORCE_RUNS = true
 /** The chat header's height under the status bar, and its face (2026-11-25, hen: slimmer; the live row rests below it). */
 private val HEADER_HEIGHT = 48.dp
 
+/** [ring]: 2 a solid teal ring (on this chat's screen), 1 a dashed one (in its talk room), 0 none. */
+@Composable
+private fun Modifier.faceRing(ring: Int): Modifier {
+    if (ring == 0) return this
+    val teal = LibraryColors.Accent
+    return drawBehind {
+        val w = 2.dp.toPx()
+        val style = if (ring == 2) androidx.compose.ui.graphics.drawscope.Stroke(w)
+        else androidx.compose.ui.graphics.drawscope.Stroke(w, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())))
+        drawCircle(teal, radius = size.minDimension / 2 - w / 2, style = style)
+    }
+}
+
 /**
  * The header's own edge (2026-11-25, hen chose "A · Hairline"): the screen's background, and one 1-px line under it in
  * the palette's outline variant, so the live row below reads as apart from it.
@@ -1199,7 +1212,17 @@ private fun Modifier.headerHairline(): Modifier {
 private val HEADER_FACE = 32.dp
 
 @Composable
-private fun Header(user: String, contact: Contact?, header: ConversationHeader, actions: ConversationActions, canTalk: Boolean) {
+private fun Header(user: String, contact: Contact?, header: ConversationHeader, actions: ConversationActions, canTalk: Boolean, here: Boolean = false) {
+    // Their face's ring (2026-11-25, hen: "ring only, no new words"): solid while they're on this chat's screen, dashed
+    // while they're in its talk room (ready to hear) without it on screen, none otherwise.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val live by remember { com.chencohen.ptt.liveState(context) }.collectAsState()
+    val inRoom = live.room == user && user in live.present
+    val ring = when {
+        here -> 2
+        inRoom -> 1
+        else -> 0
+    }
     // Slim (2026-11-25, hen: "shrink the header height"): 48 dp under the status bar, the touch targets still 48 dp.
     Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).headerHairline().padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -1210,8 +1233,8 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
             Modifier.weight(1f).fillMaxHeight().clickable(role = Role.Button, onClick = actions.openContact),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(user, HEADER_FACE)
-            Column(Modifier.padding(start = 12.dp)) {
+            Box(Modifier.size(HEADER_FACE + 8.dp).faceRing(ring), contentAlignment = Alignment.Center) { Avatar(user, HEADER_FACE) }
+            Column(Modifier.padding(start = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(contact?.name ?: user, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
                     if (contact?.verified == true) {

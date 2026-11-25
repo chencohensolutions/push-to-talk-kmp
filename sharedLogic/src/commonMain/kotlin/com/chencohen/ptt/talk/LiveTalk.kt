@@ -74,6 +74,9 @@ interface TalkTransportListener {
     /** A device joined the room: it needs this device's key. */
     fun joined(identity: String)
 
+    /** [identity] left the room. */
+    fun gone(identity: String) {}
+
     /** [identity]'s audio started coming through (unmuted and decrypting). */
     fun liveAudio(identity: String)
 
@@ -90,6 +93,8 @@ data class LiveState(
     /** How many bursts were heard through the room (each one a new readout). */
     val heardCount: Int = 0,
     val joining: Boolean = false,
+    /** Who else is in this phone's room now (users): the chat header's dashed ring (2026-11-25, hen). */
+    val present: Set<String> = emptySet(),
 )
 
 /**
@@ -196,7 +201,7 @@ internal class LiveTalk(
             while (busy() || now() - lastBurst < BACKGROUND_GRACE) delay(500)
             if (onScreen == room || (warmChat == room && now() < warmFor())) return@launch
             transport?.leave()
-            _state.update { it.copy(room = null) }
+            _state.update { it.copy(room = null, present = emptySet()) }
         }
     }
 
@@ -318,7 +323,7 @@ internal class LiveTalk(
         try {
             if (_state.value.room != null) {
                 t.leave()
-                _state.update { it.copy(room = null) }
+                _state.update { it.copy(room = null, present = emptySet()) }
             }
             val group = Group.idOf(chat)
             val token = tokens(if (group == null) chat else null, group)
@@ -364,7 +369,7 @@ internal class LiveTalk(
                 if (onScreen != room && now() - lastBurst >= STAY_AFTER_BURST && (warmChat != room || now() >= warmFor())) break
             }
             transport?.leave()
-            _state.update { it.copy(room = null) }
+            _state.update { it.copy(room = null, present = emptySet()) }
         }
     }
 
@@ -372,11 +377,13 @@ internal class LiveTalk(
     fun leaveNow() {
         leaving?.cancel()
         transport?.leave()
-        _state.update { it.copy(room = null) }
+        _state.update { it.copy(room = null, present = emptySet()) }
     }
 
     private val events = object : TalkTransportListener {
         override fun joined(identity: String) {
+            val who = identity.substringBeforeLast('.')
+            _state.update { it.copy(present = it.present + who) }
             val room = _state.value.room ?: return
             scope.launch { sendKey(room) }
         }
@@ -387,8 +394,13 @@ internal class LiveTalk(
             scope.launch { _state.update { it.copy(lastLatencyMs = now() - start) } }
         }
 
+        override fun gone(identity: String) {
+            val who = identity.substringBeforeLast('.')
+            _state.update { it.copy(present = it.present - who) }
+        }
+
         override fun left() {
-            scope.launch { _state.update { it.copy(room = null) } }
+            scope.launch { _state.update { it.copy(room = null, present = emptySet()) } }
         }
     }
 

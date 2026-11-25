@@ -325,6 +325,9 @@ fun startRoomCall(context: Context, chat: String, video: Boolean, done: (Boolean
     }
 }
 
+/** The live path's state: this phone's room and who else is in it (the chat header's ring). */
+fun liveState(context: Context): kotlinx.coroutines.flow.StateFlow<com.chencohen.ptt.talk.LiveState> = hub(context).live.state
+
 /** Typing to [chat] started or stopped, from outside the screens (the quick-reply window). */
 fun sendTyping(context: Context, chat: String, typing: Boolean) {
     val messaging = hub(context)

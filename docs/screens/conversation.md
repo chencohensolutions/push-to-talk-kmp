@@ -321,3 +321,9 @@ outline variant. The live row rests just below that line.
 
 Push-to-talk sits in the middle of the screen, and the voice message button just to its left, the same in Hebrew and
 English (not mirrored). No call buttons in the chat. While a press waits, "Waiting for …" shows left of them.
+
+## Their face's ring in the header (2026-11-25, hen: "ring only, no new words")
+
+A solid teal ring around their face: they're on this chat's screen. A dashed one: they're in its talk room (ready to
+hear, e.g. warmed in the background) without the chat on screen. No ring: neither. No words are added for it; the
+header's line stays as it was (typing only).

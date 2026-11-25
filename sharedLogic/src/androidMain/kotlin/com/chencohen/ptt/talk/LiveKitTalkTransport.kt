@@ -120,6 +120,8 @@ class LiveKitTalkTransport(
             events = scope.launch { room.events.events.collect { onEvent(it) } }
             try {
                 room.connect(url, token)
+                // Who is in the room already (the chat header's ring).
+                room.remoteParticipants.values.forEach { p -> p.identity?.value?.let { listener?.joined(it) } }
                 // Joined listen-only (2026-11-25, hen: "don't open microphone if the user entered the room in the
                 // background"): no microphone or camera track until this phone's chat is on screen (prepareAudio).
                 Log.i(TAG, "in the room, listening only")
@@ -450,6 +452,7 @@ class LiveKitTalkTransport(
                 if (event.publication.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else decrypting.remove(it)
             }
             is RoomEvent.ParticipantDisconnected -> event.participant.identity?.value?.let {
+                listener?.gone(it)
                 decrypting.remove(it)
                 LiveTalkVideo.gone(it)
             }
