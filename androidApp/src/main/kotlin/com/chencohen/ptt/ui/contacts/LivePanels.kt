@@ -673,14 +673,14 @@ internal fun TalkTrace(message: TextMessage, author: String, at: String? = null)
         clip.video -> com.chencohen.ptt.genderedString(R.string.talk_trace_video, author, author)
         else -> com.chencohen.ptt.genderedString(R.string.talk_trace_voice, author, author)
     }
-    Text(
-        listOfNotNull(words, length, at).joinToString(" · "),
-        color = LibraryColors.Muted, style = LibraryType.Tiny, textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-    )
-    // Mine: what became of it at each listener (2026-11-25, hen), centred under the line.
-    if (message.outgoing && clip.heardBy.isNotEmpty()) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+    // One column: the line, and for mine what became of it at each listener (2026-11-25, hen), centred under it.
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            listOfNotNull(words, length, at).joinToString(" · "),
+            color = LibraryColors.Muted, style = LibraryType.Tiny, textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (message.outgoing && clip.heardBy.isNotEmpty()) {
             com.chencohen.ptt.ui.talk.HeardLabels(clip, com.chencohen.ptt.messaging.Group.idOf(message.user) != null, { it }, onInverse = false)
         }
     }

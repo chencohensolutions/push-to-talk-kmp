@@ -439,6 +439,8 @@ internal fun ChatButtons(
                             onRelease = { locked ->
                                 lifting = -1f
                                 side = 0f
+                                // The bell is this press's: the next one starts plain (2026-11-26: it stayed red).
+                                urgentNow = false
                                 onPressed(false)
                                 if (slidingNow) {
                                     slidingNow = false
