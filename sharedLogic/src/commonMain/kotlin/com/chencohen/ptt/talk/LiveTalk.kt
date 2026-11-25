@@ -149,13 +149,13 @@ internal class LiveTalk(
 
     /**
      * Someone opened [chat] (2026-11-24, hen: the silent warm-up): its room is joined quietly and kept for
-     * WARM_FOR after each refresh, until [cool], and never past WARM_IDLE without a burst (battery: a room nobody talks
-     * in is let go; the next chat open or burst warms it again). True when it took.
+     * WARM_FOR after each refresh, until [cool]: as long as their chat is on screen (2026-11-25, hen chose this over a
+     * 10-minute cut-off without a burst, which let a long-open chat's push arrive cold).
+     * True when it took.
      */
     fun warm(chat: String): Boolean {
         val t = now()
         val fresh = warmChat != chat || t >= warmUntil
-        if (!fresh && t - maxOf(warmSince, lastBurst) >= WARM_IDLE) return false
         if (fresh) warmSince = t
         warmChat = chat
         warmUntil = t + WARM_FOR
@@ -171,10 +171,10 @@ internal class LiveTalk(
         leaveLater()
     }
 
-    /** Until when this phone stays warm (0: not warm), counting the idle cut-off. */
+    /** Until when this phone stays warm (0: not warm): WARM_FOR after their last refresh. */
     fun warmFor(): Long {
         if (warmChat == null) return 0
-        return minOf(warmUntil, maxOf(warmSince, lastBurst) + WARM_IDLE)
+        return warmUntil
     }
 
     /**
@@ -376,7 +376,6 @@ internal class LiveTalk(
         const val WARM_FOR = 6 * 60_000L
 
         /** A warm room nobody talks in is let go after this (2026-11-24, hen: battery). */
-        const val WARM_IDLE = 10 * 60_000L
 
         /** How long a video burst waits for the room to be joined before its pictures go by the clips only. */
         const val JOIN_WAIT = 3_000

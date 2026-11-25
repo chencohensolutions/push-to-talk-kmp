@@ -623,8 +623,10 @@ is published. While muted, no voice leaves the phone, but the microphone itself 
 server's ux/warm-push branch; older servers deliver it as `sync`), again every 5 minutes while it stays open, and once
 more when it is left. The phone it reaches joins the chat's talk room quietly, keeps `/ws` open, and Talk's quiet
 service (`TalkReadyService`, the least important, silent notification) keeps the process: no sound, no heads-up,
-nothing lights the screen. It stays until the sender leaves the chat, 6 minutes pass without a refresh, or 10 minutes
-pass without a burst (battery; the next chat open or burst warms it again). Android may demote high-priority pushes
+nothing lights the screen. It stays as long as the sender's chat is on screen (the app in front, screen on: it
+refreshes every 5 minutes), and ends when the sender leaves the chat or goes to the back, or 6 minutes pass without a
+refresh (2026-11-25, hen chose this over a 10-minute cut-off without a burst, after a push to a long-open chat came
+cold). Android may demote high-priority pushes
 that end in no notification: the app logs each push's priority as sent and as delivered. The `TalkDelay` log says
 whether the phone was in the room before a push.
 
