@@ -327,3 +327,5 @@ English (not mirrored). No call buttons in the chat. While a press waits, "Waiti
 A solid teal ring around their face: they're on this chat's screen. A dashed one: they're in its talk room (ready to
 hear, e.g. warmed in the background) without the chat on screen. No ring: neither. No words are added for it; the
 header's line stays as it was (typing only).
+In a one-to-one chat the read face at the chat's end no longer shows whether they're here (the header's ring does);
+in a group it still does, as a group's header has no ring (2026-11-25, hen).

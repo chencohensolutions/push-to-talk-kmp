@@ -817,7 +817,7 @@ private fun ConversationScreenIn(
                 val oneDraft = if (group == null) shownDrafts.firstOrNull() else null
                 if (group == null) {
                     if (oneDraft != null) liveItem(live.key(null), LiveLine.Draft(null, oneDraft.second, draftCarets[""]))
-                    else if (circleAtEnd) liveItem(live.key(null), LiveLine.Circle(reader?.readAt, here = viewing.isNotEmpty()))
+                    else if (circleAtEnd) liveItem(live.key(null), LiveLine.Circle(reader?.readAt, here = group != null && viewing.isNotEmpty()))
                 } else {
                     shownDrafts.forEach { (who, text) -> liveItem(live.key(who), LiveLine.Draft(who, text, draftCarets[who.orEmpty()])) }
                 }
@@ -844,7 +844,7 @@ private fun ConversationScreenIn(
                     if (message.id in pairedEarlier) return@forEach
                     if (reader != null && message.id == reader.id && !circleAtEnd) {
                         // The same item as the circle at the end (one key): when they read on, it slides down to the end.
-                        liveItem(if (oneDraft == null) live.key(null) else "reader", LiveLine.Circle(reader.readAt, here = viewing.isNotEmpty()))
+                        liveItem(if (oneDraft == null) live.key(null) else "reader", LiveLine.Circle(reader.readAt, here = group != null && viewing.isNotEmpty()))
                     }
                     groupReaders[message.id]?.let { readers ->
                         item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { GroupReaders(readers, viewing) } }
