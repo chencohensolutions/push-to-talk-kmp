@@ -340,8 +340,10 @@ object TalkBubble {
             clipChildren = false
             addView(lockHint, LinearLayout.LayoutParams(dp(42), dp(58)).apply { bottomMargin = dp(8) })
             addView(row, LinearLayout.LayoutParams(dp(PILL_WINDOW_DP), dp(68)))
-            // Room for the shadow.
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            // Room for the shadow; below, down to the screen's own bottom edge over the navigation bar, so the pill
+            // comes in from the very bottom and leaves there, never cut at the bar (2026-11-25, hen).
+            clipToPadding = false
+            setPadding(dp(8), dp(8), dp(8), bars.bottom + dp(24))
         }
         val params = WindowManager.LayoutParams(
             // As wide as the pill gets (with Stop): the window doesn't change width, so the pill grows and shrinks
@@ -354,7 +356,9 @@ object TalkBubble {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = bars.bottom + dp(24) - dp(8)
+            // To the screen's bottom edge (over the navigation bar): the holder's padding keeps the pill where it was.
+            y = 0
+            flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
             title = "Talk pill"
         }
@@ -371,7 +375,7 @@ object TalkBubble {
                 if (pill === row) holder.rootSurfaceControl?.setTouchableRegion(android.graphics.Region(row.left, row.top, row.right, row.bottom))
             }
             // Slides up and fades in, untouchable for a moment (OverlayArrival).
-            row.post { OverlayArrival.arrive(wm, holder, params, row, (row.height + params.y + dp(16)).toFloat()) { a -> row.alpha = a } }
+            row.post { OverlayArrival.arrive(wm, holder, params, row, (row.height + holder.paddingBottom + dp(16)).toFloat()) { a -> row.alpha = a } }
             Log.i(TAG, "shown")
             main.post(pulse)
             true
@@ -1597,7 +1601,9 @@ object TalkBubble {
         val row = pill ?: return remove()
         // The floating chat's row stays while that chat is live.
         if (outside == null) hideTop()
-        row.animate().translationY((row.height + dp(row.context, 60)).toFloat()).setDuration(SLIDE_MS)
+        // Off the screen's very bottom edge, past the navigation bar.
+        val below = (pillWindow?.paddingBottom ?: 0) + row.height + dp(row.context, 16)
+        row.animate().translationY(below.toFloat()).setDuration(SLIDE_MS)
             .setInterpolator(android.view.animation.AccelerateInterpolator())
             .withEndAction { if (pill === row) remove() }
             .start()

@@ -68,7 +68,14 @@ class AndroidTalkVideoCapture(
     }
 
     /** [id] is held by someone else (unavailable while this capture holds no camera and isn't opening one). */
-    private fun heldElsewhere(id: String) = id in takenIds && camera == null && !opening
+    private fun heldElsewhere(id: String) =
+        id in takenIds && camera == null && !opening && android.os.SystemClock.elapsedRealtime() - lastOurs > OWN_RELEASE_MS
+
+    /**
+     * When this capture last held a camera: the system says it is free again a moment after ours closes, and a quick
+     * press in that moment is still ours, not another app's (2026-11-25: quick presses came up as voice only).
+     */
+    @Volatile private var lastOurs = 0L
 
     @Volatile private var opening = false
     private val lock = Any()
@@ -277,6 +284,7 @@ class AndroidTalkVideoCapture(
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
                     opening = false
+                    lastOurs = android.os.SystemClock.elapsedRealtime()
                     if (!warmWanted) {
                         device.close()
                         return
@@ -511,6 +519,7 @@ class AndroidTalkVideoCapture(
 
     private fun close() {
         if (warmWanted) return
+        if (camera != null) lastOurs = android.os.SystemClock.elapsedRealtime()
         runCatching { session?.close() }
         session = null
         runCatching { camera?.close() }
@@ -537,6 +546,8 @@ class AndroidTalkVideoCapture(
     private fun startsWith(a: ByteArray, prefix: ByteArray) = a.size >= prefix.size && prefix.indices.all { a[it] == prefix[it] }
 
     companion object {
+        /** How long after ours closes the camera's unavailability still counts as ours. */
+        private const val OWN_RELEASE_MS = 2_000L
         const val TAG = "TalkVideo"
         const val WIDTH = 640
         const val HEIGHT = 480
