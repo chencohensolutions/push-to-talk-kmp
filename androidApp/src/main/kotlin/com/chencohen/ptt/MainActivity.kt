@@ -118,6 +118,10 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(callOn, wokeForTalk) {
                     setShowWhenLocked(callOn || wokeForTalk)
                     setTurnScreenOn(callOn || wokeForTalk)
+                    // Kept on while the burst that woke it goes on (2026-11-25, hen: "the video appeared and in 2 s the
+                    // screen turned off": the lock screen's own short timeout); let go the moment it ends.
+                    if (wokeForTalk) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    else if (!callOn) window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
                 // A video call goes on in a small floating window (picture-in-picture) when the app is left: it can be
                 // dragged and resized, and Hang up is on it (2026-11-22, hen).
