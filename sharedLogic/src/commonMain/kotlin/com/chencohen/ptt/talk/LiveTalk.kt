@@ -45,6 +45,9 @@ interface TalkTransport {
     /** The chat is on screen ([on]): the microphone's track waits in the room, muted, so a press only unmutes it. */
     suspend fun prepareAudio(on: Boolean) {}
 
+    /** The microphone is someone else's now (a call, another app): a press is refused rather than taken. */
+    fun micBusy(): Boolean = false
+
     /** A call in the room ([on]): the microphone (and the camera, [video]) stay unmuted, outside the floor. */
     suspend fun setCall(on: Boolean, video: Boolean) {
         setTalking(on)
@@ -185,7 +188,7 @@ internal class LiveTalk(
     fun background() {
         val room = _state.value.room
         onScreen = null
-        if (audio) scope.launch { runCatching { transport?.prepareAudio(false) } }
+        if (audio && !micWanted(_state.value.room)) scope.launch { runCatching { transport?.prepareAudio(false) } }
         if (room == null || (warmChat == room && now() < warmFor())) return
         leaving?.cancel()
         leaving = scope.launch {
@@ -197,6 +200,22 @@ internal class LiveTalk(
         }
     }
 
+    /** The floating window's Push for [chat] is showing (null: none): the microphone is ready for it too. */
+    private var pushShowing: String? = null
+
+    fun pushShowing(chat: String?) {
+        pushShowing = chat
+        if (!audio) return
+        scope.launch {
+            val room = _state.value.room
+            if (chat != null && room == chat) runCatching { transport?.prepareAudio(true) }
+            else if (onScreen == null || onScreen != room) runCatching { transport?.prepareAudio(false) }
+        }
+    }
+
+    /** The microphone is wanted ready in [room]: its chat on screen, or the floating window's Push for it. */
+    private fun micWanted(room: String?) = room != null && (onScreen == room || pushShowing == room)
+
     /** The chat on screen (a conversation, or its Talk mode); null when none is. Its room is joined. */
     fun show(chat: String?) {
         onScreen = chat
@@ -207,8 +226,8 @@ internal class LiveTalk(
             }
         } else {
             leaveLater()
-            // Off screen (a warm room too): the microphone isn't kept open.
-            if (audio) scope.launch { runCatching { transport?.prepareAudio(false) } }
+            // Off screen (a warm room too): the microphone isn't kept open, unless the floating window's Push shows.
+            if (audio && !micWanted(_state.value.room)) scope.launch { runCatching { transport?.prepareAudio(false) } }
         }
     }
 
@@ -311,6 +330,8 @@ internal class LiveTalk(
             keys.forEach { (who, k) -> t.setKey(who, k.first, k.second) }
             _state.update { it.copy(room = chat) }
             joinedAt = now()
+            // Only listening unless its Push is on screen (2026-11-25, hen).
+            if (audio && micWanted(chat)) scope.launch { runCatching { t.prepareAudio(true) } }
             sendKey(chat)
             leaveLater()
         } catch (e: CancellationException) {

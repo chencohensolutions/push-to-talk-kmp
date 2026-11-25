@@ -626,7 +626,10 @@ service (`TalkReadyService`, the least important, silent notification) keeps the
 nothing lights the screen. It stays as long as the sender's chat is on screen (the app in front, screen on: it
 refreshes every 5 minutes), and ends when the sender leaves the chat or goes to the back, or 6 minutes pass without a
 refresh (2026-11-25, hen chose this over a 10-minute cut-off without a burst, after a push to a long-open chat came
-cold). Android may demote high-priority pushes
+cold). A phone that joins this way only listens (2026-11-25, hen: "don't open microphone if the user entered the room
+in the background"): no microphone or camera track, and LiveKit's audio prewarming is off, so no microphone opens and
+no privacy dot shows. The microphone is published, muted, only once that phone's own chat is on screen; a press
+from outside the chat (the floating window) publishes it at the press. Android may demote high-priority pushes
 that end in no notification: the app logs each push's priority as sent and as delivered. The `TalkDelay` log says
 whether the phone was in the room before a push.
 
@@ -667,6 +670,28 @@ what goes out are one thing:
 
 Tests: TalkTest aPressWhileTheOtherTalksWaitsSendingNothingAndGoesLiveWhenTheirsEnds,
 aPressLetGoWhileWaitingSendsAndKeepsNothing, aPushWhileOfflineIsShownOfflineAndNothingIsKeptOrSent.
+
+## The microphone only while Push shows (2026-11-25, standing rule)
+
+hen: the microphone is open and ready (muted) only while a red Push button is on screen, in the chat or the floating
+window, and no other app holds the microphone. Everywhere else (warmed in the background, the chat list, the app in
+the back without the floating window, the screen off) the phone only listens: no microphone track, no recording, no
+privacy dot. The exception is a hardware button (a headset's or a PTT key) pressed with no Push on screen: it opens the
+microphone at the press; the clip records from the press and the room catches up.
+
+Never taken from someone else (hen: "if the phone already uses the microphone for some reason don't hijack it"): in a
+phone call, or while another app records, the microphone isn't opened ahead and a press is refused ("The microphone
+isn't free", nothing shown live). If another app starts recording while ours is open and idle, ours is let go at once
+and comes back when the microphone is free and Push still shows (MicGuard, AudioRecordingCallback).
+
+## The camera only while the slide-up shows (2026-11-25, standing rule)
+
+hen: "the camera should open only when the slide-to-video is appearing on screen". The camera (and its encoder and the
+room's video track reading it) is open only while a press holds Push with the slide-up-to-video target showing (with
+Settings › Talk › Get camera ready while talking on), or while video is live. Letting go without sliding up closes it at
+once (no linger); a quick press again opens it anew one step at a time, so it never comes up black. A camera another app
+holds is not taken (CameraManager's availability): the slide up stays voice only and says "The camera is in use by
+another app".
 
 ## Open issues
 

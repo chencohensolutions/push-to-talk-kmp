@@ -589,6 +589,7 @@
     <string name="talk_last_hide">Hide recent talk</string>
     <string name="talk_live">Live</string>
     <string name="talk_mic_denied">Talk needs the microphone. Allow it in the app’s settings.</string>
+    <string name="talk_camera_busy">The camera is in use by another app: voice only</string>
     <string name="talk_no_mic">The microphone isn’t free</string>
     <string name="talk_notify">%1$s is talking</string>
     <string name="talk_notify_body">Tap Play to hear it</string>

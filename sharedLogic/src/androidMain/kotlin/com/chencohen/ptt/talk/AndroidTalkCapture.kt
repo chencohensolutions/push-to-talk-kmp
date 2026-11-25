@@ -101,6 +101,7 @@ class AndroidTalkCapture(private val speakerphone: SpeakerphoneMic? = null) : Ta
 
     private fun open(): Mic? {
         val record = openRecord() ?: return null
+        MicGuard.ownSessions += record.audioSessionId
         val effects = listOfNotNull(
             if (AcousticEchoCanceler.isAvailable()) runCatching { AcousticEchoCanceler.create(record.audioSessionId) }.getOrNull() else null,
             if (NoiseSuppressor.isAvailable()) runCatching { NoiseSuppressor.create(record.audioSessionId) }.getOrNull() else null,
@@ -130,6 +131,7 @@ class AndroidTalkCapture(private val speakerphone: SpeakerphoneMic? = null) : Ta
         m.thread.join()
         runCatching { m.record.stop() }
         m.effects.forEach { runCatching { it.release() } }
+        MicGuard.ownSessions -= m.record.audioSessionId
         m.record.release()
     }
 

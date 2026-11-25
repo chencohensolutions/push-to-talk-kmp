@@ -592,6 +592,7 @@
     <string name="talk_last_hide">להסתיר את הדיבור האחרון</string>
     <string name="talk_live">בשידור</string>
     <string name="talk_mic_denied">הדיבור צריך את המיקרופון. אפשר להתיר אותו בהגדרות היישום.</string>
+    <string name="talk_camera_busy">המצלמה בשימוש של אפליקציה אחרת: קול בלבד</string>
     <string name="talk_no_mic">המיקרופון תפוס</string>
     <string name="talk_notify">%1$s מדבר/ת</string>
     <string name="talk_notify_body">להקיש על השמעה כדי לשמוע</string>

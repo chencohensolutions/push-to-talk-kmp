@@ -167,6 +167,9 @@ internal class Talk(
 
     /** A capture for the next bursts instead of the phone's (Android Auto's car microphone); null: the usual. */
     var captureOverride: TalkCapture? = null
+
+    /** The microphone is someone else's now (a phone call, another app recording): a press is refused, not taken. */
+    var micBusy: () -> Boolean = { false }
     var player: TalkPlayer? = null
     var host: TalkHost? = null
 
@@ -245,6 +248,8 @@ internal class Talk(
 
     private fun begin(chat: String, voiceOnly: Boolean) {
         if (outgoing != null) return
+        // Never taken from a call or another app (2026-11-25, hen: "don't hijack it"): refused, so nothing looks live.
+        if (micBusy()) return refuse(chat, OwnTalk.MIC)
         // In the conversation's room, the room's microphone feeds the clip too.
         val mic = captureOverride ?: (if (voiceOnly) null else live?.captureFor(chat)) ?: capture ?: return refuse(chat, OwnTalk.MIC)
         val out = Outgoing(chat, voiceOnly)

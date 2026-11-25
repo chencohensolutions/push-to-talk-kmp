@@ -345,16 +345,10 @@ private fun ConversationScreenIn(
         var standbySince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
         var sliding by remember(user) { mutableStateOf(false) }
         // Get camera ready while talking (2026-11-24, hen, on by default): the camera opens, unseen, as the finger goes
-        // down on Push, and is let go 2 s after it lifts without sliding up (a quick press again reuses it).
+        // down on Push (the slide-up-to-video target shows then), and closes as soon as it lifts without sliding up
+        // (2026-11-25, hen: "the camera should open only when the slide-to-video is appearing on screen").
         var pressing by remember(user) { mutableStateOf(false) }
-        var cameraHeld by remember(user) { mutableStateOf(false) }
-        LaunchedEffect(pressing) {
-            if (pressing) cameraHeld = chatLive.cameraReady
-            else if (cameraHeld) {
-                delay(2_000)
-                cameraHeld = false
-            }
-        }
+        val cameraHeld = pressing && chatLive.cameraReady
         // The newest actions (a video setting just changed is in them), for what runs after a delay.
         val actionsNow by androidx.compose.runtime.rememberUpdatedState(actions)
         // Both live, and the call it can become: worked out further down, shown here under the panel.
@@ -592,6 +586,8 @@ private fun ConversationScreenIn(
         val runs = remember(user) { TalkRun() }
         fun say(what: String) = android.util.Log.i(CHAT_TALK, what)
         val chainScope = androidx.compose.runtime.rememberCoroutineScope()
+        val lockContext = androidx.compose.ui.platform.LocalContext.current
+        val cameraBusyNote = androidx.compose.ui.res.stringResource(R.string.talk_camera_busy)
         val handsFreeNow by androidx.compose.runtime.rememberUpdatedState(handsFree)
         val ownHere = talk.own?.takeIf { it.chat == user }
         val ownNow by androidx.compose.runtime.rememberUpdatedState(ownHere)
@@ -1047,6 +1043,10 @@ private fun ConversationScreenIn(
                                 lock = {
                                     val run = runs.now
                                     say("lock: hands-free video (run $run, standby $standby)")
+                                    // The camera is another app's: voice only, and said so (2026-11-25, hen: don't take it).
+                                    if (com.chencohen.ptt.talkVideoCapture?.cameraBusy?.value == true) {
+                                        android.widget.Toast.makeText(lockContext, cameraBusyNote, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
                                     goingLiveAt = System.currentTimeMillis()
                                     goingLive = true
                                     actions.setPushVideo?.invoke(true)

@@ -105,6 +105,8 @@ class LiveKitTalkTransport(
                         // speaker"): WebRTC's own echo canceller (AEC3) and noise suppression, which take what this
                         // room plays as their reference. The phone's built-in ones are made for call mode; the room
                         // plays as media (the speaker, normal mode), where they don't see it.
+                        // No microphone opened ahead of a track (a phone warmed in the background only listens).
+                        disableAudioPrewarming = true,
                         javaAudioDeviceModuleCustomizer = { builder ->
                             builder.setUseHardwareAcousticEchoCanceler(false)
                             builder.setUseHardwareNoiseSuppressor(false)
@@ -118,8 +120,9 @@ class LiveKitTalkTransport(
             events = scope.launch { room.events.events.collect { onEvent(it) } }
             try {
                 room.connect(url, token)
-                // Ready for a video burst before it comes.
-                scope.launch { runCatching { prepareVideo(room) } }
+                // Joined listen-only (2026-11-25, hen: "don't open microphone if the user entered the room in the
+                // background"): no microphone or camera track until this phone's chat is on screen (prepareAudio).
+                Log.i(TAG, "in the room, listening only")
                 true
             } catch (e: CancellationException) {
                 throw e
@@ -173,9 +176,56 @@ class LiveKitTalkTransport(
     private var talkingNow = false
     private var muting: Job? = null
 
-    private suspend fun prepareMic(room: Room): LocalAudioTrack? = preparingMic.withLock {
+    /** The muted microphone is wanted ready (the chat or the floating window's Push on screen). */
+    @Volatile private var micWanted = false
+    private var micRetry: Job? = null
+
+    init {
+        MicGuard.init(appContext)
+        // Another app (or a call) takes the microphone while ours is open and idle: ours goes at once, and comes back
+        // once it is free and still wanted (2026-11-25, hen: "don't hijack it").
+        MicGuard.onChange {
+            if (mic != null && !talkingNow && MicGuard.takenFromIdle()) {
+                Log.i(TAG, "the microphone is wanted elsewhere: ours let go")
+                scope.launch { releaseMic() }
+                retryMic()
+            }
+        }
+    }
+
+    private fun retryMic() {
+        micRetry?.cancel()
+        micRetry = scope.launch {
+            while (micWanted && mic == null) {
+                kotlinx.coroutines.delay(2_000)
+                val r = room ?: break
+                if (micWanted && !MicGuard.busy()) prepareMic(r)
+            }
+        }
+    }
+
+    /** The microphone can't be had now (a call, another app): a press is refused, not taken. */
+    override fun micBusy(): Boolean = mic == null && MicGuard.busy() || mic != null && !talkingNow && MicGuard.takenFromIdle()
+
+    private suspend fun releaseMic() {
+        val room = room ?: return
+        val track = mic ?: return
+        if (talkingNow) return
+        mic = null
+        MicGuard.roomBaseline = -1
+        sampleCapture.detach()
+        runCatching { room.localParticipant.unpublishTrack(track, true) }
+    }
+
+    private suspend fun prepareMic(room: Room, press: Boolean = false): LocalAudioTrack? = preparingMic.withLock {
         mic?.let { return@withLock it }
         if (this.room !== room) return@withLock null
+        // Not ahead of a press while it's someone else's; a press itself is refused before this (micBusy).
+        if (!press && MicGuard.busy()) {
+            Log.i(TAG, "microphone not opened ahead: in use elsewhere")
+            return@withLock null
+        }
+        val before = runCatching { appContext.getSystemService(android.media.AudioManager::class.java).activeRecordingConfigurations.count { it.clientAudioSessionId !in MicGuard.ownSessions } }.getOrDefault(0)
         val local = room.localParticipant
         // LiveKit's own capture options: echo cancelling, noise suppression and automatic gain control (WebRTC's).
         val track = local.createAudioTrack(
@@ -194,20 +244,24 @@ class LiveKitTalkTransport(
         }
         local.getTrackPublication(Track.Source.MICROPHONE)?.muted = true
         mic = track
+        // Ours is one of the recordings from now on; one more than this is someone else.
+        MicGuard.roomBaseline = before + 1
         Log.i(TAG, "microphone track ready in the room (muted)")
         track
     }
 
     override suspend fun prepareAudio(on: Boolean) {
         val room = room ?: return
+        micWanted = on
         if (on) {
-            prepareMic(room)
-        } else if (!talkingNow) {
+            // The chat or the floating window's Push on screen: the microphone published muted (a press only unmutes
+            // it), and the camera's track ready for a video burst; not while it's someone else's.
+            if (prepareMic(room) != null) Log.i(TAG, "Push on screen: microphone published (muted)") else retryMic()
+            scope.launch { runCatching { prepareVideo(room) } }
+        } else {
+            micRetry?.cancel()
             // Off screen: the microphone goes (nothing of it stays open).
-            val track = mic ?: return
-            mic = null
-            sampleCapture.detach()
-            runCatching { room.localParticipant.unpublishTrack(track, true) }
+            releaseMic()
         }
     }
 
@@ -217,7 +271,7 @@ class LiveKitTalkTransport(
         if (on) {
             muting?.cancel()
             talkingNow = true
-            prepareMic(room) ?: return
+            prepareMic(room, press = true) ?: return
             speakerphone.begin()
             publication()?.muted = false
             Log.i(TAG, "microphone live in the room")
@@ -528,8 +582,12 @@ class LiveKitTalkTransport(
 
         /** The microphone stays unmuted this long after the release, so the last words still on their way leave. */
         const val TAIL_MS = 300L
-        /** How long the camera keeps reading into the room after a release, for a quick press again. */
-        const val LINGER_MS = 2_000L
+        /**
+         * How long the camera keeps reading into the room after a release: none (2026-11-25, hen: the camera only while
+         * the slide-up target shows or video is live). A quick press again opens it anew, one step at a time
+         * (capturingLock), so it never comes up black.
+         */
+        const val LINGER_MS = 0L
 
         /** LiveKit takes the key as a string it derives the AES key from: the 32 random bytes, in base64. */
         fun encode(key: ByteArray): String = Base64.encodeToString(key, Base64.NO_WRAP)

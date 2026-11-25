@@ -43,6 +43,34 @@ class AndroidTalkVideoCapture(
     private var fps = FPS
     private var bitrate = BITRATE
     private val app = context.applicationContext
+
+    /**
+     * Cameras another app holds now (2026-11-25, hen: don't take what another app uses): the system says which are
+     * unavailable; ours counts only while this capture has none open.
+     */
+    private val takenIds = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /** The front camera is another app's now: video can't start (voice only), and the slide up says so. */
+    val cameraBusy = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    init {
+        runCatching {
+            app.getSystemService(CameraManager::class.java).registerAvailabilityCallback(object : CameraManager.AvailabilityCallback() {
+                override fun onCameraAvailable(cameraId: String) {
+                    takenIds -= cameraId
+                }
+
+                override fun onCameraUnavailable(cameraId: String) {
+                    takenIds += cameraId
+                }
+            }, android.os.Handler(android.os.Looper.getMainLooper()))
+        }
+    }
+
+    /** [id] is held by someone else (unavailable while this capture holds no camera and isn't opening one). */
+    private fun heldElsewhere(id: String) = id in takenIds && camera == null && !opening
+
+    @Volatile private var opening = false
     private val lock = Any()
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
@@ -234,6 +262,13 @@ class AndroidTalkVideoCapture(
         val id = manager.cameraIdList.firstOrNull { manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT }
             ?: manager.cameraIdList.firstOrNull() ?: return
         sensor = manager.getCameraCharacteristics(id).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 270
+        if (heldElsewhere(id)) {
+            Log.i(TAG, "the camera is another app's now: not taken (voice only)")
+            cameraBusy.value = true
+            return
+        }
+        cameraBusy.value = false
+        opening = true
         try {
             val sixty = want60() && supports60(app)
             fps = if (sixty) FPS_60 else FPS
@@ -241,6 +276,7 @@ class AndroidTalkVideoCapture(
             if (encoder == null) startEncoder()
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
+                    opening = false
                     if (!warmWanted) {
                         device.close()
                         return
@@ -250,13 +286,20 @@ class AndroidTalkVideoCapture(
                 }
 
                 // Taken by another app, or an error: let it go (a press then sends the voice only).
-                override fun onDisconnected(device: CameraDevice) = lost(device)
+                override fun onDisconnected(device: CameraDevice) {
+                    opening = false
+                    // Taken by another app while ours was open: let go, and say so.
+                    cameraBusy.value = true
+                    lost(device)
+                }
                 override fun onError(device: CameraDevice, error: Int) {
+                    opening = false
                     Log.w(TAG, "camera error $error")
                     lost(device)
                 }
             }, handler)
         } catch (e: Exception) {
+            opening = false
             Log.w(TAG, "no camera for push-to-video", e)
             close()
         }

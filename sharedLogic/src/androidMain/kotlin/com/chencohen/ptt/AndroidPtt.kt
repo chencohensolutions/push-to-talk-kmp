@@ -129,6 +129,9 @@ private fun hub(context: Context): Messaging {
         blobApi = com.chencohen.ptt.talk.KtorBlobApi(http),
     ).also {
         it.talk.capture = com.chencohen.ptt.talk.AndroidTalkCapture(com.chencohen.ptt.talk.SpeakerphoneMic(context))
+        com.chencohen.ptt.talk.MicGuard.init(context)
+        val micHub = it
+        it.talk.micBusy = { micHub.live.transport?.micBusy() ?: com.chencohen.ptt.talk.MicGuard.busy() }
         com.chencohen.ptt.talk.TalkAudio.appContext = context.applicationContext
         it.talk.player = com.chencohen.ptt.talk.AndroidTalkPlayer()
         it.talk.volume = com.chencohen.ptt.talk.AndroidTalkVolume(context)
@@ -299,7 +302,12 @@ suspend fun stopTalkPlayback(context: Context) {
 
 /** Messaging's state, for the background talk notifications. */
 /** The reply bubble for [chat] is open (null: closed): the other user's phone is told ("here"). */
-fun setHere(context: Context, chat: String?) = hub(context).setHere(chat, com.chencohen.ptt.messaging.Messaging.HERE_BUBBLE)
+fun setHere(context: Context, chat: String?) {
+    val messaging = hub(context)
+    messaging.setHere(chat, com.chencohen.ptt.messaging.Messaging.HERE_BUBBLE)
+    // The floating window's Push shows for [chat]: the microphone is ready for it (and only then, 2026-11-25, hen).
+    messaging.live.pushShowing(chat)
+}
 
 /** The camera kept warm for push-to-video to [chat] from outside the screens (the reply bubble); null: let go. */
 fun warmTalkCamera(context: Context, chat: String?) = hub(context).warmCamera(chat)
