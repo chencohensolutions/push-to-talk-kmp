@@ -842,6 +842,7 @@
     <string name="talk_bar_both">%1$s and you are talking</string>
     <string name="talk_panel_you">You</string>
     <string name="talk_panel_hands_free">live, hands-free</string>
+    <string name="talk_more_talking">+%1$d talking · %2$s</string>
     <string name="talk_both_live">You\u2019re both live</string>
     <string name="talk_make_call">Make it a call</string>
     <string name="talk_call_no_room">Can\u2019t make this a call right now</string>

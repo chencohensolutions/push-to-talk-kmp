@@ -101,8 +101,13 @@ data class NowPlaying(
 
 /** What the talk screens render. */
 data class TalkUiState(
-    /** Who holds the floor in each conversation now, by chat. */
+    /** Who holds the floor in each conversation now, by chat: the one who started last of [talking]. */
     val talkers: Map<String, Talker> = emptyMap(),
+    /**
+     * Everyone talking in each conversation now, by chat, in the order they started (2026-11-25, hen: the server gives
+     * every talker a floor of their own, in groups too, so several members may push at once and all are shown).
+     */
+    val talking: Map<String, List<Talker>> = emptyMap(),
     val own: OwnTalk? = null,
     val playing: NowPlaying? = null,
     /** Clips waiting to play after [playing], oldest first. */
@@ -110,6 +115,25 @@ data class TalkUiState(
     /** Both kept pushing at once (3 times within a minute) in this chat: a video call may suit them better. */
     val suggestCall: String? = null,
 )
+
+/** [talker] started in [chat]: one more of its talkers (the same burst again replaces itself), and the newest. */
+internal fun TalkUiState.withTalker(chat: String, talker: Talker): TalkUiState {
+    val all = talking[chat].orEmpty().filter { it.clip != talker.clip } + talker
+    return copy(talkers = talkers + (chat to talker), talking = talking + (chat to all))
+}
+
+/**
+ * Burst [clip]'s floor ended (or went stale): gone from its chat's talkers. Where it was the chat's [TalkUiState.talkers]
+ * one, the newest still talking takes its place, so a group with others still live doesn't look quiet.
+ */
+internal fun TalkUiState.withoutTalker(clip: String): TalkUiState {
+    if (talking.values.none { list -> list.any { it.clip == clip } } && talkers.values.none { it.clip == clip }) return this
+    val left = talking.mapValues { (_, list) -> list.filter { it.clip != clip } }.filterValues { it.isNotEmpty() }
+    val newest = talkers.mapNotNull { (chat, t) ->
+        if (t.clip != clip) chat to t else left[chat]?.lastOrNull()?.let { chat to it }
+    }.toMap()
+    return copy(talkers = newest, talking = left)
+}
 
 /** The platform's part in playing talk when the app isn't on screen (Android: Telecom, notifications). */
 interface TalkHost {
@@ -648,11 +672,12 @@ internal class Talk(
                 lost(it, TalkPhase.REFUSED, refusal = s.refusal)
             }
             TalkEvent.STARTED -> {
-                _state.update { it.copy(talkers = it.talkers + (chat to Talker(s.talkerUser, s.talkerDevice, s.burstId, s.startedAt.takeIf { t -> t > 0 } ?: now()))) }
+                val talker = Talker(s.talkerUser, s.talkerDevice, s.burstId, s.startedAt.takeIf { t -> t > 0 } ?: now())
+                _state.update { it.withTalker(chat, talker) }
                 // A floor never longer than the server's limit: if its end never came (a dropped frame), it goes anyway.
                 scope.launch {
                     delay(STALE_TALKER_MS)
-                    _state.update { st -> if (st.talkers[chat]?.clip == s.burstId) st.copy(talkers = st.talkers - chat) else st }
+                    _state.update { st -> st.withoutTalker(s.burstId) }
                 }
                 val self = me() ?: return
                 // Another phone of this user talking: shown, not played.
@@ -664,8 +689,8 @@ internal class Talk(
                 scope.launch { consider(burst) }
             }
             TalkEvent.ENDED -> {
-                val talker = _state.value.talkers[chat]?.takeIf { it.clip == s.burstId }
-                _state.update { state -> state.copy(talkers = state.talkers.filterValues { it.clip != s.burstId }) }
+                val talker = _state.value.talking[chat]?.firstOrNull { it.clip == s.burstId } ?: _state.value.talkers[chat]?.takeIf { it.clip == s.burstId }
+                _state.update { state -> state.withoutTalker(s.burstId) }
                 // Heard live (LiveKit): heard, and, with no clip stream counted, as long as the floor was held.
                 if (talker != null) {
                     store.message(s.burstId)?.let { m ->

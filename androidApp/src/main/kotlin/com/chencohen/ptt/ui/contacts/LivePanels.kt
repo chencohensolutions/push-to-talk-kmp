@@ -50,8 +50,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.chencohen.ptt.R
 import com.chencohen.ptt.messaging.TextMessage
+import com.chencohen.ptt.ui.live.LiveGroupLayout
 import com.chencohen.ptt.ui.live.LiveItem
 import com.chencohen.ptt.ui.live.LiveLayout
+import com.chencohen.ptt.ui.live.LiveSlot
 import com.chencohen.ptt.ui.live.LiveMotion
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryType
@@ -143,7 +145,19 @@ internal object LivePretend {
     /** Whose shape LiveTalkVideo.shapes holds for the pretended video. */
     const val IDENTITY = "pretend.0"
     val theirs = kotlinx.coroutines.flow.MutableStateFlow(LiveKind.None)
+
+    /** A group member pretended live: [user] (their "user.device" is "[user].1"), on video or voice, since when. */
+    data class Member(val user: String, val video: Boolean, val since: Long)
+
+    /** Group members pretended live at once, in the open group chat and the floating window's row (several talkers). */
+    val members = kotlinx.coroutines.flow.MutableStateFlow<List<Member>>(emptyList())
+
+    /** My own side pretended live in the open group chat (no camera, no sound, nothing sent). */
+    val mine = kotlinx.coroutines.flow.MutableStateFlow(LiveKind.None)
 }
+
+/** Someone live in a group's overlay: [key] their "user.device" (or LiveLayout.MINE), on [video] or voice, [since]. */
+internal data class GroupTalker(val key: String, val user: String, val name: String, val video: Boolean, val since: Long, val mine: Boolean = false)
 
 /** The log tag of the chat's live row. */
 private const val LIVE_ROW = "LiveRow"
@@ -268,6 +282,93 @@ internal fun LivePanel(
 }
 
 /**
+ * A group's live overlay (2026-11-25, hen: several people talking at once in a group): everyone live in it, mine one of
+ * them, at most four in view (LiveCast: the ones who spoke last; a fifth pushes out the one quiet longest), the videos
+ * in one row of equal boxes cropped to fill, the voices as pills under them, and "+N talking · Name" for the rest: a
+ * tap brings that one into view in the quietest one's place. Each box shows its picture through the room, else the
+ * face (the clip path's one decoder can't show several). All of it moves as one (LiveStage, LiveMotion).
+ */
+@Composable
+internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?) {
+    val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
+    val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsState()
+    val localPicture by com.chencohen.ptt.talk.LiveTalkVideo.localPicture.collectAsState()
+    val me = stringResource(R.string.talk_panel_you)
+    // Each one as they last were, kept while they go up, so a box doesn't empty first.
+    val last = remember { HashMap<String, GroupTalker>() }
+    talkers.forEach { last[it.key] = it }
+    val cast = remember { com.chencohen.ptt.ui.live.LiveCast() }
+    var chosen by remember { mutableLongStateOf(0L) }
+    val people = talkers.map { com.chencohen.ptt.ui.live.LivePerson(it.key, it.since) }
+    val inView = remember(people, chosen) { cast.update(people); cast.shown }
+    val hidden = cast.hidden
+    // Mine without the room (the camera's own preview) is ready a moment after it starts.
+    val mineLive = talkers.any { it.mine && it.video }
+    var settled by remember { androidx.compose.runtime.mutableStateOf(false) }
+    LaunchedEffect(mineLive) {
+        settled = false
+        if (mineLive) {
+            delay(700)
+            settled = true
+        }
+    }
+    val byKey = talkers.associateBy { it.key }
+    val sides = inView.mapNotNull { k -> byKey[k]?.let { LiveSide(k, it.video, 3f / 4f) } }
+    val screen = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+    val newest = hidden.firstOrNull()?.let { byKey[it.key] }
+    val teal = LibraryColors.Accent
+    LiveStage(
+        sides,
+        boxHeight = screen * LIVE_VIDEO_SHARE,
+        ring = { if (it.key == LiveLayout.MINE) com.chencohen.ptt.ui.style.Pink else teal },
+        group = true,
+        groupShape = myShape,
+        chip = newest?.let { n ->
+            {
+                MoreTalking(hidden.size, if (n.mine) me else n.name) {
+                    cast.choose(n.key, System.currentTimeMillis())
+                    chosen = System.currentTimeMillis()
+                }
+            }
+        },
+        pill = { side ->
+            val t = last[side.key]
+            if (t != null) VoicePillRow(VoiceSide(if (t.mine) "" else t.user, if (t.mine) me else t.name, t.mine, t.since), if (t.mine) com.chencohen.ptt.ui.style.Pink else LibraryColors.Accent)
+        },
+    ) { side, w, h, p ->
+        val t = last[side.key] ?: return@LiveStage
+        val voice = VoiceSide(if (t.mine) "" else t.user, if (t.mine) me else t.name, t.mine, t.since)
+        val tag = when {
+            !t.mine -> t.name
+            waitingFor != null -> stringResource(R.string.talk_waiting_for, waitingFor)
+            else -> me
+        }
+        val room = if (t.mine) null else arriving[t.key]
+        val pictured = side.video && if (t.mine) (if (local != null) localPicture else settled) else room != null
+        LiveBoxInside(voice, tag, w, h, p, pictured = pictured) { box ->
+            if (t.mine) {
+                if (local != null) com.chencohen.ptt.ui.talk.LocalRoomVideo(local!!, box)
+                else com.chencohen.ptt.ui.talk.PushVideoPreview(box, cover = true)
+            } else if (room != null) {
+                com.chencohen.ptt.ui.talk.RoomVideoView(room, box)
+            }
+        }
+    }
+}
+
+/** "+2 talking · Dana" under the group's live overlay: those live but not in view; a tap brings Dana into view. */
+@Composable
+private fun MoreTalking(count: Int, name: String, choose: () -> Unit) {
+    Text(
+        stringResource(R.string.talk_more_talking, count, android.text.BidiFormatter.getInstance().unicodeWrap(name)),
+        color = LibraryColors.OnInverse, style = LibraryType.Small.copy(textDirection = layoutTextDirection()), maxLines = 1,
+        modifier = Modifier.padding(4.dp).shadow(6.dp, CircleShape).background(LibraryColors.Inverse, CircleShape)
+            .clickable(role = Role.Button, onClick = choose).padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+}
+
+/**
  * The live row's stage: [sides] in reading order (theirs first), each ONE frame that is a voice pill ([pill], at its
  * own size) or a video box ([box], [boxHeight] high unless they must all shrink to fit) and grows from one to the
  * other. Every frame is placed by LiveLayout and moved by LiveMotion, in pixels from the left edge whatever the
@@ -282,6 +383,14 @@ internal fun LiveStage(
     modifier: Modifier = Modifier,
     ring: (LiveSide) -> Color,
     pill: @Composable (LiveSide) -> Unit,
+    /**
+     * A group (2026-11-25, hen: several people talking at once): the boxes in one row, equal widths, each [groupShape]
+     * wide for 1 high at most and cropped to fill; the pills under them, face only when the names don't fit; [chip]
+     * (the ones live but not in view) centred under all. Else (one to one) the row as it always was.
+     */
+    group: Boolean = false,
+    groupShape: Float = 3f / 4f,
+    chip: (@Composable () -> Unit)? = null,
     /** A box's inside, drawn in the frame: its picture's full size [w] × [h], and how far it is a box by now, 0 to 1. */
     box: @Composable androidx.compose.foundation.layout.BoxScope.(side: LiveSide, w: Dp, h: Dp, p: Float) -> Unit,
 ) {
@@ -293,6 +402,8 @@ internal fun LiveStage(
     val known = remember { HashMap<String, LiveSide>() }
     val boxes = remember { HashMap<String, Pair<Float, Float>>() }
     sides.forEach { known[it.key] = it }
+    val lastChip = remember { arrayOfNulls<@Composable () -> Unit>(1) }
+    if (chip != null) lastChip[0] = chip
     // Read below: the stage is laid out again on each frame of a move.
     val frame = remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -303,8 +414,20 @@ internal fun LiveStage(
         val top = with(density) { 8.dp.toPx() }
         val gap = with(density) { 6.dp.toPx() }
         frame.longValue
-        // A pill not measured yet (it is, a frame from now): the row waits for it, so nothing moves twice.
-        if (sides.all { it.video || pills[it.key] != null }) {
+        // A pill (or the chip) not measured yet (it is, a frame from now): the row waits for it, so nothing moves twice.
+        val chipSize = if (chip != null) pills[LiveGroupLayout.MORE] else null
+        if (group && sides.all { it.video || pills[it.key] != null } && (chip == null || chipSize != null)) {
+            val full = with(density) { boxHeight.toPx() }
+            val (bw, bh) = LiveGroupLayout.boxSize(sides.count { it.video }, full, groupShape, width - 2 * side, gap)
+            val slots = sides.map { s ->
+                if (s.video) LiveSlot(s.key, true).also { boxes[s.key] = bw to bh }
+                else pills.getValue(s.key).let { LiveSlot(s.key, false, it.width.toFloat(), it.height.toFloat()) }
+            }
+            motion.target(
+                LiveGroupLayout.place(slots, width - 2 * side, gap, full, groupShape, rtl, left = side, chip = chipSize?.let { it.width.toFloat() to it.height.toFloat() }),
+                offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() },
+            )
+        } else if (!group && sides.all { it.video || pills[it.key] != null }) {
             val h = LiveLayout.boxHeight(
                 with(density) { boxHeight.toPx() }, sides.filter { it.video }.map { it.shape },
                 sides.filter { !it.video }.map { pills.getValue(it.key).width.toFloat() }, width - 2 * side, gap,
@@ -333,10 +456,17 @@ internal fun LiveStage(
             }
         }
         val rects = motion.rects
-        val shown = (sides.map { it.key } + rects.keys).distinct()
+        val shown = (sides.map { it.key } + rects.keys).distinct().filter { it != LiveGroupLayout.MORE } + listOfNotNull(LiveGroupLayout.MORE.takeIf { chip != null || it in rects })
         androidx.compose.ui.layout.Layout(
             content = {
                 shown.forEach { k ->
+                    if (k == LiveGroupLayout.MORE) {
+                        // The chip, at its own size; as it last was while it goes up.
+                        androidx.compose.runtime.key(k) {
+                            Box(Modifier.wrapContentSize(unbounded = true).onSizeChanged { pills[k] = it }) { (chip ?: lastChip[0])?.invoke() }
+                        }
+                        return@forEach
+                    }
                     val s = known.getValue(k)
                     androidx.compose.runtime.key(k) {
                         val p = rects[k]?.video ?: if (s.video) 1f else 0f
@@ -351,7 +481,16 @@ internal fun LiveStage(
                             if ((s.video || p > 0f) && size != null) box(s, with(density) { size.first.toDp() }, with(density) { size.second.toDp() }, p)
                             if (!s.video || p < 1f) {
                                 // At its own size whatever the frame's, centred: the frame growing covers or uncovers it.
-                                Box(Modifier.wrapContentSize(unbounded = true).onSizeChanged { pills[k] = it }.graphicsLayer { alpha = 1f - p }) { pill(s) }
+                                // In a group, a frame narrower than the pill (face only: the names don't fit) keeps its face,
+                                // at the language's start side, in view: the pill slides to that edge, the frame covering
+                                // the words (less so as it grows into a box).
+                                val frameW = rects[k]?.w ?: 0f
+                                val pillW = pills[k]?.width?.toFloat() ?: 0f
+                                val slide = if (group && frameW in 0.5f..<pillW) (pillW - frameW) / 2 * (1f - p) * (if (rtl) -1 else 1) else 0f
+                                Box(
+                                    Modifier.wrapContentSize(unbounded = true).onSizeChanged { pills[k] = it }
+                                        .graphicsLayer { alpha = 1f - p; translationX = slide },
+                                ) { pill(s) }
                             }
                         }
                     }
