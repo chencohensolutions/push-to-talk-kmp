@@ -80,7 +80,7 @@ private fun LiveTag(text: String, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box(Modifier.size(8.dp).background(LibraryColors.Error, CircleShape))
-        Text(text, color = Color.White, style = LibraryType.Small, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        Text(text, color = Color.White, style = LibraryType.Small.copy(textDirection = layoutTextDirection()), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -184,7 +184,9 @@ internal fun LivePanel(
                 if (videos.first || tv != null) {
                     val side = tv ?: VoiceSide(theirUser, who ?: theirName, false, theirSince)
                     val ready = room != null || s != null
-                    LiveSlot(videos.first, ready, h * theirShape, h, side, listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · ")) { box ->
+                    // The pill grows once its picture's shape is known (2026-11-25, hen): until the first picture it
+                    // stays the pill, so the box never grows to a guessed size and then changes again.
+                    LiveSlot(videos.first && ready, ready, h * theirShape, h, side, listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · ")) { box ->
                         Box(box) {
                             if (room != null) com.chencohen.ptt.ui.talk.RoomVideoView(room, Modifier.fillMaxSize())
                             else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
@@ -292,11 +294,12 @@ private fun VoicePillRow(side: VoiceSide, ring: Color) {
         TalkingFace(side, ring)
         val time = elapsedSince(side.since)
         if (side.mine) {
-            Text("${side.name} · $time", color = LibraryColors.OnBackground, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), maxLines = 1)
+            Text("${side.name} · $time", color = LibraryColors.OnBackground, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textDirection = layoutTextDirection()), maxLines = 1)
         } else {
             Column {
-                Text(com.chencohen.ptt.genderedString(R.string.talk_someone, side.user, side.name), color = LibraryColors.OnBackground, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), maxLines = 1)
-                Text(time, color = LibraryColors.Muted, style = LibraryType.Tiny)
+                // The name wrapped, the line in the screen's direction: a Latin name doesn't turn a Hebrew line around.
+                Text(com.chencohen.ptt.genderedString(R.string.talk_someone, side.user, android.text.BidiFormatter.getInstance().unicodeWrap(side.name)), color = LibraryColors.OnBackground, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textDirection = layoutTextDirection()), maxLines = 1)
+                Text(time, color = LibraryColors.Muted, style = LibraryType.Tiny.copy(textDirection = layoutTextDirection()))
             }
         }
     }
@@ -488,3 +491,10 @@ private fun RoundToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, l
         contentAlignment = Alignment.Center,
     ) { androidx.compose.material3.Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(22.dp)) }
 }
+
+/** Text in the layout's own direction (not its first letter's): Hebrew lines stay right to left with a Latin name. */
+@Composable
+private fun layoutTextDirection(): androidx.compose.ui.text.style.TextDirection =
+    if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) androidx.compose.ui.text.style.TextDirection.Rtl
+    else androidx.compose.ui.text.style.TextDirection.Ltr
+

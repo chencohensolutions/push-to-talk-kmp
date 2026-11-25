@@ -357,7 +357,7 @@ object TalkBubble {
     private fun pickPreview() {
         val local = com.chencohen.ptt.talk.LiveTalkVideo.local.value
         val box = myBox
-        if (sendingVideo && local != null && box != null) {
+        if ((sendingVideo || goingLive) && local != null && box != null) {
             if (myRoomTrack !== local) {
                 dropMyRoomVideo()
                 val r = io.livekit.android.renderer.TextureViewRenderer(box.context)
@@ -607,9 +607,13 @@ object TalkBubble {
      * voice, who talks in the pill.
      */
     private fun refreshTop(context: Context) {
-        val theirsVideo = burstVideo && !topPutAway
+        // Their video shows once its first picture (and so its shape) is here: until then their pill stays, so the pill
+        // grows once, straight to the right size (2026-11-25, hen: "the video size aspect ratio that comes in delay").
+        val theirPicture = theirPictureReady(context)
+        val theirPillUp = theirPill?.view?.visibility == View.VISIBLE
+        val theirsVideo = burstVideo && !topPutAway && (theirPicture || !theirPillUp)
         val mine = sendingVideo || goingLive
-        val voice = !topPutAway && ((burstLive && !burstVideo) || (talking && !sendingVideo))
+        val voice = !topPutAway && ((burstLive && (!burstVideo || !theirsVideo)) || (talking && !sendingVideo))
         if (!theirsVideo && !mine && !voice) {
             // Nothing live for a moment (one push ending as the next starts): the window waits before it goes, so it
             // isn't taken away and brought back (2026-11-25, hen: "move up out of screen and down again").
@@ -648,9 +652,14 @@ object TalkBubble {
         // the box takes its exact size and place, then its frame grows to its own (300 ms); its corners stay round.
         val pw = pill.width
         val ph = pill.height
-        val h = topHeight(context)
+        // The box's own size first (its picture's shape is known by now), then the growth to it: one move.
+        morphing?.cancel()
+        morphing = null
+        shapeTop(context)
         val lp = box.layoutParams
+        val h = lp.height.takeIf { it > 0 } ?: topHeight(context)
         val w = lp.width.takeIf { it > 0 } ?: (h * 3 / 4)
+        wideWindow(context, true)
         pill.visibility = View.GONE
         morphing?.cancel()
         size(box, pw, ph)
@@ -664,10 +673,26 @@ object TalkBubble {
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     morphing = null
+                    wideWindow(context, false)
                 }
             })
             start()
         }
+    }
+
+    private var topParams: WindowManager.LayoutParams? = null
+
+    /**
+     * While the box grows (or shrinks), the top window is as wide as the screen with the content centred in it, so the
+     * window doesn't change width each frame and nudge the box sideways (2026-11-25, hen: "symmetrical, in one move").
+     */
+    private fun wideWindow(context: Context, on: Boolean) {
+        val window = topWindow ?: return
+        val params = topParams ?: return
+        val want = if (on) WindowManager.LayoutParams.MATCH_PARENT else WindowManager.LayoutParams.WRAP_CONTENT
+        if (params.width == want) return
+        params.width = want
+        runCatching { context.getSystemService(WindowManager::class.java).updateViewLayout(window, params) }
     }
 
     /** The pill-to-box growth running now: the boxes' sizes wait for it. */
@@ -679,6 +704,13 @@ object TalkBubble {
         pill.scaleY = 1.6f
         pill.alpha = 0f
         pill.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(SLIDE_MS).start()
+    }
+
+    /** Their video's first picture (its shape) is known: through the room, or from the clip. */
+    private fun theirPictureReady(context: Context): Boolean {
+        val talker = chat?.let { messagingState(context).value.talk.talkers[it] }
+        val room = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.arriving.value["${it.user}.${it.device}"] }
+        return room != null || com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value != null
     }
 
     /** The top window goes once nothing has been live for a moment. */
@@ -694,7 +726,7 @@ object TalkBubble {
 
     /** Who talks by voice: their pill (teal) and mine (coral), side by side when both. */
     private fun refreshVoice(context: Context) {
-        val theirVoice = burstLive && !burstVideo && !topPutAway
+        val theirVoice = burstLive && !topPutAway && (!burstVideo || theirBox?.visibility != View.VISIBLE && !theirPictureReady(context) && theirPill?.view?.visibility == View.VISIBLE)
         val myVoice = talking && !sendingVideo && !goingLive && !topPutAway
         theirPill?.show(context, if (theirVoice) from ?: "" else null, title)
         myPill?.show(context, if (myVoice) "" else null, title)
@@ -754,9 +786,11 @@ object TalkBubble {
                 val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
                 return "%d:%02d".format(s / 60, s % 60)
             }
-            theirTag?.text = "$title · ${clock(if (burstSince > 0) burstSince else System.currentTimeMillis())}"
+            theirTag?.text = "${android.text.BidiFormatter.getInstance().unicodeWrap(title)} · ${clock(if (burstSince > 0) burstSince else System.currentTimeMillis())}"
             useRoomVideo(window.context)
             showTheirFace(window.context)
+            // Their first picture came while their pill waited for it: now the pill grows into the box.
+            if (burstVideo && theirBox?.visibility != View.VISIBLE && theirPictureReady(window.context)) refreshTop(window.context)
             pickPreview()
             myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(if (runStarted > 0) runStarted else talkStarted)
             shapeTop(window.context)
@@ -873,6 +907,7 @@ object TalkBubble {
             theirFace = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
             addView(theirFace, FrameLayout.LayoutParams(dp(96), dp(96), Gravity.CENTER))
             theirTag = TextView(context).apply {
+                textDirection = View.TEXT_DIRECTION_LOCALE
                 setTextColor(Color.WHITE)
                 textSize = 12f
                 maxLines = 1
@@ -886,6 +921,7 @@ object TalkBubble {
             visibility = View.GONE
             addView(ownTexture(context) { s -> mySurface = s }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             myTag = TextView(context).apply {
+                textDirection = View.TEXT_DIRECTION_LOCALE
                 setTextColor(Color.WHITE)
                 textSize = 12f
                 maxLines = 1
@@ -943,6 +979,7 @@ object TalkBubble {
             title = "Talk video"
         }
         card.setOnTouchListener(TopTouch(context, wm, holder, params))
+        topParams = params
         try {
             wm.addView(holder, params)
         } catch (e: Exception) {
@@ -1048,6 +1085,7 @@ object TalkBubble {
         dropMyRoomVideo()
         roomLive = null
         topCard = null
+        topParams = null
         theirBox = null
         theirTag = null
         theirFace = null
@@ -1226,8 +1264,8 @@ object TalkBubble {
         private val ring = GlowRing(context).also { it.color = if (mine) PINK else TEAL }
         private val face = ImageView(context).apply { visibility = View.GONE; scaleType = ImageView.ScaleType.FIT_CENTER }
         private val letter = TextView(context).apply { setTextColor(Color.WHITE); textSize = 15f; gravity = Gravity.CENTER }
-        private val name = TextView(context).apply { setTextColor(Color.WHITE); textSize = 14f; maxLines = 1; setTypeface(typeface, android.graphics.Typeface.BOLD) }
-        private val time = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 12f }
+        private val name = TextView(context).apply { setTextColor(Color.WHITE); textSize = 14f; maxLines = 1; setTypeface(typeface, android.graphics.Typeface.BOLD); textDirection = View.TEXT_DIRECTION_LOCALE; textAlignment = View.TEXT_ALIGNMENT_VIEW_START }
+        private val time = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 12f; textDirection = View.TEXT_DIRECTION_LOCALE; textAlignment = View.TEXT_ALIGNMENT_VIEW_START }
         /** Whose face shows ("" mine); null: hidden. */
         var shown: String? = null
             private set
@@ -1259,7 +1297,9 @@ object TalkBubble {
                 return
             }
             view.visibility = View.VISIBLE
-            if (!mine) name.text = context.getString(R.string.talk_someone, title)
+            // In their own form (testbot set male: "testbot מדבר"), the name wrapped so a Latin name doesn't turn the
+            // Hebrew line around (2026-11-25, hen).
+            if (!mine) name.text = Gendered.string(context, R.string.talk_someone, user, android.text.BidiFormatter.getInstance().unicodeWrap(title))
             if (shown == user) return
             shown = user
             letter.text = (if (mine) context.getString(R.string.talk_panel_you) else title).take(1).uppercase()

@@ -79,10 +79,14 @@ class AndroidTalkVideoCapture(
 
     /** The Talk screen's preview: the camera draws into it too while warm (null: none). */
     fun setPreview(surface: Surface?) {
-        synchronized(lock) {
+        val live = synchronized(lock) {
             if (preview === surface) return
             preview = surface
+            liveTarget != null
         }
+        // While the talk room reads the camera the session has no preview output (its track is the preview): nothing to
+        // set up again, so the picture doesn't stop for a moment (2026-11-25: a new session at the slide up).
+        if (live) return
         handler?.post { configure() }
     }
 
@@ -108,7 +112,7 @@ class AndroidTalkVideoCapture(
      */
     fun clearPreview(surface: Surface, released: () -> Unit) {
         val current = synchronized(lock) {
-            (preview === surface).also { if (it) preview = null }
+            (preview === surface).also { if (it) preview = null } && liveTarget == null
         }
         val h = handler
         if (h == null) {
