@@ -64,6 +64,8 @@ internal class Groups(
     private val onProfile: (group: Group, author: String, profile: ProfileContent) -> Unit = { _, _, _ -> },
     private val onReaction: (group: Group, author: String, reaction: ReactionContent) -> Unit = { _, _, _ -> },
     private val onLiveWaiting: (group: Group, author: String, waiting: Boolean) -> Unit = { _, _, _ -> },
+    /** A member opened (or left) the group's chat: its talk room is joined quietly (Content.warm). */
+    private val onWarm: (group: Group, author: String, open: Boolean) -> Unit = { _, _, _ -> },
     private val attempts: Int = 3,
 ) {
     private fun self(): EnrolledDevice = me() ?: throw IllegalStateException("This phone isn't registered")
@@ -436,6 +438,7 @@ internal class Groups(
         content.profile?.let { onProfile(group, author, it) }
         content.reaction?.let { onReaction(group, author, it) }
         content.liveWaiting?.let { onLiveWaiting(group, author, it.open) }
+        content.warm?.let { onWarm(group, author, it.open) }
         content.receipt?.takeIf { it.read && author != self.user }?.let { onRead(group, author, it.ids) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }
         content.talkKey?.let { onTalkKey("$author.${envelope.senderDevice}", it) }

@@ -23,6 +23,8 @@ import com.chencohen.ptt.talk.Talk
 import com.chencohen.ptt.talk.TalkPrefs
 import com.chencohen.ptt.talk.TalkUiState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -258,9 +260,73 @@ internal class Messaging(
     /** The conversation on screen, whose texts are read as they come in; null when none is. */
     var openChat: String? = null
         set(value) {
+            val was = field
             field = value
             updateViewing()
+            if (was != value) {
+                was?.let { sendWarm(it, false) }
+                value?.let { sendWarm(it, true) }
+            }
         }
+
+    /** The chat this phone said it opened (Content.warm), and its refresh while it stays open. */
+    private var warmSent: String? = null
+    private var warmRefresh: Job? = null
+
+    /**
+     * Tells [chat]'s other phones this user opened it ([open]: they join its talk room quietly; again every 5 min while
+     * it stays open and the app is in front) or left it (2026-11-24, hen: the silent warm-up). Pushed as PUSH_WARM, so
+     * a sleeping phone wakes for it without showing anything; not to a blocked or unpaired contact.
+     */
+    private fun sendWarm(chat: String, open: Boolean) {
+        // Only with a room to warm (the app's LiveKit; not in tests).
+        if ((!LIVE_TALK_VIDEO && !LIVE_TALK_AUDIO) || live.transport == null) return
+        if (open) {
+            warmSent = chat
+            warmRefresh?.cancel()
+            warmRefresh = scope.launch {
+                while (true) {
+                    sendWarmNow(chat, true)
+                    delay(WARM_REFRESH)
+                    if (!foreground || openChat != chat) break
+                }
+            }
+        } else if (warmSent == chat) {
+            warmSent = null
+            warmRefresh?.cancel()
+            scope.launch { sendWarmNow(chat, false) }
+        }
+    }
+
+    private suspend fun sendWarmNow(chat: String, open: Boolean) {
+        try {
+            kotlinx.coroutines.withTimeoutOrNull(30_000) { socket.state.first { it is SocketState.Live } } ?: return
+            val content = Content(warm = ViewingContent(open))
+            Group.idOf(chat)?.let { id ->
+                groups.send(id, content, if (open) PushKind.WARM else PushKind.NONE)
+                return
+            }
+            val contact = store.contact(chat)?.takeIf { it.paired && !it.blocked } ?: return
+            sender.send(contact.user, content, pushKind = if (open) PushKind.WARM else PushKind.NONE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Someone opened ([open]) or left [chat] (Content.warm): its room is joined quietly, or let go as usual. */
+    internal fun takeWarm(chat: String, open: Boolean) {
+        if (!LIVE_TALK_VIDEO && !LIVE_TALK_AUDIO) return
+        if (open) {
+            if (live.warm(chat)) host?.warm(chat, true)
+        } else {
+            live.cool(chat)
+            host?.warm(chat, false)
+        }
+    }
+
+    /** The Android side: a quiet foreground service keeps the process while warm (TalkReadyService). */
+    var host: WarmHost? = null
 
     /**
      * The quick-reply window's chat once its user has answered there (2026-11-24, hen): from then on what comes in is
@@ -415,6 +481,7 @@ internal class Messaging(
         onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
         onViewing = { group, author, open -> if (author != device()?.user) takeViewing(typingKey(group.chat, author), open) },
         onLiveWaiting = { group, author, waiting -> if (author != device()?.user) takeLiveWaiting(typingKey(group.chat, author), waiting) },
+        onWarm = { group, author, open -> if (author != device()?.user) takeWarm(group.chat, open) },
         onReaction = { group, author, reaction -> takeReaction(group.chat, if (author == device()?.user) null else author, reaction) },
         onProfile = { _, author, profile -> if (author != device()?.user) takePicture(author, profile, contact = store.contact(author)?.paired == true) },
         onTyping = { group, author, typing ->
@@ -556,7 +623,17 @@ internal class Messaging(
     fun stop() {
         foreground = false
         updateViewing()
-        if (!stayConnected && !talk.busy) socket.stop()
+        // The app left: the warmed phones are told (then the connection closes, unless something keeps it).
+        val warm = warmSent
+        if (warm != null) {
+            sendWarm(warm, false)
+            scope.launch {
+                delay(1_500)
+                if (!foreground && !stayConnected && !talk.busy && live.warmFor() <= now()) socket.stop()
+            }
+            return
+        }
+        if (!stayConnected && !talk.busy && live.warmFor() <= now()) socket.stop()
     }
 
     /**
@@ -586,6 +663,10 @@ internal class Messaging(
                 kotlinx.coroutines.delay(500)
             }
         }
+        // Warmed (someone has this chat open): the connection and the room stay, quietly, until they leave it, its
+        // refresh stops coming, or nobody talks for 10 minutes.
+        while (!foreground && live.warmFor() > now()) kotlinx.coroutines.delay(1_000)
+        host?.warm(null, false)
         if (!foreground && !stayConnected) socket.stop()
     }
 
@@ -2017,6 +2098,7 @@ internal class Messaging(
         }
         content.viewing?.let { takeViewing(contact.user, it.open) }
         content.liveWaiting?.let { takeLiveWaiting(contact.user, it.open) }
+        if (!contact.blocked) content.warm?.let { takeWarm(contact.user, it.open) }
         content.here?.let { here ->
             // From when the server took it: one that waited (this phone was away) is already over.
             val until = minOf(now(), envelope.serverTimestamp.takeIf { it > 0 } ?: now()) + HERE_FOR
@@ -2071,6 +2153,9 @@ internal class Messaging(
     companion object {
         /** A woken phone stays connected this long after the last burst it played, so a reply can follow. */
         const val TALK_REPLY_WAIT = 20_000L
+
+        /** How often an open chat says so again (Content.warm), while the app is in front. */
+        const val WARM_REFRESH = 5 * 60_000L
 
         /** The longest a talk wake-up keeps the connection. */
         const val TALK_WAKE_LIMIT = 120_000L
@@ -2133,3 +2218,9 @@ internal const val LIVE_TALK_AUDIO = false
  * for live talk, but carries only the camera; the voice stays on the clip path (LIVE_TALK_AUDIO).
  */
 internal const val LIVE_TALK_VIDEO = true
+
+/** The silent warm-up's Android side (2026-11-24, hen): a quiet foreground service keeps the process while warm. */
+interface WarmHost {
+    /** [chat] warmed this phone ([on]), or the warm-up ended ([chat] null: all). Shows nothing, lights nothing. */
+    fun warm(chat: String?, on: Boolean)
+}

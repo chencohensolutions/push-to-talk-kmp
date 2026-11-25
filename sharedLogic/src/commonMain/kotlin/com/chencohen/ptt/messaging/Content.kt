@@ -56,6 +56,12 @@ internal data class Content(
      * waiting their turn; false when they stopped. Live only. Older apps skip it.
      */
     @ProtoNumber(23) val liveWaiting: ViewingContent? = null,
+    /**
+     * The sender opened this chat ([ViewingContent.open]; again every few minutes while it stays open) or left it
+     * (2026-11-24, hen): the phone joins the chat's talk room quietly, so a push that follows starts at once. Pushed
+     * as PUSH_WARM when open. Older apps skip it.
+     */
+    @ProtoNumber(24) val warm: ViewingContent? = null,
 )
 
 /** One expression of the sender's face ([code]: Expression code), a small WebP with alpha. */

@@ -113,8 +113,45 @@ internal class LiveTalk(
     private var leaving: Job? = null
     private var onScreen: String? = null
     private var lastBurst = 0L
+    /** Warmed (someone opened the chat): its room is kept until then (the sender refreshes it while open). */
+    private var warmChat: String? = null
+    private var warmUntil = 0L
+    private var warmSince = 0L
+    /** When this phone joined its current room: whether it was in already when a burst started (the readout). */
+    var joinedAt = 0L
+        private set
     private var liveOn: Boolean? = null
     private val startedAt = mutableMapOf<String, Long>()
+
+    /**
+     * Someone opened [chat] (2026-11-24, hen: the silent warm-up): its room is joined quietly and kept for
+     * WARM_FOR after each refresh, until [cool], and never past WARM_IDLE without a burst (battery: a room nobody talks
+     * in is let go; the next chat open or burst warms it again). True when it took.
+     */
+    fun warm(chat: String): Boolean {
+        val t = now()
+        val fresh = warmChat != chat || t >= warmUntil
+        if (!fresh && t - maxOf(warmSince, lastBurst) >= WARM_IDLE) return false
+        if (fresh) warmSince = t
+        warmChat = chat
+        warmUntil = t + WARM_FOR
+        scope.launch { enter(chat) }
+        return true
+    }
+
+    /** [chat]'s warm-up is over (they left the chat): its room goes as usual (60 s after the last burst). */
+    fun cool(chat: String) {
+        if (warmChat != chat) return
+        warmChat = null
+        warmUntil = 0
+        leaveLater()
+    }
+
+    /** Until when this phone stays warm (0: not warm), counting the idle cut-off. */
+    fun warmFor(): Long {
+        if (warmChat == null) return 0
+        return minOf(warmUntil, maxOf(warmSince, lastBurst) + WARM_IDLE)
+    }
 
     /** The chat on screen (a conversation, or its Talk mode); null when none is. Its room is joined. */
     fun show(chat: String?) {
@@ -192,6 +229,7 @@ internal class LiveTalk(
             if (!t.join(origin(serverUrl()), token.token, token.identity, key, ownIndex)) return
             keys.forEach { (who, k) -> t.setKey(who, k.first, k.second) }
             _state.update { it.copy(room = chat) }
+            joinedAt = now()
             sendKey(chat)
             leaveLater()
         } catch (e: CancellationException) {
@@ -221,7 +259,7 @@ internal class LiveTalk(
         leaving = scope.launch {
             while (true) {
                 delay(STAY_AFTER_BURST)
-                if (onScreen != room && now() - lastBurst >= STAY_AFTER_BURST) break
+                if (onScreen != room && now() - lastBurst >= STAY_AFTER_BURST && (warmChat != room || now() >= warmFor())) break
             }
             transport?.leave()
             _state.update { it.copy(room = null) }
@@ -260,6 +298,12 @@ internal class LiveTalk(
 
         /** How long the room is kept after the last burst once the conversation is off screen. */
         const val STAY_AFTER_BURST = 60_000L
+
+        /** A warm-up lasts this long after each refresh (the sender refreshes it every 5 min while the chat is open). */
+        const val WARM_FOR = 6 * 60_000L
+
+        /** A warm room nobody talks in is let go after this (2026-11-24, hen: battery). */
+        const val WARM_IDLE = 10 * 60_000L
 
         /** How long a video burst waits for the room to be joined before its pictures go by the clips only. */
         const val JOIN_WAIT = 3_000

@@ -150,7 +150,8 @@ private fun hub(context: Context): Messaging {
             }.collect { (talkers, room, shown) ->
                 talkers.forEach { t ->
                     room["${t.user}.${t.device}"]?.let { live ->
-                        if (said.add("room:" + t.clip) && live.firstFrameAt >= t.since - 5_000) android.util.Log.i("TalkDelay", "LiveKit first picture +${live.firstFrameAt - t.since} ms (${t.user}, ${t.clip.take(8)})")
+                        val before = messaging.live.joinedAt in 1..t.since
+                        if (said.add("room:" + t.clip) && live.firstFrameAt >= t.since - 5_000) android.util.Log.i("TalkDelay", "LiveKit first picture +${live.firstFrameAt - t.since} ms (${t.user}, ${t.clip.take(8)}; ${if (before) "in the room before the push" else "joined the room for it"})")
                     }
                     if (shown?.clip == t.clip && said.add("clip:" + t.clip)) android.util.Log.i("TalkDelay", "clips first picture +${System.currentTimeMillis() - t.since} ms (${t.user}, ${t.clip.take(8)})")
                 }
@@ -178,6 +179,11 @@ fun setMessageNotifier(context: Context, notifier: MessageNotifier) {
 /** Who plays talk when the app isn't on screen (a Telecom talk session) and shows talk notifications. */
 fun setTalkHost(context: Context, host: com.chencohen.ptt.talk.TalkHost) {
     hub(context).talk.host = host
+}
+
+/** Who keeps the process, quietly, while another phone has a chat with this one open (the silent warm-up). */
+fun setWarmHost(context: Context, host: com.chencohen.ptt.messaging.WarmHost) {
+    hub(context).host = host
 }
 
 /** Who rings and keeps the call session (phase 6). */
