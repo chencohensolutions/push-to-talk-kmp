@@ -162,8 +162,14 @@ interface TalkPrefs {
     /** The user chose Notify only for [chat] in When I'm away. */
     fun notifyOnly(chat: String): Boolean
 
-    /** Settings › Talk › Unmute for incoming talk (TalkUnmute). */
+    /** Settings › Talk › Talk volume, on (TalkLoudness). */
     val unmute: Boolean get() = false
+
+    /** Settings › Talk › Talk volume's level, a share of the most (TalkLoudness). */
+    val talkVolume: Double get() = TalkLoudness.DEFAULT_SHARE
+
+    /** The volume keys set a new Talk volume while a push was heard. */
+    fun saveTalkVolume(share: Double) {}
 
     /** Settings › Talk › Lower other audio while someone talks (TalkDuck). */
     val lowerOthers: Boolean get() = true
@@ -217,13 +223,13 @@ internal class Talk(
     var player: TalkPlayer? = null
     var host: TalkHost? = null
 
-    /** The media volume, for Unmute for incoming talk; null: left alone. */
+    /** The media volume, for the Talk volume (TalkLoudness); null: left alone. */
     var volume: TalkVolume? = null
-    private val unmute = TalkUnmute({ volume }, { prefs.unmute })
+    private val loudness = TalkLoudness({ volume }, { prefs.unmute }, { prefs.talkVolume }, { prefs.saveTalkVolume(it) })
 
-    /** Other apps' sound, dimmed while someone is heard live (TalkDuck); null: left alone. */
+    /** Other apps' sound, dimmed while someone is heard (TalkDuck); null: left alone. */
     var duck: AudioDuck? = null
-    private val dimmer = TalkDuck(scope) { duck?.takeIf { prefs.lowerOthers } }
+    private val dimmer = TalkDuck(scope, { duck?.takeIf { prefs.lowerOthers } }, { loudness.begin() }, { loudness.end() })
 
     /** Other apps are dimmed for a push heard live now (TalkDuck). */
     val ducking: Boolean get() = dimmer.holding
@@ -693,7 +699,7 @@ internal class Talk(
                 scope.launch {
                     delay(STALE_TALKER_MS)
                     _state.update { st -> st.withoutTalker(s.burstId) }
-                    dimmer.quiet(s.burstId)
+                    dimmer.quiet("live:${s.burstId}")
                 }
                 val self = me() ?: return
                 // Another phone of this user talking: shown, not played.
@@ -707,7 +713,7 @@ internal class Talk(
             TalkEvent.ENDED -> {
                 val talker = _state.value.talking[chat]?.firstOrNull { it.clip == s.burstId } ?: _state.value.talkers[chat]?.takeIf { it.clip == s.burstId }
                 _state.update { state -> state.withoutTalker(s.burstId) }
-                dimmer.quiet(s.burstId)
+                dimmer.quiet("live:${s.burstId}")
                 // Heard live (LiveKit): heard, and, with no clip stream counted, as long as the floor was held.
                 if (talker != null) {
                     store.message(s.burstId)?.let { m ->
@@ -936,7 +942,7 @@ internal class Talk(
                 burst.heardLive = true
                 live?.heard(waited)
                 // Others' music dims while it's heard (2026-11-25, hen).
-                dimmer.heard(burst.id)
+                dimmer.heard("live:${burst.id}")
                 // Heard through the room, the app off screen: the same as a burst that plays (the talk session or
                 // Talk ready for its sound, the floating window) (2026-11-25, hen: "i didn't see the testbot push").
                 if (!awake()) runCatching { host?.prepareToPlay(burst.chat, burst.from) }
@@ -991,7 +997,8 @@ internal class Talk(
 
     private fun start(burst: Incoming) {
         val player = player ?: return
-        unmute.begin()
+        // Heard while it plays (a played burst's end is its playback's, not its floor's).
+        dimmer.heard("play:${burst.id}")
         burst.playing = true
         _state.update { it.copy(playing = NowPlaying(burst.chat, burst.id, burst.from, live = true, video = burst.video), queued = it.queued - burst.id) }
         if (burst.video) videoOut?.begin(burst.id)
@@ -1033,7 +1040,7 @@ internal class Talk(
         if (burst.next <= last) return
         if (burst.playing) burst.playback?.finish()
         if (burst.heardLive && burst.video && !burst.playing) videoOut?.end(burst.id)
-        if (burst.heardLive) dimmer.quiet(burst.id)
+        if (burst.heardLive) dimmer.quiet("live:${burst.id}")
         keep(burst)
     }
 
@@ -1129,9 +1136,10 @@ internal class Talk(
         _state.value.playing?.takeIf { it.video }?.let { videoOut?.end(it.clip) }
         historyPlayback?.stop()
         historyPlayback = null
-        _state.value.playing?.let { bursts[it.clip]?.playback?.stop() }
+        val stopped = _state.value.playing?.clip
+        stopped?.let { bursts[it]?.playback?.stop() }
         _state.update { it.copy(playing = null, queued = emptyList()) }
-        unmute.end()
+        stopped?.let { dimmer.quiet("play:$it") }
     }
 
     private fun progress(id: String, played: Long, behind: Long) {
@@ -1140,6 +1148,7 @@ internal class Talk(
     }
 
     private fun done(id: String) {
+        dimmer.quiet("play:$id")
         if (_state.value.playing?.let { it.clip == id && it.video } == true) videoOut?.end(id)
         bursts[id]?.let {
             it.playing = false
@@ -1155,7 +1164,6 @@ internal class Talk(
         if (next != null) {
             start(next)
         } else {
-            unmute.end()
             host?.idle()
         }
     }

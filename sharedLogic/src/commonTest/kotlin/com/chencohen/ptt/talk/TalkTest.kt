@@ -226,7 +226,7 @@ class TalkTest {
     }
 
     @Test
-    fun anIncomingBurstUnmutesTheMediaVolumeWhileItPlays() = runTest {
+    fun anIncomingBurstPlaysAtTheTalkVolumeThenTheOldOneComesBack() = runTest {
         val (_, hen, dana) = paired()
         val volume = FakeVolume()
         dana.talk.volume = volume
@@ -234,7 +234,7 @@ class TalkTest {
         advanceUntilIdle()
         hen.mic.say(0, 10)
         advanceUntilIdle()
-        assertEquals(9, volume.now, "turned up while hen talks (on by default)")
+        assertEquals(12, volume.now, "turned up while hen talks (on by default): ${volume.sets}")
         hen.work.launch { hen.talk.release() }
         advanceUntilIdle()
         assertEquals(0, volume.now, "back off once it played")
@@ -247,7 +247,7 @@ class TalkTest {
         advanceUntilIdle()
         hen.work.launch { hen.talk.release() }
         advanceUntilIdle()
-        assertEquals(listOf(9, 0), volume.sets)
+        assertEquals(listOf(12, 0), volume.sets)
         hen.stop()
         dana.stop()
     }

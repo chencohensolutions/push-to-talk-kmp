@@ -24,7 +24,7 @@ class TalkDuckTest {
     @Test
     fun aHeardPushDimsTheOthersUntilTwoSecondsAfterItEnds() = runTest {
         val duck = FakeDuck()
-        val dimmer = TalkDuck(backgroundScope) { duck }
+        val dimmer = TalkDuck(backgroundScope, { duck }, {}, {})
         dimmer.heard("hen-burst-1")
         assertEquals(listOf("take"), duck.calls)
         dimmer.quiet("hen-burst-1")
@@ -41,7 +41,7 @@ class TalkDuckTest {
     @Test
     fun aNewPushWithinTheTwoSecondsKeepsItDown() = runTest {
         val duck = FakeDuck()
-        val dimmer = TalkDuck(backgroundScope) { duck }
+        val dimmer = TalkDuck(backgroundScope, { duck }, {}, {})
         dimmer.heard("hen-burst-1")
         dimmer.quiet("hen-burst-1")
         advanceTimeBy(1_500)
@@ -58,7 +58,7 @@ class TalkDuckTest {
     @Test
     fun twoTalkersAtOnceKeepItDownUntilBothEnd() = runTest {
         val duck = FakeDuck()
-        val dimmer = TalkDuck(backgroundScope) { duck }
+        val dimmer = TalkDuck(backgroundScope, { duck }, {}, {})
         dimmer.heard("hen-burst-1")
         dimmer.heard("testbot-burst-2")
         dimmer.quiet("hen-burst-1")
@@ -74,7 +74,7 @@ class TalkDuckTest {
     @Test
     fun anEndForAnUnknownOrRepeatedBurstChangesNothing() = runTest {
         val duck = FakeDuck()
-        val dimmer = TalkDuck(backgroundScope) { duck }
+        val dimmer = TalkDuck(backgroundScope, { duck }, {}, {})
         dimmer.quiet("hen-burst-1")
         dimmer.heard("hen-burst-1")
         dimmer.quiet("hen-burst-1")
@@ -87,7 +87,7 @@ class TalkDuckTest {
     @Test
     fun aRefusedDuckStillLetsTalkPlayAndIsntAskedAgainEachBurst() = runTest {
         val duck = FakeDuck(grant = false)
-        val dimmer = TalkDuck(backgroundScope) { duck }
+        val dimmer = TalkDuck(backgroundScope, { duck }, {}, {})
         dimmer.heard("hen-burst-1")
         dimmer.heard("testbot-burst-2")
         assertEquals(listOf("take"), duck.calls)
@@ -97,7 +97,7 @@ class TalkDuckTest {
     fun turnedOffNothingIsAsked() = runTest {
         val duck = FakeDuck()
         var lowerOthers = false
-        val dimmer = TalkDuck(backgroundScope) { duck.takeIf { lowerOthers } }
+        val dimmer = TalkDuck(backgroundScope, { duck.takeIf { lowerOthers } }, {}, {})
         dimmer.heard("hen-burst-1")
         dimmer.quiet("hen-burst-1")
         advanceTimeBy(TalkDuck.RELEASE_AFTER_MS + 1)
@@ -112,7 +112,7 @@ class TalkDuckTest {
     fun turnedOffWhileDownItStillComesBack() = runTest {
         val duck = FakeDuck()
         var lowerOthers = true
-        val dimmer = TalkDuck(backgroundScope) { duck.takeIf { lowerOthers } }
+        val dimmer = TalkDuck(backgroundScope, { duck.takeIf { lowerOthers } }, {}, {})
         dimmer.heard("hen-burst-1")
         lowerOthers = false
         dimmer.quiet("hen-burst-1")
@@ -124,7 +124,7 @@ class TalkDuckTest {
     @Test
     fun leavingTheRoomGivesItBackAtOnce() = runTest {
         val duck = FakeDuck()
-        val dimmer = TalkDuck(backgroundScope) { duck }
+        val dimmer = TalkDuck(backgroundScope, { duck }, {}, {})
         dimmer.heard("hen-burst-1")
         dimmer.clear()
         assertEquals(listOf("take", "release"), duck.calls)

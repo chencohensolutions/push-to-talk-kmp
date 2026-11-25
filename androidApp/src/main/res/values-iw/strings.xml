@@ -682,10 +682,13 @@
     <string name="overlay_ask_body">כשהטלפון בשימוש, החלון הצף מראה מי מדבר אליכם עם כפתור "לדבר", ו־Talk יכול להדליק את המסך כשמדברים אליכם. Android מבקש לאשר פעם אחת ש־Talk יוצג מעל אפליקציות אחרות.</string>
     <string name="overlay_ask_allow">לאשר</string>
     <string name="overlay_ask_later">לא עכשיו</string>
-    <string name="talk_unmute">הפעלת השמע כשמדברים אליי</string>
+    <string name="talk_volume">עוצמת הדיבור</string>
+    <string name="talk_volume_body">כשמישהו מדבר אליכם, עוצמת המדיה נקבעת לרמה הזו, והעוצמה שלכם חוזרת שתי שניות אחרי שהוא מסיים. מקשי העוצמה בזמן הדיבור משנים אותה. לא במצב נא לא להפריע ולא בזמן שיחה.</string>
+    <string name="talk_volume_level">%1$d%% מעוצמת המדיה</string>
+    <string name="talk_boost">הגברת הקול</string>
+    <string name="talk_boost_body">הדיבור הנכנס נשמע חזק עד פי שניים בתוך האפליקציה, בלי עיוות. עוצמת המערכת לא משתנה.</string>
     <string name="talk_lower_others">הנמכת הקול באפליקציות אחרות כשמדברים אליי</string>
     <string name="talk_lower_others_body">מוזיקה וסרטונים באפליקציות אחרות נשמעים חלש יותר בזמן שמישהו מדבר אליכם, וחוזרים לעוצמה הרגילה שתי שניות אחרי שהוא מסיים.</string>
-    <string name="talk_unmute_body">כשמישהו מדבר אליכם ועוצמת המדיה כבויה, היא עולה ל־60% בזמן שהוא מדבר, ואחר כך נכבית שוב. לא במצב נא לא להפריע.</string>
     <string name="quick_reply_open">פתיחת השיחה</string>
     <string name="quick_reply_close">סגירה</string>
     <string name="quick_reply_hint">תשובה</string>

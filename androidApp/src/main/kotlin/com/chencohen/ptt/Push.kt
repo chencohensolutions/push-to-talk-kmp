@@ -45,6 +45,7 @@ class TalkApp : Application() {
         setCallHost(this, AndroidCallHost(this))
         // The room heard from the background without media rights: as call audio (TalkAudio.playAsCall).
         com.chencohen.ptt.talk.TalkAudio.playAsCall = { !TalkReadyService.appOnScreen() && !TalkReadyService.withRights }
+        com.chencohen.ptt.talk.TalkAudio.boost = { messagingState(this).value.talkSettings.boostVoice }
         // The silent warm-up (2026-11-24, hen): someone opened a chat with this user; the room is joined quietly, the
         // process kept by Talk's quiet service (its notification is the least important and silent; nothing lights).
         setWarmHost(this, object : com.chencohen.ptt.messaging.WarmHost {

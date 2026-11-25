@@ -138,8 +138,12 @@ data class TalkSettings(
     val pushVideo: Boolean = false,
     /** The reply bubble shows a burst's video (on by default; its Video switch turns it off). */
     val bubbleVideo: Boolean = true,
-    /** Settings › Talk › Unmute for incoming talk (on by default; TalkUnmute). */
+    /** Settings › Talk › Talk volume, on (on by default; TalkLoudness). */
     val unmuteForTalk: Boolean = true,
+    /** Settings › Talk › Talk volume's level, a share of the media volume's most (TalkLoudness). */
+    val talkVolume: Double = com.chencohen.ptt.talk.TalkLoudness.DEFAULT_SHARE,
+    /** Settings › Talk › Boost voice (off by default; VoiceBoost). */
+    val boostVoice: Boolean = false,
     /** Settings › Talk › Lower other audio while someone talks (on by default; TalkDuck). */
     val lowerOthersForTalk: Boolean = true,
     /** Settings › Calls › Ringtone: Talk's soft chime (the default; 2026-11-22, hen), or the phone's own ringtone. */
@@ -596,6 +600,11 @@ internal class Messaging(
             override fun notifyOnly(chat: String): Boolean = chat in settings.notifyOnlyChats
 
             override val unmute: Boolean get() = settings.unmuteForTalk
+            override val talkVolume: Double get() = settings.talkVolume
+            override fun saveTalkVolume(share: Double) {
+                settings.talkVolume = share
+                _state.update { it.copy(talkSettings = it.talkSettings.copy(talkVolume = share)) }
+            }
             override val lowerOthers: Boolean get() = settings.lowerOthersForTalk
         },
         publish = ::publish,
@@ -777,6 +786,8 @@ internal class Messaging(
         bubbleVideo = settings.bubbleVideo,
         unmuteForTalk = settings.unmuteForTalk,
         lowerOthersForTalk = settings.lowerOthersForTalk,
+        talkVolume = settings.talkVolume,
+        boostVoice = settings.boostVoice,
         softRing = settings.softRing,
         softMessage = settings.softMessage,
         video60 = settings.video60,
@@ -817,6 +828,8 @@ internal class Messaging(
         settings.bubbleVideo = talk.bubbleVideo
         settings.unmuteForTalk = talk.unmuteForTalk
         settings.lowerOthersForTalk = talk.lowerOthersForTalk
+        settings.talkVolume = talk.talkVolume
+        settings.boostVoice = talk.boostVoice
         settings.softRing = talk.softRing
         settings.softMessage = talk.softMessage
         settings.video60 = talk.video60

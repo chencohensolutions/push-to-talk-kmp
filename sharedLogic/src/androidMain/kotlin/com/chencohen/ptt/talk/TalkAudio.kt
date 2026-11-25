@@ -19,6 +19,10 @@ object TalkAudio {
     @Volatile
     var playAsCall: () -> Boolean = { false }
 
+    /** Settings › Talk › Boost voice (VoiceBoost): incoming talk's own gain. Set by the app. */
+    @Volatile
+    var boost: () -> Boolean = { false }
+
     /** The voice playing now and the microphone's, 0 to 1 (VoiceLevel.fromRms), for the talk button; 0 when quiet. */
     @Volatile
     var playLevel: Float = 0f

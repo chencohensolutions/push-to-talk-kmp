@@ -15,12 +15,18 @@ interface AudioDuck {
 }
 
 /**
- * Dims other apps while someone else's push is heard in the live room (2026-11-25, hen: "Sharon now listen to audio on
+ * Dims other apps while someone else's push is heard (played, or live in the room) (2026-11-25, hen: "Sharon now listen to audio on
  * other app and barely hear me"): the first heard burst takes the duck, and it goes back [RELEASE_AFTER_MS] after the
  * last heard one ends, so a new push right after keeps the music down instead of bouncing it. A refused duck isn't
  * asked again until it was released. Own pushes never come here.
  */
-class TalkDuck(private val scope: CoroutineScope, private val duck: () -> AudioDuck?) {
+class TalkDuck(
+    private val scope: CoroutineScope,
+    private val duck: () -> AudioDuck?,
+    /** Talk starts / stops being heard, on the same timing (TalkLoudness: the Talk volume). */
+    private val onHeard: () -> Unit,
+    private val onQuiet: () -> Unit,
+) {
     private val heard = mutableSetOf<String>()
     private var held = false
     /** The one taken (given back even if the setting was turned off meanwhile). */
@@ -37,6 +43,7 @@ class TalkDuck(private val scope: CoroutineScope, private val duck: () -> AudioD
         releasing = null
         if (held) return
         held = true
+        runCatching { onHeard() }
         val d = duck() ?: return
         if (runCatching { d.take() }.getOrDefault(false)) taken = d
     }
@@ -63,6 +70,7 @@ class TalkDuck(private val scope: CoroutineScope, private val duck: () -> AudioD
     private fun release() {
         if (!held) return
         held = false
+        runCatching { onQuiet() }
         val d = taken ?: return
         taken = null
         runCatching { d.release() }

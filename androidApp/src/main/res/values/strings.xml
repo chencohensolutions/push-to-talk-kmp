@@ -679,10 +679,13 @@
     <string name="overlay_ask_body">While you use the phone, the floating window shows who is talking to you with a Talk button, and Talk can turn the screen on when someone talks. Android asks you to allow Talk over other apps once.</string>
     <string name="overlay_ask_allow">Allow</string>
     <string name="overlay_ask_later">Not now</string>
-    <string name="talk_unmute">Unmute for incoming talk</string>
+    <string name="talk_volume">Talk volume</string>
+    <string name="talk_volume_body">While someone talks to you, the media volume is set to this level, and your own comes back 2 seconds after. The volume keys during a push change it. Not in Do Not Disturb or a call.</string>
+    <string name="talk_volume_level">%1$d%% of the media volume</string>
+    <string name="talk_boost">Boost voice</string>
+    <string name="talk_boost_body">Make incoming talk up to twice as loud inside the app, without clipping. The system volume isn\'t changed.</string>
     <string name="talk_lower_others">Lower other audio while someone talks</string>
     <string name="talk_lower_others_body">Music and videos in other apps get quieter while you hear someone, and come back 2 seconds after they stop.</string>
-    <string name="talk_unmute_body">When someone talks to you and the media volume is off, turn it up to 60% while they talk, then back off. Not in Do Not Disturb.</string>
     <string name="quick_reply_open">Open the chat</string>
     <string name="quick_reply_close">Close</string>
     <string name="quick_reply_hint">Reply</string>

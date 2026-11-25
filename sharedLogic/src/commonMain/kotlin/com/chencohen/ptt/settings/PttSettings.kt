@@ -213,10 +213,20 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_BUBBLE_VIDEO) != "false"
         set(value) = store.putString(KEY_BUBBLE_VIDEO, value.toString())
 
-    /** Settings › Talk › Unmute for incoming talk: on unless turned off (2026-11-22, hen). */
+    /** Settings › Talk › Talk volume (was Unmute for incoming talk): on unless turned off (2026-11-22, hen). */
     var unmuteForTalk: Boolean
         get() = store.getString(KEY_UNMUTE_FOR_TALK) != "false"
         set(value) = store.putString(KEY_UNMUTE_FOR_TALK, value.toString())
+
+    /** Settings › Talk › Talk volume's level, a share of the media volume's most (2026-11-25, hen; TalkLoudness). */
+    var talkVolume: Double
+        get() = store.getString(KEY_TALK_VOLUME)?.toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: com.chencohen.ptt.talk.TalkLoudness.DEFAULT_SHARE
+        set(value) = store.putString(KEY_TALK_VOLUME, value.coerceIn(0.0, 1.0).toString())
+
+    /** Settings › Talk › Boost voice: off unless turned on (2026-11-25, hen; VoiceBoost). */
+    var boostVoice: Boolean
+        get() = store.getString(KEY_BOOST_VOICE) == "true"
+        set(value) = store.putString(KEY_BOOST_VOICE, value.toString())
 
     /** Settings › Talk › Lower other audio while someone talks: on unless turned off (2026-11-25, hen; TalkDuck). */
     var lowerOthersForTalk: Boolean
@@ -314,6 +324,8 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
         private const val KEY_LOWER_OTHERS_FOR_TALK = "lower_others_for_talk"
+        private const val KEY_TALK_VOLUME = "talk_volume"
+        private const val KEY_BOOST_VOICE = "boost_voice"
         private const val KEY_SOFT_RING = "call_soft_ring"
         private const val KEY_SOFT_MESSAGE = "message_soft_sound"
         private const val KEY_VIDEO_60 = "video_60fps"
