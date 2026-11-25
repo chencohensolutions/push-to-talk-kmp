@@ -48,6 +48,8 @@ class TalkApp : Application() {
         setWarmHost(this, object : com.chencohen.ptt.messaging.WarmHost {
             override fun warm(chat: String?, on: Boolean) {
                 Log.i("Warm", if (on) "warm for $chat: in the room quietly" else "warm-up over")
+                // What comes through the room shows as any push does (the floating window).
+                if (on) TalkPlaying.watch(this@TalkApp)
                 if (on && !TalkReadyService.running) {
                     runCatching { startForegroundService(android.content.Intent(this@TalkApp, TalkReadyService::class.java)) }
                         .onFailure { Log.w("Warm", "no quiet service: the room lasts while the process does", it) }

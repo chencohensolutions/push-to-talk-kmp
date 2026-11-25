@@ -729,6 +729,9 @@ internal class Talk(
             if (live?.hearsLive(burst.chat, identity) == true) {
                 burst.heardLive = true
                 live?.heard(waited)
+                // Heard through the room, the app off screen: the same as a burst that plays (the talk session or
+                // Talk ready for its sound, the floating window) (2026-11-25, hen: "i didn't see the testbot push").
+                if (!awake()) runCatching { host?.prepareToPlay(burst.chat, burst.from) }
                 if (burst.video) videoOut?.begin(burst.id)
                 sendFrame(TalkAckFrame(TalkAck(burst.id)))
                 return drain(burst)
