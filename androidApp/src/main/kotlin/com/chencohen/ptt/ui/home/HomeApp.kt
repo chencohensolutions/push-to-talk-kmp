@@ -864,8 +864,18 @@ fun HomeApp(
             // otherwise, never the app's own screen (the Talk screen used to carry this; it is gone).
             if (wokeForTalk) {
                 val woken = messagingState.talk.playing?.takeIf { it.video }
+                // A burst heard through the talk room never "plays" (2026-11-25, hen: "my screen is off and testbot
+                // pushes video, I see a blank screen"): its pictures come through the room, so the room's picture
+                // shows, else the clip's.
+                val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsStateWithLifecycle()
+                val me = state.device?.user
+                val roomPicture = messagingState.talk.talkers.values.firstOrNull { it.user != me }
+                    ?.let { t -> arriving["${t.user}.${t.device}"] } ?: arriving.values.firstOrNull { me == null || !it.identity.startsWith("$me.") }
                 Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
-                    if (woken != null) com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
+                    when {
+                        roomPicture != null -> com.chencohen.ptt.ui.talk.RoomVideoView(roomPicture, Modifier.fillMaxSize())
+                        woken != null -> com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
+                    }
                 }
             }
             // A call, over everything (phase 6).
