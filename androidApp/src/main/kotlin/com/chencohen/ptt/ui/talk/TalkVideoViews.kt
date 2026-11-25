@@ -518,3 +518,49 @@ internal fun HereDot(shown: Boolean, modifier: Modifier = Modifier) {
             .semantics { contentDescription = label },
     )
 }
+
+/**
+ * A talker's push-to-video as it comes through the talk room (LiveTalkVideo; 2026-11-24, hen), filling the space
+ * given: the box is the picture's own shape, so nothing is cut.
+ */
+@Composable
+internal fun RoomVideoView(live: com.chencohen.ptt.talk.LiveTalkVideo.Live, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val renderer = androidx.compose.runtime.remember(live.track) {
+        io.livekit.android.renderer.TextureViewRenderer(context).also {
+            com.chencohen.ptt.talk.LiveTalkVideo.initRenderer(it)
+            it.setScalingType(livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(live.track) {
+        live.track.addRenderer(renderer)
+        onDispose {
+            live.track.removeRenderer(renderer)
+            renderer.release()
+        }
+    }
+    AndroidView(factory = { renderer }, modifier = modifier)
+}
+
+/**
+ * Test builds only (the debug and fast builds): which path a push-to-video picture comes by and how late its first
+ * picture was after the server started the floor ([since], the server's clock), so the two paths can be compared.
+ */
+@Composable
+internal fun DelayReadout(room: com.chencohen.ptt.talk.LiveTalkVideo.Live?, since: Long, behindMs: Long?, modifier: Modifier = Modifier) {
+    if (!androidx.compose.ui.res.booleanResource(R.bool.talk_delay_readout)) return
+    val clipShown by AndroidTalkVideoOut.shown.collectAsStateWithLifecycle()
+    var clipFirst by androidx.compose.runtime.remember(since) { androidx.compose.runtime.mutableLongStateOf(0L) }
+    androidx.compose.runtime.LaunchedEffect(clipShown != null, since) {
+        if (clipShown != null && clipFirst == 0L) clipFirst = System.currentTimeMillis()
+    }
+    val words = if (room != null) {
+        "LiveKit · first +${room.firstFrameAt - since} ms"
+    } else {
+        listOfNotNull("clips", clipFirst.takeIf { it > 0 }?.let { "first +${it - since} ms" }, behindMs?.let { "behind $it ms" }).joinToString(" · ")
+    }
+    Text(
+        words, color = Color.White, style = com.chencohen.ptt.ui.style.LibraryType.Tiny,
+        modifier = modifier.background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}

@@ -833,6 +833,8 @@
     <string name="face_not_quite">That doesn\u2019t quite look like %1$s, as far as the phone can tell. Keep it, or take another.</string>
     <string name="talk_panel_live">live</string>
     <string name="talk_session">Push-to-talk</string>
+    <string name="talk_camera_ready">Get camera ready while talking</string>
+    <string name="talk_camera_ready_body">Video starts instantly when you slide up. The camera light shows while you hold Push.</string>
     <string name="talk_bar_you">You’re talking</string>
     <string name="talk_bar_both">%1$s and you are talking</string>
     <string name="talk_panel_you">You</string>

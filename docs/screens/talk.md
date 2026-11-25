@@ -120,3 +120,18 @@ someone's floor shows at most 75 s, so a lost end can't keep the button busy.
 
 In a chat, the Talk button slid up to its lock keeps sending until Stop (docs/screens/conversation.md, "Live in the
 chat"). Bursts aren't kept as messages unless the chat's In the chat switches say so.
+
+## Push-to-video through LiveKit (2026-11-24, hen)
+
+Nothing on screen changes: the same gestures, the same top video box and floating window, the same quiet line after.
+Underneath, a video burst's picture also goes through the conversation's talk room while it is said, and the listener
+shows it from there while it arrives (smaller and steadier on a weak link: simulcast), else the clip's pictures as
+before. The clips still go with every burst (a sleeping phone, "Keep videos in chat", no room). The debug and fast
+builds show a small readout on the received video: the path and how late the first picture came. See
+[design.md](../design.md), "Push-to-video through LiveKit".
+
+**Camera ready at finger-down** (2026-11-24, hen: "when i tap push to talk, open the camera in hidden window"; Settings ›
+Talk › Get camera ready while talking, on by default): the camera opens unseen as the finger goes down on Push, and the
+talk room's camera track reads it muted, so sliding up to hands-free video only unmutes it. Nothing is sent or shown
+until the slide up; Android's camera dot shows while Push is held. It is let go 2 s after the finger lifts without
+sliding (a quick press again reuses it). Off, the camera opens when the slide up starts.

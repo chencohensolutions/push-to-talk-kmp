@@ -168,6 +168,14 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_OPEN_ON_TALK) == "true"
         set(value) = store.putString(KEY_OPEN_ON_TALK, value.toString())
 
+    /**
+     * Settings › Talk › Get camera ready while talking (on unless turned off; 2026-11-24, hen): the camera opens at
+     * finger-down on Push, unseen, so sliding up starts video at once.
+     */
+    var cameraReady: Boolean
+        get() = store.getString(KEY_CAMERA_READY) != "false"
+        set(value) = store.putString(KEY_CAMERA_READY, value.toString())
+
     /** Settings › Talk › Reply bubble over other apps (off unless turned on). */
     var replyBubble: Boolean
         // On unless turned off (2026-11-22, hen: "floating window as default").
@@ -281,6 +289,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_KEEPS_CALLS = "server_keeps_calls"
         private const val KEY_OPEN_ON_TALK = "talk_open_on_talk"
         private const val KEY_REPLY_BUBBLE = "talk_reply_bubble"
+        private const val KEY_CAMERA_READY = "talk_camera_ready"
         private const val KEY_DEFAULTS = "defaults_version"
         private const val KEY_CALL_VIDEO = "call_video"
         private const val KEY_MY_EMAIL = "my_email"

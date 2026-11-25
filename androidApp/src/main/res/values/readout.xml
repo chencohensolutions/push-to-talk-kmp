@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The push-to-video delay readout (which path, how late): on in the debug and fast builds only. -->
+    <bool name="talk_delay_readout">false</bool>
+</resources>

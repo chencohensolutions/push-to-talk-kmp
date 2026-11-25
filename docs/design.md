@@ -575,6 +575,31 @@ calls). People without one keep the letter circle.
   bytes. A phone told of an id it doesn't have (it had an app without pictures) asks with `needPicture`, and the bytes go
   again. The server sees only sealed envelopes.
 
+## Push-to-video through LiveKit (2026-11-24, hen: "do it")
+
+A video burst also goes through the conversation's talk room (the same room, token and per-sender E2EE keys as live
+voice), so the picture arrives as the voice does instead of in clip segments over `/ws`:
+
+- **Sending.** When a video burst starts and this phone is in the chat's room, the push-to-video camera's frames go to
+  the room as well: `TalkCameraCapturer` gives LiveKit a surface (`SurfaceTextureHelper`) that
+  `AndroidTalkVideoCapture.setLiveTarget` adds to the camera's session in Follow face's small copy's place (the camera
+  keeps three outputs: the clip's encoder, the preview, the room). Published as `talk-camera`, 640×480 at 30 fps in
+  simulcast layers with `MAINTAIN_FRAMERATE`; the server's congestion control picks the layer per listener and the
+  room has dynacast on, so a weak link gets a lower layer instead of a growing lag (adaptive stream stays off: it
+  pauses a track no visible view shows, and the frames are watched before one does). It is unpublished when the burst ends (each hands-free part is its own burst).
+  The camera that can't take the extra output (the session fails) sends by clips only.
+- **Receiving.** The room subscribes to it like any track; `LiveTalkVideo` watches each talker's video for frames and
+  calls it "arriving" from the first frame until a second passes without one. The chat's top box and the floating
+  window show the room's video (`RoomVideoView`, a `TextureViewRenderer`) while it arrives, and the clip's pictures
+  otherwise, never both; the box takes the shape of whichever shows. The listener's camera and microphone stay off.
+- **The clips stay.** Every burst still goes as clip segments over `/ws`: they wake a sleeping phone (full screen),
+  make the "Keep videos in chat" copy, and show when the room can't be reached or its key isn't there yet.
+- **Delay readout.** The debug and fast builds show, on the received video, which path it came by and how long after
+  the server started the floor its first picture came ("LiveKit · first +380 ms", or "clips · first +900 ms · behind
+  120 ms"); every build logs the same per burst under the `TalkDelay` tag.
+- **Server.** Nothing changed: the talk token already lets a device publish any track.
+- **Not yet:** "Make it a call" still starts a separate video call (its own room), as before.
+
 ## Live in the chat (2026-11-24, hen)
 
 - Presence is per chat only: the viewing signal (`ViewingContent`, every 20 s while the chat is open and in view, from

@@ -51,6 +51,11 @@ class AndroidTalkVideoCapture(
     private var encoder: MediaCodec? = null
     private var encoderSurface: Surface? = null
     private var preview: Surface? = null
+    /**
+     * LiveKit's capture surface while a burst also goes live through the talk room (2026-11-24, hen: push-to-video
+     * through LiveKit): it takes Follow face's small copy's place in the session, so the camera keeps three outputs.
+     */
+    private var liveTarget: Surface? = null
     /** A small copy of the camera's frames for Follow face (null: none, or the camera can't add it). */
     private var faceReader: android.media.ImageReader? = null
     private var faceReaderOk = true
@@ -79,6 +84,22 @@ class AndroidTalkVideoCapture(
             preview = surface
         }
         handler?.post { configure() }
+    }
+
+    /**
+     * The talk room's camera input ([surface], LiveKit's) for this burst, or none: the session is set up again with it.
+     * [done] runs on the camera's thread once the session no longer draws into the old one.
+     */
+    fun setLiveTarget(surface: Surface?, done: () -> Unit = {}) {
+        synchronized(lock) {
+            if (liveTarget === surface) return done()
+            liveTarget = surface
+        }
+        val h = handler ?: return done()
+        h.post {
+            configure()
+            h.postDelayed(done, 300)
+        }
     }
 
     /**
@@ -367,8 +388,9 @@ class AndroidTalkVideoCapture(
                 setOnImageAvailableListener({ faceImage(it) }, faceHandler)
             }
         }
-        val faces = faceReader?.surface?.takeIf { faceReaderOk }
-        val targets = listOfNotNull(enc, preview, faces)
+        val live = liveTarget
+        val faces = if (live != null) null else faceReader?.surface?.takeIf { faceReaderOk }
+        val targets = listOfNotNull(enc, preview, live ?: faces)
         try {
             val executor = Executor { r -> handler?.post(r) }
             device.createCaptureSession(
@@ -406,6 +428,13 @@ class AndroidTalkVideoCapture(
                             if (asked == sessions && camera === device && faces != null) {
                                 Log.w(TAG, "no face copy: Follow face looks on the other phone")
                                 faceReaderOk = false
+                                configure()
+                                return
+                            }
+                            // LiveKit's surface can't be added: the burst goes by its clips only.
+                            if (asked == sessions && camera === device && live != null) {
+                                Log.w(TAG, "the camera can't feed the talk room too: clips only")
+                                synchronized(lock) { liveTarget = null }
                                 configure()
                                 return
                             }

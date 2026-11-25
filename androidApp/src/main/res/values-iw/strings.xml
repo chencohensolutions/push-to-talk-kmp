@@ -836,6 +836,8 @@
     <string name="face_not_quite">לפי הטלפון זה לא ממש נראה %1$s. אפשר להשאיר או לצלם שוב.</string>
     <string name="talk_panel_live">בשידור</string>
     <string name="talk_session">לחיצה לדיבור</string>
+    <string name="talk_camera_ready">להכין את המצלמה בזמן דיבור</string>
+    <string name="talk_camera_ready_body">הווידאו מתחיל מיד כשמחליקים למעלה. נורית המצלמה דולקת כל עוד מחזיקים את כפתור הדיבור.</string>
     <string name="talk_bar_you">את/ה מדבר/ת</string>
     <string name="talk_bar_both">%1$s ואת/ה מדברים</string>
     <string name="talk_panel_you">את/ה</string>

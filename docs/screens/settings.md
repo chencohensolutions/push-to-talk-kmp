@@ -32,6 +32,10 @@ and each time the connection's state changes.
 
 A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Settings › Talk (`TalkSettingsScreen.kt`):
 
+- **Get camera ready while talking** (2026-11-24, hen: on by default): "Video starts instantly when you slide up. The
+  camera light shows while you hold Push." On, the camera opens unseen as the finger goes down on Push (the chat and
+  the floating window), feeding the talk room's muted camera track, and is let go 2 s after the finger lifts without
+  sliding up; off, it opens when the slide up starts.
 - **Catch up to live**: Shorten pauses and speed up (the default), Shorten pauses only, or Off, with a line under
   each; the chosen one has a teal check.
 - **Notifications › Message sound** (2026-11-22, hen): **Talk soft chime** (the default: two calm notes,

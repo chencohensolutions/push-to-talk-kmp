@@ -121,6 +121,8 @@ data class TalkSettings(
      * the bottom of the screen with the sender and a Talk button, for the burst and the reply window after it.
      */
     val replyBubble: Boolean = true,
+    /** Settings › Talk › Get camera ready while talking (on by default; 2026-11-24, hen). */
+    val cameraReady: Boolean = true,
     /**
      * Settings › Calls › Video: VP8 (standard) or H.265 (smaller and sharper; 2026-11-22, hen), offered only on a phone
      * with a hardware H.265 encoder. Phones that can't take H.265 get VP8 from the same sender (a backup codec).
@@ -470,6 +472,7 @@ internal class Messaging(
             if (group != null) groups.send(group, content, pushKind) else sender.send(chat, content, pushKind = pushKind)
         },
         now = now, random = random,
+        audio = LIVE_TALK_AUDIO,
     )
 
     val calls: com.chencohen.ptt.calls.Calls = com.chencohen.ptt.calls.Calls(
@@ -509,7 +512,7 @@ internal class Messaging(
     }
 
     init {
-        if (LIVE_TALK_AUDIO) talk.live = live
+        if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) talk.live = live
         talk.sendVideo = { chat -> talkSettings().pushVideoFor(chat) }
         scope.launchCollect(calls.state) { c ->
             val was = _state.value.call != null
@@ -601,6 +604,7 @@ internal class Messaging(
         quickTalkPage = settings.quickTalkPage,
         openOnTalk = settings.openOnTalk,
         replyBubble = settings.replyBubble,
+        cameraReady = settings.cameraReady,
         callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.H265,
         pushVideo = settings.pushVideo,
         bubbleVideo = settings.bubbleVideo,
@@ -638,6 +642,7 @@ internal class Messaging(
         // Written only when changed, so one never chosen keeps following the default.
         val before = _state.value.talkSettings
         if (talk.replyBubble != before.replyBubble) settings.replyBubble = talk.replyBubble
+        if (talk.cameraReady != before.cameraReady) settings.cameraReady = talk.cameraReady
         if (talk.callVideo != before.callVideo) settings.callVideo = talk.callVideo.name
         settings.pushVideo = talk.pushVideo
         settings.bubbleVideo = talk.bubbleVideo
@@ -801,7 +806,9 @@ internal class Messaging(
 
     private fun applyWarmCamera() {
         val camera = talk.videoCapture ?: return
-        val chat = warmWanted?.takeIf { _state.value.call == null && talk.sendVideo(it) }
+        // The screen asks for it (pressing Push with Get camera ready on, sliding up, live video): no Voice | Video
+        // setting to check any more (2026-11-24, hen).
+        val chat = warmWanted?.takeIf { _state.value.call == null }
         if (chat != null) {
             if (talk.videoChat != chat) camera.cool()
             talk.videoChat = chat
@@ -810,6 +817,9 @@ internal class Messaging(
             talk.videoChat = null
             camera.cool()
         }
+        // The talk room's camera track reads the camera too while it's warm (muted until a video burst), so the
+        // picture goes live there at once.
+        live.readyVideo(chat)
     }
 
     // --- Your devices (docs/screens/devices.md) ----------------------------------------------------------------
@@ -2117,3 +2127,9 @@ private fun <T> CoroutineScope.launchCollect(flow: StateFlow<T>, block: (T) -> U
  * the listener plays all of it to the end.
  */
 internal const val LIVE_TALK_AUDIO = false
+
+/**
+ * Push-to-video's pictures through the conversation's LiveKit room (2026-11-24, hen: "do it"): the room is joined as
+ * for live talk, but carries only the camera; the voice stays on the clip path (LIVE_TALK_AUDIO).
+ */
+internal const val LIVE_TALK_VIDEO = true

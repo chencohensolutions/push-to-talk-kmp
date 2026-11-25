@@ -268,7 +268,7 @@ internal class Talk(
         if (!voiceOnly) {
             live?.burst(chat, null)
             // The live path doesn't wait for the grant; a Busy stops it again.
-            scope.launch { live?.talking(chat, true) }
+            scope.launch { live?.talking(chat, true, out.video) }
         }
         out.consumer = scope.launch { consume(out) }
         if (!voiceOnly) {
@@ -719,7 +719,7 @@ internal class Talk(
         val age = now() - (burst.sentAt.takeIf { it > 0 } ?: burst.createdAt)
         val fresh = burst.announced || age < PLAY_IF_NEWER
         // In the conversation's room the talker may be heard live already (their phone doesn't wait for the grant).
-        if (fresh && burst.announced && live?.state?.value?.room == burst.chat) {
+        if (fresh && burst.announced && live?.audio == true && live?.state?.value?.room == burst.chat) {
             val identity = "${burst.from}.${burst.device}"
             var waited = 0L
             while (live?.hearsLive(burst.chat, identity) != true && waited < LIVE_WAIT) {

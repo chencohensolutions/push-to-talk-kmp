@@ -315,6 +315,8 @@ internal fun ChatButtons(
     lock: () -> Unit = {},
     /** The finger started sliding up (the camera warms) or came back down / let go. */
     sliding: (Boolean) -> Unit = {},
+    /** The finger went down on Push ([true]) or lifted. */
+    pressed: (Boolean) -> Unit = {},
     stopLive: () -> Unit = {},
     /** Pressed and let go (locked: slid up to the lock), in place of starting and ending a burst directly. */
     press: (() -> Unit)? = null,
@@ -358,6 +360,7 @@ internal fun ChatButtons(
             fun cameraAllowed() = context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
             val onLock by androidx.compose.runtime.rememberUpdatedState(lock)
             val onSliding by androidx.compose.runtime.rememberUpdatedState(sliding)
+            val onPressed by androidx.compose.runtime.rememberUpdatedState(pressed)
             val onRelease by androidx.compose.runtime.rememberUpdatedState(release)
             val onPress by androidx.compose.runtime.rememberUpdatedState(press ?: actions.startVoice)
             Box(Modifier.padding(start = 8.dp).size(big)) {
@@ -370,7 +373,7 @@ internal fun ChatButtons(
                         .semantics { contentDescription = talkLabel }
                         .holdOrLock(
                             lockAt = lockAt,
-                            onPress = { lifting = 0f; lockedNow = false; slidingNow = false; microphone(onPress) },
+                            onPress = { lifting = 0f; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
                             onLift = { up ->
                                 lifting = up
                                 val slide = up > warmFrom && !lockedNow
@@ -389,6 +392,7 @@ internal fun ChatButtons(
                             },
                             onRelease = { locked ->
                                 lifting = -1f
+                                onPressed(false)
                                 if (slidingNow) {
                                     slidingNow = false
                                     onSliding(false)

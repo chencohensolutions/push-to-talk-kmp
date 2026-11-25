@@ -75,14 +75,9 @@ object TalkBubble {
     private var stopPill: TextView? = null
     private var lockHint: ImageView? = null
     // Who talks, by voice, at the pill's start: their face (or mine) in a ring glowing with the voice.
-    private var who: LinearLayout? = null
-    private var whoRing: GlowRing? = null
-    private var whoFace: ImageView? = null
-    private var whoLetter: TextView? = null
-    private var whoName: TextView? = null
-    private var whoTime: TextView? = null
-    /** Whose face the ring shows now ("" mine), so it is loaded once. */
-    private var whoShown: String? = null
+    /** Voice pills at the top (2026-11-24, hen: "both voice pushing then side by side pills"): theirs and mine. */
+    private var theirPill: VoicePill? = null
+    private var myPill: VoicePill? = null
 
     // The top box (its own window).
     private var topWindow: FrameLayout? = null
@@ -90,6 +85,10 @@ object TalkBubble {
     private var theirBox: FrameLayout? = null
     private var theirTag: TextView? = null
     private var videoSurface: android.view.Surface? = null
+    /** Their video through the talk room, while its frames come (LiveTalkVideo): shown instead of the clip's. */
+    private var roomRenderer: io.livekit.android.renderer.TextureViewRenderer? = null
+    private var roomTrack: io.livekit.android.room.track.VideoTrack? = null
+    private var roomLive: com.chencohen.ptt.talk.LiveTalkVideo.Live? = null
     private var myBox: FrameLayout? = null
     private var mySurface: android.view.Surface? = null
     private var myTag: TextView? = null
@@ -205,33 +204,8 @@ object TalkBubble {
                 endTalk(context, send = true)
             }
         }
-        // Who talks by voice: a face in a ring glowing with the voice, the name and the time.
-        who = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            visibility = View.GONE
-            setPadding(0, 0, dp(6), 0)
-        }
-        val faceBox = FrameLayout(context).apply { clipChildren = false }
-        whoRing = GlowRing(context)
-        whoFace = ImageView(context).apply { visibility = View.GONE; scaleType = ImageView.ScaleType.FIT_CENTER }
-        whoLetter = TextView(context).apply {
-            setTextColor(Color.WHITE); textSize = 15f; gravity = Gravity.CENTER
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
-        }
-        faceBox.addView(whoRing, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER))
-        faceBox.addView(whoLetter, FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER))
-        faceBox.addView(whoFace, FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER))
-        who!!.addView(faceBox, LinearLayout.LayoutParams(dp(60), dp(60)))
-        val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(4), 0, dp(4), 0) }
-        whoName = TextView(context).apply { setTextColor(Color.WHITE); textSize = 14f; maxLines = 1; setTypeface(typeface, android.graphics.Typeface.BOLD) }
-        whoTime = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 12f }
-        words.addView(whoName)
-        words.addView(whoTime)
-        who!!.addView(words)
         closeButton = round(R.drawable.ic_bubble_close, R.string.bubble_close, dp(34), 0x33FFFFFF) { closeOrDecline(context) }
         val gap = dp(10)
-        row.addView(who, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         row.addView(chatButton, LinearLayout.LayoutParams(dp(34), dp(34)))
         row.addView(push, LinearLayout.LayoutParams(dp(56), dp(56)).apply { marginStart = gap; marginEnd = gap })
         row.addView(stopPill, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)).apply { marginStart = gap; marginEnd = gap })
@@ -354,7 +328,9 @@ object TalkBubble {
                     endTalk(context, send = true)
                 } else {
                     locked = false
-                    warming = false
+                    main.removeCallbacks(coolCamera)
+                    // Get camera ready while talking (on by default): the camera opens now, unseen.
+                    warming = messagingState(context).value.talkSettings.cameraReady && cameraAllowed(context)
                     downY = e.rawY
                     startTalk(context, video = false)
                     showLockHint(true)
@@ -393,9 +369,10 @@ object TalkBubble {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 v.isPressed = false
                 showLockHint(false)
+                // Let go 2 s after the finger lifts without the slide up: a quick press again reuses it.
                 if (warming && !locked) {
-                    warming = false
-                    showMode(context)
+                    main.removeCallbacks(coolCamera)
+                    main.postDelayed(coolCamera, 2_000)
                 }
                 // Held: letting go sends. A short tap (or the lock) keeps talking until the next one.
                 if (talking && !locked && System.currentTimeMillis() - talkStarted >= HOLD_MS) endTalk(context, send = true)
@@ -434,6 +411,14 @@ object TalkBubble {
         if (stop.visibility != View.VISIBLE) return
         val s = ((System.currentTimeMillis() - lockSince) / 1000).coerceAtLeast(0)
         stop.text = "■  " + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
+    }
+
+    private val coolCamera = Runnable {
+        val root = pillWindow ?: return@Runnable
+        if (!locked && !sendingVideo) {
+            warming = false
+            showMode(root.context)
+        }
     }
 
     /** Hands-free at 55 s: let go and taken again at once. */
@@ -528,21 +513,64 @@ object TalkBubble {
      * voice, who talks in the pill.
      */
     private fun refreshTop(context: Context) {
-        refreshWho(context)
         val theirsVideo = burstVideo && !topPutAway
         val mine = sendingVideo
-        if (!theirsVideo && !mine) {
+        val voice = !topPutAway && ((burstLive && !burstVideo) || (talking && !sendingVideo))
+        if (!theirsVideo && !mine && !voice) {
             hideTop()
             return
         }
         if (topWindow == null || topHiding) addTop(context)
+        // "The pill becomes the video" (2026-11-24, hen): a voice pill turning into video grows into the box, and back.
+        val theirPillWas = theirPill?.view?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }
+        val myPillWas = myPill?.view?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }
+        val theirWas = theirBox?.visibility == View.VISIBLE
+        val myWas = myBox?.visibility == View.VISIBLE
+        refreshVoice(context)
         theirBox?.visibility = if (theirsVideo) View.VISIBLE else View.GONE
         myBox?.visibility = if (mine) View.VISIBLE else View.GONE
+        if (theirsVideo && !theirWas && theirPillWas != null) morph(theirPillWas, theirBox!!, context)
+        if (mine && !myWas && myPillWas != null) morph(myPillWas, myBox!!, context)
+        // Back: the box gives way to the pill growing out of it.
+        if (theirWas && !theirsVideo) theirPill?.view?.takeIf { it.visibility == View.VISIBLE }?.let { unmorph(it) }
+        if (myWas && !mine) myPill?.view?.takeIf { it.visibility == View.VISIBLE }?.let { unmorph(it) }
         bothChip?.visibility = if (bothLive(context)) View.VISIBLE else View.GONE
         shapeTop(context)
         pickPreview()
         main.removeCallbacks(topTick)
         main.post(topTick)
+    }
+
+    /**
+     * The voice pill grows into [box] (250 ms): the box starts at the pill's size and place and grows to its own while
+     * the pill's face fades out, so the pill reads as becoming the video.
+     */
+    private fun morph(pill: View, box: View, context: Context) {
+        val pw = pill.width.toFloat()
+        val ph = pill.height.toFloat()
+        // Kept in place (faded) for the moment it takes, so nothing jumps.
+        val keep = pill.visibility
+        pill.visibility = View.VISIBLE
+        pill.animate().alpha(0f).setDuration(SLIDE_MS / 2).withEndAction {
+            pill.alpha = 1f
+            pill.visibility = if ((theirPill?.view === pill && theirPill?.shown != null) || (myPill?.view === pill && myPill?.shown != null)) keep else View.GONE
+        }.start()
+        val h = (context.resources.displayMetrics.heightPixels * TOP_SHARE)
+        val w = (box.layoutParams?.width ?: pill.width).toFloat().coerceAtLeast(1f)
+        box.pivotX = w / 2
+        box.pivotY = 0f
+        box.scaleX = (pw / w).coerceIn(0.2f, 1f)
+        box.scaleY = (ph / h).coerceIn(0.1f, 1f)
+        box.alpha = 0.4f
+        box.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+    }
+
+    private fun unmorph(pill: View) {
+        pill.pivotY = 0f
+        pill.scaleX = 1.6f
+        pill.scaleY = 1.6f
+        pill.alpha = 0f
+        pill.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(SLIDE_MS).start()
     }
 
     /** Both live: I send while their video plays, or while they wait for my floor. */
@@ -553,43 +581,12 @@ object TalkBubble {
         return burstVideo || waiting
     }
 
-    /**
-     * Voice (2026-11-24, hen, "c"): the pill shows who talks, their face (or mine) in a ring glowing with the voice,
-     * the name and the time; nothing at the top.
-     */
-    private fun refreshWho(context: Context) {
-        val theirVoice = burstLive && !burstVideo
-        val myVoice = talking && !sendingVideo
-        val shown = when {
-            theirVoice -> from ?: ""
-            myVoice -> ""
-            else -> null
-        }
-        val row = who ?: return
-        if (shown == null) {
-            row.visibility = View.GONE
-            whoShown = null
-            return
-        }
-        row.visibility = View.VISIBLE
-        whoName?.text = if (theirVoice) title else context.getString(R.string.talk_panel_you)
-        if (whoShown == shown) return
-        whoShown = shown
-        val name = whoName?.text?.toString().orEmpty()
-        whoLetter?.text = name.take(1).uppercase()
-        whoLetter?.visibility = View.VISIBLE
-        whoFace?.visibility = View.GONE
-        val app = context.applicationContext as? TalkApp ?: return
-        app.scope.launch {
-            val id = com.chencohen.ptt.ui.face.Faces.ids(app).value[shown] ?: return@launch
-            val face = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, shown, id) }.getOrNull() ?: return@launch
-            main.post {
-                if (whoShown != shown) return@post
-                whoFace?.setImageBitmap(face.asAndroidBitmap())
-                whoFace?.visibility = View.VISIBLE
-                whoLetter?.visibility = View.GONE
-            }
-        }
+    /** Who talks by voice: their pill (teal) and mine (coral), side by side when both. */
+    private fun refreshVoice(context: Context) {
+        val theirVoice = burstLive && !burstVideo && !topPutAway
+        val myVoice = talking && !sendingVideo && !topPutAway
+        theirPill?.show(context, if (theirVoice) from ?: "" else null, title)
+        myPill?.show(context, if (myVoice) "" else null, title)
     }
 
     /** The boxes' sizes: 23.6% of the screen's height, each as wide as its picture's shape. */
@@ -601,7 +598,7 @@ object TalkBubble {
             val rotation = shown?.rotation ?: 0
             val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 3f / 4f
             val turned = rotation % 180 != 0
-            val upright = if (turned) 1f / aspect else aspect
+            val upright = roomLive?.aspect ?: if (turned) 1f / aspect else aspect
             val w = (h * upright).toInt()
             size(box, w, h)
             box.findViewWithTag<View>("video")?.let { v ->
@@ -640,10 +637,42 @@ object TalkBubble {
                 return "%d:%02d".format(s / 60, s % 60)
             }
             theirTag?.text = "$title · ${clock(if (burstSince > 0) burstSince else System.currentTimeMillis())}"
+            useRoomVideo(window.context)
             myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(if (locked) lockSince else talkStarted)
             shapeTop(window.context)
             main.postDelayed(this, 250)
         }
+    }
+
+    /** Their video through the talk room while its frames come, else the clip's (never both). */
+    private fun useRoomVideo(context: Context) {
+        val box = theirBox ?: return
+        val talker = chat?.let { messagingState(context).value.talk.talkers[it] }
+        val live = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.arriving.value["${it.user}.${it.device}"] }?.takeIf { burstVideo }
+        roomLive = live
+        if (live != null && roomTrack !== live.track) {
+            dropRoomVideo()
+            val r = io.livekit.android.renderer.TextureViewRenderer(context)
+            if (!com.chencohen.ptt.talk.LiveTalkVideo.initRenderer(r)) return
+            r.setScalingType(livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+            box.addView(r, 1, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            live.track.addRenderer(r)
+            roomRenderer = r
+            roomTrack = live.track
+            box.findViewWithTag<View>("video")?.visibility = View.INVISIBLE
+        } else if (live == null && roomTrack != null) {
+            dropRoomVideo()
+            box.findViewWithTag<View>("video")?.visibility = View.VISIBLE
+        }
+    }
+
+    private fun dropRoomVideo() {
+        val r = roomRenderer ?: return
+        roomTrack?.removeRenderer(r)
+        (r.parent as? android.view.ViewGroup)?.removeView(r)
+        r.release()
+        roomRenderer = null
+        roomTrack = null
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -720,8 +749,13 @@ object TalkBubble {
             }
             addView(myTag, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) })
         }
-        boxes.addView(theirs, LinearLayout.LayoutParams(dp(120), dp(160)))
-        boxes.addView(mine, LinearLayout.LayoutParams(dp(120), dp(160)).apply { marginStart = dp(6) })
+        // Side by side when both are live: a voice pill and a video box, or two boxes (2026-11-24, hen).
+        val pillAt = { LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(3); marginEnd = dp(3) } }
+        boxes.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        theirPill = VoicePill(context, mine = false).also { boxes.addView(it.view, pillAt()) }
+        boxes.addView(theirs, LinearLayout.LayoutParams(dp(120), dp(160)).apply { marginStart = dp(3); marginEnd = dp(3) })
+        myPill = VoicePill(context, mine = true).also { boxes.addView(it.view, pillAt()) }
+        boxes.addView(mine, LinearLayout.LayoutParams(dp(120), dp(160)).apply { marginStart = dp(3); marginEnd = dp(3) })
         card.addView(boxes)
         // Both live: "You're both live · Make it a call" under the boxes; a tap starts a video call.
         bothChip = TextView(context).apply {
@@ -854,11 +888,15 @@ object TalkBubble {
         main.removeCallbacks(topTick)
         videoSurface?.let { com.chencohen.ptt.talk.AndroidTalkVideoOut.detach(it) }
         videoSurface = null
+        dropRoomVideo()
+        roomLive = null
         topCard = null
         theirBox = null
         theirTag = null
         myBox = null
         myTag = null
+        theirPill = null
+        myPill = null
         bothChip = null
         topHiding = false
         runCatching { window.context.getSystemService(WindowManager::class.java).removeView(window) }
@@ -888,12 +926,8 @@ object TalkBubble {
             button?.scaleX = scale
             button?.scaleY = scale
             // Who talks by voice: the ring glows with their voice, or mine.
-            if (who?.visibility == View.VISIBLE) {
-                whoRing?.level(if (whoShown == "") com.chencohen.ptt.talk.TalkAudio.micLevel else com.chencohen.ptt.talk.TalkAudio.playLevel)
-                val since = if (whoShown == "") talkStarted else burstSince
-                val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
-                whoTime?.text = "%d:%02d".format(s / 60, s % 60)
-            }
+            theirPill?.tick(com.chencohen.ptt.talk.TalkAudio.playLevel, burstSince)
+            myPill?.tick(com.chencohen.ptt.talk.TalkAudio.micLevel, talkStarted)
             updateStop()
             main.postDelayed(this, 60)
         }
@@ -996,13 +1030,8 @@ object TalkBubble {
         pushBox = null
         stopPill = null
         lockHint = null
-        who = null
-        whoRing = null
-        whoFace = null
-        whoLetter = null
-        whoName = null
-        whoTime = null
-        whoShown = null
+        theirPill = null
+        myPill = null
         talking = false
         locked = false
         sendingVideo = false
@@ -1027,6 +1056,78 @@ object TalkBubble {
     }
 
     /**
+     * A slim voice pill at the top (2026-11-24, hen, "B"): the talker's face in a ring glowing with the voice (teal,
+     * coral for mine; no wave), "Sharon is talking" and the time, or for mine one line, "You · 0:03".
+     */
+    private class VoicePill(context: Context, val mine: Boolean) {
+        private fun dp(v: Int) = dp(view.context, v)
+        val view = LinearLayout(context)
+        private val ring = GlowRing(context).also { it.color = if (mine) PINK else TEAL }
+        private val face = ImageView(context).apply { visibility = View.GONE; scaleType = ImageView.ScaleType.FIT_CENTER }
+        private val letter = TextView(context).apply { setTextColor(Color.WHITE); textSize = 15f; gravity = Gravity.CENTER }
+        private val name = TextView(context).apply { setTextColor(Color.WHITE); textSize = 14f; maxLines = 1; setTypeface(typeface, android.graphics.Typeface.BOLD) }
+        private val time = TextView(context).apply { setTextColor(0xFFC9D1CF.toInt()); textSize = 12f }
+        /** Whose face shows ("" mine); null: hidden. */
+        var shown: String? = null
+            private set
+
+        init {
+            view.orientation = LinearLayout.HORIZONTAL
+            view.gravity = Gravity.CENTER_VERTICAL
+            view.visibility = View.GONE
+            view.setPadding(dp(2), dp(2), dp(18), dp(2))
+            view.background = GradientDrawable().apply { cornerRadius = dp(32).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), if (mine) PINK else TEAL) }
+            view.elevation = dp(8).toFloat()
+            letter.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
+            val faceBox = FrameLayout(context).apply { clipChildren = false }
+            faceBox.addView(ring, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER))
+            faceBox.addView(letter, FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER))
+            faceBox.addView(face, FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER))
+            view.addView(faceBox, LinearLayout.LayoutParams(dp(60), dp(60)))
+            val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(2), 0, 0, 0) }
+            words.addView(name)
+            if (!mine) words.addView(time)
+            view.addView(words)
+        }
+
+        /** Shows [user]'s face ("" mine; null hides), titled [title] (theirs). */
+        fun show(context: Context, user: String?, title: String) {
+            if (user == null) {
+                view.visibility = View.GONE
+                shown = null
+                return
+            }
+            view.visibility = View.VISIBLE
+            if (!mine) name.text = context.getString(R.string.talk_someone, title)
+            if (shown == user) return
+            shown = user
+            letter.text = (if (mine) context.getString(R.string.talk_panel_you) else title).take(1).uppercase()
+            letter.visibility = View.VISIBLE
+            face.visibility = View.GONE
+            val app = context.applicationContext as? TalkApp ?: return
+            app.scope.launch {
+                val id = com.chencohen.ptt.ui.face.Faces.ids(app).value[user] ?: return@launch
+                val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, user, id) }.getOrNull() ?: return@launch
+                main.post {
+                    if (shown != user) return@post
+                    face.setImageBitmap(bitmap.asAndroidBitmap())
+                    face.visibility = View.VISIBLE
+                    letter.visibility = View.GONE
+                }
+            }
+        }
+
+        /** The voice's [level] on the ring, and the time since [since]. */
+        fun tick(level: Float, since: Long) {
+            if (view.visibility != View.VISIBLE) return
+            ring.level(level)
+            val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
+            val t = "%d:%02d".format(s / 60, s % 60)
+            if (mine) name.text = view.context.getString(R.string.talk_panel_you) + " · " + t else time.text = t
+        }
+    }
+
+    /**
      * A teal ring around the talker's face that glows with the voice (2026-11-24, hen: "make the green circle glow as
      * the voice"): brightness, glow and thickness follow the level, smoothed 60 ms up and 200 ms down (VoiceLevel).
      */
@@ -1035,6 +1136,14 @@ object TalkBubble {
         private var target = 0f
         private var last = 0L
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = TEAL }
+
+        /** Teal for theirs, coral for mine. */
+        var color: Int
+            get() = paint.color
+            set(value) {
+                paint.color = value
+                invalidate()
+            }
         private val density = context.resources.displayMetrics.density
 
         fun level(v: Float) {

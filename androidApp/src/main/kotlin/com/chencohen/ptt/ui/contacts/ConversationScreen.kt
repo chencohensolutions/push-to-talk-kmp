@@ -340,6 +340,17 @@ private fun ConversationScreenIn(
         var standby by remember(user) { mutableStateOf(false) }
         var standbySince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
         var sliding by remember(user) { mutableStateOf(false) }
+        // Get camera ready while talking (2026-11-24, hen, on by default): the camera opens, unseen, as the finger goes
+        // down on Push, and is let go 2 s after it lifts without sliding up (a quick press again reuses it).
+        var pressing by remember(user) { mutableStateOf(false) }
+        var cameraHeld by remember(user) { mutableStateOf(false) }
+        LaunchedEffect(pressing) {
+            if (pressing) cameraHeld = chatLive.cameraReady
+            else if (cameraHeld) {
+                delay(2_000)
+                cameraHeld = false
+            }
+        }
         // The newest actions (a video setting just changed is in them), for what runs after a delay.
         val actionsNow by androidx.compose.runtime.rememberUpdatedState(actions)
         // Both live, and the call it can become: worked out further down, shown here under the panel.
@@ -358,11 +369,6 @@ private fun ConversationScreenIn(
             val theirClip = theirs?.clip ?: talker?.clip
             var theirSince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
             LaunchedEffect(theirClip) { if (theirClip != null) theirSince = talk.talkers[user]?.since ?: System.currentTimeMillis() }
-            LivePanel(
-                theirClip != null && fullVideo == null, if (group != null) (theirs?.from ?: talker?.user) else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                myPanel, sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
-            )
             // Voice push-to-talk (2026-11-24, hen, mock A): a slim live bar, under the video panel when the other
             // side is on video.
             val playingHere = talk.playing?.takeIf { it.chat == user && it.live }
@@ -375,7 +381,18 @@ private fun ConversationScreenIn(
             }
             val myVoice = talk.own?.takeIf { it.chat == user && !pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
                 ?.let { VoiceSide("", stringResource(R.string.talk_panel_you), true, it.startedAt) }
-            VoiceBar(listOfNotNull(theirVoice, myVoice))
+            val voicesNow = listOfNotNull(theirVoice, myVoice)
+            val videoBoxes = (theirClip != null && fullVideo == null) || myPanel
+            LivePanel(
+                theirClip != null && fullVideo == null, if (group != null) (theirs?.from ?: talker?.user) else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                myPanel, sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
+                theirIdentity = talk.talkers[user]?.let { "${it.user}.${it.device}" },
+                behindMs = theirs?.behindMs,
+                voices = voicesNow,
+            )
+            // With a video box showing, the voice pill sits beside it; else the pills alone.
+            VoiceBar(if (videoBoxes) emptyList() else voicesNow)
             BothLiveChip(bothLiveNow && actions.callInChat != null) { makeCallNow[0]() }
         }
         if (contact?.changedKey != null) {
@@ -521,7 +538,7 @@ private fun ConversationScreenIn(
         // renewal went out as voice only).
         // Hands-free video (2026-11-24, hen): the camera opens as the finger starts sliding up from the Talk button, so the
         // video starts fast at the lock.
-        com.chencohen.ptt.ui.talk.WarmCamera(user, canWrite && !chatLive.anyCall && (sliding || (pushVideo && (handsFree || standby || talkingHere))), warmCamera)
+        com.chencohen.ptt.ui.talk.WarmCamera(user, canWrite && !chatLive.anyCall && (sliding || cameraHeld || (pushVideo && (handsFree || standby || talkingHere))), warmCamera)
         // Push is voice, except hands-free (slid up to the lock): this chat's video setting is set for it and back.
         LaunchedEffect(handsFree, standby, pushVideo, talk.own?.chat) { if (!handsFree && !standby && pushVideo && talk.own?.chat != user) actions.setPushVideo?.invoke(false) }
         // Their floor ended while I'm live in standby: mine starts.
@@ -930,6 +947,7 @@ private fun ConversationScreenIn(
                                     }
                                 },
                                 sliding = { sliding = it },
+                                pressed = { pressing = it },
                                 // One preview at a time: while the panel shows my camera, the button's corner doesn't.
                                 thumb = !myPanel,
                                 stopLive = {
@@ -1982,4 +2000,6 @@ class ChatLive(
     val onBothLive: (Boolean) -> Unit = {},
     /** A call is on (any chat): the camera is the call's; push-to-video takes it back when it ends. */
     val anyCall: Boolean = false,
+    /** Settings › Talk › Get camera ready while talking: the camera opens, unseen, at finger-down on Push. */
+    val cameraReady: Boolean = true,
 )

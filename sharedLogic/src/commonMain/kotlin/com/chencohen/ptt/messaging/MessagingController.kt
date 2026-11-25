@@ -129,7 +129,7 @@ class MessagingController internal constructor(
             withContext(work) {
                 messaging.openChat = user
                 // Its talk room is joined while it is on screen (phase 5b).
-                if (LIVE_TALK_AUDIO) messaging.live.show(user)
+                if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) messaging.live.show(user)
                 if (user != null) messaging.markRead(user)
             }
         }

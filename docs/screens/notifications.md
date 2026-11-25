@@ -48,9 +48,14 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     floor at 60 s). No Voice | Video switch and no hands-free voice any more. A ring around the pill pulses with the
     voice. A call ringing turns the pill into Answer (the push button, green) and Decline (Close, red). Voice and video
     calls start from the chat.
-  - **Voice**: nothing at the top; the pill grows to show who talks at its start: their face in a teal ring that glows
-    with their voice (brightness, glow and thickness follow the level, 60 ms up and 200 ms down), their name and the
-    time. My own voice push looks the same, with my face and my microphone's level.
+  - **Voice** (2026-11-24, hen, "B, a slim pill at the top"): a slim pill at the top centre, entering like the video
+    box (from the top edge, resting just below the status bar): their face in a teal ring that glows with their voice
+    (brightness, glow and thickness follow the level, 60 ms up and 200 ms down; no wave), "Sharon is talking" and the
+    time. My own voice push the same with my face in a coral ring and one line, "You · 0:03". Both at once: two pills
+    side by side; a pill beside a video box when one side is on video (top-aligned). A tap opens the chat, a swipe up
+    puts it away. "The pill becomes the video": when voice turns into video (sliding up to hands-free video, or theirs),
+    the box grows out of the pill's size and place while the pill fades (250 ms), and the pill grows back out of the
+    box if video stops while the voice goes on. The bottom pill stays Chat · Push · Close (Stop while hands-free).
   - **Video**: a box at the top centre slides in from the very top edge of the screen and comes to rest just below
     the status bar (2026-11-24, hen: "enter from the edge of the screen and start just below the notification bar";
     250 ms; a swipe up sends it back out the same way): 23.6% of the screen high and as wide as

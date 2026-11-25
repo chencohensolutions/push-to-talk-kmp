@@ -35,6 +35,12 @@ interface TalkTransport {
     /** The microphone goes out to the room (a press) or stops. */
     suspend fun setTalking(on: Boolean)
 
+    /** The push-to-video camera goes out to the room too (a video burst) or stops. */
+    suspend fun setVideo(on: Boolean) {}
+
+    /** The camera is warm ([on]): the room's camera track reads it, muted, so a video burst only unmutes it. */
+    suspend fun readyVideo(on: Boolean) {}
+
     /** [identity]'s audio is coming through the room now, and opens (its key works). */
     fun hears(identity: String): Boolean
 
@@ -84,6 +90,11 @@ internal class LiveTalk(
     private val sendContent: suspend (chat: String, content: Content, pushKind: Int) -> Unit,
     private val now: () -> Long,
     private val random: Random,
+    /**
+     * Talk's voice goes through the room too (off since 1.4.0: LIVE_TALK_AUDIO). Off, the room carries only
+     * push-to-video's pictures (2026-11-24, hen): the voice stays on the clip path, from the first word to the last.
+     */
+    val audio: Boolean = true,
 ) {
     var transport: TalkTransport? = null
         set(value) {
@@ -119,21 +130,38 @@ internal class LiveTalk(
         leaveLater()
     }
 
-    /** In [chat]'s room, the microphone goes there too. */
-    suspend fun talking(chat: String, on: Boolean) {
+    /** In [chat]'s room, the microphone goes there too, and the camera with a video burst ([video]). */
+    suspend fun talking(chat: String, on: Boolean, video: Boolean = false) {
         val t = transport ?: return
-        if (_state.value.room == chat) runCatching { t.setTalking(on) }
+        // A video burst from outside the chat (the floating window): the room is still being joined; wait a little.
+        if (on && video && _state.value.room != chat) {
+            var waited = 0
+            while (_state.value.room != chat && waited < JOIN_WAIT) {
+                delay(100)
+                waited += 100
+            }
+        }
+        if (_state.value.room != chat) return
+        if (audio) runCatching { t.setTalking(on) }
+        if (on && video) runCatching { t.setVideo(true) } else if (!on) runCatching { t.setVideo(false) }
+    }
+
+    /** The camera is warm for [chat] (null: not): its room's camera track reads it, muted, ready for a video burst. */
+    fun readyVideo(chat: String?) {
+        val t = transport ?: return
+        val on = chat != null && _state.value.room == chat
+        scope.launch { runCatching { t.readyVideo(on) } }
     }
 
     /** The microphone of the room [chat] is in; null when not in it (the app's own recorder is used). */
-    fun captureFor(chat: String): TalkCapture? = transport?.takeIf { _state.value.room == chat && identity != null }?.capture
+    fun captureFor(chat: String): TalkCapture? = transport?.takeIf { audio && _state.value.room == chat && identity != null }?.capture
 
     /** [identity] ("user.device") is heard live in [chat]'s room: its clip needn't play. */
-    fun hearsLive(chat: String, identity: String): Boolean = _state.value.room == chat && transport?.hears(identity) == true
+    fun hearsLive(chat: String, identity: String): Boolean = audio && _state.value.room == chat && transport?.hears(identity) == true
 
     /** The clip of [identity]'s burst plays: its live audio, if it comes late, isn't played over it. */
     fun silence(chat: String, identity: String) {
-        if (_state.value.room == chat) transport?.silence(identity)
+        if (audio && _state.value.room == chat) transport?.silence(identity)
     }
 
     /** Another device's key came (Content.talkKey). */
@@ -232,6 +260,9 @@ internal class LiveTalk(
 
         /** How long the room is kept after the last burst once the conversation is off screen. */
         const val STAY_AFTER_BURST = 60_000L
+
+        /** How long a video burst waits for the room to be joined before its pictures go by the clips only. */
+        const val JOIN_WAIT = 3_000
 
         /** `wss://host:port` of the GraphQL endpoint `https://host:port/query`. */
         fun origin(serverUrl: String): String = "wss://" + serverUrl.removePrefix("https://").substringBefore('/')

@@ -638,6 +638,7 @@ fun HomeApp(
                         viewing = viewingIn(messagingState.viewing, user, System.currentTimeMillis(), Group.idOf(user) != null),
                         direction = messagingState.talkSettings.directionOf(user),
                         live = com.chencohen.ptt.ui.contacts.ChatLive(
+                            cameraReady = messagingState.talkSettings.cameraReady,
                             keeps = { m -> m.clip?.let { messagingState.talkSettings.keeps(user, it) } ?: true },
                             liveWaiting = viewingIn(messagingState.liveWaiting, user, System.currentTimeMillis(), Group.idOf(user) != null),
                             autoCall = user in messagingState.talkSettings.bothLiveCall,

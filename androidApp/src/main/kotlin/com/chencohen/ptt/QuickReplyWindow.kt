@@ -394,7 +394,7 @@ object QuickReplyWindow {
                 liveEdits = state.liveEdits,
                 viewing = viewingIn(state.viewing, current, System.currentTimeMillis(), Group.idOf(current) != null),
                 direction = state.talkSettings.directionOf(current),
-                live = com.chencohen.ptt.ui.contacts.ChatLive(keeps = { m -> m.clip?.let { state.talkSettings.keeps(current, it) } ?: true }),
+                live = com.chencohen.ptt.ui.contacts.ChatLive(keeps = { m -> m.clip?.let { state.talkSettings.keeps(current, it) } ?: true }, cameraReady = state.talkSettings.cameraReady),
                 draftCarets = liveCarets(state.drafts, current, Group.idOf(current) != null),
                 warmCamera = { which -> preview(context, which) },
                 group = Group.idOf(current)?.let {

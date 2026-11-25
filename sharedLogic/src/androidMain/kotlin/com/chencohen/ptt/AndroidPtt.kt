@@ -140,6 +140,22 @@ private fun hub(context: Context): Messaging {
             want60 = { settings.video60 },
         ).also { capture -> talkVideoCapture = capture }
         it.talk.videoOut = com.chencohen.ptt.talk.AndroidTalkVideoOut
+        // Push-to-video's delay by each path (2026-11-24, hen: compare LiveKit and the clips), in the log: from the
+        // server's floor start to the first picture through the room, and to the clip path's first picture.
+        val messaging = it
+        CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
+            val said = HashSet<String>()
+            kotlinx.coroutines.flow.combine(messaging.state, com.chencohen.ptt.talk.LiveTalkVideo.arriving, com.chencohen.ptt.talk.AndroidTalkVideoOut.shown) { st, room, shown ->
+                Triple(st.talk.talkers.values.toList(), room, shown)
+            }.collect { (talkers, room, shown) ->
+                talkers.forEach { t ->
+                    room["${t.user}.${t.device}"]?.let { live ->
+                        if (said.add("room:" + t.clip) && live.firstFrameAt >= t.since - 5_000) android.util.Log.i("TalkDelay", "LiveKit first picture +${live.firstFrameAt - t.since} ms (${t.user}, ${t.clip.take(8)})")
+                    }
+                    if (shown?.clip == t.clip && said.add("clip:" + t.clip)) android.util.Log.i("TalkDelay", "clips first picture +${System.currentTimeMillis() - t.since} ms (${t.user}, ${t.clip.take(8)})")
+                }
+            }
+        }
         com.chencohen.ptt.messaging.ContentCodec.myCaps = com.chencohen.ptt.messaging.ContentCodec.CAPS_SAID or
             (if (hasDecoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC)) com.chencohen.ptt.messaging.ContentCodec.CAPS_H265 else 0)
         it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(

@@ -10,6 +10,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -87,18 +88,27 @@ internal const val LIVE_VIDEO_SHARE = 0.236f
  * apart; all shrunk together only if they'd be wider than the space. [content] gets each box's index.
  */
 @Composable
-internal fun LiveBoxes(shapes: List<Float>, modifier: Modifier = Modifier, content: @Composable (Int, Modifier) -> Unit) {
+internal fun LiveBoxes(
+    shapes: List<Float>,
+    modifier: Modifier = Modifier,
+    /** Beside the boxes, top-aligned (a voice pill beside a video; 2026-11-24, hen): before them and after. */
+    before: @Composable () -> Unit = {},
+    after: @Composable () -> Unit = {},
+    content: @Composable (Int, Modifier) -> Unit,
+) {
     val screen = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
     androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
         val gap = 6.dp
         var h = screen * LIVE_VIDEO_SHARE
         val wide = h * shapes.sum() + gap * (shapes.size - 1).coerceAtLeast(0)
         if (wide > maxWidth) h *= (maxWidth - gap * (shapes.size - 1).coerceAtLeast(0)) / (h * shapes.sum())
-        Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
+        Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.Top) {
+            before()
             shapes.forEachIndexed { i, shape ->
                 val box = RoundedCornerShape(18.dp)
                 content(i, Modifier.size(h * shape, h).shadow(6.dp, box).clip(box).background(Color.Black))
             }
+            after()
         }
     }
 }
@@ -115,12 +125,21 @@ internal fun LiveBoxes(shapes: List<Float>, modifier: Modifier = Modifier, conte
 internal fun LivePanel(
     theirs: Boolean, who: String?, theirSince: Long,
     mine: Boolean, mySince: Long, waitingFor: String?, @Suppress("UNUSED_PARAMETER") handsFree: Boolean,
+    /** The talker's "user.device": their video through the talk room, when it comes (LiveTalkVideo). */
+    theirIdentity: String? = null,
+    /** How far behind the clip path's picture plays (the test builds' readout). */
+    behindMs: Long? = null,
+    /** Voice beside the video (one side on voice, the other on video): its pill, top-aligned beside the box. */
+    voices: List<VoiceSide> = emptyList(),
 ) {
+    val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
+    // Through the room while its frames come; else the clips' pictures (never both).
+    val room = theirIdentity?.let { arriving[it] }
     val shown by com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.collectAsState()
     var lastShown by remember { androidx.compose.runtime.mutableStateOf(shown) }
     if (shown != null) lastShown = shown
     val s = shown ?: lastShown
-    val theirShape = if (s != null && s.width > 0 && s.height > 0) {
+    val theirShape = if (room != null) room.aspect else if (s != null && s.width > 0 && s.height > 0) {
         val a = s.width.toFloat() / s.height
         if (s.rotation % 180 != 0) 1f / a else a
     } else 3f / 4f
@@ -135,10 +154,16 @@ internal fun LivePanel(
         exit = shrinkVertically(tween(PANEL_MS), shrinkTowards = Alignment.Top) + slideOutVertically(tween(PANEL_MS)) { -it },
     ) {
         val sides = listOfNotNull(if (t) "theirs" else null, if (m) "mine" else null)
-        LiveBoxes(sides.map { if (it == "theirs") theirShape else myShape }) { i, box ->
+        LiveBoxes(
+            sides.map { if (it == "theirs") theirShape else myShape },
+            before = { voices.filter { !it.mine }.forEach { VoicePill(it) } },
+            after = { voices.filter { it.mine }.forEach { VoicePill(it) } },
+        ) { i, box ->
             if (sides[i] == "theirs") {
                 Box(box) {
-                    com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
+                    if (room != null) com.chencohen.ptt.ui.talk.RoomVideoView(room, Modifier.fillMaxSize())
+                    else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
+                    com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.TopEnd).padding(6.dp))
                     // One line in a narrow box: the red dot says live.
                     val words = listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · ")
                     LiveTag(words, Modifier.align(Alignment.BottomStart).padding(8.dp))
@@ -160,10 +185,11 @@ internal fun LivePanel(
 internal data class VoiceSide(val user: String, val name: String, val mine: Boolean, val since: Long)
 
 /**
- * Voice push-to-talk under the header (2026-11-24, hen: "when someone push to talk, voice, it's not really showing";
- * mock A, a slim live bar): their face with the teal ring, "Sharon is talking" (or "You're talking", or both), the
- * sound as a moving wave, and a teal dot with the time. Slides down in 250 ms and pushes the chat down; under the video
- * panel when the other side is on video.
+ * Voice push-to-talk under the header (2026-11-24, hen: mock A, then "B, a slim pill at the top" and "if we both voice
+ * pushing then it's side by side pills"): a slim pill per talker, centred, side by side when both: their face in a
+ * ring that glows with their voice (teal; coral for mine; no wave), "Sharon is talking" and the time, or for mine one
+ * line, "You · 0:03". Slides down in 250 ms and pushes the chat down; beside the other side's video box when they're on
+ * video.
  */
 @Composable
 internal fun VoiceBar(sides: List<VoiceSide>) {
@@ -175,90 +201,85 @@ internal fun VoiceBar(sides: List<VoiceSide>) {
         enter = expandVertically(tween(PANEL_MS), expandFrom = Alignment.Top) + slideInVertically(tween(PANEL_MS)) { -it },
         exit = shrinkVertically(tween(PANEL_MS), shrinkTowards = Alignment.Top) + slideOutVertically(tween(PANEL_MS)) { -it },
     ) {
-        val shown = last
-        val shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp)
         Row(
-            Modifier.fillMaxWidth().height(56.dp).shadow(4.dp, shape).clip(shape).background(LibraryColors.Raised).padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.Top,
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy((-8).dp)) { shown.take(2).forEach { TalkingFace(it) } }
-            val words = when {
-                shown.size > 1 -> stringResource(R.string.talk_bar_both, shown.first { !it.mine }.name)
-                shown.first().mine -> stringResource(R.string.talk_bar_you)
-                else -> com.chencohen.ptt.genderedString(R.string.talk_someone, shown.first().user, shown.first().name)
-            }
-            Text(words, color = LibraryColors.OnBackground, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), maxLines = 1)
-            VoiceWave(theirs = shown.any { !it.mine }, mine = shown.any { it.mine }, modifier = Modifier.weight(1f).height(28.dp))
-            Box(Modifier.size(8.dp).background(LibraryColors.Accent, CircleShape))
-            Text(elapsedSince(shown.minOf { it.since }), color = LibraryColors.Muted, style = LibraryType.Small)
+            // Theirs at the start side, mine at the end.
+            last.sortedBy { it.mine }.forEach { VoicePill(it) }
         }
     }
 }
 
-/** A face in the voice bar, 36 dp, a teal ring breathing around it. */
 @Composable
-private fun TalkingFace(side: VoiceSide) {
+private fun VoicePill(side: VoiceSide) {
+    val ring = if (side.mine) com.chencohen.ptt.ui.style.Pink else LibraryColors.Accent
+    val shape = RoundedCornerShape(32.dp)
+    Row(
+        Modifier.shadow(6.dp, shape).clip(shape).background(LibraryColors.Raised).border(1.dp, ring, shape).padding(start = 2.dp, top = 2.dp, bottom = 2.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TalkingFace(side, ring)
+        val time = elapsedSince(side.since)
+        if (side.mine) {
+            Text("${side.name} · $time", color = LibraryColors.OnBackground, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), maxLines = 1)
+        } else {
+            Column {
+                Text(com.chencohen.ptt.genderedString(R.string.talk_someone, side.user, side.name), color = LibraryColors.OnBackground, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), maxLines = 1)
+                Text(time, color = LibraryColors.Muted, style = LibraryType.Tiny)
+            }
+        }
+    }
+}
+
+/** A face in a voice pill: a ring around it that glows with the voice (brightness, glow, thickness; 60 ms up, 200 down). */
+@Composable
+private fun TalkingFace(side: VoiceSide, color: Color) {
     val face = com.chencohen.ptt.ui.face.faceOf(if (side.mine) "" else side.user)
-    val breath by androidx.compose.animation.core.rememberInfiniteTransition(label = "talking").animateFloat(
-        0.4f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "ring",
-    )
-    val teal = LibraryColors.Accent
+    val level by voiceLevel(side.mine)
     Box(
-        Modifier.size(40.dp).background(LibraryColors.Raised, CircleShape).drawBehind {
-            drawCircle(teal.copy(alpha = breath), radius = size.minDimension / 2f - 1.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx()))
+        Modifier.size(52.dp).drawBehind {
+            val r = 18.dp.toPx()
+            val thick = (2f + 2.5f * level).dp.toPx()
+            val glow = 7.dp.toPx() * level
+            var g = glow
+            while (g > 0.5.dp.toPx()) {
+                drawCircle(color.copy(alpha = 0.35f * level * (1 - g / (glow + 0.01f))), radius = r + thick / 2 + g, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+                g -= 1.5.dp.toPx()
+            }
+            drawCircle(color.copy(alpha = 0.55f + 0.45f * level), radius = r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = thick))
         },
         contentAlignment = Alignment.Center,
     ) {
         if (face != null) {
             androidx.compose.foundation.Image(face, side.name, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.size(32.dp))
         } else {
-            Box(Modifier.size(32.dp).background(LibraryColors.Mine, CircleShape), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(30.dp).background(LibraryColors.Mine, CircleShape), contentAlignment = Alignment.Center) {
                 Text(side.name.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.Small)
             }
         }
     }
 }
 
-/**
- * The sound as a wave moving from the end: a bar every 70 ms from the voice level (theirs as it plays, mine from the
- * microphone), smoothed as on the Talk button.
- */
+/** Theirs as it plays, or mine from the microphone, smoothed as on the Talk button. */
 @Composable
-private fun VoiceWave(theirs: Boolean, mine: Boolean, modifier: Modifier) {
-    val bars = remember { androidx.compose.runtime.mutableStateListOf<Float>().apply { repeat(BARS) { add(0f) } } }
-    LaunchedEffect(theirs, mine) {
-        var level = 0f
+private fun voiceLevel(mine: Boolean): androidx.compose.runtime.State<Float> {
+    val level = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    LaunchedEffect(mine) {
         var last = 0L
-        var due = 0L
         while (true) {
             androidx.compose.runtime.withFrameNanos { now ->
                 val dt = if (last == 0L) 16f else (now - last) / 1_000_000f
                 last = now
-                val target = maxOf(if (theirs) com.chencohen.ptt.talk.TalkAudio.playLevel else 0f, if (mine) com.chencohen.ptt.talk.TalkAudio.micLevel else 0f)
-                level = com.chencohen.ptt.talk.VoiceLevel.smooth(level, target, dt)
-                if (now >= due) {
-                    due = now + 70_000_000L
-                    bars.removeAt(0)
-                    bars.add(level)
-                }
+                val target = if (mine) com.chencohen.ptt.talk.TalkAudio.micLevel else com.chencohen.ptt.talk.TalkAudio.playLevel
+                level.floatValue = com.chencohen.ptt.talk.VoiceLevel.smooth(level.floatValue, target, dt)
             }
         }
     }
-    val teal = LibraryColors.Accent
-    androidx.compose.foundation.Canvas(modifier) {
-        val step = size.width / BARS
-        val w = step * 0.55f
-        val rtl = layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl
-        bars.forEachIndexed { i, v ->
-            val h = (size.height * (0.12f + 0.88f * v)).coerceAtLeast(2.dp.toPx())
-            val x = if (rtl) size.width - (i + 1) * step else i * step
-            drawRoundRect(teal.copy(alpha = 0.45f + 0.55f * v), topLeft = androidx.compose.ui.geometry.Offset(x + (step - w) / 2, (size.height - h) / 2), size = androidx.compose.ui.geometry.Size(w, h), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w / 2))
-        }
-    }
+    return level
 }
 
-private const val BARS = 28
 
 /** "You're both live · Make it a call" (2026-11-24, hen), just under the top panel, in its own space. */
 @Composable

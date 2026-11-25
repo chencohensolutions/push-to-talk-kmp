@@ -23,6 +23,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import livekit.org.webrtc.AudioTrackSink
 import okhttp3.OkHttpClient
@@ -58,6 +59,8 @@ class LiveKitTalkTransport(
     private var keys: BaseKeyProvider? = null
     private var events: Job? = null
     private var mic: LocalAudioTrack? = null
+    /** The camera published for a push-to-video burst (2026-11-24, hen: push-to-video through LiveKit). */
+    private var camera: io.livekit.android.room.track.LocalVideoTrack? = null
 
     /** Keys set before the room was there: set again on each join. */
     private val pendingKeys = ConcurrentHashMap<String, Pair<String, Int>>()
@@ -86,8 +89,11 @@ class LiveKitTalkTransport(
             val room = LiveKit.create(
                 appContext,
                 RoomOptions(
+                    // A weak link gets a lower simulcast layer instead of a growing lag (push-to-video): the server picks
+                    // the layer by the link (dynacast pauses layers nobody takes). Not adaptive stream: it pauses a
+                    // track no visible view shows, and the frames are watched (LiveTalkVideo) before one does.
                     adaptiveStream = false,
-                    dynacast = false,
+                    dynacast = true,
                     e2eeOptions = E2EEOptions(keyProvider = provider),
                 ),
                 LiveKitOverrides(
@@ -99,10 +105,13 @@ class LiveKitTalkTransport(
                 ),
             )
             this@LiveKitTalkTransport.room = room
+            LiveTalkVideo.room = room
             keys = provider
             events = scope.launch { room.events.events.collect { onEvent(it) } }
             try {
                 room.connect(url, token)
+                // Ready for a video burst before it comes.
+                scope.launch { runCatching { prepareVideo(room) } }
                 true
             } catch (e: CancellationException) {
                 throw e
@@ -117,6 +126,13 @@ class LiveKitTalkTransport(
         speakerphone.end()
         sampleCapture.detach()
         mic = null
+        camera?.let { c -> runCatching { c.stop() } }
+        camera = null
+        capturing = false
+        liveVideo = false
+        ready = false
+        LiveTalkVideo.gone(null)
+        LiveTalkVideo.room = null
         events?.cancel()
         events = null
         room?.let { r ->
@@ -160,6 +176,95 @@ class LiveKitTalkTransport(
         }
     }
 
+    /**
+     * The push-to-video camera's track: published muted as soon as the room is joined, with no frames (the camera isn't
+     * read until a burst), so a burst only starts reading and unmutes (a few hundred ms) instead of negotiating a new
+     * track (about two seconds; measured 2026-11-24).
+     */
+    private val preparing = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun prepareVideo(room: Room): io.livekit.android.room.track.LocalVideoTrack? = preparing.withLock { prepareVideoNow(room) }
+
+    private suspend fun prepareVideoNow(room: Room): io.livekit.android.room.track.LocalVideoTrack? {
+        camera?.let { return it }
+        if (this.room !== room) return null
+        val local = room.localParticipant
+        val track = runCatching {
+            local.createVideoTrack(
+                "talk-camera",
+                TalkCameraCapturer { com.chencohen.ptt.talkVideoCapture },
+                io.livekit.android.room.track.LocalVideoTrackOptions(captureParams = io.livekit.android.room.track.VideoCaptureParameter(AndroidTalkVideoCapture.WIDTH, AndroidTalkVideoCapture.HEIGHT, AndroidTalkVideoCapture.FPS)),
+                null,
+            )
+        }.getOrElse {
+            Log.w(TAG, "no camera track for the room", it)
+            return null
+        }
+        val published = runCatching {
+            local.publishVideoTrack(
+                track,
+                io.livekit.android.room.participant.VideoTrackPublishOptions(
+                    name = "talk-camera",
+                    simulcast = true,
+                    source = Track.Source.CAMERA,
+                    degradationPreference = livekit.org.webrtc.RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE,
+                ),
+            )
+        }.getOrDefault(false)
+        if (!published) {
+            Log.w(TAG, "the camera wasn't published")
+            runCatching { track.stop() }
+            return null
+        }
+        local.getTrackPublication(Track.Source.CAMERA)?.muted = true
+        camera = track
+        Log.i(TAG, "camera track ready in the room (muted)")
+        return track
+    }
+
+    /**
+     * The push-to-video camera goes to the room too ([on]) or stops: the same camera as the clip's (TalkCameraCapturer),
+     * 640×480 in simulcast layers, so a weak link gets a lower one instead of falling behind.
+     */
+    /** The camera is warm: read into the muted track ([ready]), so a video burst only unmutes. */
+    private var ready = false
+    private var liveVideo = false
+    private var capturing = false
+
+    private suspend fun capture(track: io.livekit.android.room.track.LocalVideoTrack, on: Boolean) {
+        if (on == capturing) return
+        capturing = on
+        withContext(Dispatchers.IO) { runCatching { if (on) track.startCapture() else track.stopCapture() } }
+    }
+
+    override suspend fun readyVideo(on: Boolean) {
+        val room = room ?: return
+        ready = on
+        if (on) {
+            val track = prepareVideo(room) ?: return
+            capture(track, true)
+        } else if (!liveVideo) {
+            camera?.let { capture(it, false) }
+        }
+    }
+
+    override suspend fun setVideo(on: Boolean) {
+        val room = room ?: return
+        val publication = { room.localParticipant.getTrackPublication(Track.Source.CAMERA) }
+        if (on) {
+            val track = prepareVideo(room) ?: return
+            liveVideo = true
+            capture(track, true)
+            publication()?.muted = false
+            Log.i(TAG, "camera live in the room")
+        } else {
+            val track = camera ?: return
+            liveVideo = false
+            publication()?.muted = true
+            if (!ready) capture(track, false)
+        }
+    }
+
     override fun hears(identity: String): Boolean = identity in decrypting
 
     override fun silence(identity: String) {
@@ -182,10 +287,23 @@ class LiveKitTalkTransport(
                     decrypting.remove(who)
                 }
             }
-            is RoomEvent.TrackUnsubscribed -> event.participant.identity?.value?.let { decrypting.remove(it) }
-            is RoomEvent.TrackUnpublished -> event.participant.identity?.value?.let { decrypting.remove(it) }
-            is RoomEvent.ParticipantDisconnected -> event.participant.identity?.value?.let { decrypting.remove(it) }
+            // Push-to-video through the room: their camera is watched for frames (LiveTalkVideo).
+            is RoomEvent.TrackSubscribed -> {
+                val who = event.participant.identity?.value ?: return
+                (event.track as? io.livekit.android.room.track.VideoTrack)?.let { LiveTalkVideo.subscribed(who, it) }
+            }
+            is RoomEvent.TrackUnsubscribed -> event.participant.identity?.value?.let {
+                if (event.track.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else decrypting.remove(it)
+            }
+            is RoomEvent.TrackUnpublished -> event.participant.identity?.value?.let {
+                if (event.publication.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else decrypting.remove(it)
+            }
+            is RoomEvent.ParticipantDisconnected -> event.participant.identity?.value?.let {
+                decrypting.remove(it)
+                LiveTalkVideo.gone(it)
+            }
             is RoomEvent.Disconnected -> {
+                LiveTalkVideo.gone(null)
                 decrypting.clear()
                 listener?.left()
             }
