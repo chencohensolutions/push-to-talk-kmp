@@ -137,6 +137,7 @@ class LiveKitTalkTransport(
 
     override fun leave() {
         speakerphone.end()
+        MicGuard.roomClosed()
         sampleCapture.detach()
         mic = null
         micHeard = false
@@ -217,7 +218,7 @@ class LiveKitTalkTransport(
         if (talkingNow) return
         mic = null
         micHeard = false
-        MicGuard.roomBaseline = -1
+        MicGuard.roomClosed()
         sampleCapture.detach()
         runCatching { room.localParticipant.unpublishTrack(track, true) }
     }
@@ -230,7 +231,7 @@ class LiveKitTalkTransport(
             Log.i(TAG, "microphone not opened ahead: in use elsewhere")
             return@withLock null
         }
-        val before = runCatching { appContext.getSystemService(android.media.AudioManager::class.java).activeRecordingConfigurations.count { it.clientAudioSessionId !in MicGuard.ownSessions } }.getOrDefault(0)
+        MicGuard.roomOpening()
         val local = room.localParticipant
         // LiveKit's own capture options: echo cancelling, noise suppression and automatic gain control (WebRTC's).
         val track = local.createAudioTrack(
@@ -245,12 +246,11 @@ class LiveKitTalkTransport(
             Log.w(TAG, "the microphone wasn't published")
             sampleCapture.detach()
             runCatching { track.stop() }
+            MicGuard.roomClosed()
             return@withLock null
         }
         local.getTrackPublication(Track.Source.MICROPHONE)?.muted = true
         mic = track
-        // Ours is one of the recordings from now on; one more than this is someone else.
-        MicGuard.roomBaseline = before + 1
         Log.i(TAG, "microphone track ready in the room (muted)")
         track
     }

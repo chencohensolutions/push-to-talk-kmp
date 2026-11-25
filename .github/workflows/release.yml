@@ -1,6 +1,11 @@
 # Publishes a release APK from GitHub's servers (2026-11-25, hen: "publish the apk with github servers"): builds the
 # signed release APK of the chosen commit and makes the GitHub release (latest) with talk-<version>.apk, talk.apk
-# (what "Get the app" downloads) and SHA256SUMS. Run it by hand from the Actions tab.
+# (what "Get the app" downloads) and SHA256SUMS.
+#
+# It runs by itself when something is merged or pushed into the `release` branch (2026-11-25, hen): the version is
+# the latest release's plus one (1.4.24 -> 1.4.25), or androidApp/build.gradle.kts's when that is higher, and the
+# notes are the description of the pull request that merged into `release` (else its commit message). It can also be
+# run by hand from the Actions tab, where the version and notes typed there win.
 #
 # The release key comes from the repository's secrets, never from git: TALK_KEYSTORE_BASE64 (the keystore file,
 # base64), TALK_KEYSTORE_PASSWORD, TALK_KEY_ALIAS and TALK_KEY_PASSWORD. Without them the run stops before building,
@@ -8,14 +13,18 @@
 name: Release
 
 on:
+  push:
+    branches: [release]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version name, e.g. 1.4.24"
-        required: true
+        description: "Version name, e.g. 1.5.0 (empty: the latest release's plus one)"
+        required: false
+        default: ""
       version_code:
-        description: "Version code, higher than the last release's"
-        required: true
+        description: "Version code (empty: from the version)"
+        required: false
+        default: ""
       notes:
         description: "Release notes (Markdown)"
         required: false
@@ -34,18 +43,51 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      - name: Version and notes
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IN_VERSION: ${{ inputs.version }}
+          IN_CODE: ${{ inputs.version_code }}
+          IN_NOTES: ${{ inputs.notes }}
+        run: |
+          gradle=androidApp/build.gradle.kts
+          # The version: typed by hand, else one more than the latest release (1.4.24 -> 1.4.25), or the build file's
+          # when that is higher (a jump to 1.5.0 is set there once).
+          file=$(sed -n 's/.*findProperty("versionName").*?: "\([^"]*\)".*/\1/p' $gradle)
+          latest=$(gh release view --json tagName --jq .tagName 2>/dev/null | sed 's/^v//' || true)
+          next=""
+          if [ -n "$latest" ]; then
+            IFS=. read -r major minor patch <<< "$latest"
+            next="$major.$minor.$((patch + 1))"
+          fi
+          version="${IN_VERSION:-$(printf '%s\n' "$next" "$file" | grep . | sort -V | tail -1)}"
+          echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::Bad version '$version'."; exit 1; }
+          # The version code follows from the version (major * 1000000 + minor * 1000 + patch), so it always grows.
+          IFS=. read -r major minor patch <<< "$version"
+          code="${IN_CODE:-$((major * 1000000 + minor * 1000 + patch))}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "::error::Release v$version already exists."
+            exit 1
+          fi
+          if [ -n "$IN_NOTES" ]; then
+            printf '%s\n' "$IN_NOTES" > notes.md
+          else
+            body=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[0].body // empty' 2>/dev/null || true)
+            [ -n "$body" ] || body=$(git log -1 --format=%B)
+            printf '%s\n' "$body" > notes.md
+          fi
+          cat notes.md
+
       - name: Check the release key is there
         env:
           KEYSTORE_BASE64: ${{ secrets.TALK_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.TALK_KEYSTORE_PASSWORD }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
             echo "::error::The release key's secrets (TALK_KEYSTORE_BASE64, TALK_KEYSTORE_PASSWORD, TALK_KEY_ALIAS, TALK_KEY_PASSWORD) are missing."
-            exit 1
-          fi
-          if gh release view "v${{ inputs.version }}" > /dev/null 2>&1; then
-            echo "::error::Release v${{ inputs.version }} already exists."
             exit 1
           fi
 
@@ -71,7 +113,7 @@ jobs:
           export TALK_KEYSTORE="$RUNNER_TEMP/talk-release.keystore"
           echo "$KEYSTORE_BASE64" | base64 -d > "$TALK_KEYSTORE"
           ./gradlew :androidApp:assembleRelease \
-            -PversionName="${{ inputs.version }}" -PversionCode="${{ inputs.version_code }}"
+            -PversionName="${{ steps.v.outputs.version }}" -PversionCode="${{ steps.v.outputs.code }}"
           rm -f "$TALK_KEYSTORE"
 
       - name: Check the signature
@@ -82,16 +124,15 @@ jobs:
           "$apksigner" verify --print-certs "$apk" | tee certs.txt
           if grep -q "CN=Android Debug" certs.txt; then echo "::error::Signed with the debug key."; exit 1; fi
           mkdir -p out
-          cp "$apk" "out/talk-${{ inputs.version }}.apk"
+          cp "$apk" "out/talk-${{ steps.v.outputs.version }}.apk"
           cp "$apk" out/talk.apk
-          (cd out && sha256sum talk-${{ inputs.version }}.apk talk.apk > SHA256SUMS)
+          (cd out && sha256sum talk-${{ steps.v.outputs.version }}.apk talk.apk > SHA256SUMS)
           cat out/SHA256SUMS
 
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-          NOTES: ${{ inputs.notes }}
         run: |
-          printf '%s\n' "${NOTES:-Talk ${{ inputs.version }}}" > notes.md
-          gh release create "v${{ inputs.version }}" --target "$GITHUB_SHA" --title "Talk ${{ inputs.version }}" \
-            --notes-file notes.md --latest out/talk-${{ inputs.version }}.apk out/talk.apk out/SHA256SUMS
+          [ -s notes.md ] && grep -q '[^[:space:]]' notes.md || echo "Talk ${{ steps.v.outputs.version }}" > notes.md
+          gh release create "v${{ steps.v.outputs.version }}" --target "$GITHUB_SHA" --title "Talk ${{ steps.v.outputs.version }}" \
+            --notes-file notes.md --latest out/talk-${{ steps.v.outputs.version }}.apk out/talk.apk out/SHA256SUMS
