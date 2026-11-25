@@ -281,6 +281,19 @@ internal data class Meta(
 )
 
 /** The shared code's part of the [SecureStore], as JSON values. */
+/** A buffered push held for its late key: where and whose, and its packets (base64) with which are audio. */
+@kotlinx.serialization.Serializable
+internal data class LateHeld(
+    val chat: String,
+    val from: String,
+    val video: Boolean,
+    val at: Long,
+    val packets: List<String>,
+    val audio: List<Boolean>,
+)
+
+private const val LATE_KEYS = "late_keys"
+
 internal class MessagingStore(val store: SecureStore) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -295,6 +308,15 @@ internal class MessagingStore(val store: SecureStore) {
     var meta: Meta
         get() = read(Spaces.META, "meta", Meta.serializer()) ?: Meta()
         set(value) = write(Spaces.META, "meta", Meta.serializer(), value)
+
+    /** Buffered pushes read before their key came (Talk; 2026-11-26, hen), by burst: kept here, encrypted, until it does. */
+    fun lateKey(id: String): LateHeld? = read(LATE_KEYS, id, LateHeld.serializer())
+
+    fun putLateKey(id: String, held: LateHeld) = write(LATE_KEYS, id, LateHeld.serializer(), held)
+
+    fun removeLateKey(id: String) = store.remove(LATE_KEYS, id)
+
+    fun lateKeys(): List<String> = store.keys(LATE_KEYS)
 
     fun contacts(): List<Contact> = all(Spaces.CONTACTS, Contact.serializer())
 

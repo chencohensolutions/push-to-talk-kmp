@@ -906,6 +906,8 @@ class TalkTest {
         runCurrent()
         assertNull(bot.state.talk.playing, "not shown live while its key is missing")
         assertTrue(bot.state.talk.talkers.isEmpty())
+        // Held in the encrypted store (not memory): an app restart doesn't lose it.
+        assertNotNull(bot.messaging.store.lateKey(id))
         // The key's message comes late: a missed push, whole, to play.
         val key = ByteArray(com.chencohen.ptt.talk.ClipCrypto.KEY_BYTES) { 5 }
         bot.talk.receiveClip("hen", "hen", com.chencohen.ptt.messaging.ClipContent(id, key, com.chencohen.ptt.messaging.ClipContent.BURST, bot.clock), bot.clock, outgoingCopy = false)
@@ -915,6 +917,7 @@ class TalkTest {
         assertEquals(500L, m.clip!!.durationMs)
         assertFalse(m.read)
         assertTrue(id in bot.host.notified, "a missed-push notification")
+        assertNull(bot.messaging.store.lateKey(id), "gone from the store once it is the clip")
         hen.stop()
         bot.stop()
     }

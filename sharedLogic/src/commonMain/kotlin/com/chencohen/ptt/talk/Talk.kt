@@ -966,17 +966,17 @@ internal class Talk(
 
     private val rebuilds = mutableMapOf<String, Rebuild>()
 
-    /** A buffered push read before its key came: its packets, held until the key's message, by burst. */
-    private class LateKey(val rebuild: Any, val packets: List<Pair<ByteArray, Boolean>>, val at: Long)
-
-    private val lateKey = mutableMapOf<String, LateKey>()
-
-    /** [burst]'s key just came: a buffered push held for it becomes its clip now, a missed push to play. */
+    /** [burst]'s key just came: a buffered push held for it (the store) becomes its clip now, a missed push to play. */
     private fun keyCame(burst: Incoming) {
-        val late = lateKey.remove(burst.id) ?: return
+        // Those held past LATE_KEY_MS go.
+        store.lateKeys().forEach { id -> store.lateKey(id)?.let { if (now() - it.at > LATE_KEY_MS) store.removeLateKey(id) } }
+        val late = store.lateKey(burst.id) ?: return
+        store.removeLateKey(burst.id)
         val key = burst.key ?: return
-        if (now() - late.at > LATE_KEY_MS) return
-        @Suppress("UNCHECKED_CAST") val rebuild = late.rebuild as Rebuild
+        if (burst.chat.isEmpty()) burst.chat = late.chat
+        if (burst.from.isEmpty()) burst.from = late.from
+        val packets = late.packets.mapIndexed { i, b -> Base64.decode(b) to (late.audio.getOrNull(i) ?: true) }
+        val rebuild = Rebuild(burst)
         burst.play = false
         burst.ended = true
         // Whatever was given up on meanwhile (no key: taken as ending with nothing) starts again from the held copy.
@@ -988,7 +988,7 @@ internal class Talk(
         burst.kept = false
         scope.launch {
             rebuild.lock.withLock { rebuild.index = 0; rebuild.pending = mutableListOf(); rebuild.audio = 0 }
-            late.packets.forEach { (packet, audio) -> rebuild.add(key, packet, audio) }
+            packets.forEach { (packet, audio) -> rebuild.add(key, packet, audio) }
             rebuild.lock.withLock { rebuild.flush(key, last = true) }
             host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
         }
@@ -1037,7 +1037,10 @@ internal class Talk(
                     rebuild.readers--
                     if (rebuild.readers == 0) rebuilds.remove(id)
                 }
-                if (held.isNotEmpty()) lateKey[id] = LateKey(rebuild, held, now())
+                if (held.isNotEmpty()) {
+                    // Kept in the encrypted store: an app restart before the key comes doesn't lose it.
+                    store.putLateKey(id, com.chencohen.ptt.messaging.LateHeld(burst.chat, burst.from, burst.video, now(), held.map { Base64.encode(it.first) }, held.map { it.second }))
+                }
                 return@launch
             }
             try {
