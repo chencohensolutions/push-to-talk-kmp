@@ -269,6 +269,10 @@ fun HomeApp(
     // Calls (phase 6): the microphone, and the camera for video, are asked for first.
     val callPermissions = com.chencohen.ptt.ui.calls.rememberCallPermissions { messages.post(resources.getString(R.string.call_mic_denied)) }
     fun call(chat: String, video: Boolean) = callPermissions(video) { v -> messaging.startCall(chat, v) }
+    // Both live in a chat (2026-11-24, hen): the chat whose call shows inside it, and the chat where both are live now
+    // (a call coming from there is taken at once, inside the chat).
+    var inChatCallFor by rememberSaveable { mutableStateOf<String?>(null) }
+    var bothLiveIn by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(openedCall) {
         val (user, video) = openedCall ?: return@LaunchedEffect
         onCallTaken()
@@ -519,6 +523,7 @@ fun HomeApp(
                             setDirection = { d -> onTalkSettings(messagingState.talkSettings.withDirection(Group.chatOf(id), d)) },
                         ),
                         notifyOnly = Group.chatOf(id) in messagingState.talkSettings.notifyOnly,
+                        inChat = { com.chencohen.ptt.ui.talk.KeepInChatCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings) },
                         liveTyping = messagingState.talkSettings.liveTypingTo(Group.chatOf(id)),
                         direction = messagingState.talkSettings.directionOf(Group.chatOf(id)),
                         quickTalk = Group.chatOf(id) in messagingState.talkSettings.quickTalk,
@@ -632,12 +637,50 @@ fun HomeApp(
                         liveEdits = messagingState.liveEdits,
                         viewing = viewingIn(messagingState.viewing, user, System.currentTimeMillis(), Group.idOf(user) != null),
                         direction = messagingState.talkSettings.directionOf(user),
+                        live = com.chencohen.ptt.ui.contacts.ChatLive(
+                            cameraReady = messagingState.talkSettings.cameraReady,
+                            keeps = { m -> m.clip?.let { messagingState.talkSettings.keeps(user, it) } ?: true },
+                            liveWaiting = viewingIn(messagingState.liveWaiting, user, System.currentTimeMillis(), Group.idOf(user) != null),
+                            autoCall = user in messagingState.talkSettings.bothLiveCall,
+                            roomCallCamera = messagingState.roomCall?.takeIf { it.chat == user }?.camera == true,
+                            // Both live made it a call in the talk room itself (2026-11-25, hen): no new room.
+                            call = messagingState.roomCall?.takeIf { it.chat == user }?.let { rc ->
+                                com.chencohen.ptt.ui.contacts.InChatCall(
+                                    top = { com.chencohen.ptt.ui.contacts.RoomCallTop(rc, user, chatName(user), state.device?.user.orEmpty()) },
+                                    bottom = {
+                                        com.chencohen.ptt.ui.contacts.RoomCallBottom(rc, end = { messaging.endRoomCall() }) { mic, cam ->
+                                            messaging.setRoomCallMedia(mic, cam)
+                                        }
+                                    },
+                                )
+                            } ?: messagingState.call?.takeIf { it.chat == user && inChatCallFor == user && it.phase != com.chencohen.ptt.calls.CallPhase.ENDED && !inPip }?.let { c ->
+                                val transport = remember { runCatching { com.chencohen.ptt.callTransport(context) }.getOrNull() }
+                                com.chencohen.ptt.ui.contacts.InChatCall(
+                                    top = { com.chencohen.ptt.ui.calls.ChatCallTop(c, chatName(user), transport) },
+                                    bottom = {
+                                        com.chencohen.ptt.ui.calls.ChatCallBottom(
+                                            c,
+                                            com.chencohen.ptt.ui.calls.CallActions(
+                                                hangUp = messaging::hangUp,
+                                                setMicrophone = messaging::setCallMicrophone,
+                                                setCamera = { on -> if (on) callPermissions(true) { if (it) messaging.setCallCamera(true) } else messaging.setCallCamera(false) },
+                                                switchCamera = messaging::switchCallCamera,
+                                            ),
+                                            fullScreen = { inChatCallFor = null },
+                                        )
+                                    },
+                                )
+                            },
+                            onBothLive = { on -> bothLiveIn = if (on) user else bothLiveIn?.takeIf { it != user } },
+                            anyCall = messagingState.call?.let { it.phase != com.chencohen.ptt.calls.CallPhase.ENDED } == true,
+                        ),
                         warmCamera = messaging::warmCamera,
                         group = Group.idOf(user)?.let { id ->
                             val me = state.device?.user.orEmpty()
                             val typers = groupTyping.filterValues { it > now }.keys.map { it.substringAfter('/') }
                             GroupChat(
                                 name = group?.let { groupName(it) } ?: resources.getString(R.string.group_unnamed),
+                                members = group?.readers?.map { it.user }?.filter { it != me }.orEmpty(),
                                 picture = group?.picture,
                                 line = when {
                                     typers.isNotEmpty() -> com.chencohen.ptt.Gendered.stringFor(context, R.string.group_typing, typers, typers.joinToString(", "))
@@ -674,6 +717,15 @@ fun HomeApp(
                             finishVoice = { messaging.releaseTalk(it) },
                             micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                             call = { video -> call(user, video) },
+                            sendLiveWaiting = { waiting -> messaging.sendLiveWaiting(user, waiting) },
+                            callInChat = {
+                                // In the talk room already: it becomes the call at once. Without a room to turn, a
+                                // short word, never a ringing call (2026-11-25, hen: "it's calling the recipient
+                                // instead of opening the call seamlessly").
+                                messaging.startRoomCall(user, video = messagingState.talkSettings.pushVideoFor(user)) {
+                                    messages.post(resources.getString(R.string.talk_call_no_room))
+                                }
+                            },
                             shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },
                             playKept = ::playKept,
                             setPushVideo = { on -> onTalkSettings(messagingState.talkSettings.withVideoFor(user, on)) },
@@ -726,6 +778,7 @@ fun HomeApp(
                             setDirection = { d -> onTalkSettings(messagingState.talkSettings.withDirection(user, d)) },
                         ),
                         notifyOnly = user in messagingState.talkSettings.notifyOnly,
+                        inChat = { com.chencohen.ptt.ui.talk.KeepInChatCard(user, messagingState.talkSettings, onTalkSettings) },
                         quickTalk = user in messagingState.talkSettings.quickTalk,
                         liveTyping = messagingState.talkSettings.liveTypingTo(user),
                         direction = messagingState.talkSettings.directionOf(user),
@@ -812,12 +865,43 @@ fun HomeApp(
             // otherwise, never the app's own screen (the Talk screen used to carry this; it is gone).
             if (wokeForTalk) {
                 val woken = messagingState.talk.playing?.takeIf { it.video }
+                // A burst heard through the talk room never "plays" (2026-11-25, hen: "my screen is off and testbot
+                // pushes video, I see a blank screen"): its pictures come through the room, so the room's picture
+                // shows, else the clip's.
+                val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsStateWithLifecycle()
+                val me = state.device?.user
+                val roomPicture = messagingState.talk.talkers.values.firstOrNull { it.user != me }
+                    ?.let { t -> arriving["${t.user}.${t.device}"] } ?: arriving.values.firstOrNull { me == null || !it.identity.startsWith("$me.") }
+                // Kept while their burst goes on: a moment without pictures (the room moving to a sharper layer) takes
+                // their picture out of "arriving", and the screen went black for a second (2026-11-25, hen: "the
+                // screen blinks"); the same view stays and the pictures go on in it.
+                val heldPicture = remember { arrayOfNulls<com.chencohen.ptt.talk.LiveTalkVideo.Live>(1) }
+                if (roomPicture != null) heldPicture[0] = roomPicture
+                else if (messagingState.talk.talkers.values.none { it.user != me }) heldPicture[0] = null
+                val shownPicture = roomPicture?.let { r -> heldPicture[0]?.takeIf { it.track === r.track } ?: r } ?: heldPicture[0]
                 Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
-                    if (woken != null) com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
+                    when {
+                        shownPicture != null -> com.chencohen.ptt.ui.talk.RoomVideoView(shownPicture, Modifier.fillMaxSize())
+                        woken != null -> com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
+                    }
                 }
             }
             // A call, over everything (phase 6).
-            messagingState.call?.let { current ->
+            // A call that shows inside its chat (both live): not over everything while that chat is open; once it
+            // ends, its "Call ended" goes at once.
+            val callHere = messagingState.call
+            LaunchedEffect(callHere?.id, callHere?.phase) {
+                val c = callHere ?: return@LaunchedEffect
+                if (c.incoming && c.video && c.phase == com.chencohen.ptt.calls.CallPhase.RINGING && c.chat == bothLiveIn) {
+                    inChatCallFor = c.chat
+                    callPermissions(true) { messaging.acceptCall() }
+                }
+                if (c.phase == com.chencohen.ptt.calls.CallPhase.ENDED && inChatCallFor == c.chat) {
+                    inChatCallFor = null
+                    messaging.dismissEndedCall()
+                }
+            }
+            messagingState.call?.takeIf { !(it.chat == inChatCallFor && stack.lastOrNull() == "chat/" + it.chat && it.phase != com.chencohen.ptt.calls.CallPhase.ENDED && !inPip) }?.let { current ->
                 // During a call Back does nothing (the call goes on); once it has ended, Back closes "Call ended".
                 BackHandler { if (current.phase == com.chencohen.ptt.calls.CallPhase.ENDED) messaging.dismissEndedCall() }
                 // Opening the app on an ended call: it goes at once.

@@ -199,6 +199,8 @@ internal object PushKind {
     const val NONE = 3
     const val TALK = 4
     const val CALL = 5
+    /** Someone opened a chat with this user: join its talk room quietly (2026-11-24, hen; the server's PUSH_WARM). */
+    const val WARM = 6
 }
 
 @Serializable

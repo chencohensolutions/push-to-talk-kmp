@@ -43,6 +43,41 @@ class AndroidTalkVideoCapture(
     private var fps = FPS
     private var bitrate = BITRATE
     private val app = context.applicationContext
+
+    /**
+     * Cameras another app holds now (2026-11-25, hen: don't take what another app uses): the system says which are
+     * unavailable; ours counts only while this capture has none open.
+     */
+    private val takenIds = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /** The front camera is another app's now: video can't start (voice only), and the slide up says so. */
+    val cameraBusy = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    init {
+        runCatching {
+            app.getSystemService(CameraManager::class.java).registerAvailabilityCallback(object : CameraManager.AvailabilityCallback() {
+                override fun onCameraAvailable(cameraId: String) {
+                    takenIds -= cameraId
+                }
+
+                override fun onCameraUnavailable(cameraId: String) {
+                    takenIds += cameraId
+                }
+            }, android.os.Handler(android.os.Looper.getMainLooper()))
+        }
+    }
+
+    /** [id] is held by someone else (unavailable while this capture holds no camera and isn't opening one). */
+    private fun heldElsewhere(id: String) =
+        id in takenIds && camera == null && !opening && android.os.SystemClock.elapsedRealtime() - lastOurs > OWN_RELEASE_MS
+
+    /**
+     * When this capture last held a camera: the system says it is free again a moment after ours closes, and a quick
+     * press in that moment is still ours, not another app's (2026-11-25: quick presses came up as voice only).
+     */
+    @Volatile private var lastOurs = 0L
+
+    @Volatile private var opening = false
     private val lock = Any()
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
@@ -51,6 +86,11 @@ class AndroidTalkVideoCapture(
     private var encoder: MediaCodec? = null
     private var encoderSurface: Surface? = null
     private var preview: Surface? = null
+    /**
+     * LiveKit's capture surface while a burst also goes live through the talk room (2026-11-24, hen: push-to-video
+     * through LiveKit): it takes Follow face's small copy's place in the session, so the camera keeps three outputs.
+     */
+    private var liveTarget: Surface? = null
     /** A small copy of the camera's frames for Follow face (null: none, or the camera can't add it). */
     private var faceReader: android.media.ImageReader? = null
     private var faceReaderOk = true
@@ -74,11 +114,31 @@ class AndroidTalkVideoCapture(
 
     /** The Talk screen's preview: the camera draws into it too while warm (null: none). */
     fun setPreview(surface: Surface?) {
-        synchronized(lock) {
+        val live = synchronized(lock) {
             if (preview === surface) return
             preview = surface
+            liveTarget != null
         }
+        // While the talk room reads the camera the session has no preview output (its track is the preview): nothing to
+        // set up again, so the picture doesn't stop for a moment (2026-11-25: a new session at the slide up).
+        if (live) return
         handler?.post { configure() }
+    }
+
+    /**
+     * The talk room's camera input ([surface], LiveKit's) for this burst, or none: the session is set up again with it.
+     * [done] runs on the camera's thread once the session no longer draws into the old one.
+     */
+    fun setLiveTarget(surface: Surface?, done: () -> Unit = {}) {
+        synchronized(lock) {
+            if (liveTarget === surface) return done()
+            liveTarget = surface
+        }
+        val h = handler ?: return done()
+        h.post {
+            configure()
+            h.postDelayed(done, 300)
+        }
     }
 
     /**
@@ -87,7 +147,7 @@ class AndroidTalkVideoCapture(
      */
     fun clearPreview(surface: Surface, released: () -> Unit) {
         val current = synchronized(lock) {
-            (preview === surface).also { if (it) preview = null }
+            (preview === surface).also { if (it) preview = null } && liveTarget == null
         }
         val h = handler
         if (h == null) {
@@ -140,6 +200,14 @@ class AndroidTalkVideoCapture(
 
 
     override fun start(onFrame: (TalkVideo.Frame) -> Unit): Boolean {
+        // Let go while idle (a minute untouched): opened again now, and waited for up to half a second, so the burst
+        // starts as video rather than voice only (2026-11-24, hen). The microphone starts after this, so the sound
+        // waits too; nothing is lost.
+        if (synchronized(lock) { encoder == null }) {
+            warm()
+            val until = System.currentTimeMillis() + WAIT_FOR_CAMERA_MS
+            while (synchronized(lock) { encoder == null } && System.currentTimeMillis() < until) Thread.sleep(20)
+        }
         val enc = synchronized(lock) {
             val enc = encoder ?: return false
             sink = onFrame
@@ -201,6 +269,13 @@ class AndroidTalkVideoCapture(
         val id = manager.cameraIdList.firstOrNull { manager.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT }
             ?: manager.cameraIdList.firstOrNull() ?: return
         sensor = manager.getCameraCharacteristics(id).get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 270
+        if (heldElsewhere(id)) {
+            Log.i(TAG, "the camera is another app's now: not taken (voice only)")
+            cameraBusy.value = true
+            return
+        }
+        cameraBusy.value = false
+        opening = true
         try {
             val sixty = want60() && supports60(app)
             fps = if (sixty) FPS_60 else FPS
@@ -208,6 +283,8 @@ class AndroidTalkVideoCapture(
             if (encoder == null) startEncoder()
             manager.openCamera(id, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
+                    opening = false
+                    lastOurs = android.os.SystemClock.elapsedRealtime()
                     if (!warmWanted) {
                         device.close()
                         return
@@ -217,13 +294,20 @@ class AndroidTalkVideoCapture(
                 }
 
                 // Taken by another app, or an error: let it go (a press then sends the voice only).
-                override fun onDisconnected(device: CameraDevice) = lost(device)
+                override fun onDisconnected(device: CameraDevice) {
+                    opening = false
+                    // Taken by another app while ours was open: let go, and say so.
+                    cameraBusy.value = true
+                    lost(device)
+                }
                 override fun onError(device: CameraDevice, error: Int) {
+                    opening = false
                     Log.w(TAG, "camera error $error")
                     lost(device)
                 }
             }, handler)
         } catch (e: Exception) {
+            opening = false
             Log.w(TAG, "no camera for push-to-video", e)
             close()
         }
@@ -331,6 +415,12 @@ class AndroidTalkVideoCapture(
 
     private var sensorRead = false
 
+    override val uprightShape: Int
+        get() = if (previewRotation() % 180 != 0) HEIGHT * 1000 / WIDTH else WIDTH * 1000 / HEIGHT
+
+    /** The open camera's sensor orientation (clockwise degrees from the phone's natural orientation). */
+    fun sensorOrientation(): Int = sensor
+
     /** Clockwise degrees to turn the front camera's frames upright as the phone is held now. */
     private fun rotation(): Int {
         val display = (app.getSystemService(android.hardware.display.DisplayManager::class.java).getDisplay(android.view.Display.DEFAULT_DISPLAY)?.rotation ?: 0) * 90
@@ -359,8 +449,12 @@ class AndroidTalkVideoCapture(
                 setOnImageAvailableListener({ faceImage(it) }, faceHandler)
             }
         }
-        val faces = faceReader?.surface?.takeIf { faceReaderOk }
-        val targets = listOfNotNull(enc, preview, faces)
+        val live = liveTarget
+        val faces = if (live != null) null else faceReader?.surface?.takeIf { faceReaderOk }
+        // Feeding the talk room: two outputs only, the clip's encoder and the room's (its track is the preview then,
+        // LiveTalkVideo.local). A third and a fourth output stalled the S25's front camera (2026-11-25, buffer errors,
+        // the own box black).
+        val targets = if (live != null) listOf(enc, live) else listOfNotNull(enc, preview, faces)
         try {
             val executor = Executor { r -> handler?.post(r) }
             device.createCaptureSession(
@@ -401,6 +495,13 @@ class AndroidTalkVideoCapture(
                                 configure()
                                 return
                             }
+                            // LiveKit's surface can't be added: the burst goes by its clips only.
+                            if (asked == sessions && camera === device && live != null) {
+                                Log.w(TAG, "the camera can't feed the talk room too: clips only")
+                                synchronized(lock) { liveTarget = null }
+                                configure()
+                                return
+                            }
                             // A preview that went meanwhile: go on without it, so the camera keeps sending.
                             if (asked == sessions && camera === device && preview != null) {
                                 synchronized(lock) { preview = null }
@@ -418,6 +519,7 @@ class AndroidTalkVideoCapture(
 
     private fun close() {
         if (warmWanted) return
+        if (camera != null) lastOurs = android.os.SystemClock.elapsedRealtime()
         runCatching { session?.close() }
         session = null
         runCatching { camera?.close() }
@@ -430,13 +532,22 @@ class AndroidTalkVideoCapture(
         runCatching { faceReader?.close() }
         faceReader = null
         config = null
-        val t = synchronized(lock) { thread.also { thread = null; handler = null } }
-        t?.quitSafely()
+        // A press that came while this was closing wants the camera again: the thread stays and the camera opens anew
+        // (2026-11-25, hen: "after several tries ... the camera is not initiated": the thread was let go under a new
+        // opening, which then never finished).
+        val t = synchronized(lock) { if (warmWanted) null else thread.also { thread = null; handler = null } }
+        if (t == null) {
+            if (warmWanted) handler?.post { if (camera == null && warmWanted) open() }
+            return
+        }
+        t.quitSafely()
     }
 
     private fun startsWith(a: ByteArray, prefix: ByteArray) = a.size >= prefix.size && prefix.indices.all { a[it] == prefix[it] }
 
     companion object {
+        /** How long after ours closes the camera's unavailability still counts as ours. */
+        private const val OWN_RELEASE_MS = 2_000L
         const val TAG = "TalkVideo"
         const val WIDTH = 640
         const val HEIGHT = 480
@@ -765,3 +876,6 @@ object AndroidTalkVideoOut : TalkVideoOut {
     private const val IDLE_MS = 60_000L
     private const val MAX_WAIT_MS = 1_000L
 }
+
+/** How long a press waits for a camera let go while idle to open again. */
+private const val WAIT_FOR_CAMERA_MS = 1_000L

@@ -167,6 +167,12 @@ internal class Talk(
 
     /** A capture for the next bursts instead of the phone's (Android Auto's car microphone); null: the usual. */
     var captureOverride: TalkCapture? = null
+
+    /** The microphone is someone else's now (a phone call, another app recording): a press is refused, not taken. */
+    var micBusy: () -> Boolean = { false }
+
+    /** The chat keeps its pushes ([video]: video ones) as messages: their clip is always uploaded (the kept copy). */
+    var keepsPush: (chat: String, video: Boolean) -> Boolean = { _, _ -> true }
     var player: TalkPlayer? = null
     var host: TalkHost? = null
 
@@ -198,7 +204,7 @@ internal class Talk(
     private inner class Outgoing(val chat: String, val voiceOnly: Boolean) {
         val id = newClipId()
         val key = random.nextBytes(ClipCrypto.KEY_BYTES)
-        val startedAt = now()
+        var startedAt = now()
         val packets = Channel<Captured>(Channel.UNLIMITED)
         var phase = if (voiceOnly) TalkPhase.VOICE else TalkPhase.REQUESTING
         var granted = false
@@ -214,6 +220,15 @@ internal class Talk(
         var frames = 0
         var finished = false
         var cancelled = false
+        /** The button came up (or Stop): nothing of it may go live in the room after this. */
+        var released = false
+        /**
+         * Its clip isn't uploaded while everyone hears it live in the room (2026-11-25, hen: the clip copy only as a
+         * fallback); it is all kept here, and goes from its first segment the moment someone can't.
+         */
+        var holdClip = false
+        /** Still this phone's live press: the room's microphone may come on for it. */
+        fun liveNow() = outgoing === this && !released && !waiting
         var consumer: Job? = null
         var mic: TalkCapture? = null
         /** The camera goes too (push-to-video): every packet is tagged (TalkVideo). */
@@ -228,7 +243,8 @@ internal class Talk(
     private var outgoing: Outgoing? = null
 
     /** The Talk button went down in [chat] (a user, or a group's chat). */
-    fun press(chat: String) = begin(chat, voiceOnly = false)
+    /** [video]: this press's own choice (the floating window's slide up), over the chat's setting. */
+    fun press(chat: String, video: Boolean? = null) = begin(chat, voiceOnly = false, video = video)
 
     /** A Talk screen is on screen ([on]) or left: the microphone is kept open for an instant press, or closed. */
     fun warmMicrophone(on: Boolean) {
@@ -239,15 +255,19 @@ internal class Talk(
     /** The composer's microphone went down: a voice message, without the floor. */
     fun startVoice(chat: String) = begin(chat, voiceOnly = true)
 
-    private fun begin(chat: String, voiceOnly: Boolean) {
+    private fun begin(chat: String, voiceOnly: Boolean, video: Boolean? = null) {
         if (outgoing != null) return
+        // Never taken from a call or another app (2026-11-25, hen: "don't hijack it"): refused, so nothing looks live.
+        if (micBusy()) return refuse(chat, OwnTalk.MIC)
         // In the conversation's room, the room's microphone feeds the clip too.
         val mic = captureOverride ?: (if (voiceOnly) null else live?.captureFor(chat)) ?: capture ?: return refuse(chat, OwnTalk.MIC)
         val out = Outgoing(chat, voiceOnly)
         out.mic = mic
-        stopPlaying()
+        // One to one, both talk at once: what they say now goes on playing while I talk (2026-11-25, hen). Anything
+        // else playing (an older clip, a group's burst) stops.
+        if (Group.idOf(chat) != null || _state.value.playing?.live != true) stopPlaying()
         // The camera first, so the voice's packets are tagged from the first one.
-        val camera = videoCapture?.takeIf { !voiceOnly && sendVideo(chat) }
+        val camera = videoCapture?.takeIf { !voiceOnly && (video ?: sendVideo(chat)) }
         if (camera != null) {
             out.video = camera.start { frame ->
                 out.videoBytes += frame.data.size
@@ -268,7 +288,7 @@ internal class Talk(
         if (!voiceOnly) {
             live?.burst(chat, null)
             // The live path doesn't wait for the grant; a Busy stops it again.
-            scope.launch { live?.talking(chat, true) }
+            scope.launch { live?.talking(chat, true, out.video) { out.liveNow() } }
         }
         out.consumer = scope.launch { consume(out) }
         if (!voiceOnly) {
@@ -320,7 +340,14 @@ internal class Talk(
     /** The button came up: the clip ends (and a voice message is sent, unless [send] is false: cancelled). */
     fun release(send: Boolean = true) {
         val out = outgoing ?: return
+        out.released = true
         if (!send) out.cancelled = true
+        // Let go while waiting for their floor: nothing of it went out, and nothing is kept.
+        if (out.waiting) {
+            out.waiting = false
+            out.cancelled = true
+            out.decided = true
+        }
         if (out.video) {
             videoCapture?.faces(null)
             videoCapture?.stop()
@@ -334,6 +361,8 @@ internal class Talk(
         for (item in out.packets) {
             when (item) {
                 is Captured.Packet -> {
+                    // Waiting for their floor: not live on screen, so nothing is recorded or sent.
+                    if (out.waiting) continue
                     out.pending += item.bytes
                     out.pendingBytes += item.bytes.size
                     if (item.audio) {
@@ -365,7 +394,9 @@ internal class Talk(
         out.pendingAudio = 0
         if (out.voiceOnly || out.phase == TalkPhase.OFFLINE || out.cancelled) return
         out.unsent += segment
-        if (out.granted) drain(out)
+        // Someone stopped hearing it live (left the room, the room failed): the clip goes now, from its start.
+        if (out.holdClip && live?.allHearing(out.chat, out.video) != true) out.holdClip = false
+        if (out.granted && !out.holdClip) drain(out)
     }
 
     /**
@@ -384,16 +415,19 @@ internal class Talk(
         }
     }
 
-    /** Not connected, or the connection broke: what is recorded goes as a voice message instead. */
+    /**
+     * Not connected, or no answer to the floor: the press goes nothing further and nothing of it is kept (2026-11-25,
+     * hen: "only when the UI says it's transmitting, then transmit": a push that never went live was kept as a voice
+     * message). What already went out with the floor stays as it is.
+     */
     private fun toVoice(out: Outgoing) {
         if (out.phase == TalkPhase.BUSY || out.phase == TalkPhase.REFUSED) return
-        out.decided = true
-        if (out.granted) scope.launch { sendFrame(TalkEndFrame(TalkEnd(out.id))) }
-        out.granted = false
-        out.phase = TalkPhase.OFFLINE
-        out.unsent.clear()
-        if (outgoing === out) showOwn(out)
-        if (out.finished) scope.launch { finish(out) }
+        if (out.granted) {
+            // Live until now: what went out is the clip.
+            if (outgoing === out) release()
+            return
+        }
+        lost(out, TalkPhase.OFFLINE)
     }
 
     private suspend fun finish(out: Outgoing) {
@@ -404,10 +438,19 @@ internal class Talk(
         val duration = out.frames.toLong() * TalkAudioFormat.FRAME_MS
         when {
             out.phase == TalkPhase.BUSY || out.phase == TalkPhase.REFUSED -> Unit
-            out.cancelled || duration < MIN_CLIP_MS && !out.granted -> {
+            out.cancelled || duration < MIN_CLIP_MS && !out.granted || !out.granted && !out.voiceOnly -> {
                 if (out.granted) sendFrame(TalkEndFrame(TalkEnd(out.id)))
             }
             out.granted -> {
+                // Heard live by everyone to the end: no clip went up; the floor ends here instead of at its last
+                // segment.
+                if (out.holdClip && live?.allHearing(out.chat, out.video) == true) {
+                    out.unsent.clear()
+                    sendFrame(TalkEndFrame(TalkEnd(out.id)))
+                } else if (out.holdClip) {
+                    out.holdClip = false
+                    drain(out)
+                }
                 clips.write(out.id, concat(out.records))
                 val kept = store.message(out.id)
                 if (kept != null) store.putMessage(kept.copy(clip = kept.clip?.copy(durationMs = duration, kept = true)))
@@ -484,9 +527,21 @@ internal class Talk(
             )
         )
         publish()
+        // Held while it's decided (segments recorded meanwhile wait, in order).
+        if (!keepsPush(out.chat, out.video) && live != null) out.holdClip = true
         scope.launch {
+            // Everyone hears it in the room (one to one, subscribed), and the chat doesn't keep it: no clip upload.
+            // Asked for up to CLIP_DECIDE_MS (the other side's subscription may still be on its way).
+            if (out.holdClip) {
+                var waited = 0L
+                while (live?.allHearing(out.chat, out.video) != true && waited < CLIP_DECIDE_MS && !out.finished) {
+                    delay(50)
+                    waited += 50
+                }
+                out.holdClip = live?.allHearing(out.chat, out.video) == true
+            }
             // What was recorded before the grant, then the rest as it comes (in order: drain).
-            drain(out)
+            if (!out.holdClip) drain(out)
             if (out.finished) finish(out)
         }
         scope.launch {
@@ -548,18 +603,26 @@ internal class Talk(
             TalkEvent.GRANTED -> out?.let { granted(it) }
             TalkEvent.BUSY -> out?.let { o ->
                 if (o.voiceOnly || o.waiting) return@let lost(o, TalkPhase.BUSY, busyWith = s.talkerUser)
-                // Their floor: keep recording, and ask again the moment it ends.
+                // Their floor: shown as waiting, nothing recorded or sent, and asked again the moment it ends; it
+                // starts from then (2026-11-25, hen: transmit only while the screen says so).
                 o.waiting = true
                 o.phase = TalkPhase.WAITING
+                o.records.clear()
+                o.pending = mutableListOf()
+                o.pendingBytes = 0
+                o.pendingAudio = 0
+                o.unsent.clear()
+                o.index = 0
+                o.frames = 0
                 _state.update { it.copy(own = OwnTalk(o.chat, o.id, TalkPhase.WAITING, o.startedAt, s.talkerUser)) }
                 scope.launch { live?.talking(o.chat, false) }
                 noteOverlap(o.chat)
                 scope.launch {
-                    // Their floor can't outlast the server's limit; if no end comes, it goes as a voice message.
+                    // Their floor can't outlast the server's limit; if no end comes, the press is let go.
                     delay(STALE_TALKER_MS)
                     if (o.waiting) {
                         o.waiting = false
-                        toVoice(o)
+                        lost(o, TalkPhase.BUSY, busyWith = s.talkerUser)
                     }
                 }
             }
@@ -604,7 +667,10 @@ internal class Talk(
                 outgoing?.takeIf { it.waiting && it.chat == chat && it.id != s.burstId }?.let { w ->
                     w.waiting = false
                     w.phase = TalkPhase.REQUESTING
+                    w.startedAt = now()
                     showOwn(w)
+                    // Live again from this moment, on screen and in the room together.
+                    scope.launch { live?.talking(w.chat, true, w.video) { w.liveNow() } }
                     scope.launch { if (!sendFrame(TalkStartFrame(talkStart(w.chat, w.id)))) toVoice(w) }
                     scope.launch {
                         delay(GRANT_WAIT)
@@ -618,7 +684,9 @@ internal class Talk(
                 bursts[s.burstId]?.let { burst ->
                     burst.ended = true
                     // Ended without its last segment here: the server's copy has the rest.
-                    if (burst.lastIndex == null) scope.launch { delay(END_GRACE); if (burst.lastIndex == null) follow(burst) }
+                    // Heard live through the room: there may be no clip at all (the sender uploads it only when
+                    // someone can't hear it live), and nothing is missing.
+                    if (burst.lastIndex == null && !burst.heardLive) scope.launch { delay(END_GRACE); if (burst.lastIndex == null) follow(burst) }
                 }
             }
         }
@@ -701,6 +769,9 @@ internal class Talk(
         burst.video = clip.video
         // Already playing (the floor's news came first, and it started then): its pictures begin now, before any
         // packet (none opens without this key). 2026-11-22: later bursts showed no video.
+        // Heard live through the room (sound only there): its pictures still come from its segments (2026-11-24: the
+        // top panel stayed empty while testbot sent video hands-free).
+        if (clip.video && burst.heardLive && !burst.playing) videoOut?.begin(burst.id)
         if (clip.video && burst.playing) {
             videoOut?.begin(burst.id)
             _state.update { s -> if (s.playing?.clip == burst.id) s.copy(playing = s.playing.copy(video = true)) else s }
@@ -716,7 +787,7 @@ internal class Talk(
         val age = now() - (burst.sentAt.takeIf { it > 0 } ?: burst.createdAt)
         val fresh = burst.announced || age < PLAY_IF_NEWER
         // In the conversation's room the talker may be heard live already (their phone doesn't wait for the grant).
-        if (fresh && burst.announced && live?.state?.value?.room == burst.chat) {
+        if (fresh && burst.announced && live?.audio == true && live?.state?.value?.room == burst.chat) {
             val identity = "${burst.from}.${burst.device}"
             var waited = 0L
             while (live?.hearsLive(burst.chat, identity) != true && waited < LIVE_WAIT) {
@@ -725,6 +796,11 @@ internal class Talk(
             }
             if (live?.hearsLive(burst.chat, identity) == true) {
                 burst.heardLive = true
+                live?.heard(waited)
+                // Heard through the room, the app off screen: the same as a burst that plays (the talk session or
+                // Talk ready for its sound, the floating window) (2026-11-25, hen: "i didn't see the testbot push").
+                if (!awake()) runCatching { host?.prepareToPlay(burst.chat, burst.from) }
+                if (burst.video) videoOut?.begin(burst.id)
                 sendFrame(TalkAckFrame(TalkAck(burst.id)))
                 return drain(burst)
             }
@@ -799,7 +875,8 @@ internal class Talk(
                 break
             }
             val audio = if (burst.video) {
-                burst.splitter.split(packets, { frame -> if (burst.playing) videoOut?.frame(burst.id, frame) }) { face -> if (burst.playing) videoOut?.face(burst.id, face) }
+                val pictures = burst.playing || burst.heardLive
+                burst.splitter.split(packets, { frame -> if (pictures) videoOut?.frame(burst.id, frame) }) { face -> if (pictures) videoOut?.face(burst.id, face) }
             } else {
                 packets
             }
@@ -811,6 +888,7 @@ internal class Talk(
         val last = burst.lastIndex ?: return
         if (burst.next <= last) return
         if (burst.playing) burst.playback?.finish()
+        if (burst.heardLive && burst.video && !burst.playing) videoOut?.end(burst.id)
         keep(burst)
     }
 
@@ -974,6 +1052,8 @@ internal class Talk(
 
         /** How long a press waits for the floor before it records a voice message instead. */
         const val GRANT_WAIT = 3_000L
+        /** How long a grant waits to learn whether everyone hears it in the room (else the clip goes). */
+        const val CLIP_DECIDE_MS = 500L
 
         /** A clip shorter than this that never went live isn't sent (a tap, not a message). */
         const val MIN_CLIP_MS = 400L

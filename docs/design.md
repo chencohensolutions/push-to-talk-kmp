@@ -575,6 +575,78 @@ calls). People without one keep the letter circle.
   bytes. A phone told of an id it doesn't have (it had an app without pictures) asks with `needPicture`, and the bytes go
   again. The server sees only sealed envelopes.
 
+## Push-to-video through LiveKit (2026-11-24, hen: "do it")
+
+A video burst also goes through the conversation's talk room (the same room, token and per-sender E2EE keys as live
+voice), so the picture arrives as the voice does instead of in clip segments over `/ws`:
+
+- **Sending.** When a video burst starts and this phone is in the chat's room, the push-to-video camera's frames go to
+  the room as well: `TalkCameraCapturer` gives LiveKit a surface (`SurfaceTextureHelper`) that
+  `AndroidTalkVideoCapture.setLiveTarget` adds to the camera's session in Follow face's small copy's place (the camera
+  keeps three outputs: the clip's encoder, the preview, the room). Published as `talk-camera`, 640×480 at 30 fps in
+  simulcast layers with `MAINTAIN_FRAMERATE`; the server's congestion control picks the layer per listener and the
+  room has dynacast on, so a weak link gets a lower layer instead of a growing lag (adaptive stream stays off: it
+  pauses a track no visible view shows, and the frames are watched before one does). It is unpublished when the burst ends (each hands-free part is its own burst).
+  The camera that can't take the extra output (the session fails) sends by clips only.
+- **Receiving.** The room subscribes to it like any track; `LiveTalkVideo` watches each talker's video for frames and
+  calls it "arriving" from the first frame until a second passes without one. The chat's top box and the floating
+  window show the room's video (`RoomVideoView`, a `TextureViewRenderer`) while it arrives, and the clip's pictures
+  otherwise, never both; the box takes the shape of whichever shows. The listener's camera and microphone stay off.
+- **The clips stay.** Every burst still goes as clip segments over `/ws`: they wake a sleeping phone (full screen),
+  make the "Keep videos in chat" copy, and show when the room can't be reached or its key isn't there yet.
+- **Delay readout.** The debug and fast builds show, on the received video, which path it came by and how long after
+  the server started the floor its first picture came ("LiveKit · first +380 ms", or "clips · first +900 ms · behind
+  120 ms"); every build logs the same per burst under the `TalkDelay` tag.
+- **Server.** Nothing changed: the talk token already lets a device publish any track.
+- **Make it a call** (2026-11-25, hen: "instant"): while both are live in the chat, the talk room itself becomes the
+  call (`Messaging.startRoomCall`, `Content.roomCall` field 25): floor bursts stop, both microphones (and cameras, if
+  live) stay unmuted in the room, no reconnect, no new room; the chat shows the call in place (`RoomCallTop`,
+  `RoomCallBottom`: time, End, microphone, camera), and the call log gets a line when it ends. Not yet: a Telecom
+  call session for it, Save calls (the server's `recordCall` knows call rooms only), and the floating window's chip
+  (it still starts the usual call). Not in the room: the usual video call starts, as before.
+
+## Voice back in the talk room, and the silent warm-up (2026-11-24/25, hen)
+
+**Why voice had left the room (1.4.0, commit 2fa066b).** A press published a new microphone track, which took a
+moment to start (first words lost), and the release unpublished it at once (the end still on its way lost), while the
+listener played the room's audio instead of the clip.
+
+**Now.** The microphone's track is published once, muted, while the chat is on screen (`prepareAudio`), unmuted at the
+press and muted 300 ms after the release (`TAIL_MS`). The clip records the same samples (`SampleCapture`), starting
+with the 300 ms before the press from a ring it keeps while muted, and stays the record (sleeping phones, "Keep voice
+in chat"). The listener counts a talker as heard through the room only while their microphone publication is unmuted
+and decrypting (`hears`); otherwise it plays the clip. Off screen (a warm room in the background) no microphone track
+is published. While muted, no voice leaves the phone, but the microphone itself is open while the chat is on screen
+(Android's microphone dot), as LiveKit's audio device keeps recording for the published track.
+
+**Silent warm-up.** Opening a chat sends `Content.warm` (field 24) to its other phones, pushed as `PUSH_WARM` (the
+server's ux/warm-push branch; older servers deliver it as `sync`), again every 5 minutes while it stays open, and once
+more when it is left. The phone it reaches joins the chat's talk room quietly, keeps `/ws` open, and Talk's quiet
+service (`TalkReadyService`, the least important, silent notification) keeps the process: no sound, no heads-up,
+nothing lights the screen. It stays as long as the sender's chat is on screen (the app in front, screen on: it
+refreshes every 5 minutes), and ends when the sender leaves the chat or goes to the back, or 6 minutes pass without a
+refresh (2026-11-25, hen chose this over a 10-minute cut-off without a burst, after a push to a long-open chat came
+cold). A phone that joins this way only listens (2026-11-25, hen: "don't open microphone if the user entered the room
+in the background"): no microphone or camera track, and LiveKit's audio prewarming is off, so no microphone opens and
+no privacy dot shows. The microphone is published, muted, only once that phone's own chat is on screen; a press
+from outside the chat (the floating window) publishes it at the press. Android may demote high-priority pushes
+that end in no notification: the app logs each push's priority as sent and as delivered. The `TalkDelay` log says
+whether the phone was in the room before a push.
+
+## Live in the chat (2026-11-24, hen)
+
+- Presence is per chat only: the viewing signal (`ViewingContent`, every 20 s while the chat is open and in view, from
+  those who show their presence) rings the reader's face at the chat's end; the header no longer shows online or last
+  seen.
+- `TalkSettings.keepVoice`, `keepVideo`, `bothLiveCall` (sets of chats, this phone's own, off by default; stored as
+  `talk_keep_voice`, `talk_keep_video`, `talk_both_live_call`). `keeps(chat, clip)` decides whether a burst shows as a
+  message or as a muted line; the clip itself is stored as before, so turning the switch on shows past ones again.
+- Hands-free is the app's: the Talk button's lock keeps pressing, letting go at 55 s and pressing again as soon as the
+  last burst is let go (the server's floor limit is 60 s). `Content.liveWaiting` (field 23, a `ViewingContent`, live
+  only) tells the chat this user is hands-free and waiting for the floor; with it both sides know they are both live.
+- "Make it a call" starts an ordinary video call (phase 6) and marks it shown inside the chat; the other phone, both
+  live in that chat, accepts a call from it at once and shows it inside the chat too. Nothing changes on the server.
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.
@@ -582,3 +654,70 @@ iOS, as the plan says, once phases 5b and 6 are tried on phones.
 The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidApp/google-services.json` is its
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3
 adds them. That file holds only public identifiers; the server's service-account key never goes in git.
+
+## Sending only while the screen shows it (2026-11-25, standing rule)
+
+hen: "when sending video or voice, only when the UI says it's transmitting, then transmit." What the screen shows and
+what goes out are one thing:
+
+- A press is live (pill or box, Stop) from the moment its sound goes into the talk room, and the room's microphone and
+  camera are unmuted only while it is live.
+- Waiting for someone else's floor (TalkPhase.WAITING) is shown as waiting: nothing is recorded, nothing is sent, the
+  room's microphone is muted. When their floor ends, the press goes live at that moment and sends from then on.
+- Let go while waiting, offline, or with no answer to the floor: nothing of it is kept or sent (it used to be kept as a
+  voice message, which put 0:01 bubbles in the chat). Only the composer's voice message button records to keep.
+- A burst that was live and then lost the connection keeps what went out as its clip.
+
+Tests: TalkTest aPressWhileTheOtherTalksWaitsSendingNothingAndGoesLiveWhenTheirsEnds,
+aPressLetGoWhileWaitingSendsAndKeepsNothing, aPushWhileOfflineIsShownOfflineAndNothingIsKeptOrSent.
+
+## The microphone only while Push shows (2026-11-25, standing rule)
+
+hen: the microphone is open and ready (muted) only while a red Push button is on screen, in the chat or the floating
+window, and no other app holds the microphone. Everywhere else (warmed in the background, the chat list, the app in
+the back without the floating window, the screen off) the phone only listens: no microphone track, no recording, no
+privacy dot. The exception is a hardware button (a headset's or a PTT key) pressed with no Push on screen: it opens the
+microphone at the press; the clip records from the press and the room catches up.
+
+Never taken from someone else (hen: "if the phone already uses the microphone for some reason don't hijack it"): in a
+phone call, or while another app records, the microphone isn't opened ahead and a press is refused ("The microphone
+isn't free", nothing shown live). If another app starts recording while ours is open and idle, ours is let go at once
+and comes back when the microphone is free and Push still shows (MicGuard, AudioRecordingCallback).
+
+## The camera only while the slide-up shows (2026-11-25, standing rule)
+
+hen: "the camera should open only when the slide-to-video is appearing on screen". The camera (and its encoder and the
+room's video track reading it) is open only while a press holds Push with the slide-up-to-video target showing (with
+Settings › Talk › Get camera ready while talking on), or while video is live. Letting go without sliding up closes it at
+once (no linger); a quick press again opens it anew one step at a time, so it never comes up black. A camera another app
+holds is not taken (CameraManager's availability): the slide up stays voice only and says "The camera is in use by
+another app".
+
+## Each push sent once: the room, or the clip (2026-11-25, hen)
+
+A push goes through the talk room when the other side hears it there; its clip is uploaded only as the fallback.
+
+- One to one: at the grant the phone waits up to 500 ms (CLIP_DECIDE_MS) to see the other user in this phone's room
+  with its microphone (and, for video, its camera) track subscribed (LiveKit's LocalTrackSubscribed). If so, the
+  clip's segments are recorded and kept on the phone but not uploaded, and the floor ends with a TalkEnd.
+- If they aren't in the room, aren't subscribed in time, or leave or the room fails during the push, the clip goes
+  up from its first segment, as before.
+- A chat that keeps its pushes (Keep voice / Keep video) always uploads the clip, live, as the kept copy.
+- Groups always upload for now (who is in the room isn't known on the phone).
+- The receiver that heard a push live doesn't read the clip from the server afterwards; a woken phone's screen shows
+  the room's picture and keeps it through a moment without frames (a simulcast layer switch had blanked it).
+
+## Open issues
+
+### A push saved as kept message bubbles (fixed 2026-11-25 by the rule above)
+
+At 12:50 a quick push from the S25 to testbot (voice, then slide up to video) ended as two kept bubbles on hen's side, a
+0:01 voice and a 0:01 video, although testbot's keep switches were off. The pushes after it folded into the quiet line as
+they should.
+
+Likely cause: Talk.finish keeps any push that never got the floor (`!out.granted`: the start frame failed, or no answer
+within GRANT_WAIT, so toVoice) as a voice message (ClipKind.VOICE, kept, sent by deliverVoice with ClipContent.VOICE). The
+slide-up ends the voice burst and starts the video one 300 ms after the first lets go, so both can miss the grant together.
+Since the burst was already heard live through the talk room, it should still be delivered, but as a burst (BURST kind,
+folded into the session's line on both phones), not as a kept voice message. To do: reproduce with a quick
+press, slide and Stop; log each message's kind and keep decision; add a test.

@@ -43,6 +43,19 @@ class TalkApp : Application() {
         // LiteRT from Play services for the car's speech detector (Android Auto); Silero in Kotlin without it.
         com.chencohen.ptt.talk.LiteRtSpeechDetector.initialize(this)
         setCallHost(this, AndroidCallHost(this))
+        // The silent warm-up (2026-11-24, hen): someone opened a chat with this user; the room is joined quietly, the
+        // process kept by Talk's quiet service (its notification is the least important and silent; nothing lights).
+        setWarmHost(this, object : com.chencohen.ptt.messaging.WarmHost {
+            override fun warm(chat: String?, on: Boolean) {
+                Log.i("Warm", if (on) "warm for $chat: in the room quietly" else "warm-up over")
+                // What comes through the room shows as any push does (the floating window).
+                if (on) TalkPlaying.watch(this@TalkApp)
+                if (on && !TalkReadyService.running) {
+                    runCatching { startForegroundService(android.content.Intent(this@TalkApp, TalkReadyService::class.java)) }
+                        .onFailure { Log.w("Warm", "no quiet service: the room lasts while the process does", it) }
+                }
+            }
+        })
         // Show in Android Contacts: the entries follow Talk's contacts (names, added, removed).
         scope.launch {
             messagingState(this@TalkApp).map { s -> s.contacts.filter { it.paired && !it.blocked }.map { Triple(it.user, it.name, it.shownEmail) } }
@@ -104,7 +117,8 @@ private suspend fun <T> Task<T>.await(): T = suspendCancellableCoroutine { cont 
 class TalkMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val kind = message.data["kind"] ?: return
-        Log.i("Push", "woken: $kind (priority ${message.priority})")
+        // Android may demote a high-priority push that ends in no notification (the warm-up's): logged as it came.
+        Log.i("Push", "woken: $kind (priority ${message.priority}, sent ${message.originalPriority})")
         WakeTimeline.begin("push ($kind)")
         val app = applicationContext as TalkApp
         // A new app release on the server's GitHub watch: no queue to take (docs/design.md, "App updates").

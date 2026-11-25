@@ -73,6 +73,7 @@ import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryShapes
 import com.chencohen.ptt.ui.style.LibraryType
 import com.chencohen.ptt.ui.talk.clipLength
+import com.chencohen.ptt.ui.talk.holdOrLock
 import com.chencohen.ptt.ui.talk.holdToTalk
 import com.chencohen.ptt.ui.talk.rememberMicrophone
 import com.chencohen.ptt.ui.talk.rememberVoiceLevel
@@ -297,8 +298,9 @@ internal fun RecordingStrip(discard: () -> Unit) {
 }
 
 /**
- * The buttons under the chat, icons only (hen: "no text labels"): Video call, Push-to-talk (hold), Voice call, Voice
- * message (a tap starts recording; while it records it is Send). [compact] with the keyboard up: small, in one row.
+ * The buttons under the chat, icons only (hen: "no text labels"): Voice message (a tap starts recording; while it
+ * records it is Send) and Push-to-talk (hold). No call buttons here (2026-11-25, hen: "in chat screen, remove the
+ * video and voice call buttons"). [compact] with the keyboard up: small, in one row.
  */
 @Composable
 internal fun ChatButtons(
@@ -308,94 +310,151 @@ internal fun ChatButtons(
     actions: ConversationActions,
     /** This chat's push is video (the camera goes too). */
     video: Boolean = false,
+    /** Locked hands-free (2026-11-24, hen): the button is Stop. */
+    handsFree: Boolean = false,
+    /** Slid up to the lock while held: hands-free video (2026-11-24, hen). */
+    lock: () -> Unit = {},
+    /** The finger started sliding up (the camera warms) or came back down / let go. */
+    sliding: (Boolean) -> Unit = {},
+    /** The finger went down on Push ([true]) or lifted. */
+    pressed: (Boolean) -> Unit = {},
+    stopLive: () -> Unit = {},
+    /** Pressed and let go (locked: slid up to the lock), in place of starting and ending a burst directly. */
+    press: (() -> Unit)? = null,
+    release: ((locked: Boolean) -> Unit)? = null,
+    /** My camera, small, on the button's corner. */
+    thumb: Boolean = true,
+    /**
+     * My press waits for this one's floor (2026-11-25, hen: waiting looks like waiting, not live): the big button
+     * dimmed inside a dashed ring, and "Waiting for Sharon…" beside it.
+     */
+    waitingFor: String? = null,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
     val big by animateDpAsState(if (compact) 48.dp else 84.dp, label = "talk button")
-    // Laid out on the screen itself, the same in Hebrew and English (2026-11-24, hen: the thumb finds it in one
-    // place): from the left, voice message, voice call, video call, then the big button near the right edge and the
-    // voice | video switch, upright, at the edge.
+    // The language's own direction, for words in the row (the row itself is laid out left to right).
+    val reading = androidx.compose.ui.platform.LocalLayoutDirection.current
+    // Laid out on the screen itself, the same in Hebrew and English: the big button in the middle of the screen and
+    // voice message just left of it (2026-11-25, hen: "make the push button in center and the voice message button on
+    // its left").
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = if (compact) 6.dp else 12.dp, bottom = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = if (compact) 6.dp else 12.dp, bottom = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (waitingFor != null) {
+                    Text(
+                        // The line in the language's direction, the name wrapped: a Latin name doesn't turn a Hebrew line around.
+                        stringResource(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(waitingFor)), color = LibraryColors.Muted,
+                        style = LibraryType.Caption.copy(textDirection = if (reading == androidx.compose.ui.unit.LayoutDirection.Rtl) androidx.compose.ui.text.style.TextDirection.Rtl else androidx.compose.ui.text.style.TextDirection.Ltr),
+                        // Beside the buttons, which are at the right whatever the language.
+                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Right,
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    )
+                }
                 if (recording) {
                     RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
                 } else {
                     RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
                 }
-                RoundButton(LibraryIcons.Call, stringResource(R.string.call_voice), small) { actions.call(false) }
-                RoundButton(LibraryIcons.Video, stringResource(R.string.call_video), small) { actions.call(true) }
             }
-            val talkLabel = stringResource(if (video) R.string.talk_mode_video else R.string.talk_button)
-            Box(Modifier.padding(start = 8.dp).size(big)) {
-                Box(
+            val talkLabel = stringResource(R.string.talk_button)
+            // Hold: voice push-to-talk. Slide up while holding, to the camera-and-lock target above the button: it
+            // turns into hands-free video until Stop (2026-11-24, hen: "holding the button transmitting audio, sliding
+            // the button up open hands free video"). The camera warms as the finger starts to slide.
+            var lifting by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
+            var lockedNow by remember { androidx.compose.runtime.mutableStateOf(false) }
+            var slidingNow by remember { androidx.compose.runtime.mutableStateOf(false) }
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val lockAt = with(density) { 72.dp.toPx() }
+            val warmFrom = with(density) { 16.dp.toPx() }
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val canAsk = androidx.activity.compose.LocalActivityResultRegistryOwner.current != null
+            val askCamera = if (canAsk) androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {} else null
+            fun cameraAllowed() = context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val onLock by androidx.compose.runtime.rememberUpdatedState(lock)
+            val onSliding by androidx.compose.runtime.rememberUpdatedState(sliding)
+            val onPressed by androidx.compose.runtime.rememberUpdatedState(pressed)
+            val onRelease by androidx.compose.runtime.rememberUpdatedState(release)
+            val onPress by androidx.compose.runtime.rememberUpdatedState(press ?: actions.startVoice)
+            val ring = com.chencohen.ptt.ui.style.Pink
+            Box(
+                Modifier.size(big)
+                    .drawBehind {
+                        // Waiting: a dashed ring around the button, the button itself dimmed.
+                        if (waitingFor != null) {
+                            drawCircle(
+                                ring, radius = size.minDimension / 2 + 5.dp.toPx(),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(7.dp.toPx(), 6.dp.toPx()))),
+                            )
+                        }
+                    }
+                    .graphicsLayer { alpha = if (waitingFor != null) 0.45f else 1f },
+            ) {
+                if (handsFree) {
+                    StopLive(big, stopLive)
+                } else Box(
                     Modifier.fillMaxSize()
                         .shadow(10.dp, CircleShape)
                         .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
                         .semantics { contentDescription = talkLabel }
-                        .holdToTalk(onPress = { microphone(actions.startVoice) }, onRelease = { actions.finishVoice(true) }),
+                        .holdOrLock(
+                            lockAt = lockAt,
+                            onPress = { lifting = 0f; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
+                            onLift = { up ->
+                                lifting = up
+                                val slide = up > warmFrom && !lockedNow
+                                if (slide != slidingNow) {
+                                    slidingNow = slide
+                                    onSliding(slide)
+                                }
+                                if (up >= lockAt && !lockedNow) {
+                                    if (cameraAllowed()) {
+                                        lockedNow = true
+                                        onLock()
+                                    } else {
+                                        askCamera?.launch(android.Manifest.permission.CAMERA) ?: actions.micDenied()
+                                    }
+                                }
+                            },
+                            onRelease = { locked ->
+                                lifting = -1f
+                                onPressed(false)
+                                if (slidingNow) {
+                                    slidingNow = false
+                                    onSliding(false)
+                                }
+                                // Already switched to hands-free video at the lock.
+                                if (lockedNow) return@holdOrLock
+                                val r = onRelease
+                                if (r != null) r(false) else actions.finishVoice(true)
+                                @Suppress("UNUSED_EXPRESSION") locked
+                            },
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    androidx.compose.animation.Crossfade(video, animationSpec = androidx.compose.animation.core.tween(200), label = "talk icon") { v ->
-                        Icon(if (v) LibraryIcons.Video else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
-                    }
+                    Icon(LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
                 }
-                // My camera, small, on the button's top-left corner (clear of the switch): framed before pressing.
-                androidx.compose.animation.AnimatedVisibility(
-                    video && !compact,
-                    enter = androidx.compose.animation.fadeIn(tween<Float>(200)) + androidx.compose.animation.scaleIn(tween<Float>(200), initialScale = 0.6f),
-                    exit = androidx.compose.animation.fadeOut(tween<Float>(150)) + androidx.compose.animation.scaleOut(tween<Float>(150), targetScale = 0.6f),
-                    modifier = Modifier.align(Alignment.TopStart).offset(x = (-10).dp, y = (-6).dp),
-                ) {
-                    Box(Modifier.size(34.dp).shadow(4.dp, CircleShape).clip(CircleShape).background(Color.Black).border(2.dp, Color.White, CircleShape)) {
-                        com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize())
+                // The target, over the button while it is held: a camera over a lock; it fills as the thumb nears it.
+                if (lifting >= 0f && !handsFree) {
+                    val near = (lifting / lockAt).coerceIn(0f, 1f)
+                    androidx.compose.foundation.layout.Column(
+                        Modifier.align(Alignment.TopCenter).offset(y = -(72.dp + 16.dp * near)).size(44.dp, 72.dp)
+                            .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                            .background(androidx.compose.ui.graphics.lerp(LibraryColors.Background, com.chencohen.ptt.ui.style.Pink, near), androidx.compose.foundation.shape.RoundedCornerShape(22.dp)),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        val ink = if (near > 0.5f) Color.White else LibraryColors.OnBackground
+                        Icon(LibraryIcons.Video, null, tint = ink, modifier = Modifier.size(20.dp))
+                        Icon(LibraryIcons.Lock, stringResource(R.string.talk_lock_hint), tint = ink, modifier = Modifier.padding(top = 6.dp).size(18.dp))
                     }
                 }
             }
-            actions.setPushVideo?.let { set -> TalkModeSwitch(video, set, actions.micDenied, Modifier.padding(start = 10.dp)) }
-        }
-    }
-}
-
-/**
- * Voice | video for the big button: two segments, upright, a microphone over a camera, the chosen one filled; the
- * fill slides between them. Video asks for the camera the first time (from the app; the
- * quick-reply window opens the chat for that, [denied]).
- */
-@Composable
-internal fun TalkModeSwitch(video: Boolean, set: (Boolean) -> Unit, denied: () -> Unit, modifier: Modifier = Modifier) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val canAsk = androidx.activity.compose.LocalActivityResultRegistryOwner.current != null
-    val ask = if (canAsk) androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted -> if (granted) set(true) } else null
-    fun choose(on: Boolean) {
-        when {
-            on == video -> {}
-            !on -> set(false)
-            context.checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED -> set(true)
-            ask != null -> ask.launch(android.Manifest.permission.CAMERA)
-            else -> denied()
-        }
-    }
-    // Upright, as the reply bubble's: the microphone on top, the camera below; the fill slides between them.
-    val segment = 38.dp
-    val at by animateDpAsState(if (video) segment else 0.dp, tween(200), label = "mode")
-    Box(modifier.shadow(4.dp, CircleShape).background(LibraryColors.Raised, CircleShape).padding(3.dp)) {
-        Box(Modifier.offset(y = at).size(34.dp, segment).background(LibraryColors.Inverse, CircleShape))
-        androidx.compose.foundation.layout.Column {
-            listOf(false to LibraryIcons.Mic, true to LibraryIcons.Video).forEach { (on, icon) ->
-                val chosen = on == video
-                val ink by androidx.compose.animation.animateColorAsState(if (chosen) LibraryColors.OnInverse else LibraryColors.OnBackground, tween(200), label = "ink")
-                val words = stringResource(if (on) R.string.talk_mode_video else R.string.talk_mode_voice)
-                Box(
-                    Modifier.size(34.dp, segment).clip(CircleShape)
-                        .semantics { selected = chosen }
-                        .clickable(role = Role.Tab, onClickLabel = words) { choose(on) },
-                    contentAlignment = Alignment.Center,
-                ) { Icon(icon, words, tint = ink, modifier = Modifier.size(16.dp)) }
-            }
+            // The same width as the left side's, so the big button sits in the middle of the screen.
+            Spacer(Modifier.weight(1f).padding(start = 8.dp))
         }
     }
 }
@@ -478,7 +537,7 @@ internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifi
  * tap shows when they read it.
  */
 @Composable
-internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
+internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean, here: Boolean = false) {
     var showTime by remember { androidx.compose.runtime.mutableStateOf(false) }
     val label = com.chencohen.ptt.genderedString(R.string.chat_read_up_to_here, user, user)
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
@@ -489,17 +548,8 @@ internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean) {
                     color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(end = 6.dp),
                 )
             }
-            // Their face when they have one (2026-11-24, hen), free-standing and a little larger; else the letter circle.
-            val face = com.chencohen.ptt.ui.face.faceOf(user)
             val tap = Modifier.clickable(role = Role.Button, onClickLabel = label) { showTime = !showTime }.semantics { contentDescription = label }
-            if (face != null) {
-                androidx.compose.foundation.Image(face, null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.size(26.dp).then(tap))
-            } else {
-                Box(
-                    Modifier.size(20.dp).background(LibraryColors.Mine, CircleShape).then(tap),
-                    contentAlignment = Alignment.Center,
-                ) { Text(user.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.Tiny) }
-            }
+            HereFace(user, here, tap)
         }
     }
     @Suppress("UNUSED_EXPRESSION") end
@@ -653,7 +703,7 @@ internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = t
  * lists who read and when.
  */
 @Composable
-internal fun GroupReaders(readers: List<Pair<String, Long>>) {
+internal fun GroupReaders(readers: List<Pair<String, Long>>, here: Set<String> = emptySet()) {
     var open by remember { androidx.compose.runtime.mutableStateOf(false) }
     val label = stringResource(R.string.chat_read_by, readers.joinToString(", ") { it.first })
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
@@ -663,11 +713,8 @@ internal fun GroupReaders(readers: List<Pair<String, Long>>) {
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                readers.take(3).forEach { (who, _) ->
-                    Box(Modifier.size(20.dp).background(LibraryColors.Mine, CircleShape), contentAlignment = Alignment.Center) {
-                        Text(who.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.Tiny)
-                    }
-                }
+                // Those in the chat now first, each with their ring (2026-11-24, hen: "so it could work on groups").
+                readers.sortedByDescending { it.first in here }.take(3).forEach { (who, _) -> HereFace(who, who in here, Modifier) }
                 if (readers.size > 3) Text("+${readers.size - 3}", color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(start = 2.dp))
             }
             androidx.compose.animation.AnimatedVisibility(open) {
@@ -697,3 +744,38 @@ internal fun VideoPair(earlier: TextMessage, later: TextMessage, bubble: @Compos
     }
 }
 
+
+/**
+ * [user]'s face (or letter) at the end of what they read (2026-11-24, hen, "B"): while they have this chat open
+ * ([here]), full size and bright with a slow teal ring breathing around it; after, smaller and grey.
+ */
+@Composable
+internal fun HereFace(user: String, here: Boolean, modifier: Modifier) {
+    val face = com.chencohen.ptt.ui.face.faceOf(user)
+    val grow by androidx.compose.animation.core.animateFloatAsState(if (here) 1f else 0f, tween(400), label = "here")
+    val breath by androidx.compose.animation.core.rememberInfiniteTransition(label = "breath").animateFloat(
+        0.35f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(1400, easing = androidx.compose.animation.core.FastOutSlowInEasing), androidx.compose.animation.core.RepeatMode.Reverse), label = "ring",
+    )
+    val size = (20f + 8f * grow).dp
+    val teal = LibraryColors.Accent
+    val grey = androidx.compose.ui.graphics.ColorMatrix().apply { setToSaturation(0.25f + 0.75f * grow) }
+    Box(
+        modifier.size(size + 8.dp).drawBehind {
+            if (grow > 0f) drawCircle(teal.copy(alpha = breath * grow), radius = this.size.minDimension / 2f - 1.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx()))
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (face != null) {
+            androidx.compose.foundation.Image(
+                face, null, contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                colorFilter = androidx.compose.ui.graphics.ColorFilter.colorMatrix(grey),
+                modifier = Modifier.size(size).graphicsLayer { alpha = 0.6f + 0.4f * grow },
+            )
+        } else {
+            Box(
+                Modifier.size(size - 4.dp).background(if (here) LibraryColors.Mine else LibraryColors.Raised, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Text(user.take(1).uppercase(), color = if (here) LibraryColors.OnMine else LibraryColors.Muted, style = LibraryType.Tiny) }
+        }
+    }
+}

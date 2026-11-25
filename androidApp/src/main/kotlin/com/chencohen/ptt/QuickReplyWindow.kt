@@ -141,6 +141,9 @@ object QuickReplyWindow {
         return step
     }
 
+    /** The window is open on [chat] now (TalkBubble: no bottom pill over it; the window tells the live row itself). */
+    fun showing(chat: String): Boolean = view != null && this.chat.value == chat
+
     /** Debug builds: as [takes] for a message from [chat]. */
     fun arrived(context: Context, chat: String) {
         takes(context, chat)
@@ -228,6 +231,8 @@ object QuickReplyWindow {
         if (leaving != null && !answered) notifications?.unanswered(leaving)
         Log.i(TAG, "closed $leaving (answered $answered)")
         view = null
+        // Someone still live in it: the floating window takes over, its row at the top staying as it is.
+        (app as? TalkApp)?.let { TalkPlaying.windowClosed(it) }
         v.animate().translationY(v.height.toFloat()).setDuration(SLIDE_MS).setInterpolator(android.view.animation.AccelerateInterpolator())
             .withEndAction {
                 runCatching { app.getSystemService(WindowManager::class.java).removeView(v) }
@@ -256,11 +261,16 @@ object QuickReplyWindow {
     private var baseHeight = 0
     private var layout: WindowManager.LayoutParams? = null
 
-    /** The keyboard is [extra] pixels above the window's bottom room now: the window grows by that, upward. */
-    private fun growBy(context: Context, extra: Int) {
+    /**
+     * The keyboard is [extra] pixels above the window's bottom room now: the window grows by that, upward, but stays
+     * below the live row at the top of the screen ([topRoom]: its bottom edge, 0 without one; 2026-11-25, hen: the
+     * pills and videos show there, not in this window).
+     */
+    private fun growBy(context: Context, extra: Int, topRoom: Int) {
         val v = view ?: return
         val p = layout ?: return
-        val height = baseHeight + extra.coerceAtLeast(0)
+        val screen = context.getSystemService(WindowManager::class.java).currentWindowMetrics.bounds.height()
+        val height = (baseHeight + extra.coerceAtLeast(0)).coerceAtMost((screen - topRoom).coerceAtLeast(baseHeight / 2))
         if (p.height == height) return
         p.height = height
         runCatching { context.getSystemService(WindowManager::class.java).updateViewLayout(v, p) }
@@ -365,7 +375,8 @@ object QuickReplyWindow {
         )
         val roomExtra = (imeMost - nav).coerceAtLeast(0)
         val usedExtra = (imeNow - nav).coerceAtLeast(0)
-        androidx.compose.runtime.SideEffect { growBy(context, roomExtra) }
+        val topRoom = TalkBubble.topRoom.intValue
+        androidx.compose.runtime.SideEffect { growBy(context, roomExtra, topRoom) }
         // The conversation screen itself (2026-11-24, hen: the same design and ways as the chat), with this window's
         // header: a swipe down closes it, the name opens the chat, × closes.
         Column(Modifier.fillMaxSize()) {
@@ -394,12 +405,22 @@ object QuickReplyWindow {
                 liveEdits = state.liveEdits,
                 viewing = viewingIn(state.viewing, current, System.currentTimeMillis(), Group.idOf(current) != null),
                 direction = state.talkSettings.directionOf(current),
+                live = com.chencohen.ptt.ui.contacts.ChatLive(
+                    keeps = { m -> m.clip?.let { state.talkSettings.keeps(current, it) } ?: true },
+                    // Who is live and waiting for this phone's floor, as in the chat itself.
+                    liveWaiting = viewingIn(state.liveWaiting, current, System.currentTimeMillis(), Group.idOf(current) != null),
+                    cameraReady = state.talkSettings.cameraReady,
+                    // Live pills and videos aren't drawn in this window (2026-11-25, hen: "should appear from the top
+                    // of the screen, not in the chat floating window"): the floating window's row at the top has them.
+                    liveRow = { now -> TalkBubble.liveRow(context, current, now) },
+                ),
                 draftCarets = liveCarets(state.drafts, current, Group.idOf(current) != null),
                 warmCamera = { which -> preview(context, which) },
                 group = Group.idOf(current)?.let {
                     GroupChat(
                         name = title,
                         picture = group?.picture,
+                        members = group?.readers?.map { it.user }?.filter { it != me }.orEmpty(),
                         line = "",
                         note = when {
                             group == null -> context.getString(R.string.group_missing)
@@ -437,6 +458,14 @@ object QuickReplyWindow {
                     finishVoice = { send -> endTalk(context, send) },
                     micDenied = { openChat(context, current) },
                     call = { video -> call(context, current, video) },
+                    // "Make it a call": the talk room becomes the call, no ringing, and the chat opens with it;
+                    // without a room to turn, a short word (2026-11-25, hen).
+                    callInChat = {
+                        startRoomCall(context, current, pushVideo) { ok ->
+                            if (ok) openChat(context, current)
+                            else android.widget.Toast.makeText(context, R.string.talk_call_no_room, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     shareCall = { openChat(context, current) },
                     playKept = { openChat(context, current) },
                     // The same memory as the reply bubble's Voice | Video.

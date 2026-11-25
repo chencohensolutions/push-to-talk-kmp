@@ -2,4 +2,7 @@
 <!-- Strings that address the user, in their own form (Settings › Profile; Android 14+). -->
 <resources>
     <string name="settings_live_typing_body">איש הקשר רואה את מה שאתה כותב בזמן הכתיבה, אות אחר אות, גם מה שנמחק, עוד לפני השליחה. כבוי: רואים רק שאתה מקליד.</string>
+    <string name="talk_bar_you">אתה מדבר</string>
+    <string name="talk_bar_both">%1$s ואתה מדברים</string>
+    <string name="talk_panel_you">אתה</string>
 </resources>

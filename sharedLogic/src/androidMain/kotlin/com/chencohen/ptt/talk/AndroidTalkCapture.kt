@@ -101,11 +101,13 @@ class AndroidTalkCapture(private val speakerphone: SpeakerphoneMic? = null) : Ta
 
     private fun open(): Mic? {
         val record = openRecord() ?: return null
+        MicGuard.ownSessions += record.audioSessionId
         val effects = listOfNotNull(
             if (AcousticEchoCanceler.isAvailable()) runCatching { AcousticEchoCanceler.create(record.audioSessionId) }.getOrNull() else null,
             if (NoiseSuppressor.isAvailable()) runCatching { NoiseSuppressor.create(record.audioSessionId) }.getOrNull() else null,
             if (AutomaticGainControl.isAvailable()) runCatching { AutomaticGainControl.create(record.audioSessionId) }.getOrNull() else null,
         ).onEach { runCatching { it.enabled = true } }
+        Log.i(TAG, "microphone effects: " + effects.joinToString { "${it.javaClass.simpleName} ${runCatching { it.enabled }.getOrDefault(false)}" }.ifEmpty { "none on this phone" })
         try {
             record.startRecording()
         } catch (e: Exception) {
@@ -129,6 +131,7 @@ class AndroidTalkCapture(private val speakerphone: SpeakerphoneMic? = null) : Ta
         m.thread.join()
         runCatching { m.record.stop() }
         m.effects.forEach { runCatching { it.release() } }
+        MicGuard.ownSessions -= m.record.audioSessionId
         m.record.release()
     }
 

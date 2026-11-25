@@ -143,3 +143,9 @@ The **Calls** tab (`CallsList`) lists every call, newest first: the letter circl
 "Outgoing" or "Incoming", the call's line and its date and time, a Share button for a saved call, and a call or video
 button at the right that calls back. A tap on the row opens the chat. With no calls yet, its empty state stays: "No calls yet. Calls you make and get
 show here."
+
+## A call inside the chat (2026-11-24, hen)
+
+Started from "You're both live · Make it a call" (or by itself after 10 s with Both live becomes a call), the call
+shows inside the chat instead of over everything: docs/screens/conversation.md, "Live in the chat". Full screen, or
+leaving the chat, shows the usual call screen. It is logged like any call.

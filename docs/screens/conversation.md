@@ -4,7 +4,8 @@
 Signal's conversation in the library's look. How texts, receipts, typing and presence work is in
 [design.md](../design.md), "Phase 3".
 
-- **Header:** back; the contact's letter circle, their name (the display name when they gave one) and a shield when
+- **Header:** slim (2026-11-25, hen: "shrink the header height"): 48 dp under the status bar, with a 32 dp face; back
+  and the name's row keep 48 dp touch targets. Back; the contact's letter circle, their name (the display name when they gave one) and a shield when
   verified; under it "typing…" or "online" (teal), or "last seen <time>" (muted; a date before today), or nothing when
   it isn't known or hidden. A tap on the name opens the [contact's page](contacts.md) (safety number, block, remove).
   At the right, **Video call** and **Voice call** ([calls.md](calls.md)), then the **Talk button** (a walkie-talkie) opens [Talk mode](talk.md); it shows only where one can talk
@@ -65,14 +66,10 @@ quick-reply window isn't fitted by the system any more: it grows upward by the k
 and is placed at its window position with `place()` (not mirrored), so it flies to its slot rather than to the mirror
 of it. Tested in RtlTransitionsTest.
 
-**Voice | video** (2026-11-24, hen): an upright two-part switch at the right edge, beside the big push-to-talk button,
-a microphone over a camera (icons only; the fill slides between them). The big
-button's icon follows it (walkie-talkie or camera, crossfading). The choice is kept per contact, the same memory as the
-reply bubble's Voice | Video, so the chat, the quick-reply window and the bubble agree. In Video the front camera
-opens as soon as the chat shows (warm, so a press sends video at once) and my picture shows small on the button's
-corner; it's let go on Voice, leaving the chat, the app going to the background, or a minute untouched, and opens again
-on return or at the next touch. It folds away with the button row while writing. The first Video asks for the camera
-(from the quick-reply window, the chat opens for that).
+**Voice | video** (2026-11-24, hen): gone (2026-11-24, later: "holding the button transmitting audio, sliding the
+button up open hands free video"). The Talk button is always voice; video is hands-free, from sliding up to the lock
+(see "Hold for voice, slide up for hands-free video" below). The camera opens only as the finger starts sliding up, and
+while video is live.
 
 **Writing in the chat** (2026-11-23, hen, from the approved mockup "chat-typing-in-chat"): there is no line to write in
 at the bottom. The last thing in the chat is an empty dashed bubble on this phone's side, "Write a message…"; a tap
@@ -105,8 +102,7 @@ keyboard.
 sent or received, is a video bubble at its time: its first picture (decoded from the clip kept on the phone, in
 memory only), its length ("live" while it is said), a play mark; a tap plays it full screen over the chat (Follow face
 as set), Back or a tap closes it; a long press saves it as a file. Voice bursts stay voice bubbles.
-Push-to-video from the chat (2026-11-23, hen): with the chat's Voice | Video on Video the camera stays open while the
-chat shows; holding Push-to-talk puts this phone's camera live in an outlined bubble at the end of the chat (red dot,
+Push-to-video from the chat (2026-11-23, hen; since 2026-11-24 only hands-free, from sliding up to the lock): holding Push-to-talk puts this phone's camera live in an outlined bubble at the end of the chat (red dot,
 time); on release the same bubble stays and becomes the sent video (first picture, length, status circle). Their
 push-to-video plays live in their bubble the same way, then stays as the video. No separate preview over the chat.
 
@@ -122,8 +118,10 @@ above it and scrolls behind nothing. On Send the message fills in at the end of 
 
 
 **The button row, on the screen itself** (2026-11-24, hen): laid out left to right the same in Hebrew and English, so
-the thumb finds it in one place: Voice message, Voice call, Video call, then the big push-to-talk button near the right
-edge and the upright Voice | video switch at the edge; my camera's thumbnail on the button's top-left corner.
+the thumb finds it in one place: Voice message, then the big push-to-talk button near the right edge, both under the
+right thumb. No call buttons in the chat (2026-11-25, hen: "in chat screen, remove the video and voice call buttons"),
+in the full chat and the floating chat alike: voice and video calls start from Talk mode's actions and from a call's
+row in the Calls tab ([calls.md](calls.md)).
 
 **The writing bubble** (2026-11-24, hen: "a bit wider"): the empty "Write a message" one is 38.2% of the row (1 − 0.618, the golden ratio); writing,
 it starts at that width (nothing shrinks as the first letter goes in) and grows with the text, at once, up to 85%,
@@ -237,3 +235,106 @@ In a group each member's circle follows the same rule. Send's flight goes straig
 
 **Live edit's end** (1.4.22): saving sends an end to the live view too, and a live frame written before the save that
 comes after it is ignored (each live frame carries when it was written), so "Editing…" never stays on their phone.
+
+## Live in the chat (2026-11-24, hen)
+
+- **Who is here.** No general "online" or "last seen" in the header (only typing is said there). Whether they are in
+  this chat shows at its end: their face (or letter) where their reading reached, full size with a slow teal ring
+  breathing around it while they have this chat open (the viewing signal), smaller and grey after. In a group each
+  member's face has its own ring; those here come first in the at-most-3-then-+N row. Someone who hides their presence
+  sends no viewing signal, so they never ring.
+- **The live panel** (2026-11-24, hen: "when two sides push to video show videos at top side by side; when I push
+  show the video on the top, never on bottom"; then "the video should be the same size" as the floating window).
+  Push-to-video shows only under the header, never at the bottom: a box 23.6% of the screen high and as wide as the
+  picture's own shape (no crop, no bars), rounded 18 dp, centred. Both at once: two such boxes of the same height side
+  by side, centred as a pair, theirs at the language's start side and mine at the other (the right and the left in
+  Hebrew), shrunk together only if they'd be wider than the screen. The tags sit inside each video on one line, a red dot with the name in a group (or "You") and the time. The boxes and pills float
+  over the chat (2026-11-25, hen: "floating, not inside black box"): only their own rounded shape and a soft shadow,
+  nothing behind them; the chat keeps its full height under the header and scrolls on beneath.
+  **Where they rest and how they move** (2026-11-25, hen: "every combined animation in one move"; "just below the
+  header"): the row rests just below the slim header, 8 dp under its edge. Every change is one move of 300 ms with an
+  ease, for everything at once ([style.md](style.md), "Motion"): a side that starts comes down from under the header's
+  edge (cut there, so it comes out from under the header, not over it) straight into its own place, while a side
+  already there glides aside; a side that ends goes back up under the header while the other glides to the centre; a
+  side turning from voice to video is ONE frame that grows from the pill into the box about its own centre, its top
+  edge still (the pair staying centred when there are two), straight to the picture's known shape, and back. A side
+  never leaves and comes back for that. **Never a black box** (2026-11-25, hen: "the camera turns black and then
+  slides up"; a black box while waiting for the floor): a box shows its picture only once pictures really come
+  (theirs through the room or the clip, mine once the room's track carries my camera's frames) and the face, large,
+  until then; a side that ends goes up at once and keeps its last picture while it does (its track stays in the box
+  until the box is out), the camera closing after. "You're both live · Make it a call" shows only while both sides'
+  items show here (not for a side that is only waiting for the floor). The places are worked out left to right from the screen's edge whatever the
+  language, which only picks the order (`LiveLayout`, `LiveMotion`, shared with the floating window; `LiveStage` in
+  the chat). `adb shell setprop log.tag.LiveRow VERBOSE` logs each frame of a move. While my camera
+  shows there, the small preview on the Talk button's corner is hidden (one preview at a time). A voice-only press
+  shows the voice bar instead.
+- **Voice pills** (2026-11-24, hen: a voice push "isn't really showing"; then "B, a slim pill at the top" and "if we
+  both voice pushing then it's side by side pills"). While someone pushes voice, a slim pill comes down from under
+  the header, floating over the chat as the boxes do: their face in a teal ring that glows with their voice (brightness, glow
+  and thickness; no wave), "Sharon is talking" (gendered) and the time. My own voice push: my face in a coral ring,
+  one line "You · 0:03". Both at once: two pills side by side, centred, theirs at the start side. In a group it is the
+  floor holder's face and name. When one side is on video and the other on voice, the pill sits beside the video box,
+  top-aligned. Voice turning into video: the pill itself grows into the box (above), here and in the floating window.
+  It goes back up under the header when the talking ends. The header's "talking" line is gone (the bar or the panel says it); the
+  line under the header is kept only for the rest (busy, refused, offline, recording a voice message, my other phone).
+- **Not kept by default.** A push-to-talk burst stays in the chat as a voice or video message only when the chat's
+  "Keep voice in chat" / "Keep videos in chat" is on (contact or group page, In the chat; both off by default). Off,
+  nothing shows while it is live (the panel does), and once it ends a muted centred line stays: "hen sent live video ·
+  0:07", "You talked · 0:03", not playable. Bursts back and forth from both sides with nothing else between (ten
+  minutes apart at most) are one line per session: "Push-to-talk · hen ×5, you ×4 · 21:40–21:45". A tap lists each one
+  under it (who, length, time); a tap again folds them. Voice messages from the microphone button always stay.
+- **Hold for voice, slide up for hands-free video** (2026-11-24, hen: "holding the button transmitting audio, sliding
+  the button up open hands free video"). Holding the Talk button is voice push-to-talk for as long as it's held (the
+  voice bar shows it). While holding, a target shows above the button, a camera over a lock; the camera opens as the
+  finger starts sliding up (so the video starts fast), and reaching the target (72 dp) sends the voice so far and
+  switches to hands-free video: my box shows at the top and it keeps sending after the finger lifts, until **Stop**,
+  which takes the button's place. The server ends a floor at 60 s, so at 55 s it is let go and taken again at once
+  (each part a burst of its own). Leaving the chat stops it. There is no Voice | Video switch any more, and no
+  hands-free voice (it went with this gesture). Without the camera allowed, reaching the target asks for it.
+- **Waiting for the floor looks like waiting** (2026-11-25, hen: "when sending video or voice, only when the UI says
+  it's transmitting, then transmit"). In a one-to-one chat a press (or a lock) while they hold the floor stands by
+  (2026-11-24, hen, "a"): nothing is sent, my phone tells theirs I'm waiting (`liveWaiting`, live only), and when
+  their floor ends while I still stand by, my burst starts. In a group a press waits its turn in the queue, and a
+  press the server still queues in a one-to-one chat is turned into the same standby. While it waits, no pill or box
+  of mine is in the live row and nothing says "both live": the Push button (or Stop, hands-free) is dimmed inside a
+  dashed ring, with "Waiting for Sharon…" beside it. Mine comes into the row the moment its turn does (the floor asked
+  for or held: REQUESTING, TALKING), in one move with theirs.
+- **Both live.** "You're both live · Make it a call" shows just under the live panel, in its own space, only while
+  both sides' items are in the row. A tap turns the talk room into the call, with no ringing (2026-11-25, hen: "it's
+  calling the recipient instead of opening the call seamlessly"), the same from the chat, the floating window and the
+  floating chat (`startRoomCall`); when there is no shared room to turn, a short word ("Can't make this a call right
+  now"), never a ringing call. The call is shown inside
+  the chat; their phone takes it at once, also inside the chat. With "Both live becomes a call" on
+  for the chat (off by default) it happens after 10 s without the tap.
+- **A call inside the chat.** In the live panel's place and the same size: 3:4 boxes 23.6% of the screen high, side
+  by side and centred, theirs from the start side and mine at the end (in a group two of theirs at most, then "+N"). At the bottom only a teal bar
+  "Video call · 3:20" with End, then mute, camera, flip and full screen. Messages stay visible
+  between them. Full screen moves it to the usual call screen; leaving the chat shows the usual call screen too. When
+  it ends, the panels go and the call's line ("Video call · 3:20") stays, with its entry in Calls.
+
+## Header edge (2026-11-25, hen: "A · Hairline")
+
+The header (in the floating chat too) keeps the screen's own background, with one 1-px line under it in the palette's
+outline variant. The live row rests just below that line.
+
+## Bottom buttons (2026-11-25, hen)
+
+Push-to-talk sits in the middle of the screen, and the voice message button just to its left, the same in Hebrew and
+English (not mirrored). No call buttons in the chat. While a press waits, "Waiting for …" shows left of them.
+
+## Their face's ring in the header (2026-11-25, hen: "ring only, no new words")
+
+A solid teal ring around their face: they're on this chat's screen. A dashed one: they're in its talk room (ready to
+hear, e.g. warmed in the background) without the chat on screen. No ring: neither. No words are added for it; the
+header's line stays as it was (typing only).
+In a one-to-one chat the read face at the chat's end no longer shows whether they're here (the header's ring does);
+in a group it still does, as a group's header has no ring (2026-11-25, hen).
+
+## A group's header: its members' faces (2026-11-25, hen chose "B")
+
+The other members' faces (36 dp, about 6 dp apart; 2026-11-25, hen: a little bigger, a little room) sit in a row at the
+header's end, the group's name at its start. Each has its ring: solid,
+on this chat's screen; dashed, in its talk room; none, away. Those here come first, then those in the room, then the
+rest, each in a steady order; as many as fit, then "+N"; a tap opens the group's page with its members. When someone's
+state changes, the faces move to their new places together, in one move. The small read faces at the chat's end show
+no presence any more, in groups too (the header does).

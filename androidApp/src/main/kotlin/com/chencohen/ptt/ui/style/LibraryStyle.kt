@@ -251,6 +251,8 @@ internal object LibraryIcons {
     val Info = icon("Info", false, "M12 3a9 9 0 1 0 0.01 0", "M12 11v5", "M12 8h0.01")
     val Grid = icon("Grid", false, "M4 3h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z", "M14 3h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z", "M4 13h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z", "M14 13h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z")
     val Calendar = icon("Calendar", false, "M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", "M3 9h18", "M8 2v4", "M16 2v4")
+    /** Full screen: four corners pointing out. */
+    val Expand = icon("Expand", false, "M4 9V4h5", "M20 9V4h-5", "M4 15v5h5", "M20 15v5h-5")
     val Lock = icon("Lock", false, "M5 11h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z", "M7 11V7a5 5 0 0 1 10 0v4")
     val Plus = icon("Plus", false, "M12 5v14", "M5 12h14")
     val Group = icon("Group", false, "M9 4a4 4 0 1 0 0.01 0", "M2 21v-1a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v1", "M16 3.2a4 4 0 0 1 0 7.6", "M19 14.2a6 6 0 0 1 3 5.8v1")

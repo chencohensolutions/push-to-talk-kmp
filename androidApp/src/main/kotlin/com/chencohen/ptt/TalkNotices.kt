@@ -55,19 +55,52 @@ object TalkPlaying {
     fun watch(app: TalkApp) {
         if (watching?.isActive == true) return
         watching = app.scope.launch {
-            messagingState(app).map { it.talk }.distinctUntilChanged().collect { update(app, it) }
+            // Their video can start inside a burst heard through the room (voice, then the slide up): the pictures
+            // arriving count too, or the floating window kept a voice pill (2026-11-25, hen).
+            kotlinx.coroutines.flow.combine(
+                messagingState(app).map { it.talk }.distinctUntilChanged(),
+                com.chencohen.ptt.talk.LiveTalkVideo.arriving.map { it.keys },
+            ) { talk, _ -> talk }.collect { update(app, it) }
+        }
+    }
+
+    /**
+     * The app went to the back while their video plays live (2026-11-24, hen): it goes on in the floating window, the
+     * same decoder moving to its picture, instead of only being heard.
+     */
+    fun leftApp(app: TalkApp) {
+        app.scope.launch {
+            val playing = messagingState(app).value.talk.playing ?: return@launch
+            if (!playing.live || quiet || chatInFront(app) == playing.chat || !TalkBubble.allowed(app)) return@launch
+            TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video, who = playing.from)
+        }
+    }
+
+    /**
+     * The floating chat closed while someone is live in its conversation (their burst plays, or is heard through the
+     * room): the floating window shows for it from here on, its row at the top staying as it is.
+     */
+    fun windowClosed(app: TalkApp) {
+        app.scope.launch {
+            val talk = messagingState(app).value.talk
+            val playing = talk.playing?.takeIf { it.live } ?: heardInRoom(app, talk) ?: return@launch
+            if (quiet || chatInFront(app) == playing.chat || !TalkBubble.allowed(app)) return@launch
+            TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video, who = playing.from)
         }
     }
 
     private suspend fun update(app: TalkApp, talk: TalkUiState) {
-        val playing = talk.playing
+        // Played from its clip, or heard live through the talk room (2026-11-25, hen: "i didn't see the testbot push":
+        // a burst heard in the room never "plays", so nothing showed): either shows the same.
+        val playing = talk.playing ?: heardInRoom(app, talk)
         if (playing != null) {
             if (shown == null) TalkWidgets.show(app, playing.chat, com.chencohen.ptt.talk.TalkWidgetView.Incoming(playing.from))
             shown = playing.chat to playing.from
             if (lastClip != playing.clip) WakeTimeline.mark("burst plays")
             lastClip = playing.clip
             post(app, playing.chat, playing.from, playing.playedMs, live = true, video = playing.video)
-            if (!quiet && TalkBubble.allowed(app)) TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video)
+            // Not over the chat it is in (2026-11-24, hen: the talk window covered the chat's own buttons).
+            if (!quiet && TalkBubble.allowed(app) && chatInFront(app) != playing.chat) TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video, who = playing.from)
         } else {
             val (chat, from) = shown ?: return
             shown = null
@@ -78,10 +111,20 @@ object TalkPlaying {
                 Log.i(TAG, "woken burst over: a quiet record in the shade, no bubble")
                 quiet = false
                 onQuietEnd?.invoke()
-            } else {
+            } else if (chatInFront(app) != chat) {
                 TalkBubble.show(app, chat, TalkBubble.titleOf(app, chat, from), live = false)
             }
         }
+    }
+
+    /** Someone else holds a floor now (its voice heard through the room, not played from a clip). */
+    private fun heardInRoom(app: TalkApp, talk: TalkUiState): com.chencohen.ptt.talk.NowPlaying? {
+        val me = myUser(app)
+        // Theirs whatever this phone does in the same chat (both live: pressing here mustn't make theirs "end").
+        val (chat, t) = talk.talkers.entries.firstOrNull { (_, t) -> t.user != me && t.clip != talk.own?.clip }?.toPair() ?: return null
+        val video = com.chencohen.ptt.talk.LiveTalkVideo.arriving.value.containsKey("${t.user}.${t.device}") ||
+            messagingState(app).value.conversations[chat]?.firstOrNull { it.id == t.clip }?.clip?.video == true
+        return com.chencohen.ptt.talk.NowPlaying(chat, t.clip, t.user, live = true, video = video)
     }
 
     private suspend fun post(app: TalkApp, chat: String, from: String, playedMs: Long, live: Boolean, video: Boolean = false) {

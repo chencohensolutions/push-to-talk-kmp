@@ -23,6 +23,8 @@ import com.chencohen.ptt.talk.Talk
 import com.chencohen.ptt.talk.TalkPrefs
 import com.chencohen.ptt.talk.TalkUiState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,6 +71,10 @@ data class MessagingState(
      * user sends is read at once (ViewingContent; 2026-11-24, hen: the read circle): until when.
      */
     val viewing: Map<String, Long> = emptyMap(),
+    /** Contacts (a group's members: "chat/author") live and waiting for this user's floor in the chat now: until when. */
+    val liveWaiting: Map<String, Long> = emptyMap(),
+    /** A call in a chat's talk room (both live became one; 2026-11-25, hen): which chat, since when, with video. */
+    val roomCall: RoomCall? = null,
     /** How many texts from each contact aren't read yet. */
     val unread: Map<String, Int> = emptyMap(),
     /** Each conversation's texts, oldest first, by user (a group's by [Group.chat]). */
@@ -119,6 +125,8 @@ data class TalkSettings(
      * the bottom of the screen with the sender and a Talk button, for the burst and the reply window after it.
      */
     val replyBubble: Boolean = true,
+    /** Settings › Talk › Get camera ready while talking (on by default; 2026-11-24, hen). */
+    val cameraReady: Boolean = true,
     /**
      * Settings › Calls › Video: VP8 (standard) or H.265 (smaller and sharper; 2026-11-22, hen), offered only on a phone
      * with a hardware H.265 encoder. Phones that can't take H.265 get VP8 from the same sender (a backup codec).
@@ -161,7 +169,18 @@ data class TalkSettings(
      * [ChatDirection.RTL] or [ChatDirection.LTR]. This phone's only; never sent.
      */
     val directionFor: Map<String, Int> = emptyMap(),
+    /**
+     * Push-to-talk kept in the chat as messages (2026-11-24, hen): voice and video each per chat, off by default; off,
+     * a burst leaves only a muted line once it ends. Voice messages from the mic button always stay.
+     */
+    val keepVoice: Set<String> = emptySet(),
+    val keepVideo: Set<String> = emptySet(),
+    /** Both sides hands-free in the chat becomes a video call after 10 s, without asking (off by default). */
+    val bothLiveCall: Set<String> = emptySet(),
 ) {
+    /** Whether [clip]'s burst in [chat] stays as a message (voice messages always do). */
+    fun keeps(chat: String, clip: Clip): Boolean = clip.kind == ClipKind.VOICE || (if (clip.video) chat in keepVideo else chat in keepVoice)
+
     /** [chat]'s direction (ChatDirection). */
     fun directionOf(chat: String): Int = directionFor[chat] ?: ChatDirection.FOLLOW
 
@@ -243,9 +262,138 @@ internal class Messaging(
     /** The conversation on screen, whose texts are read as they come in; null when none is. */
     var openChat: String? = null
         set(value) {
+            val was = field
             field = value
             updateViewing()
+            if (was != value) {
+                was?.let { sendWarm(it, false) }
+                value?.let { sendWarm(it, true) }
+            }
         }
+
+    /** The chat this phone said it opened (Content.warm), and its refresh while it stays open. */
+    private var warmSent: String? = null
+    private var warmRefresh: Job? = null
+
+    /**
+     * Tells [chat]'s other phones this user opened it ([open]: they join its talk room quietly; again every 5 min while
+     * it stays open and the app is in front) or left it (2026-11-24, hen: the silent warm-up). Pushed as PUSH_WARM, so
+     * a sleeping phone wakes for it without showing anything; not to a blocked or unpaired contact.
+     */
+    private fun sendWarm(chat: String, open: Boolean) {
+        // Only with a room to warm (the app's LiveKit; not in tests).
+        if ((!LIVE_TALK_VIDEO && !LIVE_TALK_AUDIO) || live.transport == null) return
+        if (open) {
+            warmSent = chat
+            warmRefresh?.cancel()
+            warmRefresh = scope.launch {
+                while (true) {
+                    sendWarmNow(chat, true)
+                    delay(WARM_REFRESH)
+                    if (!foreground || openChat != chat) break
+                }
+            }
+        } else if (warmSent == chat) {
+            warmSent = null
+            warmRefresh?.cancel()
+            scope.launch { sendWarmNow(chat, false) }
+        }
+    }
+
+    private suspend fun sendWarmNow(chat: String, open: Boolean) {
+        try {
+            kotlinx.coroutines.withTimeoutOrNull(30_000) { socket.state.first { it is SocketState.Live } } ?: return
+            val content = Content(warm = ViewingContent(open))
+            Group.idOf(chat)?.let { id ->
+                groups.send(id, content, if (open) PushKind.WARM else PushKind.NONE)
+                return
+            }
+            val contact = store.contact(chat)?.takeIf { it.paired && !it.blocked } ?: return
+            sender.send(contact.user, content, pushKind = if (open) PushKind.WARM else PushKind.NONE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Someone opened ([open]) or left [chat] (Content.warm): its room is joined quietly, or let go as usual. */
+    internal fun takeWarm(chat: String, open: Boolean) {
+        if (!LIVE_TALK_VIDEO && !LIVE_TALK_AUDIO) return
+        if (open) {
+            if (live.warm(chat)) host?.warm(chat, true)
+        } else {
+            live.cool(chat)
+            host?.warm(chat, false)
+        }
+    }
+
+    /**
+     * "Make it a call" while both are live (2026-11-25, hen: instant, no reconnect): the chat's talk room becomes the call.
+     * Floor bursts stop, both microphones (and cameras, [video]) stay open in the room, the other phones are told
+     * (Content.roomCall) and do the same. False when this phone isn't in that room (the usual call starts instead).
+     */
+    suspend fun startRoomCall(chat: String, video: Boolean, tell: Boolean = true): Boolean {
+        if (!LIVE_TALK_AUDIO || _state.value.roomCall?.chat == chat) return _state.value.roomCall?.chat == chat
+        talk.release(send = true)
+        if (!live.call(chat, true, video)) return false
+        _state.update { it.copy(roomCall = RoomCall(chat, now(), video, microphone = true, camera = video)) }
+        if (tell) sendRoomCall(chat, true)
+        return true
+    }
+
+    /** The room call ends ([tell]: the others are told): the media mute, and the call log gets its line. */
+    suspend fun endRoomCall(tell: Boolean = true) {
+        val c = _state.value.roomCall ?: return
+        _state.update { it.copy(roomCall = null) }
+        live.call(c.chat, false, false)
+        if (tell) sendRoomCall(c.chat, false)
+        store.putMessage(
+            TextMessage(
+                id = "room-" + c.chat + "-" + c.since, user = c.chat, outgoing = true, body = "", at = c.since, read = true,
+                call = CallEntry(c.video, CallOutcome.ANSWERED, now() - c.since),
+            ),
+        )
+        publish()
+    }
+
+    /** In a room call: this phone's microphone and camera on or off. */
+    suspend fun setRoomCallMedia(microphone: Boolean, camera: Boolean) {
+        val c = _state.value.roomCall ?: return
+        live.transport?.let { t ->
+            runCatching { t.setTalking(microphone) }
+            runCatching { t.setVideo(camera) }
+        }
+        _state.update { it.copy(roomCall = c.copy(microphone = microphone, camera = camera)) }
+    }
+
+    private suspend fun sendRoomCall(chat: String, open: Boolean) {
+        try {
+            val content = Content(roomCall = ViewingContent(open))
+            Group.idOf(chat)?.let { id ->
+                groups.send(id, content, PushKind.NONE)
+                return
+            }
+            val contact = store.contact(chat)?.takeIf { it.paired && !it.blocked } ?: return
+            sender.send(contact.user, content, pushKind = PushKind.NONE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /** The other side made it a call ([open]) or ended it. */
+    internal fun takeRoomCall(chat: String, open: Boolean) {
+        scope.launch {
+            if (open) {
+                startRoomCall(chat, video = talk.sendVideo(chat), tell = false)
+            } else if (_state.value.roomCall?.chat == chat) {
+                endRoomCall(tell = false)
+            }
+        }
+    }
+
+    /** The Android side: a quiet foreground service keeps the process while warm (TalkReadyService). */
+    var host: WarmHost? = null
 
     /**
      * The quick-reply window's chat once its user has answered there (2026-11-24, hen): from then on what comes in is
@@ -295,6 +443,30 @@ internal class Messaging(
             throw e
         } catch (_: Exception) {
         }
+    }
+
+    /** Tells [chat] this user is live and waiting for the floor there ([waiting]), or not any more. */
+    fun sendLiveWaiting(chat: String, waiting: Boolean) {
+        scope.launch {
+            if (socket.state.value !is SocketState.Live) return@launch
+            val content = Content(liveWaiting = ViewingContent(waiting))
+            try {
+                Group.idOf(chat)?.let { id ->
+                    groups.send(id, content, PushKind.NONE, ephemeral = true)
+                    return@launch
+                }
+                val contact = store.contact(chat)?.takeIf { it.paired && !it.blocked } ?: return@launch
+                sender.send(contact.user, content, pushKind = PushKind.NONE, ephemeral = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun takeLiveWaiting(key: String, waiting: Boolean) {
+        val until = now() + HERE_FOR
+        _state.update { it.copy(liveWaiting = if (waiting) it.liveWaiting + (key to until) else it.liveWaiting - key) }
     }
 
     /** [key] (a contact, or a group's "chat/author") viewing the chat with this user, or not. */
@@ -375,6 +547,8 @@ internal class Messaging(
         onEdit = { group, author, edit -> takeEdit(group.chat, author, mine = author == device()?.user, edit) },
         onDelete = { group, author, delete -> takeDelete(group.chat, author, mine = author == device()?.user, delete) },
         onViewing = { group, author, open -> if (author != device()?.user) takeViewing(typingKey(group.chat, author), open) },
+        onLiveWaiting = { group, author, waiting -> if (author != device()?.user) takeLiveWaiting(typingKey(group.chat, author), waiting) },
+        onWarm = { group, author, open -> if (author != device()?.user) takeWarm(group.chat, open) },
         onReaction = { group, author, reaction -> takeReaction(group.chat, if (author == device()?.user) null else author, reaction) },
         onProfile = { _, author, profile -> if (author != device()?.user) takePicture(author, profile, contact = store.contact(author)?.paired == true) },
         onTyping = { group, author, typing ->
@@ -432,6 +606,9 @@ internal class Messaging(
             if (group != null) groups.send(group, content, pushKind) else sender.send(chat, content, pushKind = pushKind)
         },
         now = now, random = random,
+        audio = LIVE_TALK_AUDIO,
+        busy = { talk.busy },
+        cameraShape = { talk.videoCapture?.uprightShape ?: 0 },
     )
 
     val calls: com.chencohen.ptt.calls.Calls = com.chencohen.ptt.calls.Calls(
@@ -471,8 +648,9 @@ internal class Messaging(
     }
 
     init {
-        if (LIVE_TALK_AUDIO) talk.live = live
+        if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) talk.live = live
         talk.sendVideo = { chat -> talkSettings().pushVideoFor(chat) }
+        talk.keepsPush = { chat, video -> talkSettings().let { if (video) chat in it.keepVideo else chat in it.keepVoice } }
         scope.launchCollect(calls.state) { c ->
             val was = _state.value.call != null
             _state.update { it.copy(call = c) }
@@ -498,6 +676,11 @@ internal class Messaging(
     suspend fun start() {
         foreground = true
         updateViewing()
+        // Back in front on a chat: its room again, and the others warmed again.
+        openChat?.let { chat ->
+            if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) live.show(chat)
+            if (warmSent != chat) sendWarm(chat, true)
+        }
         open()
         // Once a run: this user's email to contacts (some paired since it was last said).
         if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET || store.pictureId("") != null)) {
@@ -515,7 +698,20 @@ internal class Messaging(
     fun stop() {
         foreground = false
         updateViewing()
-        if (!stayConnected && !talk.busy) socket.stop()
+        // The app went to the back with a chat open (2026-11-25, hen: "when going to background, leave the room"): as
+        // leaving the chat; a room this phone is warm in for someone else's open chat stays.
+        live.background()
+        // The app left: the warmed phones are told (then the connection closes, unless something keeps it).
+        val warm = warmSent
+        if (warm != null) {
+            sendWarm(warm, false)
+            scope.launch {
+                delay(1_500)
+                if (!foreground && !stayConnected && !talk.busy && live.warmFor() <= now()) socket.stop()
+            }
+            return
+        }
+        if (!stayConnected && !talk.busy && live.warmFor() <= now()) socket.stop()
     }
 
     /**
@@ -545,6 +741,10 @@ internal class Messaging(
                 kotlinx.coroutines.delay(500)
             }
         }
+        // Warmed (someone has this chat open): the connection and the room stay, quietly, until they leave it, its
+        // refresh stops coming, or nobody talks for 10 minutes.
+        while (!foreground && live.warmFor() > now()) kotlinx.coroutines.delay(1_000)
+        host?.warm(null, false)
         if (!foreground && !stayConnected) socket.stop()
     }
 
@@ -563,6 +763,7 @@ internal class Messaging(
         quickTalkPage = settings.quickTalkPage,
         openOnTalk = settings.openOnTalk,
         replyBubble = settings.replyBubble,
+        cameraReady = settings.cameraReady,
         callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.H265,
         pushVideo = settings.pushVideo,
         bubbleVideo = settings.bubbleVideo,
@@ -575,6 +776,9 @@ internal class Messaging(
         lowBatteryNoWake = settings.lowBatteryNoWake,
         videoFor = settings.videoFor,
         directionFor = settings.directionFor,
+        keepVoice = settings.keepVoiceChats,
+        keepVideo = settings.keepVideoChats,
+        bothLiveCall = settings.bothLiveCallChats,
         liveTyping = settings.liveTyping,
         liveTypingFor = settings.liveTypingFor,
         liveTypingKnown = settings.liveTypingKnown,
@@ -597,6 +801,7 @@ internal class Messaging(
         // Written only when changed, so one never chosen keeps following the default.
         val before = _state.value.talkSettings
         if (talk.replyBubble != before.replyBubble) settings.replyBubble = talk.replyBubble
+        if (talk.cameraReady != before.cameraReady) settings.cameraReady = talk.cameraReady
         if (talk.callVideo != before.callVideo) settings.callVideo = talk.callVideo.name
         settings.pushVideo = talk.pushVideo
         settings.bubbleVideo = talk.bubbleVideo
@@ -609,6 +814,9 @@ internal class Messaging(
         settings.lowBatteryNoWake = talk.lowBatteryNoWake
         if (talk.videoFor != before.videoFor) settings.videoFor = talk.videoFor
         if (talk.directionFor != before.directionFor) settings.directionFor = talk.directionFor
+        settings.keepVoiceChats = talk.keepVoice
+        settings.keepVideoChats = talk.keepVideo
+        settings.bothLiveCallChats = talk.bothLiveCall
         settings.liveTyping = talk.liveTyping
         if (talk.liveTypingFor != before.liveTypingFor) settings.liveTypingFor = talk.liveTypingFor
         // The default turned on: the chats there are now keep theirs (off unless set), only new ones follow it.
@@ -757,7 +965,9 @@ internal class Messaging(
 
     private fun applyWarmCamera() {
         val camera = talk.videoCapture ?: return
-        val chat = warmWanted?.takeIf { _state.value.call == null && talk.sendVideo(it) }
+        // The screen asks for it (pressing Push with Get camera ready on, sliding up, live video): no Voice | Video
+        // setting to check any more (2026-11-24, hen).
+        val chat = warmWanted?.takeIf { _state.value.call == null }
         if (chat != null) {
             if (talk.videoChat != chat) camera.cool()
             talk.videoChat = chat
@@ -766,6 +976,9 @@ internal class Messaging(
             talk.videoChat = null
             camera.cool()
         }
+        // The talk room's camera track reads the camera too while it's warm (muted until a video burst), so the
+        // picture goes live there at once.
+        live.readyVideo(chat)
     }
 
     // --- Your devices (docs/screens/devices.md) ----------------------------------------------------------------
@@ -1962,6 +2175,9 @@ internal class Messaging(
             }
         }
         content.viewing?.let { takeViewing(contact.user, it.open) }
+        content.liveWaiting?.let { takeLiveWaiting(contact.user, it.open) }
+        if (!contact.blocked) content.warm?.let { takeWarm(contact.user, it.open) }
+        if (!contact.blocked) content.roomCall?.let { takeRoomCall(contact.user, it.open) }
         content.here?.let { here ->
             // From when the server took it: one that waited (this phone was away) is already over.
             val until = minOf(now(), envelope.serverTimestamp.takeIf { it > 0 } ?: now()) + HERE_FOR
@@ -2017,6 +2233,9 @@ internal class Messaging(
         /** A woken phone stays connected this long after the last burst it played, so a reply can follow. */
         const val TALK_REPLY_WAIT = 20_000L
 
+        /** How often an open chat says so again (Content.warm), while the app is in front. */
+        const val WARM_REFRESH = 5 * 60_000L
+
         /** The longest a talk wake-up keeps the connection. */
         const val TALK_WAKE_LIMIT = 120_000L
 
@@ -2064,11 +2283,30 @@ private fun <T> CoroutineScope.launchCollect(flow: StateFlow<T>, block: (T) -> U
 }
 
 /**
- * Talk audio through LiveKit rooms (phase 5b), off since 1.4.0 (2026-11-22, hen: bursts started late and ended early).
+ * Talk audio through LiveKit rooms (phase 5b), off from 1.4.0 (2026-11-22, hen: bursts started late and ended early),
+ * on again since 2026-11-25 (hen) the other way: the microphone's track is published once, muted, while the chat is
+ * on screen, unmuted at the press and muted 300 ms after the release; the clip keeps recording the same samples (with
+ * the 300 ms before the press) and stays the record; the listener plays the room's audio only once it is unmuted and
+ * decrypting, else the clip. What follows is the 1.4.0 note.
  * In a room a press published a new microphone track, which took a moment to start, so the first words were lost,
  * and the release took it down at once, so the listener lost the end still on its way; the listener, hearing it
  * live, didn't play the clip. Now every burst goes by the clip path: the app's own microphone, kept open on the Talk
  * screens with the last 300 ms before the press, recorded from the press and sent once the floor is granted, and
  * the listener plays all of it to the end.
  */
-internal const val LIVE_TALK_AUDIO = false
+internal const val LIVE_TALK_AUDIO = true
+
+/**
+ * Push-to-video's pictures through the conversation's LiveKit room (2026-11-24, hen: "do it"): the room is joined as
+ * for live talk, but carries only the camera; the voice stays on the clip path (LIVE_TALK_AUDIO).
+ */
+internal const val LIVE_TALK_VIDEO = true
+
+/** The silent warm-up's Android side (2026-11-24, hen): a quiet foreground service keeps the process while warm. */
+interface WarmHost {
+    /** [chat] warmed this phone ([on]), or the warm-up ended ([chat] null: all). Shows nothing, lights nothing. */
+    fun warm(chat: String?, on: Boolean)
+}
+
+/** A call in a chat's talk room (both live became one): [since] when, [video] whether cameras were live. */
+data class RoomCall(val chat: String, val since: Long, val video: Boolean, val microphone: Boolean = true, val camera: Boolean = video)

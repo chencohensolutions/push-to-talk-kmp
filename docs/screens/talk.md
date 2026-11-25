@@ -67,7 +67,8 @@ The talk button grows (up to 1.25 times) and glows with the voice: the one playi
   picture glides to keep the face near the upper third, ignoring small moves. From a sender that puts none (an older
   app, an old clip), this phone looks at the picture itself, twice a second (not in the bubble). **Pinch to zoom** on
   the Talk screen's video and the full-screen video: from the whole picture up to the closest zoom, kept for next time.
-- **Voice | Video** (push-to-video, 2026-11-22, hen; Voice by default): a small switch just above the big button
+- **Voice | Video** (push-to-video, 2026-11-22, hen; Voice by default; in the chat and the floating window it gave way
+  on 2026-11-24 to hold for voice, slide up to the lock for hands-free video): a small switch just above the big button
   (it was a camera among the round buttons, beside the video call, and looked like it). Video asks for the camera the
   first time; the big button then shows a camera instead of the microphone. Kept per contact or group (2026-11-23,
   hen), shared with the reply bubble's switch; one never chosen starts on Voice. Under the button: Chat, Voice call, Video
@@ -114,3 +115,43 @@ shows, then moved onto it), and is let go after a minute without a burst.
 always go out in order, one sender at a time (a race once sent a new one ahead of those recorded before the grant;
 the server refused the gap and the floor stayed held for 60 s); a refused burst lets go of the floor at once; and
 someone's floor shows at most 75 s, so a lost end can't keep the button busy.
+
+## Hands-free (2026-11-24, hen)
+
+In a chat, the Talk button slid up to its lock keeps sending until Stop (docs/screens/conversation.md, "Live in the
+chat"). Bursts aren't kept as messages unless the chat's In the chat switches say so.
+
+## Push-to-video through LiveKit (2026-11-24, hen)
+
+Nothing on screen changes: the same gestures, the same top video box and floating window, the same quiet line after.
+
+**Where the live row rests** (2026-11-25, hen): the voice pills and video boxes of a push rest just below the slim
+header in the chat (coming down from under its edge), and just below the status bar in the floating window and for the
+floating chat (coming in from the screen's top edge). Both are the same row, placed and moved the same way: each change
+one move for everything, theirs at the language's start side (conversation.md, "The live panel"; notifications.md,
+"The row's places and moves").
+Underneath, a video burst's picture also goes through the conversation's talk room while it is said, and the listener
+shows it from there while it arrives (smaller and steadier on a weak link: simulcast), else the clip's pictures as
+before. The clips still go with every burst (a sleeping phone, "Keep videos in chat", no room). The debug and fast
+builds show a small readout on the received video: the path and how late the first picture came. See
+[design.md](../design.md), "Push-to-video through LiveKit".
+
+**Camera ready at finger-down** (2026-11-24, hen: "when i tap push to talk, open the camera in hidden window"; Settings ›
+Talk › Get camera ready while talking, on by default): the camera opens unseen as the finger goes down on Push, and the
+talk room's camera track reads it muted, so sliding up to hands-free video only unmutes it. Nothing is sent or shown
+until the slide up; Android's camera dot shows while Push is held. It is let go 2 s after the finger lifts without
+sliding (a quick press again reuses it). Off, the camera opens when the slide up starts.
+
+**Voice through the room again, and the silent warm-up** (2026-11-25, hen). The voice goes through the chat's talk room
+while it is said (the microphone's track waits there muted while the chat is on screen, so a press only unmutes it),
+and the clip still records every burst (with the 300 ms before the press) for phones that sleep and for "Keep voice in
+chat". Opening a chat quietly gets the other phone into the room (nothing on its screen), so the first words reach it
+at once. See [design.md](../design.md), "Voice back in the talk room, and the silent warm-up".
+
+
+## Video box labels (2026-11-25, hen)
+
+A live video box's label (who: their name, or "● You") sits at the box's top centre, with no timer; voice pills keep
+their time. Test builds' delay readout ("LiveKit · first …", off in Settings) sits at the box's bottom centre, so the two
+never overlap. Both live (one to one, voice or video) shows "Make it a call" in the chat, the floating window and the
+floating chat; it turns the room into the call, no ringing.

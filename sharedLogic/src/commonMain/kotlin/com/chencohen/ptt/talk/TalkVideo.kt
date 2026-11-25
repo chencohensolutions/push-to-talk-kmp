@@ -126,6 +126,9 @@ object TalkVideo {
 
 /** The camera for push-to-video (Android: Camera2 into a hardware H.264 encoder). */
 interface TalkVideoCapture {
+    /** The picture as shown upright, width per 1000 of height; 0 when unknown. */
+    val uprightShape: Int get() = 0
+
     /** Opens the camera ahead of a press (a Talk screen with Video on shows), sending nothing. */
     fun warm() {}
 

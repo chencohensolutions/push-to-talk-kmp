@@ -102,7 +102,13 @@ internal fun WarmCamera(chat: String, on: Boolean, warm: (String?) -> Unit) {
  * turn is undone here. What is sent keeps its frames as captured, with their rotation alongside.
  */
 @Composable
-internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center) {
+internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false) {
+    // While the talk room reads the camera, its track is the preview (the camera has no separate preview output then).
+    val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsStateWithLifecycle()
+    local?.let { track ->
+        LocalRoomVideo(track, modifier)
+        return
+    }
     val capture = com.chencohen.ptt.talkVideoCapture ?: return
     val display = androidx.compose.ui.platform.LocalView.current.display?.rotation ?: 0
     val screenTurn = display * 90
@@ -112,7 +118,8 @@ internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignmen
     } else {
         com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT
     }
-    FittedBox(shape, modifier, alignment) { w, h ->
+    // [cover]: filling the space given, cropped (the chat's live panel, 2026-11-24, hen: "no black bars").
+    val content: @Composable (androidx.compose.ui.unit.Dp, androidx.compose.ui.unit.Dp) -> Unit = { w, h ->
         // The camera draws its preview upright for the phone held upright; on its side the view is laid out upright
         // (its sides swapped) and turned back by the screen's turn, so it fills the box with no bars or stretch.
         val sideways = screenTurn % 180 != 0
@@ -148,6 +155,7 @@ internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignmen
             modifier = Modifier.requiredSize(if (sideways) h else w, if (sideways) w else h).graphicsLayer { rotationZ = -screenTurn.toFloat() },
         )
     }
+    if (cover) CoverBox(shape, modifier, alignment, content) else FittedBox(shape, modifier, alignment, content)
 }
 
 /** A box of [shape] (width for 1 high) as big as covers the space given, clipped to it; [content] gets its size. */
@@ -221,7 +229,7 @@ private const val SMALL_SHARE = 0.32f
  * AndroidTalkVideoOut in step with the voice.
  */
 @Composable
-internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false) {
+internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false, inset: Boolean = true) {
     val shown by AndroidTalkVideoOut.shown.collectAsStateWithLifecycle()
     // When the burst ends its shape goes before this view does: kept, so no frame is drawn sideways (2026-11-23, hen:
     // "a one-frame glitch, some horizontal video for a blink").
@@ -297,7 +305,7 @@ internal fun TalkVideoView(modifier: Modifier = Modifier, alignment: Alignment =
             Box(Modifier.fillMaxSize().then(pinch.modifier), contentAlignment = Alignment.Center) {
                 with(density) { picture(fit.first.toDp(), fit.second.toDp(), framing) }
             }
-            followPill(Modifier.align(Alignment.TopStart).statusBarsPadding().padding(12.dp))
+            followPill(Modifier.align(Alignment.TopStart).then(if (inset) Modifier.statusBarsPadding() else Modifier).padding(if (inset) 12.dp else 8.dp))
         }
     } else {
         FittedBox(upright, modifier, alignment) { w, h ->
@@ -516,3 +524,72 @@ internal fun HereDot(shown: Boolean, modifier: Modifier = Modifier) {
             .semantics { contentDescription = label },
     )
 }
+
+/**
+ * A talker's push-to-video as it comes through the talk room (LiveTalkVideo; 2026-11-24, hen), filling the space
+ * given: the box is the picture's own shape, so nothing is cut.
+ */
+@Composable
+internal fun RoomVideoView(live: com.chencohen.ptt.talk.LiveTalkVideo.Live, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val renderer = androidx.compose.runtime.remember(live.track) {
+        io.livekit.android.renderer.TextureViewRenderer(context).also {
+            com.chencohen.ptt.talk.LiveTalkVideo.initRenderer(it)
+            it.setScalingType(livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(live.track) {
+        live.track.addRenderer(renderer)
+        onDispose {
+            // The track may be gone by now (a box keeps its last picture while it slides away).
+            runCatching { live.track.removeRenderer(renderer) }
+            renderer.release()
+        }
+    }
+    AndroidView(factory = { renderer }, modifier = modifier)
+}
+
+/**
+ * Test builds only (the debug and fast builds): which path a push-to-video picture comes by and how late its first
+ * picture was after the server started the floor ([since], the server's clock), so the two paths can be compared.
+ */
+@Composable
+internal fun DelayReadout(room: com.chencohen.ptt.talk.LiveTalkVideo.Live?, since: Long, behindMs: Long?, modifier: Modifier = Modifier) {
+    if (!androidx.compose.ui.res.booleanResource(R.bool.talk_delay_readout)) return
+    val clipShown by AndroidTalkVideoOut.shown.collectAsStateWithLifecycle()
+    var clipFirst by androidx.compose.runtime.remember(since) { androidx.compose.runtime.mutableLongStateOf(0L) }
+    androidx.compose.runtime.LaunchedEffect(clipShown != null, since) {
+        if (clipShown != null && clipFirst == 0L) clipFirst = System.currentTimeMillis()
+    }
+    val words = if (room != null) {
+        "LiveKit · first +${room.firstFrameAt - since} ms"
+    } else {
+        listOfNotNull("clips", clipFirst.takeIf { it > 0 }?.let { "first +${it - since} ms" }, behindMs?.let { "behind $it ms" }).joinToString(" · ")
+    }
+    Text(
+        words, color = Color.White, style = com.chencohen.ptt.ui.style.LibraryType.Tiny,
+        modifier = modifier.background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+    )
+}
+
+/** This phone's camera as the talk room's track reads it, mirrored like a mirror, filling the space given. */
+@Composable
+internal fun LocalRoomVideo(track: io.livekit.android.room.track.VideoTrack, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val renderer = androidx.compose.runtime.remember(track) {
+        io.livekit.android.renderer.TextureViewRenderer(context).also {
+            com.chencohen.ptt.talk.LiveTalkVideo.initRenderer(it)
+            it.setScalingType(livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+            it.setMirror(true)
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(track) {
+        track.addRenderer(renderer)
+        onDispose {
+            runCatching { track.removeRenderer(renderer) }
+            renderer.release()
+        }
+    }
+    AndroidView(factory = { renderer }, modifier = modifier)
+}
+

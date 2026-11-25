@@ -110,6 +110,11 @@ internal fun TalkSettingsScreen(
             // Follow face on push-to-video (2026-11-23, hen: "optional, off by default"); calls keep their own.
             val followPrefs = androidx.compose.runtime.remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
             var followTalk by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(followPrefs.getBoolean(com.chencohen.ptt.ui.talk.FOLLOW_TALK, false)) }
+            // Get camera ready while talking (2026-11-24, hen: on by default): off, the camera opens when the slide up starts.
+            SwitchRow(stringResource(R.string.talk_camera_ready), stringResource(R.string.talk_camera_ready_body), settings.cameraReady) { on ->
+                change(settings.copy(cameraReady = on))
+            }
+            RowDivider()
             SwitchRow(stringResource(R.string.talk_follow_face), stringResource(R.string.talk_follow_face_body), followTalk) { on ->
                 followTalk = on
                 followPrefs.edit().putBoolean(com.chencohen.ptt.ui.talk.FOLLOW_TALK, on).apply()

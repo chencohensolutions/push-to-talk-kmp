@@ -51,6 +51,22 @@ internal data class Content(
     @ProtoNumber(21) val viewing: ViewingContent? = null,
     /** A reaction with one of the sender's faces to a message (2026-11-24, hen). Older apps skip it. */
     @ProtoNumber(22) val reaction: ReactionContent? = null,
+    /**
+     * The sender wants the floor of this chat while someone holds it (2026-11-24, hen: "both live"): they are live,
+     * waiting their turn; false when they stopped. Live only. Older apps skip it.
+     */
+    @ProtoNumber(23) val liveWaiting: ViewingContent? = null,
+    /**
+     * The sender opened this chat ([ViewingContent.open]; again every few minutes while it stays open) or left it
+     * (2026-11-24, hen): the phone joins the chat's talk room quietly, so a push that follows starts at once. Pushed
+     * as PUSH_WARM when open. Older apps skip it.
+     */
+    @ProtoNumber(24) val warm: ViewingContent? = null,
+    /**
+     * Both live became a call in the talk room itself (2026-11-25, hen: "instant"): both microphones (and cameras, if
+     * live) stay open there until either ends it ([ViewingContent.open] false). Older apps skip it.
+     */
+    @ProtoNumber(25) val roomCall: ViewingContent? = null,
 )
 
 /** One expression of the sender's face ([code]: Expression code), a small WebP with alpha. */
@@ -235,8 +251,13 @@ internal data class ClipContent(
 internal data class TalkKeyContent(
     @ProtoNumber(1) val key: ByteArray = ByteArray(0),
     @ProtoNumber(2) val index: Int = 0,
+    /**
+     * The sender's camera picture as shown upright, width per 1000 of height (750: 3:4 portrait); 0 unknown or older
+     * apps (2026-11-25, hen: the other phone grows its box straight to it when the video starts).
+     */
+    @ProtoNumber(3) val cameraShape: Int = 0,
 ) {
-    override fun equals(other: Any?): Boolean = other is TalkKeyContent && key.contentEquals(other.key) && index == other.index
+    override fun equals(other: Any?): Boolean = other is TalkKeyContent && key.contentEquals(other.key) && index == other.index && cameraShape == other.cameraShape
 
     override fun hashCode(): Int = index
 }

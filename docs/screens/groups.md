@@ -23,3 +23,9 @@
   it, ticked, then **Invite**). For a member: **Quick talk** (a switch: the group is a page of the
   [Talk tab](quick-talk.md)) and **When I’m away**. Last, in red: **Leave group** (a member) or **Delete group** (the owner), both asked
   first in the message bar.
+
+## In the chat (2026-11-24, hen)
+
+The same three switches as a contact's page (Keep voice in chat, Keep videos in chat, Both live becomes a call), for
+the group's chat; off by default. In a group the top panel shows whoever holds the floor, with their name, and both
+live counts any member hands-free and waiting.

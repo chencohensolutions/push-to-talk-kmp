@@ -62,6 +62,36 @@ Named sizes in `LibraryType` (`LibraryStyle.kt`); no hand-typed sizes. A call ma
 
 Nothing is drawn below 11 sp. Text fields keep their own sizes.
 
+- **A header's edge** is a 1-px hairline in the outline variant, on the screen's own background (no tinted band;
+  2026-11-25, hen chose A).
+
+## Motion
+
+- **Combined changes move together, in one move** (2026-11-25, hen: "every combined animation in the app should be in
+  one move unless otherwise specified"). When several things change at once (an item's size, its position, others
+  making room, an item coming or leaving), they animate together over the same time, about 300 ms with an ease:
+  never in steps such as grow-then-recentre, snap-then-slide, or one leaving and then the others gliding back.
+- **One thing changes, it doesn't swap.** A voice pill becoming a video box is one element whose frame grows (centre
+  and top edge fixed), not a pill going and a box coming; an item that stays live across a short gap (voice into
+  video) never leaves and comes back.
+- **A video that stops.** Mine: sending ends at the press, my box goes up showing my camera live, and the camera
+  closes after. Theirs: their picture fades to black while their box goes up, in the same move (2026-11-25, hen).
+  Their pill stays only about 1 s after their burst ends (a video may follow a slide up), never 3 s.
+- **Geometry doesn't depend on the language's direction.** Positions are worked out left to right and the language's
+  order (theirs at its start side) is chosen explicitly, so Hebrew mirrors the order, never the motion.
+- **Placed by number, not by a row.** Things that move together (the live row's pills and boxes) are each put at a
+  place worked out from all of them (LiveLayout) and moved there by one clock (LiveMotion), not laid out by a row or
+  an arrangement with its own enter and exit animations: those animate each child by itself and mirror in Hebrew.
+- **No size guessed and corrected.** A box grows straight to its final size (its picture's shape known before it
+  grows), so it never moves a second time.
+
+## Saying what is sent
+
+- **Only when the UI says it's transmitting, then transmit** (2026-11-25, hen: "when sending video or voice, only
+  when the UI says it's transmitting, then transmit"). A press that waits for the floor is shown as waiting and
+  sends nothing; offline is shown as not sending. The other way round too: nothing claims to be live ("You're both
+  live", a live pill or box) for a side whose voice or picture isn't actually going.
+
 ## Shapes
 
 `LibraryShapes`: cards and sheets 16 dp (`Card`, `Sheet`), tiles inside a card 12 dp (`Tile`), controls a full pill

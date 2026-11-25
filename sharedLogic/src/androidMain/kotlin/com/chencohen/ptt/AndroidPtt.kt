@@ -17,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.withContext
 import kotlin.random.asKotlinRandom
 import com.chencohen.ptt.messaging.MessageNotifier
@@ -127,12 +129,16 @@ private fun hub(context: Context): Messaging {
         blobApi = com.chencohen.ptt.talk.KtorBlobApi(http),
     ).also {
         it.talk.capture = com.chencohen.ptt.talk.AndroidTalkCapture(com.chencohen.ptt.talk.SpeakerphoneMic(context))
+        com.chencohen.ptt.talk.MicGuard.init(context)
+        val micHub = it
+        it.talk.micBusy = { micHub.live.transport?.micBusy() ?: com.chencohen.ptt.talk.MicGuard.busy() }
         com.chencohen.ptt.talk.TalkAudio.appContext = context.applicationContext
         it.talk.player = com.chencohen.ptt.talk.AndroidTalkPlayer()
         it.talk.volume = com.chencohen.ptt.talk.AndroidTalkVolume(context)
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
+        it.live.onShape = { identity, shape -> com.chencohen.ptt.talk.LiveTalkVideo.shapes.update { m -> m + (identity to shape) } }
         // Push-to-video: this phone's camera, and where bursts' video shows; and what it can play, said to the others.
         it.talk.videoCapture = com.chencohen.ptt.talk.AndroidTalkVideoCapture(
             context,
@@ -140,6 +146,28 @@ private fun hub(context: Context): Messaging {
             want60 = { settings.video60 },
         ).also { capture -> talkVideoCapture = capture }
         it.talk.videoOut = com.chencohen.ptt.talk.AndroidTalkVideoOut
+        // Push-to-video's delay by each path (2026-11-24, hen: compare LiveKit and the clips), in the log: from the
+        // server's floor start to the first picture through the room, and to the clip path's first picture.
+        val messaging = it
+        CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
+            messaging.live.state.distinctUntilChangedBy { it.heardCount }.collect { s ->
+                if (s.heardCount > 0) android.util.Log.i("TalkDelay", "voice through the room, unmuted ${s.lastLatencyMs} ms after the burst's start came (#${s.heardCount})")
+            }
+        }
+        CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
+            val said = HashSet<String>()
+            kotlinx.coroutines.flow.combine(messaging.state, com.chencohen.ptt.talk.LiveTalkVideo.arriving, com.chencohen.ptt.talk.AndroidTalkVideoOut.shown) { st, room, shown ->
+                Triple(st.talk.talkers.values.toList(), room, shown)
+            }.collect { (talkers, room, shown) ->
+                talkers.forEach { t ->
+                    room["${t.user}.${t.device}"]?.let { live ->
+                        val before = messaging.live.joinedAt in 1..t.since
+                        if (said.add("room:" + t.clip) && live.firstFrameAt >= t.since - 5_000) android.util.Log.i("TalkDelay", "LiveKit first picture +${live.firstFrameAt - t.since} ms (${t.user}, ${t.clip.take(8)}; ${if (before) "in the room before the push" else "joined the room for it"})")
+                    }
+                    if (shown?.clip == t.clip && said.add("clip:" + t.clip)) android.util.Log.i("TalkDelay", "clips first picture +${System.currentTimeMillis() - t.since} ms (${t.user}, ${t.clip.take(8)})")
+                }
+            }
+        }
         com.chencohen.ptt.messaging.ContentCodec.myCaps = com.chencohen.ptt.messaging.ContentCodec.CAPS_SAID or
             (if (hasDecoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC)) com.chencohen.ptt.messaging.ContentCodec.CAPS_H265 else 0)
         it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(
@@ -162,6 +190,11 @@ fun setMessageNotifier(context: Context, notifier: MessageNotifier) {
 /** Who plays talk when the app isn't on screen (a Telecom talk session) and shows talk notifications. */
 fun setTalkHost(context: Context, host: com.chencohen.ptt.talk.TalkHost) {
     hub(context).talk.host = host
+}
+
+/** Who keeps the process, quietly, while another phone has a chat with this one open (the silent warm-up). */
+fun setWarmHost(context: Context, host: com.chencohen.ptt.messaging.WarmHost) {
+    hub(context).host = host
 }
 
 /** Who rings and keeps the call session (phase 6). */
@@ -234,12 +267,12 @@ suspend fun talkButton(context: Context, down: Boolean): Boolean {
 }
 
 /** Talk back from a notification: start talking in [chat], or end it ([send] false drops it). */
-suspend fun talkBack(context: Context, chat: String?, down: Boolean, send: Boolean = true) {
+suspend fun talkBack(context: Context, chat: String?, down: Boolean, send: Boolean = true, video: Boolean? = null) {
     val messaging = hub(context)
     // Connected for the burst (the wake-up's own /ws may have closed), without waiting for it here.
     if (down) kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.wake() }
     withContext(messagingWork) {
-        if (down) chat?.let { messaging.talk.press(it) } else messaging.talk.release(send)
+        if (down) chat?.let { messaging.talk.press(it, video) } else messaging.talk.release(send)
     }
 }
 
@@ -269,10 +302,42 @@ suspend fun stopTalkPlayback(context: Context) {
 
 /** Messaging's state, for the background talk notifications. */
 /** The reply bubble for [chat] is open (null: closed): the other user's phone is told ("here"). */
-fun setHere(context: Context, chat: String?) = hub(context).setHere(chat, com.chencohen.ptt.messaging.Messaging.HERE_BUBBLE)
+fun setHere(context: Context, chat: String?) {
+    val messaging = hub(context)
+    messaging.setHere(chat, com.chencohen.ptt.messaging.Messaging.HERE_BUBBLE)
+    // The floating window's Push shows for [chat]: the microphone is ready for it (and only then, 2026-11-25, hen).
+    messaging.live.pushShowing(chat)
+}
 
 /** The camera kept warm for push-to-video to [chat] from outside the screens (the reply bubble); null: let go. */
 fun warmTalkCamera(context: Context, chat: String?) = hub(context).warmCamera(chat)
+
+/**
+ * "Make it a call" from outside the app's screens (the floating window, the quick-reply window): the talk room with
+ * [chat] becomes the call, no ringing (2026-11-25, hen). [done] gets false when there is no shared room to turn (the
+ * caller then says so briefly instead of ringing).
+ */
+fun startRoomCall(context: Context, chat: String, video: Boolean, done: (Boolean) -> Unit = {}) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch {
+        val ok = runCatching { messaging.startRoomCall(chat, video) }.getOrDefault(false)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { done(ok) }
+    }
+}
+
+/**
+ * Test builds (TestPair): pairs with the user whose pairing link or code [text] is, as a scan of it would, so
+ * emulators can be paired without a camera. True when it went out.
+ */
+suspend fun testPairWith(context: Context, text: String): Boolean {
+    val parsed = com.chencohen.ptt.messaging.PairCode.parse(com.chencohen.ptt.AppLinks.toApp(text))
+    android.util.Log.i("TestPair", "parsed ${parsed::class.simpleName} from ${text.length} characters: ${com.chencohen.ptt.AppLinks.toApp(text).substringBefore('&')}")
+    val code = (parsed as? com.chencohen.ptt.messaging.PairCodeParse.Code)?.code ?: return false
+    return withContext(messagingWork) { hub(context).pairWith(code, verified = true) }
+}
+
+/** The live path's state: this phone's room and who else is in it (the chat header's ring). */
+fun liveState(context: Context): kotlinx.coroutines.flow.StateFlow<com.chencohen.ptt.talk.LiveState> = hub(context).live.state
 
 /** Typing to [chat] started or stopped, from outside the screens (the quick-reply window). */
 fun sendTyping(context: Context, chat: String, typing: Boolean) {
