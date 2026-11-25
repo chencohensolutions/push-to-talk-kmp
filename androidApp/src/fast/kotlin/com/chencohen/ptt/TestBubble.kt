@@ -18,7 +18,7 @@ import com.chencohen.ptt.ui.contacts.LivePretend
  *   floating chat's), not in the floating window;
  * - `--es where window`: the floating chat opens on [chat], as for a message from it;
  * - `--es pill stop|push`: the bottom pill as if locked hands-free (Stop) or not, nothing sent;
- * - `--es members dana:video,sharon:voice,...` (empty: none): group members live at once, as if each pushed (several
+ * - `--es members testbot2:video,testbot3:voice,...` (empty: none): group members live at once, as if each pushed (several
  *   talkers; 2026-11-25), in the open group chat and in the floating window's row; each keeps its start while listed
  *   again, so a list one longer is one more joining. With `--es where chat --es mine voice|video|none`: my side too.
  */

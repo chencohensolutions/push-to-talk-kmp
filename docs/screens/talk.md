@@ -180,4 +180,4 @@ the floating chat's row (TalkBubble, `placeGroup`) show them all:
   speaks, and the boxes narrowing from one to four. Placed by `LiveGroupLayout`, moved by `LiveMotion`, left to right
   whatever the language. One-to-one chats keep their row as before (`LiveLayout.place`: the pictures in their own shapes).
 - Test builds: `adb shell am broadcast -a com.chencohen.ptt.TEST_BUBBLE -n com.chencohen.ptt/.TestBubble --es chat
-  '#<group id>' --es members dana:video,sharon:voice [--es where chat --es mine voice]` pretends members live at once.
+  '#<group id>' --es members testbot2:video,testbot3:voice [--es where chat --es mine voice]` pretends members live at once.
