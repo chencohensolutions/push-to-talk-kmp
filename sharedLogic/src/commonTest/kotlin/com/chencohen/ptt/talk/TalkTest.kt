@@ -774,6 +774,119 @@ class TalkTest {
         hen.stop()
         dana.stop()
     }
+    // --- Live for exactly as long as they transmit (2026-11-25, hen: the receiver kept showing the sender live) ------
+
+    private val burstX = "ab".repeat(16)
+
+    /** testbot's floor starts on hen's phone, as the server tells it. */
+    private fun TestScope.theyStart(hen: TalkPhone, burst: String = burstX) {
+        hen.talk.onFrame(com.chencohen.ptt.relay.TalkStateFrame(com.chencohen.ptt.relay.TalkState(TalkEvent.STARTED, burst, "testbot", 1, peer = "testbot", startedAt = hen.clock)))
+        runCurrent()
+    }
+
+    /** [seconds] go by on hen's phone, testbot beating once a second when [beating]. */
+    private fun TestScope.seconds(hen: TalkPhone, seconds: Int, beating: Boolean, burst: String = burstX) = repeat(seconds) {
+        hen.clock += 1_000
+        if (beating) hen.talk.onBeat("testbot.1", burst)
+        advanceTimeBy(1_000)
+        runCurrent()
+    }
+
+    private fun TalkPhone.live(burst: String = burstX) = state.talk.talking["testbot"].orEmpty().any { it.clip == burst }
+
+    @Test
+    fun aSilentHoldStaysLiveWhileItsBeatsCome() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        // Twenty seconds held without a word: beats only (no audio, no segments).
+        seconds(hen, 20, beating = true)
+        assertTrue(hen.live(), "still live: they are still pushing")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun whenTheBeatsStopLiveEndsWithinThreeSeconds() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        seconds(hen, 3, beating = true)
+        assertTrue(hen.live())
+        seconds(hen, 2, beating = false)
+        assertTrue(hen.live(), "two seconds without a beat: still live")
+        seconds(hen, 2, beating = false)
+        assertFalse(hen.live(), "gone by about three seconds after the last beat")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun aLostEndFrameIsCaughtByTheWatchdogAndAResumedTalkerComesBack() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        seconds(hen, 2, beating = true)
+        // They let go; the ENDED frame never arrives.
+        seconds(hen, 4, beating = false)
+        assertFalse(hen.live(), "cleared by the watchdog")
+        assertTrue(hen.state.talk.talkers["testbot"] == null)
+        // A beat of the same burst again (it was only the network): live again.
+        seconds(hen, 1, beating = true)
+        assertTrue(hen.live(), "back on the live row")
+        // And its real end clears it at once, for good.
+        hen.talk.onFrame(com.chencohen.ptt.relay.TalkStateFrame(com.chencohen.ptt.relay.TalkState(TalkEvent.ENDED, burstX, "testbot", 1, peer = "testbot", endReason = com.chencohen.ptt.relay.TalkEndReason.RELEASED)))
+        runCurrent()
+        assertFalse(hen.live())
+        seconds(hen, 1, beating = true)
+        assertFalse(hen.live(), "a late beat after the end doesn't bring it back")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun theirMicrophoneGoingQuietInTheRoomEndsLiveAtOnce() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        seconds(hen, 1, beating = true)
+        hen.talk.onStopped("testbot.1")
+        runCurrent()
+        assertFalse(hen.live(), "muted, unpublished or left the room: not live")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun anOlderTalkerWithoutBeatsIsLeftToItsFloorsEnd() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        // No beat and no segment ever: the watchdog doesn't watch it (an older app heard only in the room).
+        seconds(hen, 10, beating = false)
+        assertTrue(hen.live())
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun afterAReconnectAFloorWithNoRecentSignIsDropped() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        seconds(hen, 1, beating = true)
+        // /ws dropped for a while (the ENDED may have gone by), then came back.
+        hen.clock += 5_000
+        hen.talk.reconnected()
+        runCurrent()
+        assertFalse(hen.live(), "not kept as live from before the drop")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun beatsSealAndOpenOnlyWithTheTalkersKey() {
+        val key = ByteArray(32) { it.toByte() }
+        val sealed = TalkBeat.seal(key, burstX, Random(3))
+        assertEquals(burstX, TalkBeat.open(key, sealed))
+        assertNull(TalkBeat.open(ByteArray(32) { 9 }, sealed))
+        sealed[sealed.size - 1] = (sealed[sealed.size - 1].toInt() xor 1).toByte()
+        assertNull(TalkBeat.open(key, sealed))
+    }
 }
 
 class ClipCryptoTest {
@@ -835,4 +948,5 @@ class CatchUpTest {
         assertTrue(Silence.isSilent(ShortArray(960)))
         assertTrue(!Silence.isSilent(ShortArray(960) { if (it % 2 == 0) 3000 else -3000 }))
     }
+
 }

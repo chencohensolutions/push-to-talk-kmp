@@ -69,6 +69,9 @@ interface TalkTransport {
     /** [identity]'s current live audio isn't played (its clip plays instead); its next burst is heard again. */
     fun silence(identity: String)
 
+    /** A sealed "still pushing" beat to the room's others (TalkBeat), over its data channel. */
+    suspend fun sendBeat(bytes: ByteArray) {}
+
     /** The room's events: someone joined, someone's live audio started. */
     var listener: TalkTransportListener?
 
@@ -85,6 +88,12 @@ interface TalkTransportListener {
 
     /** [identity] left the room. */
     fun gone(identity: String) {}
+
+    /** [identity]'s "still pushing" beat came (TalkBeat, sealed with their key). */
+    fun beat(identity: String, bytes: ByteArray) {}
+
+    /** [identity]'s microphone went quiet in the room (muted or unpublished): they stopped transmitting. */
+    fun stopped(identity: String) {}
 
     /** [identity]'s audio started coming through (unmuted and decrypting). */
     fun liveAudio(identity: String)
@@ -134,6 +143,20 @@ internal class LiveTalk(
 ) {
     /** Another device's camera shape came with its key ("user.device", width per 1000 of height). */
     var onShape: ((String, Int) -> Unit)? = null
+
+    /** A talker's "still pushing" beat: their "user.device" and the burst (TalkBeat). */
+    var onBeat: ((identity: String, burstId: String) -> Unit)? = null
+
+    /** A talker stopped transmitting in the room (their microphone muted, unpublished, or they left). */
+    var onStopped: ((identity: String) -> Unit)? = null
+
+    /** This phone transmits [burstId] in [chat]'s room: one beat to the others (TalkBeat). False when not in that room. */
+    suspend fun beat(chat: String, burstId: String): Boolean {
+        val t = transport ?: return false
+        val key = ownKey ?: return false
+        if (_state.value.room != chat) return false
+        return runCatching { t.sendBeat(TalkBeat.seal(key, burstId, random)) }.isSuccess
+    }
 
     var transport: TalkTransport? = null
         set(value) {
@@ -422,6 +445,20 @@ internal class LiveTalk(
         override fun gone(identity: String) {
             val who = identity.substringBeforeLast('.')
             _state.update { it.copy(present = it.present - who) }
+            scope.launch { onStopped?.invoke(identity) }
+        }
+
+        // Off LiveKit's threads, onto the talk's own (where keys and the floor's state live).
+        override fun beat(identity: String, bytes: ByteArray) {
+            scope.launch {
+                val key = keys[identity]?.first ?: return@launch
+                val burst = TalkBeat.open(key, bytes) ?: return@launch
+                onBeat?.invoke(identity, burst)
+            }
+        }
+
+        override fun stopped(identity: String) {
+            scope.launch { onStopped?.invoke(identity) }
         }
 
         override fun left() {

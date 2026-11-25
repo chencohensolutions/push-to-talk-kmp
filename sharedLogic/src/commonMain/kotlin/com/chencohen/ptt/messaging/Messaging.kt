@@ -512,6 +512,8 @@ internal class Messaging(
             // Whether this user can hear talk, again for this connection (the server forgets it with the last one).
             hearSent = null
             scope.launch { sendHear() }
+            // Floors whose end may have been missed while away, and an end of mine that didn't go out.
+            scope.launch { talk.reconnected() }
             scope.launch {
                 // The groups first: a message waiting for a group needs its devices and readers.
                 groups.refresh()
@@ -673,6 +675,9 @@ internal class Messaging(
 
     init {
         if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) talk.live = live
+        // Live for exactly as long as they transmit (2026-11-25, hen): their beats, and their microphone going quiet.
+        live.onBeat = { identity, burst -> talk.onBeat(identity, burst) }
+        live.onStopped = { identity -> talk.onStopped(identity) }
         talk.sendVideo = { chat -> talkSettings().pushVideoFor(chat) }
         talk.clipUpload = { _ -> talkSettings().clipUpload }
         talk.keepsPush = { chat, video -> talkSettings().let { if (video) chat in it.keepVideo else chat in it.keepVoice } }

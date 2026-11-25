@@ -427,6 +427,11 @@ class LiveKitTalkTransport(
         return p.audioTrackPublications.any { (pub, _) -> !pub.muted }
     }
 
+    override suspend fun sendBeat(bytes: ByteArray) {
+        val room = room ?: return
+        room.localParticipant.publishData(bytes, io.livekit.android.room.track.DataPublishReliability.RELIABLE, TalkBeat.TOPIC)
+    }
+
     override fun silence(identity: String) {
         val room = room ?: return
         room.remoteParticipants.values.filter { it.identity?.value == identity }.forEach { p ->
@@ -474,7 +479,19 @@ class LiveKitTalkTransport(
                 if (event.track.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else decrypting.remove(it)
             }
             is RoomEvent.TrackUnpublished -> event.participant.identity?.value?.let {
-                if (event.publication.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else decrypting.remove(it)
+                if (event.publication.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else {
+                    decrypting.remove(it)
+                    listener?.stopped(it)
+                }
+            }
+            // Their microphone muted (released, after its tail): they stopped transmitting (2026-11-25, hen).
+            is RoomEvent.TrackMuted -> {
+                val who = event.participant.identity?.value
+                if (who != null && event.participant != room?.localParticipant && event.publication.kind == Track.Kind.AUDIO) listener?.stopped(who)
+            }
+            // "Still pushing" (TalkBeat), sealed with their room key.
+            is RoomEvent.DataReceived -> if (event.topic == TalkBeat.TOPIC) {
+                event.participant?.identity?.value?.let { listener?.beat(it, event.data) }
             }
             is RoomEvent.ParticipantDisconnected -> event.participant.identity?.value?.let {
                 micHeard = false
