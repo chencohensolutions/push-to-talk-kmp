@@ -11,5 +11,14 @@
                 <action android:name="com.chencohen.ptt.TEST_TYPE" />
             </intent-filter>
         </receiver>
+        <!-- Shows the floating window as for a push, to check its layout without one (TestBubble). -->
+        <receiver
+            android:name=".TestBubble"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.chencohen.ptt.TEST_BUBBLE" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

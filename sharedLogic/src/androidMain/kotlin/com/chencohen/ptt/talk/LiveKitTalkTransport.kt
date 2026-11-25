@@ -340,7 +340,12 @@ class LiveKitTalkTransport(
             // Push-to-video through the room: their camera is watched for frames (LiveTalkVideo).
             is RoomEvent.TrackSubscribed -> {
                 val who = event.participant.identity?.value ?: return
-                (event.track as? io.livekit.android.room.track.VideoTrack)?.let { LiveTalkVideo.subscribed(who, it) }
+                (event.track as? io.livekit.android.room.track.VideoTrack)?.let {
+                    // The full layer for the box on screen (2026-11-25, hen: "very blocky": the low one, 180×240, shown
+                    // large); the server still drops to a lower one when the link can't carry it.
+                    (event.publication as? io.livekit.android.room.track.RemoteTrackPublication)?.setVideoQuality(io.livekit.android.room.track.VideoQuality.HIGH)
+                    LiveTalkVideo.subscribed(who, it)
+                }
             }
             is RoomEvent.TrackUnsubscribed -> event.participant.identity?.value?.let {
                 if (event.track.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else decrypting.remove(it)

@@ -86,6 +86,8 @@ object TalkBubble {
     private var topCard: LinearLayout? = null
     private var theirBox: FrameLayout? = null
     private var theirTag: TextView? = null
+    private var theirFace: ImageView? = null
+    private var theirFaceOf: String? = null
     private var videoSurface: android.view.Surface? = null
     /** Their video through the talk room, while its frames come (LiveTalkVideo): shown instead of the clip's. */
     private var roomRenderer: io.livekit.android.renderer.TextureViewRenderer? = null
@@ -670,18 +672,27 @@ object TalkBubble {
     /** The boxes' sizes: 23.6% of the screen's height, each as wide as its picture's shape. */
     private fun shapeTop(context: Context) {
         if (morphing != null) return
-        val h = topHeight(context)
-        theirBox?.takeIf { it.visibility == View.VISIBLE }?.let { box ->
-            val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
-            lastShown = shown
-            val rotation = shown?.rotation ?: 0
-            val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 3f / 4f
-            val turned = rotation % 180 != 0
-            val upright = roomLive?.aspect ?: if (turned) 1f / aspect else aspect
-            val w = (h * upright).toInt()
-            size(box, w, h)
+        val theirs = theirBox?.takeIf { it.visibility == View.VISIBLE }
+        val mine = myBox?.takeIf { it.visibility == View.VISIBLE }
+        val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
+        lastShown = shown
+        val rotation = shown?.rotation ?: 0
+        val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 3f / 4f
+        val turned = rotation % 180 != 0
+        val theirShape = roomLive?.aspect ?: if (turned) 1f / aspect else aspect
+        val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+        // 23.6% of the screen high, all shrunk together only if side by side they'd be wider than the screen
+        // (2026-11-25, hen: testbot's box was cut at the edge).
+        var h = topHeight(context).toFloat()
+        val pills = listOfNotNull(theirPill?.view, myPill?.view).filter { it.visibility == View.VISIBLE }.sumOf { it.width + dp(context, 6) }
+        val shapes = (if (theirs != null) theirShape else 0f) + (if (mine != null) myShape else 0f)
+        val room = context.resources.displayMetrics.widthPixels - dp(context, 40) - pills - (if (theirs != null && mine != null) dp(context, 6) else 0)
+        if (shapes > 0f && h * shapes > room) h = room / shapes
+        theirs?.let { box ->
+            val w = (h * theirShape).toInt()
+            size(box, w, h.toInt())
             box.findViewWithTag<View>("video")?.let { v ->
-                val (vw, vh) = if (turned) h to w else w to h
+                val (vw, vh) = if (turned) h.toInt() to w else w to h.toInt()
                 val lp = v.layoutParams
                 if (lp.width != vw || lp.height != vh) {
                     lp.width = vw
@@ -691,10 +702,7 @@ object TalkBubble {
                 v.rotation = rotation.toFloat()
             }
         }
-        myBox?.takeIf { it.visibility == View.VISIBLE }?.let { box ->
-            val upright = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
-            size(box, (h * upright).toInt(), h)
-        }
+        mine?.let { box -> size(box, (h * myShape).toInt(), h.toInt()) }
     }
 
     private fun size(v: View, w: Int, h: Int) {
@@ -717,10 +725,27 @@ object TalkBubble {
             }
             theirTag?.text = "$title · ${clock(if (burstSince > 0) burstSince else System.currentTimeMillis())}"
             useRoomVideo(window.context)
+            showTheirFace(window.context)
             pickPreview()
             myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(if (runStarted > 0) runStarted else talkStarted)
             shapeTop(window.context)
             main.postDelayed(this, 250)
+        }
+    }
+
+    /** Their face in their box until its first picture comes (room or clip), then gone. */
+    private fun showTheirFace(context: Context) {
+        val faceView = theirFace ?: return
+        val picture = roomLive != null || com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value != null
+        faceView.visibility = if (picture) View.GONE else View.VISIBLE
+        val who = from ?: return
+        if (picture || theirFaceOf == who) return
+        theirFaceOf = who
+        val app = context.applicationContext as? TalkApp ?: return
+        app.scope.launch {
+            val id = com.chencohen.ptt.ui.face.Faces.ids(app).value[who] ?: return@launch
+            val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, who, id) }.getOrNull() ?: return@launch
+            main.post { if (theirFace === faceView) faceView.setImageBitmap(bitmap.asAndroidBitmap()) }
         }
     }
 
@@ -810,6 +835,9 @@ object TalkBubble {
                 },
                 FrameLayout.LayoutParams(dp(120), dp(160), Gravity.CENTER),
             )
+            // Their face, large, until the first picture (2026-11-25, hen: the box is never black).
+            theirFace = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+            addView(theirFace, FrameLayout.LayoutParams(dp(96), dp(96), Gravity.CENTER))
             theirTag = TextView(context).apply {
                 setTextColor(Color.WHITE)
                 textSize = 12f
@@ -977,6 +1005,8 @@ object TalkBubble {
         topCard = null
         theirBox = null
         theirTag = null
+        theirFace = null
+        theirFaceOf = null
         myBox = null
         myTag = null
         theirPill = null
