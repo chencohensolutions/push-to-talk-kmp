@@ -892,7 +892,9 @@ private fun ConversationScreenIn(
                 // Their draft, the message it became, and (one-to-one) their circle at the very end: one item each, so
                 // each change morphs in place: the circle grows into the draft, the draft fills into the message.
                 fun liveItem(key: String, line: LiveLine) = item(key = key) {
-                    Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { LiveLineView(line, if (group == null) user else null) }
+                    // A draft that comes grows in from nothing as it fades in, so the messages above slide up by its height
+                    // in the same 200 ms (2026-11-26, hen: "calm, one move"); the list stays pinned to its end.
+                    Box(Modifier.animateItem(ease, move, ease).growIn().graphicsLayer { alpha = seeThrough }) { LiveLineView(line, if (group == null) user else null) }
                 }
                 val circleAtEnd = reader != null && ReadMarks.atEnd(readerMessages)
                 val oneDraft = if (group == null) shownDrafts.firstOrNull() else null
@@ -1311,6 +1313,21 @@ private fun Modifier.smoothHeight(): Modifier {
         if (full != target) scope.launch { target = full }
         val shown = (if (height.value < 0f) full else height.value).toInt().coerceIn(0, placeable.height)
         layout(placeable.width, shown) { placeable.place(0, shown - placeable.height) }
+    }
+}
+
+/**
+ * Grows in from no height to its own, once, over 200 ms (the item's fade in): its content measured at once and kept at the
+ * bottom, so in the upside-down list the messages above slide up with it. Its width is never eased.
+ */
+@Composable
+private fun Modifier.growIn(): Modifier {
+    val shown = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { shown.animateTo(1f, androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    return this.clipToBounds().layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        val h = (placeable.height * shown.value).toInt()
+        layout(placeable.width, h) { placeable.place(0, h - placeable.height) }
     }
 }
 
