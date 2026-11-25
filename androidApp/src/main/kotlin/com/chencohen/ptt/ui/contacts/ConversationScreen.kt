@@ -62,6 +62,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
@@ -921,7 +922,9 @@ private fun ConversationScreenIn(
                     group == null && contact!!.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
                     group == null && !contact!!.paired -> Note(stringResource(R.string.contact_waiting))
                     else -> Box(
-                        Modifier.clipToBounds().layout { measurable, constraints ->
+                        // Clipped only while folding away for the keyboard: otherwise the slide-up target above the Talk
+                        // button shows whole, over the draft.
+                        Modifier.then(if (rowShown < 1f) Modifier.clipToBounds() else Modifier).zIndex(1f).layout { measurable, constraints ->
                             val row = measurable.measure(constraints)
                             val height = (row.height * rowShown).toInt()
                             layout(row.width, height) { row.placeWithLayer(0, 0) { alpha = rowShown } }
