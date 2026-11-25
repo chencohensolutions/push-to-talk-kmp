@@ -329,3 +329,11 @@ hear, e.g. warmed in the background) without the chat on screen. No ring: neithe
 header's line stays as it was (typing only).
 In a one-to-one chat the read face at the chat's end no longer shows whether they're here (the header's ring does);
 in a group it still does, as a group's header has no ring (2026-11-25, hen).
+
+## A group's header: its members' faces (2026-11-25, hen chose "B")
+
+The other members' faces sit in a row at the header's end, the group's name at its start. Each has its ring: solid,
+on this chat's screen; dashed, in its talk room; none, away. Those here come first, then those in the room, then the
+rest, each in a steady order; as many as fit, then "+N"; a tap opens the group's page with its members. When someone's
+state changes, the faces move to their new places together, in one move. The small read faces at the chat's end show
+no presence any more, in groups too (the header does).

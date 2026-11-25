@@ -420,6 +420,7 @@ object QuickReplyWindow {
                     GroupChat(
                         name = title,
                         picture = group?.picture,
+                        members = group?.readers?.map { it.user }?.filter { it != me }.orEmpty(),
                         line = "",
                         note = when {
                             group == null -> context.getString(R.string.group_missing)

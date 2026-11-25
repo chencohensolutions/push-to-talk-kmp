@@ -154,7 +154,7 @@ data class ConversationHeader(val typing: Boolean, val presence: UserPresence?)
  * A group's chat instead of a contact's: its [name] and [picture] in the header, [line] under it (who is typing, or
  * how many members), and [note] in place of the line to write in when this user can't write (an invitation, gone).
  */
-data class GroupChat(val name: String, val picture: String?, val line: String, val note: String?)
+data class GroupChat(val name: String, val picture: String?, val line: String, val note: String?, val members: List<String> = emptyList())
 
 /**
  * A conversation (docs/screens/conversation.md), Signal's: the contact in the header (a tap opens their page), the
@@ -317,7 +317,7 @@ private fun ConversationScreenIn(
             } else {
                 when {
                     embeddedHeader != null -> Box(Modifier.graphicsLayer { alpha = seeThrough }) { embeddedHeader() }
-                    group != null -> GroupHeader(group, actions, canTalk)
+                    group != null -> GroupHeader(group, actions, canTalk, chat = user, here = viewing)
                     else -> Header(user, contact, header, actions, canTalk, here = viewing.isNotEmpty())
                 }
             }
@@ -820,7 +820,7 @@ private fun ConversationScreenIn(
                 val oneDraft = if (group == null) shownDrafts.firstOrNull() else null
                 if (group == null) {
                     if (oneDraft != null) liveItem(live.key(null), LiveLine.Draft(null, oneDraft.second, draftCarets[""]))
-                    else if (circleAtEnd) liveItem(live.key(null), LiveLine.Circle(reader?.readAt, here = group != null && viewing.isNotEmpty()))
+                    else if (circleAtEnd) liveItem(live.key(null), LiveLine.Circle(reader?.readAt, here = false))
                 } else {
                     shownDrafts.forEach { (who, text) -> liveItem(live.key(who), LiveLine.Draft(who, text, draftCarets[who.orEmpty()])) }
                 }
@@ -847,10 +847,10 @@ private fun ConversationScreenIn(
                     if (message.id in pairedEarlier) return@forEach
                     if (reader != null && message.id == reader.id && !circleAtEnd) {
                         // The same item as the circle at the end (one key): when they read on, it slides down to the end.
-                        liveItem(if (oneDraft == null) live.key(null) else "reader", LiveLine.Circle(reader.readAt, here = group != null && viewing.isNotEmpty()))
+                        liveItem(if (oneDraft == null) live.key(null) else "reader", LiveLine.Circle(reader.readAt, here = false))
                     }
                     groupReaders[message.id]?.let { readers ->
-                        item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { GroupReaders(readers, viewing) } }
+                        item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { GroupReaders(readers, emptySet()) } }
                     }
                     // A burst the chat doesn't keep: nothing while it is live (the panels show it), then a muted line.
                     if (message.clip != null && !message.deleted && !keeps(message)) {
@@ -1257,7 +1257,10 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
 /** Voice call and video call, Signal's way, before Talk. */
 
 @Composable
-private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk: Boolean) {
+private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk: Boolean, chat: String = "", here: Set<String> = emptySet()) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val live by remember { com.chencohen.ptt.liveState(context) }.collectAsState()
+    val inRoom = if (live.room == chat) live.present else emptySet()
     Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).headerHairline().padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back), contentAlignment = Alignment.Center) {
             Icon(LibraryIcons.Back, stringResource(R.string.library_back), tint = LibraryColors.OnBackground)
@@ -1267,9 +1270,45 @@ private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk:
             verticalAlignment = Alignment.CenterVertically,
         ) {
             com.chencohen.ptt.ui.groups.GroupAvatar(group.name, group.picture, HEADER_FACE)
-            Column(Modifier.padding(start = 12.dp)) {
-                Text(group.name, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
-                Text(group.line, color = LibraryColors.Muted, style = LibraryType.Caption)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(group.name, color = LibraryColors.OnBackground, style = LibraryType.RowTitle, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Text(group.line, color = LibraryColors.Muted, style = LibraryType.Caption, maxLines = 1)
+            }
+            MemberFaces(group.members, here, inRoom)
+        }
+    }
+}
+
+/**
+ * The group's other members' faces in the header (2026-11-25, hen chose "B"): each with its ring (solid: on this
+ * chat's screen; dashed: in its talk room; none: away), those here first, then those in the room, then the rest, each
+ * group in its own steady order; as many as fit, then "+N". A change of state moves every face to its new place
+ * together, in one move.
+ */
+@Composable
+private fun MemberFaces(members: List<String>, here: Set<String>, inRoom: Set<String>) {
+    if (members.isEmpty()) return
+    val sorted = members.sortedBy { if (it in here) 0 else if (it in inRoom) 1 else 2 }
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.widthIn(max = 168.dp).fillMaxHeight()) {
+        val step = 30.dp
+        val face = 26.dp
+        val fit = ((maxWidth - 8.dp) / step).toInt().coerceAtLeast(1)
+        val shown = if (sorted.size <= fit) sorted else sorted.take((fit - 1).coerceAtLeast(1))
+        val more = sorted.size - shown.size
+        val count = shown.size + if (more > 0) 1 else 0
+        Box(Modifier.width(step * count + 4.dp).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
+            shown.forEachIndexed { i, member ->
+                androidx.compose.runtime.key(member) {
+                    val x by androidx.compose.animation.core.animateDpAsState(step * i, androidx.compose.animation.core.tween(300), label = "face $member")
+                    Box(Modifier.offset(x = x).size(face + 4.dp).faceRing(if (member in here) 2 else if (member in inRoom) 1 else 0), contentAlignment = Alignment.Center) {
+                        Avatar(member, face - 2.dp)
+                    }
+                }
+            }
+            if (more > 0) {
+                Box(Modifier.offset(x = step * shown.size).size(face + 4.dp), contentAlignment = Alignment.Center) {
+                    Text("+$more", color = LibraryColors.Muted, style = LibraryType.Caption)
+                }
             }
         }
     }
