@@ -155,3 +155,29 @@ A live video box's label (who: their name, or "● You") sits at the box's top c
 their time. Test builds' delay readout ("LiveKit · first …", off in Settings) sits at the box's bottom centre, so the two
 never overlap. Both live (one to one, voice or video) shows "Make it a call" in the chat, the floating window and the
 floating chat; it turns the room into the call, no ringing.
+
+## Several talking at once in a group (2026-11-25, hen)
+
+The server gives every talker a floor of their own, groups too, so several members may push at once. Talk keeps all
+of them (`TalkUiState.talking`, by chat, in the order they started; `talkers` stays the newest one, and when that one
+ends the newest still talking takes its place). The chat's overlay (`GroupLivePanel`), the floating window's row and
+the floating chat's row (TalkBubble, `placeGroup`) show them all:
+
+- **Videos** in one row under the header (or at the top of the screen), equal widths, 6 dp apart, each picture cropped
+  to fill its box. The height is the usual 23.6% of the screen; three boxes get narrower (more of each picture cropped),
+  and past 9:16 (four on a phone) the row gets lower too (`LiveGroupLayout.boxSize`).
+- **Voices** are the slim pills, under the videos' row, or the top row when no one is on video. When their names don't
+  fit side by side, every pill shows its face only (the frame covers the words; the face stays at the language's start
+  side).
+- **At most four in view**, the ones who spoke last (`LiveCast`). A fifth pushes out the one quiet longest; the others
+  close up and the newcomer comes in after them. Mine counts as one of the four, always in view and always last.
+- **"+N talking · Name"** under everything, for those live but not in view (Name: the newest of them). A tap brings
+  that one into view in the place of the quietest.
+- **Pictures** come through the room (each member's "user.device"); without them the box shows the face. The clip
+  path's one decoder can't show several, so in groups it isn't used for the boxes.
+- **One move** for every change (docs/screens/style.md, "Motion"): one joining or leaving, voice turning into video and
+  back (a member's cell is kept 1 s after their push ends, so the next one grows out of it), the reorder when a fifth
+  speaks, and the boxes narrowing from one to four. Placed by `LiveGroupLayout`, moved by `LiveMotion`, left to right
+  whatever the language. One-to-one chats keep their row as before (`LiveLayout.place`: the pictures in their own shapes).
+- Test builds: `adb shell am broadcast -a com.chencohen.ptt.TEST_BUBBLE -n com.chencohen.ptt/.TestBubble --es chat
+  '#<group id>' --es members testbot2:video,testbot3:voice [--es where chat --es mine voice]` pretends members live at once.

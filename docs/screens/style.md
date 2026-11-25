@@ -82,6 +82,9 @@ Nothing is drawn below 11 sp. Text fields keep their own sizes.
 - **Placed by number, not by a row.** Things that move together (the live row's pills and boxes) are each put at a
   place worked out from all of them (LiveLayout) and moved there by one clock (LiveMotion), not laid out by a row or
   an arrangement with its own enter and exit animations: those animate each child by itself and mirror in Hebrew.
+- **Several at once is still one move** (2026-11-25, hen, several talking in a group): one joining or leaving, a
+  fifth pushing out the quietest (the rest closing up), boxes narrowing from one to four, pills turning face-only:
+  all are the same single move, every size worked out before it starts.
 - **No size guessed and corrected.** A box grows straight to its final size (its picture's shape known before it
   grows), so it never moves a second time.
 

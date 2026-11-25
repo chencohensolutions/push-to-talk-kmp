@@ -28,8 +28,13 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import com.chencohen.ptt.messaging.Group
 import com.chencohen.ptt.ui.contacts.LiveKind
 import com.chencohen.ptt.ui.contacts.LiveNow
+import com.chencohen.ptt.ui.contacts.LivePretend
+import com.chencohen.ptt.ui.live.LiveCast
+import com.chencohen.ptt.ui.live.LiveGroupLayout
 import com.chencohen.ptt.ui.live.LiveItem
 import com.chencohen.ptt.ui.live.LiveLayout
+import com.chencohen.ptt.ui.live.LivePerson
+import com.chencohen.ptt.ui.live.LiveSlot
 import com.chencohen.ptt.ui.live.LiveMotion
 import com.chencohen.ptt.ui.live.LiveRect
 import kotlinx.coroutines.flow.first
@@ -123,6 +128,18 @@ object TalkBubble {
     private var myFace: ImageView? = null
     private var bothChip: TextView? = null
     private var topHiding = false
+    // Several talking at once in a group (2026-11-25, hen): in a group chat's row, a cell for each member live, by their
+    // "user.device" (their pictures through the room, else their face; the clip path's one decoder can't show
+    // several), placed with mine by LiveGroupLayout; LiveCast keeps the four who spoke last in view, the chip offers
+    // the rest.
+    private val groupCells = LinkedHashMap<String, GroupCell>()
+    private var groupCast = LiveCast()
+    private var moreChip: TextView? = null
+    /** Who the chip would bring into view. */
+    private var moreKey: String? = null
+    private var topTouch: TopTouch? = null
+    /** Test builds only (TestBubble): the group chat whose pretended members (LivePretend.members) the row shows. */
+    private var pretendChat: String? = null
 
     private var chat: String? = null
     private var title: String = ""
@@ -167,6 +184,14 @@ object TalkBubble {
 
     /** The floating window is on screen now. */
     val showing: Boolean get() = pillWindow != null
+
+    /** Test builds only (TestBubble): [chat]'s pretended members (LivePretend.members) show in the row, or no more. */
+    internal fun pretendMembers(context: Context, chat: String) = main.post {
+        val app = context.applicationContext
+        pretendChat = if (LivePretend.members.value.isEmpty()) null else chat
+        if (pretendChat != null && !Settings.canDrawOverlays(app)) return@post
+        refreshTop(app)
+    }
 
     /** The floating window may show now: the setting, Android's permission, the phone in use and unlocked. */
     fun allowed(context: Context): Boolean {
@@ -795,7 +820,27 @@ object TalkBubble {
     // ---- The live row at the top -------------------------------------------------------------------------------
 
     /** The conversation the row is about, whose face and name theirs is, and since when each side is live. */
-    private fun rowChat(): String? = chat ?: outsideChat
+    private fun rowChat(): String? = chat ?: outsideChat ?: pretendChat
+
+    /** The row is a group chat's: everyone live in it shows (several at once), placed by LiveGroupLayout. */
+    private fun groupRow(): Boolean = rowChat()?.let { Group.idOf(it) != null } == true
+
+    /** A member live in the row's group chat: [key] their "user.device", on video or voice, since when. */
+    private data class GroupMember(val key: String, val user: String, val video: Boolean, val since: Long)
+
+    /** Everyone live in the row's group chat now but me (Talk's talking; the test builds' pretended members too). */
+    private fun groupMembers(context: Context): List<GroupMember> {
+        val chat = rowChat()?.takeIf { Group.idOf(it) != null } ?: return emptyList()
+        val state = messagingState(context).value
+        val arriving = com.chencohen.ptt.talk.LiveTalkVideo.arriving.value
+        val own = state.talk.own?.clip
+        val real = state.talk.talking[chat].orEmpty().filter { it.clip != own }.map { t ->
+            val id = "${t.user}.${t.device}"
+            GroupMember(id, t.user, arriving[id] != null || state.conversations[chat]?.firstOrNull { it.id == t.clip }?.clip?.video == true, t.since)
+        }
+        val pretend = if (pretendChat == chat) LivePretend.members.value.map { GroupMember("${it.user}.1", it.user, it.video, it.since) } else emptyList()
+        return real + pretend
+    }
     private fun rowFrom(): String = (if (burstLive) from else null) ?: outside?.theirUser?.takeIf { it.isNotEmpty() } ?: from ?: ""
     private fun rowTitle(): String = if (chat != null) title else outside?.theirName ?: title
     private fun theirSince(): Long = burstSince.takeIf { it > 0 } ?: outside?.theirSince?.takeIf { it > 0 } ?: System.currentTimeMillis()
@@ -813,7 +858,10 @@ object TalkBubble {
         // Their video shows once its picture's shape is known: until then their pill stays, so the pill grows once,
         // straight to the right size (2026-11-25, hen: "the video size aspect ratio that comes in delay").
         val theirWasPill = theirCell?.let { it.on && !it.video } == true
-        val theirOn = (burstLive || (out != null && out.theirs != LiveKind.None)) && !topPutAway
+        // A group's row shows every member live as their own cell (groupCells), not the window's one burst.
+        val group = groupRow()
+        val members = if (group && !topPutAway) groupMembers(context) else emptyList()
+        val theirOn = !group && (burstLive || (out != null && out.theirs != LiveKind.None)) && !topPutAway
         val theirsVideo = theirOn && theirVideoWanted() && (theirPictureReady(context) || !theirWasPill)
         // Mine stays a box from the lock to Stop, through the moment between a hands-free floor and its renewal.
         // A press that waits for the floor sends nothing and shows nothing live (2026-11-25, hen: "only when the UI
@@ -821,7 +869,8 @@ object TalkBubble {
         val mine = ((sendingVideo || goingLive || locked) && !waiting) || out?.mine == LiveKind.Video
         val myVoice = !mine && !topPutAway && ((talking && !waiting) || out?.mine == LiveKind.Voice)
         main.removeCallbacks(hideSoon)
-        if (!theirOn && !mine && !myVoice) {
+        val groupOn = members.isNotEmpty() || groupCells.values.any { it.cell.on }
+        if (!theirOn && !mine && !myVoice && !groupOn) {
             // Nothing live: what shows goes up at once (2026-11-25, hen: "it should stop transmitting, slide up
             // immediately and then close the camera"); only the emptied window waits a moment before it goes, so the
             // next push doesn't have to bring it back.
@@ -851,6 +900,7 @@ object TalkBubble {
         // Their words as they are now, before the pills are measured: a pill comes in at its real width.
         theirPill?.tick(0f, theirSince())
         myPill?.tick(0f, mySince())
+        syncGroup(context, if (group) members else emptyList())
         bothChip?.visibility = if (bothLive(context)) View.VISIBLE else View.GONE
         placeTop(context)
         pickPreview()
@@ -902,6 +952,9 @@ object TalkBubble {
         val screen = context.getSystemService(WindowManager::class.java).currentWindowMetrics.bounds.width().toFloat()
         val window = windowAt()
         val gap = dp(context, 6).toFloat()
+        if (groupRow() || groupCells.values.any { it.cell.on }) return placeGroup(context, mine, screen, window, gap)
+        theirs.slides = false
+        mine.slides = false
         // Their picture's shape: said with their key, else the first picture's; mine is the camera's, upright.
         val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
         lastShown = shown
@@ -953,11 +1006,73 @@ object TalkBubble {
         if (topMotion.running) frames()
     }
 
+    /**
+     * A group's row (2026-11-25, hen: several talking at once): the members live and mine, the four who spoke last in
+     * view (LiveCast), the videos in one row of equal boxes, each picture cropped to fill, the voices' pills under them
+     * (face only when the names don't fit), "+N talking · Name" under all; placed by LiveGroupLayout, moved in ONE move
+     * by LiveMotion as the one-to-one row is.
+     */
+    private fun placeGroup(context: Context, mine: LiveCell, screen: Float, window: IntArray, gap: Float) {
+        val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+        val cells = LinkedHashMap<String, LiveCell>()
+        val since = HashMap<String, Long>()
+        groupCells.forEach { (k, g) -> if (g.cell.on) { cells[k] = g.cell; since[k] = g.member.since } }
+        if (mine.on) {
+            cells[LiveLayout.MINE] = mine
+            since[LiveLayout.MINE] = mySince()
+        }
+        val shown = groupCast.update(cells.keys.map { LivePerson(it, since.getValue(it)) })
+        val hidden = groupCast.hidden
+        val margin = dp(context, 12).toFloat()
+        val width = screen - 2 * margin
+        val pills = shown.filter { !cells.getValue(it).video }.associateWith { cells.getValue(it).pillSize(screen.toInt()) }
+        val slots = shown.map { k ->
+            val cell = cells.getValue(k)
+            if (cell.video) LiveSlot(k, true) else pills.getValue(k).let { (w, h) -> LiveSlot(k, false, w.toFloat(), h.toFloat()) }
+        }
+        // "+2 talking · Dana": the newest of those not in view.
+        val chip = moreChip
+        moreKey = hidden.firstOrNull()?.key
+        val chipSize = if (chip != null && moreKey != null) {
+            val who = moreKey?.let { k -> if (k == LiveLayout.MINE) context.getString(R.string.talk_panel_you) else groupCells[k]?.member?.user } ?: ""
+            val words = context.getString(R.string.talk_more_talking, hidden.size, android.text.BidiFormatter.getInstance().unicodeWrap(who))
+            if (chip.text.toString() != words) chip.text = words
+            chip.visibility = View.VISIBLE
+            chip.measure(View.MeasureSpec.makeMeasureSpec(screen.toInt(), View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            chip.measuredWidth.toFloat() to chip.measuredHeight.toFloat()
+        } else null
+        val (bw, bh) = LiveGroupLayout.boxSize(slots.count { it.video }, topHeight(context).toFloat(), myShape, width, gap)
+        // Each box's inside at the box's own size: the pictures fill it, cropped (equal widths whatever their shapes).
+        for (k in shown) {
+            val cell = cells.getValue(k)
+            cell.slides = true
+            if (cell.video) size(cell.box, bw.toInt(), bh.toInt())
+        }
+        val targets = LiveGroupLayout.place(slots, width, gap, topHeight(context).toFloat(), myShape, topRtl, left = -window[0].toFloat() + margin, chip = chipSize)
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat())
+        topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
+        if (moved) Log.i(TAG, "group row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} y=${r.y.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (${hidden.size} more; ${if (topRtl) "right to left" else "left to right"})")
+        showTop()
+        touchTop()
+        if (topMotion.running) frames()
+    }
+
     /** Each cell where the motion has it now, and the chip under them. */
     private fun showTop() {
         val rects = topMotion.rects
         theirCell?.place(rects[LiveLayout.THEIRS], restTop)
         myCell?.place(rects[LiveLayout.MINE], restTop)
+        groupCells.forEach { (k, g) -> g.cell.place(rects[k], restTop) }
+        moreChip?.let { chip ->
+            val r = rects[LiveGroupLayout.MORE]
+            if (r == null) {
+                if (chip.visibility != View.GONE) chip.visibility = View.GONE
+            } else {
+                chip.translationX = r.x
+                chip.translationY = restTop + r.y
+                if (chip.visibility != View.VISIBLE) chip.visibility = View.VISIBLE
+            }
+        }
         bothChip?.takeIf { it.visibility == View.VISIBLE }?.translationY = restTop + (rects.values.maxOfOrNull { it.bottom } ?: 0f) + dp(topCard?.context ?: return, 8)
     }
 
@@ -984,6 +1099,12 @@ object TalkBubble {
 
     /** A move ended: touches go only to what is there now, and a row asked to go, goes. */
     private fun settled() {
+        // Members gone and up out of the row: their cells go.
+        groupCells.entries.removeAll { (k, g) ->
+            val gone = !g.cell.on && k !in topMotion.rects
+            if (gone) dropGroupCell(g)
+            gone
+        }
         touchTop()
         if (topHiding && topMotion.rects.isEmpty()) removeTop()
     }
@@ -998,6 +1119,7 @@ object TalkBubble {
         for (r in topMotion.rects.values + topMotion.goals.values) {
             region.union(android.graphics.Rect(r.x.toInt(), (restTop + r.y).toInt().coerceAtLeast(0), (r.x + r.w).toInt() + 1, (restTop + r.bottom).toInt().coerceAtLeast(0) + 1))
         }
+        // The group's "+N talking" chip is one of the rects (LiveGroupLayout.MORE), so it takes touches already.
         bothChip?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }?.let { chip ->
             val top = chip.top + chip.translationY.toInt()
             region.union(android.graphics.Rect(chip.left, top, chip.right, top + chip.height))
@@ -1030,6 +1152,9 @@ object TalkBubble {
             theirTag?.text = android.text.BidiFormatter.getInstance().unicodeWrap(rowTitle())
             useRoomVideo(window.context)
             showTheirFace(window.context)
+            useGroupVideo(window.context)
+            // Who is live in the group changed (Talk's talking): the row follows.
+            if (groupRow() && groupMembers(window.context).map { it.key to it.video } != groupCells.filterValues { it.cell.on && it.goneAt == 0L }.map { (k, g) -> k to g.cell.video }) refreshTop(window.context)
             // Their picture's shape came while their pill waited for it: now the pill grows into the box.
             if (theirVideoWanted() && theirCell?.let { it.on && !it.video } == true && theirPictureReady(window.context)) refreshTop(window.context)
             pickPreview()
@@ -1046,6 +1171,7 @@ object TalkBubble {
             if (topWindow == null) return
             theirPill?.tick(com.chencohen.ptt.talk.TalkAudio.playLevel, theirSince())
             myPill?.tick(com.chencohen.ptt.talk.TalkAudio.micLevel, mySince())
+            groupCells.values.forEach { it.cell.pill.tick(com.chencohen.ptt.talk.TalkAudio.playLevel, it.member.since) }
             main.postDelayed(this, 60)
         }
     }
@@ -1258,6 +1384,23 @@ object TalkBubble {
             }
         }
         stage.addView(chip, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        // A group's "+2 talking · Dana" (2026-11-25, hen): a tap brings Dana into view in the quietest one's place.
+        val more = TextView(context).apply {
+            visibility = View.GONE
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            maxLines = 1
+            elevation = 6 * resources.displayMetrics.density
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()) }
+            setOnClickListener {
+                val key = moreKey ?: return@setOnClickListener
+                groupCast.choose(key, System.currentTimeMillis())
+                placeTop(context)
+            }
+        }
+        stage.addView(more, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.LEFT))
         val holder = FrameLayout(context).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
@@ -1268,7 +1411,8 @@ object TalkBubble {
             // resizes the window (2026-11-25, hen: "symmetrical, in one move"; a window resizing each frame nudged the
             // items). Only the items take touches ([touchTop]).
             WindowManager.LayoutParams.MATCH_PARENT,
-            restTop + statusTop + topHeight(context) + dp(96),
+            // A group's: the boxes' row, the pills' and the chip under them.
+            restTop + statusTop + topHeight(context) + dp(176),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -1282,6 +1426,7 @@ object TalkBubble {
             title = "Talk video"
         }
         val touch = TopTouch(context, wm, holder, params)
+        topTouch = touch
         theirItem.view.setOnTouchListener(touch)
         myItem.view.setOnTouchListener(touch)
         try {
@@ -1300,6 +1445,7 @@ object TalkBubble {
         theirBox = theirs
         myBox = mine
         bothChip = chip
+        moreChip = more
         topHiding = false
         // Wherever the system put the window (the S25 drew it at the screen's very top, under the status bar;
         // 2026-11-25), the items rest just below the status bar and are centred on the screen: once the window is
@@ -1373,6 +1519,140 @@ object TalkBubble {
         }
     }
 
+    /** A group member's cell: their pill or box, their face until a picture comes through the room, their name. */
+    private class GroupCell(val cell: LiveCell, val face: ImageView, val tag: TextView, var member: GroupMember) {
+        var renderer: io.livekit.android.renderer.TextureViewRenderer? = null
+        var track: io.livekit.android.room.track.VideoTrack? = null
+        /** When their push ended (0: live): kept [BURST_HOLD_MS], so voice turning into video is one cell that grows. */
+        var goneAt = 0L
+    }
+
+    private var groupHoldApp: Context? = null
+
+    /** A member's push ended a moment ago and no other of theirs followed: now their cell goes. */
+    private val groupHold = Runnable { groupHoldApp?.let { refreshTop(it) } }
+
+    /** The group's cells as [members] are now: new ones made, gone ones held a moment, then let go (up and out). */
+    private fun syncGroup(context: Context, members: List<GroupMember>) {
+        val stage = topCard ?: return
+        val now = System.currentTimeMillis()
+        val keys = members.map { it.key }.toSet()
+        for (m in members) {
+            val g = groupCells[m.key] ?: addGroupCell(context, stage, m).also { groupCells[m.key] = it }
+            if (!g.cell.on) thaw(g.cell.box)
+            g.member = m
+            g.goneAt = 0L
+            g.cell.on = true
+            g.cell.video = m.video
+            g.cell.pill.show(context, m.user, m.user)
+            g.cell.pill.tick(0f, m.since)
+            val name = android.text.BidiFormatter.getInstance().unicodeWrap(m.user)
+            if (g.tag.text.toString() != name) g.tag.text = name
+        }
+        for ((k, g) in groupCells) {
+            if (k in keys || !g.cell.on) continue
+            if (g.goneAt == 0L) {
+                g.goneAt = now
+                groupHoldApp = context.applicationContext
+                main.removeCallbacks(groupHold)
+                main.postDelayed(groupHold, BURST_HOLD_MS)
+            } else if (now - g.goneAt >= BURST_HOLD_MS - 50) {
+                // Up and out, its picture fading to black in the same move (as theirs one to one).
+                if (g.cell.video) {
+                    freeze(g.cell.box, g.renderer, g.tag)
+                    fadeToBlack(g.cell.box, g.tag)
+                }
+                g.cell.on = false
+            }
+        }
+    }
+
+    /** A member's cell, in the row's stage (not in view until placed). */
+    @SuppressLint("ClickableViewAccessibility", "RtlHardcoded")
+    private fun addGroupCell(context: Context, stage: FrameLayout, m: GroupMember): GroupCell {
+        val density = context.resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+        val face = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        val tag = TextView(context).apply {
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            maxLines = 1
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+            background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0x80000000.toInt()) }
+        }
+        val box = FrameLayout(context).apply {
+            layoutDirection = if (topRtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+            setBackgroundColor(Color.BLACK)
+            // Their face, large, until a picture comes through the room (never a black box); their letter until the face
+            // is read, or if they have none.
+            addView(TextView(context).apply {
+                setTag("letter")
+                text = m.user.take(1).uppercase()
+                setTextColor(Color.WHITE)
+                textSize = 28f
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
+            }, FrameLayout.LayoutParams(dp(72), dp(72), Gravity.CENTER))
+            addView(face, FrameLayout.LayoutParams(dp(96), dp(96), Gravity.CENTER))
+            addView(tag, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) })
+        }
+        val cell = LiveCell(context, m.key, TEAL, VoicePill(context, mine = false, rtl = topRtl), box)
+        // Under the chip, so the chip stays on top.
+        stage.addView(cell.view, (stage.indexOfChild(moreChip).takeIf { it >= 0 } ?: stage.childCount), FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.LEFT))
+        topTouch?.let { cell.view.setOnTouchListener(it) }
+        val g = GroupCell(cell, face, tag, m)
+        (context.applicationContext as? TalkApp)?.let { app ->
+            app.scope.launch {
+                val id = kotlinx.coroutines.withTimeoutOrNull(1_000) { com.chencohen.ptt.ui.face.Faces.ids(app).first { it.containsKey(m.user) } }?.get(m.user) ?: "-"
+                val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, m.user, id) }.getOrNull() ?: return@launch
+                main.post {
+                    face.setImageBitmap(bitmap.asAndroidBitmap())
+                    box.findViewWithTag<View>("letter")?.visibility = View.GONE
+                }
+            }
+        }
+        return g
+    }
+
+    /** Each member's picture through the room while it comes (their face until then, and after). */
+    private fun useGroupVideo(context: Context) {
+        val arriving = com.chencohen.ptt.talk.LiveTalkVideo.arriving.value
+        for ((k, g) in groupCells) {
+            val live = arriving[k]?.takeIf { g.cell.on }
+            if (live != null && g.track !== live.track) {
+                dropGroupVideo(g)
+                val r = io.livekit.android.renderer.TextureViewRenderer(context)
+                if (!com.chencohen.ptt.talk.LiveTalkVideo.initRenderer(r)) continue
+                r.setScalingType(livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                g.cell.box.addView(r, 1, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+                live.track.addRenderer(r)
+                g.renderer = r
+                g.track = live.track
+                thaw(g.cell.box)
+            } else if (live == null && g.track != null) {
+                freeze(g.cell.box, g.renderer, g.tag)
+                dropGroupVideo(g)
+            }
+            g.face.visibility = if (g.renderer != null) View.GONE else View.VISIBLE
+            g.cell.box.findViewWithTag<View>("letter")?.let { if (g.renderer != null || g.face.drawable != null) it.visibility = View.GONE else it.visibility = View.VISIBLE }
+        }
+    }
+
+    private fun dropGroupVideo(g: GroupCell) {
+        val r = g.renderer ?: return
+        runCatching { g.track?.removeRenderer(r) }
+        (r.parent as? android.view.ViewGroup)?.removeView(r)
+        r.release()
+        g.renderer = null
+        g.track = null
+    }
+
+    private fun dropGroupCell(g: GroupCell) {
+        dropGroupVideo(g)
+        (g.cell.view.parent as? android.view.ViewGroup)?.removeView(g.cell.view)
+    }
+
     /** Every item goes back up through the screen's top edge, in one move; then the window goes. */
     private fun hideTop() {
         val window = topWindow ?: return
@@ -1381,6 +1661,7 @@ object TalkBubble {
         main.removeCallbacks(topTick)
         theirCell?.on = false
         myCell?.on = false
+        groupCells.values.forEach { it.cell.on = false }
         bothChip?.visibility = View.GONE
         topRoom.intValue = 0
         topMotion.target(emptyMap(), (restTop + windowAt()[1] + dp(window.context, 12)).toFloat())
@@ -1414,6 +1695,12 @@ object TalkBubble {
         theirPill = null
         myPill = null
         bothChip = null
+        groupCells.values.forEach { dropGroupCell(it) }
+        groupCells.clear()
+        groupCast = LiveCast()
+        moreChip = null
+        moreKey = null
+        topTouch = null
         topHiding = false
         runCatching { window.context.getSystemService(WindowManager::class.java).removeView(window) }
     }
@@ -1429,6 +1716,13 @@ object TalkBubble {
         /** In the row now; as a video box (else a voice pill). */
         var on = false
         var video = false
+        /**
+         * In a group's row: a frame narrower than its pill (face only: the names don't fit) keeps the face, at the
+         * language's start side, in view, the pill sliding to that edge and the frame covering the words.
+         */
+        var slides = false
+        /** The pill's own width, last measured. */
+        private var pillW = 0
         private val density = context.resources.displayMetrics.density
         private val fill = GradientDrawable()
         private val edge = GradientDrawable()
@@ -1455,6 +1749,7 @@ object TalkBubble {
             // Asked afresh, as a window would ask it (a text keeps the width it was last laid out at otherwise).
             pill.forceLayout()
             pill.view.measure(View.MeasureSpec.makeMeasureSpec(most, View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            pillW = pill.view.measuredWidth
             return pill.view.measuredWidth to pill.view.measuredHeight
         }
 
@@ -1484,6 +1779,17 @@ object TalkBubble {
                 edge.cornerRadius = r
                 view.invalidateOutline()
             }
+            // Face only: the pill at its own width (not squeezed into the frame), slid so its face shows; less so as it
+            // grows into a box.
+            val narrow = slides && pillW > 0 && rect.w < pillW - 0.5f
+            val pillLp = pill.view.layoutParams
+            val wantW = if (narrow) pillW else FrameLayout.LayoutParams.WRAP_CONTENT
+            if (pillLp.width != wantW) {
+                pillLp.width = wantW
+                pill.view.layoutParams = pillLp
+            }
+            val dir = if (pill.view.layoutDirection == View.LAYOUT_DIRECTION_RTL) -1 else 1
+            pill.view.translationX = if (narrow) (pillW - rect.w) / 2 * (1 - p) * dir else 0f
             fill.setColor(androidx.core.graphics.ColorUtils.blendARGB(0xF2191D1C.toInt(), Color.BLACK, p))
             box.alpha = p
             val boxShows = if (p > 0f) View.VISIBLE else View.GONE

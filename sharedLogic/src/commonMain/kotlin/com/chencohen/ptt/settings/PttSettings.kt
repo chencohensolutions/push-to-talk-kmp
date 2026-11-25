@@ -176,6 +176,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_CAMERA_READY) != "false"
         set(value) = store.putString(KEY_CAMERA_READY, value.toString())
 
+    /** Settings › Talk › Send through the server when they're away (off; the old clip upload, 2026-11-25). */
+    var clipUpload: Boolean
+        get() = store.getString(KEY_CLIP_UPLOAD) == "true"
+        set(value) = store.putString(KEY_CLIP_UPLOAD, value.toString())
+
     /** Settings › Talk › Reply bubble over other apps (off unless turned on). */
     var replyBubble: Boolean
         // On unless turned off (2026-11-22, hen: "floating window as default").
@@ -290,6 +295,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_OPEN_ON_TALK = "talk_open_on_talk"
         private const val KEY_REPLY_BUBBLE = "talk_reply_bubble"
         private const val KEY_CAMERA_READY = "talk_camera_ready"
+        private const val KEY_CLIP_UPLOAD = "talk_clip_upload"
         private const val KEY_DEFAULTS = "defaults_version"
         private const val KEY_CALL_VIDEO = "call_video"
         private const val KEY_MY_EMAIL = "my_email"

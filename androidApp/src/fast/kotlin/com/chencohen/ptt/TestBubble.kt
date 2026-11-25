@@ -17,7 +17,10 @@ import com.chencohen.ptt.ui.contacts.LivePretend
  * - `--es where chat --es theirs voice|video|none`: the other side live in the chat on screen (the app's, or the
  *   floating chat's), not in the floating window;
  * - `--es where window`: the floating chat opens on [chat], as for a message from it;
- * - `--es pill stop|push`: the bottom pill as if locked hands-free (Stop) or not, nothing sent.
+ * - `--es pill stop|push`: the bottom pill as if locked hands-free (Stop) or not, nothing sent;
+ * - `--es members testbot2:video,testbot3:voice,...` (empty: none): group members live at once, as if each pushed (several
+ *   talkers; 2026-11-25), in the open group chat and in the floating window's row; each keeps its start while listed
+ *   again, so a list one longer is one more joining. With `--es where chat --es mine voice|video|none`: my side too.
  */
 class TestBubble : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -32,6 +35,23 @@ class TestBubble : BroadcastReceiver() {
             val shape = intent.getFloatExtra("shape", 0.75f)
             TalkBubble.pretendShape = shape
             com.chencohen.ptt.talk.LiveTalkVideo.shapes.value += (LivePretend.IDENTITY to (shape * 1000).toInt())
+        }
+        if (intent.hasExtra("members")) {
+            val before = LivePretend.members.value.associateBy { it.user }
+            val now = System.currentTimeMillis()
+            LivePretend.members.value = intent.getStringExtra("members").orEmpty().split(',').filter { it.isNotBlank() }.mapIndexed { i, m ->
+                val user = m.substringBefore(':')
+                LivePretend.Member(user, m.substringAfter(':', "voice") == "video", before[user]?.since ?: (now + i))
+            }
+            // In the open chat only (where chat), else in the floating window's row.
+            if (intent.getStringExtra("where") == "chat") {
+                if (intent.hasExtra("mine")) LivePretend.mine.value = kind("mine")
+            } else TalkBubble.pretendMembers(app, chat)
+            return
+        }
+        if (intent.getStringExtra("where") == "chat" && intent.hasExtra("mine")) {
+            LivePretend.mine.value = kind("mine")
+            return
         }
         if (intent.hasExtra("pill")) {
             TalkBubble.pretendLocked(intent.getStringExtra("pill") == "stop")

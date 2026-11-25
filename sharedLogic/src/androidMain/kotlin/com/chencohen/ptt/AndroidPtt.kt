@@ -138,6 +138,8 @@ private fun hub(context: Context): Messaging {
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
+        // The server buffer's pushes (2026-11-25): read and opened here, played as their bursts.
+        it.talk.bufferReader = com.chencohen.ptt.talk.AndroidBufferReader(it.blobs, it.live)
         it.live.onShape = { identity, shape -> com.chencohen.ptt.talk.LiveTalkVideo.shapes.update { m -> m + (identity to shape) } }
         // Push-to-video: this phone's camera, and where bursts' video shows; and what it can play, said to the others.
         it.talk.videoCapture = com.chencohen.ptt.talk.AndroidTalkVideoCapture(

@@ -403,12 +403,40 @@ internal class FakeServer {
         return SendResult(send.clientId, SendStatus.ACCEPTED, envelopeIds = ids)
     }
 
-    // --- Talk (the server's docs/messaging.md, "Talk"), one-to-one only -------------------------------------------
+    // --- Talk (the server's docs/messaging.md, "Talk"), one to one and in groups ------------------------------------
 
-    class Floor(val id: String, val talker: DeviceAddress, val peer: String)
+    /** A talker's floor: [peer] one to one, else [group]. */
+    class Floor(val id: String, val talker: DeviceAddress, val peer: String, val group: String = "")
 
-    /** The floor of each pair of users, while someone talks. */
-    val floors = mutableMapOf<Set<String>, Floor>()
+    /**
+     * The floors held now, by conversation and talker: each talker a floor of their own, so everyone may talk at once,
+     * one to one and in a group (the real server since 2026-11-25, hen); BUSY only for the same user's other burst.
+     */
+    val floors = mutableMapOf<String, Floor>()
+
+    /** One floor for the whole conversation, as the server was before 2026-11-25 (BUSY while anyone else talks). */
+    var oneFloorPerConversation = false
+
+    private fun conversation(from: String, start: TalkStart) =
+        if (start.group.isNotEmpty()) "#${start.group}" else listOf(from, start.peer).sorted().joinToString("|")
+
+    private fun floorKey(from: String, start: TalkStart) =
+        if (oneFloorPerConversation) conversation(from, start) else conversation(from, start) + "/" + from
+
+    /** Who hears [floor]: the other side (every other member, in a group) and the talker's own other devices. */
+    private fun hearers(floor: Floor): List<DeviceAddress> {
+        val others = if (floor.group.isNotEmpty()) groups[floor.group]?.members.orEmpty().filter { it != floor.talker.user }.flatMap { devicesOf(it) }
+        else devicesOf(floor.peer)
+        return others + devicesOf(floor.talker.user).filter { it != floor.talker }
+    }
+
+    /** [floor]'s conversation as [to] sees it: the other user, one to one; the group's frames carry the group. */
+    private fun stateFor(to: DeviceAddress, floor: Floor, event: Int, reason: Int = TalkEndReason.RELEASED) =
+        TalkState(
+            event, floor.id, floor.talker.user, floor.talker.device,
+            peer = if (floor.group.isNotEmpty()) "" else if (to.user == floor.talker.user) floor.peer else floor.talker.user,
+            group = floor.group, endReason = if (event == TalkEvent.ENDED) reason else 0,
+        )
 
     /** Each clip's records, as GET /blob answers them; and whether its last segment came. */
     val clips = mutableMapOf<String, MutableList<ByteArray>>()
@@ -434,18 +462,21 @@ internal class FakeServer {
     private fun devicesOf(user: String) = connections.keys.filter { it.user == user }
 
     private fun talkStart(from: DeviceAddress, start: TalkStart) {
-        val pair = setOf(from.user, start.peer)
-        val held = floors[pair]
+        val key = floorKey(from.user, start)
+        val held = floors[key]
+        val group = groups[start.group]
         when {
-            start.peer.isEmpty() || pair !in pairs -> frame(from, TalkStateFrame(TalkState(TalkEvent.REFUSED, start.burstId, refusal = SendStatus.NOT_PAIRED)))
-            held != null && held.id != start.burstId -> frame(from, TalkStateFrame(TalkState(TalkEvent.BUSY, start.burstId, held.talker.user, held.talker.device, peer = start.peer)))
+            start.group.isNotEmpty() && (group == null || from.user !in group.members) ->
+                frame(from, TalkStateFrame(TalkState(TalkEvent.REFUSED, start.burstId, refusal = SendStatus.NOT_PAIRED)))
+            start.group.isEmpty() && (start.peer.isEmpty() || setOf(from.user, start.peer) !in pairs) ->
+                frame(from, TalkStateFrame(TalkState(TalkEvent.REFUSED, start.burstId, refusal = SendStatus.NOT_PAIRED)))
+            held != null && held.id != start.burstId -> frame(from, TalkStateFrame(TalkState(TalkEvent.BUSY, start.burstId, held.talker.user, held.talker.device, peer = start.peer, group = start.group)))
             else -> {
-                floors[pair] = Floor(start.burstId, from, start.peer)
+                val floor = Floor(start.burstId, from, start.peer, start.group)
+                floors[key] = floor
                 clips.getOrPut(start.burstId) { mutableListOf() }
-                frame(from, TalkStateFrame(TalkState(TalkEvent.GRANTED, start.burstId, from.user, from.device, peer = start.peer)))
-                for (d in devicesOf(start.peer) + devicesOf(from.user).filter { it != from }) {
-                    frame(d, TalkStateFrame(TalkState(TalkEvent.STARTED, start.burstId, from.user, from.device, peer = if (d.user == from.user) start.peer else from.user)))
-                }
+                frame(from, TalkStateFrame(TalkState(TalkEvent.GRANTED, start.burstId, from.user, from.device, peer = start.peer, group = start.group)))
+                for (d in hearers(floor)) frame(d, TalkStateFrame(stateFor(d, floor, TalkEvent.STARTED)))
             }
         }
     }
@@ -459,7 +490,7 @@ internal class FakeServer {
 
     private fun clipSegment(from: DeviceAddress, segment: ClipSegment) {
         segmentSizes += segment.ciphertext.size
-        val (pair, floor) = floors.entries.firstOrNull { it.value.id == segment.burstId && it.value.talker == from }?.toPair() ?: return
+        val (key, floor) = floors.entries.firstOrNull { it.value.id == segment.burstId && it.value.talker == from }?.toPair() ?: return
         val next = nextSegment[segment.burstId] ?: 0
         if (segment.index != next) {
             segmentRefusals += segment.index
@@ -468,18 +499,16 @@ internal class FakeServer {
         }
         nextSegment[segment.burstId] = next + 1
         clips.getValue(segment.burstId) += com.chencohen.ptt.talk.ClipRecords.record(segment.index, segment.last, segment.ciphertext)
-        if (!dropForwarded) for (d in devicesOf(floor.peer) + devicesOf(from.user).filter { it != from }) frame(d, ClipSegmentFrame(segment))
+        if (!dropForwarded) for (d in hearers(floor)) frame(d, ClipSegmentFrame(segment))
         if (segment.last) {
             completeClips += segment.burstId
-            endFloor(pair)
+            endFloor(key)
         }
     }
 
-    private fun endFloor(pair: Set<String>) {
-        val floor = floors.remove(pair) ?: return
-        for (d in devicesOf(floor.peer) + devicesOf(floor.talker.user)) {
-            frame(d, TalkStateFrame(TalkState(TalkEvent.ENDED, floor.id, floor.talker.user, floor.talker.device, peer = if (d.user == floor.talker.user) floor.peer else floor.talker.user, endReason = TalkEndReason.RELEASED)))
-        }
+    private fun endFloor(key: String) {
+        val floor = floors.remove(key) ?: return
+        for (d in hearers(floor) + floor.talker) frame(d, TalkStateFrame(stateFor(d, floor, TalkEvent.ENDED)))
     }
 
     fun blobs(device: DeviceAddress): com.chencohen.ptt.talk.BlobApi = object : com.chencohen.ptt.talk.BlobApi {

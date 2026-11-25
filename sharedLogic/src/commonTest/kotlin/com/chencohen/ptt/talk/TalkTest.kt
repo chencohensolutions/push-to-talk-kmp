@@ -395,10 +395,73 @@ class TalkTest {
     }
 
     @Test
+    fun severalMembersTalkAtOnceInAGroupAndEachIsShownUntilTheirsEnds() = runTest {
+        // 2026-11-25 (hen): the server gives every talker a floor of their own, in groups too; the app shows them all.
+        val server = FakeServer()
+        val hen = TalkPhone(server, "hen", this, 1)
+        val dana = TalkPhone(server, "dana", this, 2)
+        val sharon = TalkPhone(server, "sharon", this, 3)
+        val id = "g1".padEnd(32, '0')
+        server.groups[id] = FakeServer.FakeGroup(id, "hen", mutableListOf("hen", "dana", "sharon"))
+        listOf(hen, dana, sharon).forEach { it.controller.start() }
+        advanceUntilIdle()
+        val chat = "#$id"
+        dana.work.launch { dana.talk.press(chat) }
+        advanceTimeBy(1_000)
+        sharon.work.launch { sharon.talk.press(chat) }
+        advanceTimeBy(1_000)
+        assertEquals(TalkPhase.TALKING, dana.state.talk.own?.phase, "dana has her own floor")
+        assertEquals(TalkPhase.TALKING, sharon.state.talk.own?.phase, "and so has sharon, at the same time")
+        // Hen sees both, in the order they started; the newest is the chat's talker.
+        assertEquals(listOf("dana", "sharon"), hen.state.talk.talking[chat]?.map { it.user })
+        assertEquals("sharon", hen.state.talk.talkers[chat]?.user)
+        // Each sees the other.
+        assertEquals(listOf("sharon"), dana.state.talk.talking[chat]?.map { it.user })
+        // Sharon lets go: dana alone is left, and is the chat's talker again.
+        sharon.work.launch { sharon.talk.release() }
+        advanceTimeBy(1_000)
+        assertEquals(listOf("dana"), hen.state.talk.talking[chat]?.map { it.user })
+        assertEquals("dana", hen.state.talk.talkers[chat]?.user)
+        dana.work.launch { dana.talk.release() }
+        advanceTimeBy(1_000)
+        assertNull(hen.state.talk.talking[chat])
+        assertNull(hen.state.talk.talkers[chat])
+        listOf(hen, dana, sharon).forEach { it.stop() }
+    }
+
+    @Test
+    fun aGroupTalkerWhoseEndNeverCameGoesAfterTheLimitLeavingTheOthers() = runTest {
+        val server = FakeServer()
+        val hen = TalkPhone(server, "hen", this, 1)
+        val dana = TalkPhone(server, "dana", this, 2)
+        val sharon = TalkPhone(server, "sharon", this, 3)
+        val id = "g2".padEnd(32, '0')
+        server.groups[id] = FakeServer.FakeGroup(id, "hen", mutableListOf("hen", "dana", "sharon"))
+        listOf(hen, dana, sharon).forEach { it.controller.start() }
+        advanceUntilIdle()
+        val chat = "#$id"
+        dana.work.launch { dana.talk.press(chat) }
+        advanceTimeBy(Talk.STALE_TALKER_MS / 2)
+        sharon.work.launch { sharon.talk.press(chat) }
+        advanceTimeBy(1_000)
+        assertEquals(2, hen.state.talk.talking[chat]?.size)
+        // Their ends are lost: dana's floor goes stale first, sharon's stays shown until its own limit.
+        server.dropTalkStates = true
+        advanceTimeBy(Talk.STALE_TALKER_MS / 2)
+        assertEquals(listOf("sharon"), hen.state.talk.talking[chat]?.map { it.user })
+        assertEquals("sharon", hen.state.talk.talkers[chat]?.user)
+        advanceTimeBy(Talk.STALE_TALKER_MS)
+        assertNull(hen.state.talk.talking[chat])
+        listOf(hen, dana, sharon).forEach { it.stop() }
+    }
+
+    @Test
     fun aPressWhileTheOtherTalksWaitsSendingNothingAndGoesLiveWhenTheirsEnds() = runTest {
         // 2026-11-25 (hen): "only when the UI says it's transmitting, then transmit". Waiting is shown as waiting and
         // nothing of it is recorded or sent; at the turn it goes live and sends from that moment.
         val (server, hen, dana) = paired()
+        // The server as it was before 2026-11-25: one floor for the conversation, so a second press waits.
+        server.oneFloorPerConversation = true
         dana.work.launch {
             dana.talk.press("hen")
             dana.mic.say(0, 20)
@@ -432,7 +495,9 @@ class TalkTest {
 
     @Test
     fun aPressLetGoWhileWaitingSendsAndKeepsNothing() = runTest {
-        val (_, hen, dana) = paired()
+        val (server, hen, dana) = paired()
+        // The server as it was before 2026-11-25: one floor for the conversation, so a second press waits.
+        server.oneFloorPerConversation = true
         dana.work.launch {
             dana.talk.press("hen")
             dana.mic.say(0, 20)

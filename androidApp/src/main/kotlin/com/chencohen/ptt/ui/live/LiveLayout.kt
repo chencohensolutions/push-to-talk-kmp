@@ -51,6 +51,142 @@ object LiveLayout {
 }
 
 /**
+ * One person in a group's live overlay: [key] whose ("mine", or the talker's "user.device"), on video (a box) or voice
+ * (a pill [pillW] × [pillH] with the name, [faceW] wide with the face alone).
+ */
+data class LiveSlot(val key: String, val video: Boolean, val pillW: Float = 0f, val pillH: Float = 0f, val faceW: Float = pillH)
+
+/**
+ * A group's live overlay (2026-11-25, hen: several people talking at once in a group): the videos in one row, equal
+ * widths, each picture cropped to fill its box; the voice talkers as slim pills under them (in the top row when no
+ * one is on video), face only when the names don't fit; under all, the chip for those live but not in view.
+ */
+object LiveGroupLayout {
+    /** The chip "+N talking · Name": its frame's key. */
+    const val MORE = "more"
+
+    /** A box is never narrower than this for 1 high: past it the row's height shrinks instead (4 boxes on a phone). */
+    const val SLIMMEST = 9f / 16f
+
+    /**
+     * The boxes' size, width × height, for [count] of them: [full] high and [shape] wide for 1 high each, narrower (more
+     * of each picture cropped) when they'd be wider than [width] together, and lower too only past [SLIMMEST].
+     */
+    fun boxSize(count: Int, full: Float, shape: Float, width: Float, gap: Float): Pair<Float, Float> {
+        if (count <= 0) return 0f to full
+        val each = (width - gap * (count - 1)) / count
+        val w = minOf(full * shape, each).coerceAtLeast(0f)
+        return w to if (w < full * SLIMMEST) w / SLIMMEST else full
+    }
+
+    /**
+     * Where each of [slots] rests, in reading order (the first at the language's start side: the right when [rtl]),
+     * in a space [width] wide that starts [left] of the overlay's left edge: the videos' row at the top, centred, [gap]
+     * apart, each box [shape] for 1 high at most ([boxSize]); the pills' row under it, centred ([faces]: face only,
+     * else when the names don't fit); the chip [chip] (width × height, null: none) centred under everything.
+     */
+    fun place(
+        slots: List<LiveSlot>, width: Float, gap: Float, full: Float, shape: Float, rtl: Boolean,
+        left: Float = 0f, chip: Pair<Float, Float>? = null, faces: Boolean = false,
+    ): Map<String, LiveRect> {
+        val out = LinkedHashMap<String, LiveRect>()
+        var y = 0f
+        val videos = slots.filter { it.video }
+        if (videos.isNotEmpty()) {
+            val (w, h) = boxSize(videos.size, full, shape, width, gap)
+            row(videos.map { LiveItem(it.key, w, h, true) }, width, gap, rtl, left, y, out)
+            y += h + gap
+        }
+        val pills = slots.filter { !it.video }
+        if (pills.isNotEmpty()) {
+            val named = pills.sumOf { it.pillW.toDouble() }.toFloat() + gap * (pills.size - 1)
+            val faceOnly = faces || named > width
+            val h = pills.maxOf { it.pillH }
+            // Each pill's top so the row's middles are level.
+            row(pills.map { LiveItem(it.key, if (faceOnly) it.faceW else it.pillW, it.pillH, false) }, width, gap, rtl, left, y, out) { item -> (h - item.h) / 2 }
+            y += h + gap
+        }
+        if (chip != null && slots.isNotEmpty()) out[MORE] = LiveRect(left + (width - chip.first) / 2, y, chip.first, chip.second, 0f)
+        return out
+    }
+
+    /** The pills in view are face only: their names together wouldn't fit in [width]. */
+    fun facesOnly(slots: List<LiveSlot>, width: Float, gap: Float): Boolean {
+        val pills = slots.filter { !it.video }
+        return pills.isNotEmpty() && pills.sumOf { it.pillW.toDouble() }.toFloat() + gap * (pills.size - 1) > width
+    }
+
+    private fun row(items: List<LiveItem>, width: Float, gap: Float, rtl: Boolean, left: Float, y: Float, out: MutableMap<String, LiveRect>, drop: (LiveItem) -> Float = { 0f }) {
+        LiveLayout.place(items, width, gap, rtl, left).forEach { (key, r) ->
+            out[key] = r.copy(y = y + drop(items.first { it.key == key }))
+        }
+    }
+}
+
+/** Someone live in a group now: [key] whose, [since] when their push began. */
+data class LivePerson(val key: String, val since: Long)
+
+/**
+ * Who of a group's talkers is in view (2026-11-25, hen): at most [most], the ones who spoke last; a newcomer past
+ * [most] pushes out the one who has been quiet longest, and the others close up (one move). Mine ([LiveLayout.MINE])
+ * counts as one of them, always in view and always last. The rest are [hidden]: the chip says how many and who, and
+ * [choose] swaps one into view in the place of the quietest.
+ */
+class LiveCast(private val most: Int = 4) {
+    /** In view, in reading order (mine last). */
+    var shown: List<String> = emptyList()
+        private set
+
+    /** Live but not in view, the newest first. */
+    var hidden: List<LivePerson> = emptyList()
+        private set
+
+    /** When each was last heard of: their push began, or they were chosen into view. */
+    private val heard = HashMap<String, Long>()
+
+    /** Who was live at the last [update] (each push once). */
+    private val known = HashMap<String, Long>()
+
+    /** Everyone live now ([live], mine among them or not): who is in view after it. */
+    fun update(live: List<LivePerson>): List<String> {
+        val now = live.associateBy { it.key }
+        known.keys.retainAll(now.keys)
+        heard.keys.retainAll(now.keys)
+        var others = shown.filter { it != LiveLayout.MINE && it in now }.toMutableList()
+        // New pushes (a newcomer, or someone who let go and pushed again), oldest first, after the others.
+        val fresh = live.filter { it.key != LiveLayout.MINE && known[it.key] != it.since }.sortedBy { it.since }
+        for (p in fresh) {
+            known[p.key] = p.since
+            heard[p.key] = maxOf(heard[p.key] ?: 0L, p.since)
+            if (p.key !in others) others += p.key
+        }
+        val room = most - if (LiveLayout.MINE in now) 1 else 0
+        while (others.size > room) others.remove(others.minBy { heard[it] ?: 0L })
+        shown = others + listOfNotNull(LiveLayout.MINE.takeIf { it in now })
+        hidden = live.filter { it.key != LiveLayout.MINE && it.key !in others }.sortedByDescending { heard[it.key] ?: it.since }
+        return shown
+    }
+
+    /** [key], live but not in view, takes the place of the one quiet longest; it counts as heard [at]. */
+    fun choose(key: String, at: Long): List<String> {
+        val person = hidden.firstOrNull { it.key == key } ?: return shown
+        val others = shown.filter { it != LiveLayout.MINE }.toMutableList()
+        val mine = shown.filter { it == LiveLayout.MINE }
+        if (others.size + mine.size < most) others += key
+        else if (others.isNotEmpty()) {
+            val quiet = others.minBy { heard[it] ?: 0L }
+            others[others.indexOf(quiet)] = key
+            hidden = hidden.filter { it.key != key } + LivePerson(quiet, heard[quiet] ?: 0L)
+        } else return shown
+        heard[key] = at
+        hidden = hidden.filter { it.key != key }.sortedByDescending { heard[it.key] ?: it.since }
+        shown = others + mine
+        known[key] = person.since
+        return shown
+    }
+}
+
+/**
  * Moves the live items to where [LiveLayout.place] wants them, all in ONE move of [ms] with an ease: sizes, places,
  * a pill growing into a box, items coming and going. A new item drops in from above the screen's top edge straight
  * into its own place while the others glide to theirs; one leaving goes back up while the others close in. Each change

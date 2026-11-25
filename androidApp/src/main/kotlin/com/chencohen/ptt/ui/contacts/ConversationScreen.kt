@@ -467,6 +467,23 @@ private fun ConversationScreenIn(
                 )
                 LaunchedEffect(now) { liveRow(now) }
                 androidx.compose.runtime.DisposableEffect(user) { onDispose { liveRow(LiveNow()) } }
+            } else if (group != null) {
+                // Several talking at once in a group (2026-11-25, hen): everyone live in it, mine one of them.
+                val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
+                val pretendMembers by LivePretend.members.collectAsState()
+                val pretendMine by LivePretend.mine.collectAsState()
+                val me = stringResource(R.string.talk_panel_you)
+                val others = talk.talking[user].orEmpty().filter { it.clip != talk.own?.clip }.map { t ->
+                    val id = "${t.user}.${t.device}"
+                    GroupTalker(id, t.user, t.user, allMessages.firstOrNull { it.id == t.clip }?.clip?.video == true || arriving[id] != null, t.since)
+                } + pretendMembers.map { GroupTalker("${it.user}.1", it.user, it.user, it.video, it.since) }
+                val mine = when {
+                    myPanel || pretendMine == LiveKind.Video -> GroupTalker(com.chencohen.ptt.ui.live.LiveLayout.MINE, "", me, true, mySinceNow, mine = true)
+                    myVoice != null -> GroupTalker(com.chencohen.ptt.ui.live.LiveLayout.MINE, "", me, false, myVoice.since, mine = true)
+                    pretendMine == LiveKind.Voice -> GroupTalker(com.chencohen.ptt.ui.live.LiveLayout.MINE, "", me, false, mySinceNow, mine = true)
+                    else -> null
+                }
+                GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), null)
             } else {
                 LivePanel(
                     theirVideo, if (group != null) (theirs?.from ?: talker?.user) else null, theirSinceNow,
@@ -1180,6 +1197,26 @@ private const val RUN_GAP_MS = 3_000L
 
 /** How long their pill stays after their burst ends, so a video right after grows out of it. */
 private const val THEIR_HOLD_MS = 1_000L
+
+/**
+ * [now] with whoever just went kept for [THEIR_HOLD_MS] as they were: a member whose voice turns into video (a slide up:
+ * one burst ends, the next starts) stays one item whose pill grows into the box, as one to one.
+ */
+@Composable
+private fun heldTalkers(chat: String, now: List<GroupTalker>): List<GroupTalker> {
+    val seen = remember(chat) { LinkedHashMap<String, GroupTalker>() }
+    var held by remember(chat) { mutableStateOf<Map<String, GroupTalker>>(emptyMap()) }
+    val keys = now.map { it.key }.toSet()
+    LaunchedEffect(keys) {
+        held = held.filterKeys { it !in keys } + seen.filterKeys { it !in keys }
+        seen.keys.retainAll(keys)
+        if (held.isEmpty()) return@LaunchedEffect
+        delay(THEIR_HOLD_MS)
+        held = emptyMap()
+    }
+    now.forEach { seen[it.key] = it }
+    return now + held.values.filter { it.key !in keys }
+}
 
 /** The log's tag for what the chat's Push button does and what this phone then sends. */
 private const val CHAT_TALK = "ChatTalk"

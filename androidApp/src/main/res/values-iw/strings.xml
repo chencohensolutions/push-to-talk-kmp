@@ -593,6 +593,8 @@
     <string name="talk_live">בשידור</string>
     <string name="talk_mic_denied">הדיבור צריך את המיקרופון. אפשר להתיר אותו בהגדרות היישום.</string>
     <string name="talk_camera_busy">המצלמה בשימוש של אפליקציה אחרת: קול בלבד</string>
+    <string name="talk_clip_upload">לשלוח דרך השרת כשהם לא כאן</string>
+    <string name="talk_clip_upload_body">כבוי: הדיבור נשלח רק לחדר, והשרת שומר אותו למי שלא היה שם. מופעל: הטלפון שלך מעלה גם עותק משלו (לשרת שאין בו את זה).</string>
     <string name="talk_no_mic">המיקרופון תפוס</string>
     <string name="talk_notify">%1$s מדבר/ת</string>
     <string name="talk_notify_body">להקיש על השמעה כדי לשמוע</string>
@@ -843,6 +845,7 @@
     <string name="talk_bar_both">%1$s ואת/ה מדברים</string>
     <string name="talk_panel_you">את/ה</string>
     <string name="talk_panel_hands_free">בשידור, בלי ידיים</string>
+    <string name="talk_more_talking">+%1$d מדברים · %2$s</string>
     <string name="talk_both_live">שניכם בשידור</string>
     <string name="talk_make_call">להפוך לשיחה</string>
     <string name="talk_call_no_room">אי אפשר להפוך לשיחה כרגע</string>

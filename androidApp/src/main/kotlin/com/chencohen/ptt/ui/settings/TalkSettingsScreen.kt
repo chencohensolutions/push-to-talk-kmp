@@ -114,6 +114,9 @@ internal fun TalkSettingsScreen(
             SwitchRow(stringResource(R.string.talk_camera_ready), stringResource(R.string.talk_camera_ready_body), settings.cameraReady) { on ->
                 change(settings.copy(cameraReady = on))
             }
+            SwitchRow(stringResource(R.string.talk_clip_upload), stringResource(R.string.talk_clip_upload_body), settings.clipUpload) { on ->
+                change(settings.copy(clipUpload = on))
+            }
             RowDivider()
             SwitchRow(stringResource(R.string.talk_follow_face), stringResource(R.string.talk_follow_face_body), followTalk) { on ->
                 followTalk = on
