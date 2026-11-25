@@ -198,7 +198,7 @@ internal class Talk(
     private inner class Outgoing(val chat: String, val voiceOnly: Boolean) {
         val id = newClipId()
         val key = random.nextBytes(ClipCrypto.KEY_BYTES)
-        val startedAt = now()
+        var startedAt = now()
         val packets = Channel<Captured>(Channel.UNLIMITED)
         var phase = if (voiceOnly) TalkPhase.VOICE else TalkPhase.REQUESTING
         var granted = false
@@ -321,6 +321,12 @@ internal class Talk(
     fun release(send: Boolean = true) {
         val out = outgoing ?: return
         if (!send) out.cancelled = true
+        // Let go while waiting for their floor: nothing of it went out, and nothing is kept.
+        if (out.waiting) {
+            out.waiting = false
+            out.cancelled = true
+            out.decided = true
+        }
         if (out.video) {
             videoCapture?.faces(null)
             videoCapture?.stop()
@@ -334,6 +340,8 @@ internal class Talk(
         for (item in out.packets) {
             when (item) {
                 is Captured.Packet -> {
+                    // Waiting for their floor: not live on screen, so nothing is recorded or sent.
+                    if (out.waiting) continue
                     out.pending += item.bytes
                     out.pendingBytes += item.bytes.size
                     if (item.audio) {
@@ -384,16 +392,19 @@ internal class Talk(
         }
     }
 
-    /** Not connected, or the connection broke: what is recorded goes as a voice message instead. */
+    /**
+     * Not connected, or no answer to the floor: the press goes nothing further and nothing of it is kept (2026-11-25,
+     * hen: "only when the UI says it's transmitting, then transmit": a push that never went live was kept as a voice
+     * message). What already went out with the floor stays as it is.
+     */
     private fun toVoice(out: Outgoing) {
         if (out.phase == TalkPhase.BUSY || out.phase == TalkPhase.REFUSED) return
-        out.decided = true
-        if (out.granted) scope.launch { sendFrame(TalkEndFrame(TalkEnd(out.id))) }
-        out.granted = false
-        out.phase = TalkPhase.OFFLINE
-        out.unsent.clear()
-        if (outgoing === out) showOwn(out)
-        if (out.finished) scope.launch { finish(out) }
+        if (out.granted) {
+            // Live until now: what went out is the clip.
+            if (outgoing === out) release()
+            return
+        }
+        lost(out, TalkPhase.OFFLINE)
     }
 
     private suspend fun finish(out: Outgoing) {
@@ -404,7 +415,7 @@ internal class Talk(
         val duration = out.frames.toLong() * TalkAudioFormat.FRAME_MS
         when {
             out.phase == TalkPhase.BUSY || out.phase == TalkPhase.REFUSED -> Unit
-            out.cancelled || duration < MIN_CLIP_MS && !out.granted -> {
+            out.cancelled || duration < MIN_CLIP_MS && !out.granted || !out.granted && !out.voiceOnly -> {
                 if (out.granted) sendFrame(TalkEndFrame(TalkEnd(out.id)))
             }
             out.granted -> {
@@ -548,18 +559,26 @@ internal class Talk(
             TalkEvent.GRANTED -> out?.let { granted(it) }
             TalkEvent.BUSY -> out?.let { o ->
                 if (o.voiceOnly || o.waiting) return@let lost(o, TalkPhase.BUSY, busyWith = s.talkerUser)
-                // Their floor: keep recording, and ask again the moment it ends.
+                // Their floor: shown as waiting, nothing recorded or sent, and asked again the moment it ends; it
+                // starts from then (2026-11-25, hen: transmit only while the screen says so).
                 o.waiting = true
                 o.phase = TalkPhase.WAITING
+                o.records.clear()
+                o.pending = mutableListOf()
+                o.pendingBytes = 0
+                o.pendingAudio = 0
+                o.unsent.clear()
+                o.index = 0
+                o.frames = 0
                 _state.update { it.copy(own = OwnTalk(o.chat, o.id, TalkPhase.WAITING, o.startedAt, s.talkerUser)) }
                 scope.launch { live?.talking(o.chat, false) }
                 noteOverlap(o.chat)
                 scope.launch {
-                    // Their floor can't outlast the server's limit; if no end comes, it goes as a voice message.
+                    // Their floor can't outlast the server's limit; if no end comes, the press is let go.
                     delay(STALE_TALKER_MS)
                     if (o.waiting) {
                         o.waiting = false
-                        toVoice(o)
+                        lost(o, TalkPhase.BUSY, busyWith = s.talkerUser)
                     }
                 }
             }
@@ -604,7 +623,10 @@ internal class Talk(
                 outgoing?.takeIf { it.waiting && it.chat == chat && it.id != s.burstId }?.let { w ->
                     w.waiting = false
                     w.phase = TalkPhase.REQUESTING
+                    w.startedAt = now()
                     showOwn(w)
+                    // Live again from this moment, on screen and in the room together.
+                    scope.launch { live?.talking(w.chat, true, w.video) }
                     scope.launch { if (!sendFrame(TalkStartFrame(talkStart(w.chat, w.id)))) toVoice(w) }
                     scope.launch {
                         delay(GRANT_WAIT)

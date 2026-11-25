@@ -395,8 +395,9 @@ class TalkTest {
     }
 
     @Test
-    fun aPressWhileTheOtherTalksWaitsAndGoesRightAfter() = runTest {
-        // 2026-11-23 (hen): both pushing at once; the second press records, waits, and is sent right after.
+    fun aPressWhileTheOtherTalksWaitsSendingNothingAndGoesLiveWhenTheirsEnds() = runTest {
+        // 2026-11-25 (hen): "only when the UI says it's transmitting, then transmit". Waiting is shown as waiting and
+        // nothing of it is recorded or sent; at the turn it goes live and sends from that moment.
         val (server, hen, dana) = paired()
         dana.work.launch {
             dana.talk.press("hen")
@@ -411,7 +412,7 @@ class TalkTest {
         assertEquals(TalkPhase.WAITING, hen.state.talk.own?.phase)
         assertEquals("dana", hen.state.talk.own?.busyWith)
         assertTrue(server.talkStates.any { it.first == hen.address && it.second.event == TalkEvent.BUSY })
-        // Dana lets go: hen's burst is asked for and sent, from its first word.
+        assertTrue(hen.chat("dana").none { it.outgoing && it.clip != null }, "nothing kept while waiting")
         dana.work.launch { dana.talk.release() }
         advanceTimeBy(1_000)
         assertEquals(TalkPhase.TALKING, hen.state.talk.own?.phase)
@@ -421,9 +422,36 @@ class TalkTest {
         }
         advanceTimeBy(5_000)
         val heard = dana.speaker.played.last()
-        assertEquals(20, heard.size, "all of hen's burst, recorded while waiting too")
-        assertTrue(hen.chat("dana").any { it.outgoing && it.clip != null }, "hen's burst is in the chat")
+        assertEquals(5, heard.size, "only what was said once live")
+        val kept = hen.chat("dana").single { it.outgoing && it.clip != null }
+        assertEquals(ClipKind.BURST, kept.clip?.kind)
         assertEquals(emptyList(), server.segmentRefusals)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aPressLetGoWhileWaitingSendsAndKeepsNothing() = runTest {
+        val (_, hen, dana) = paired()
+        dana.work.launch {
+            dana.talk.press("hen")
+            dana.mic.say(0, 20)
+        }
+        advanceTimeBy(1_000)
+        hen.work.launch {
+            hen.talk.press("dana")
+            hen.mic.say(100, 15)
+        }
+        advanceTimeBy(1_000)
+        assertEquals(TalkPhase.WAITING, hen.state.talk.own?.phase)
+        hen.work.launch { hen.talk.release() }
+        advanceTimeBy(1_000)
+        dana.work.launch { dana.talk.release() }
+        advanceTimeBy(5_000)
+        assertTrue(hen.chat("dana").none { it.outgoing && it.clip != null }, "a press that never went live isn't kept")
+        assertTrue(dana.chat("hen").none { !it.outgoing && it.clip != null && it.clip?.kind == ClipKind.VOICE }, "nor sent as a voice message")
+        assertTrue(dana.speaker.played.isEmpty(), "dana heard nothing of it")
+        assertEquals(null, hen.state.talk.own)
         hen.stop()
         dana.stop()
     }
@@ -484,33 +512,22 @@ class TalkTest {
     }
 
     @Test
-    fun aBurstSaidOfflineGoesAsAVoiceMessageOnceConnected() = runTest {
+    fun aPushWhileOfflineIsShownOfflineAndNothingIsKeptOrSent() = runTest {
+        // 2026-11-25 (hen): a push that isn't live on screen sends nothing (it used to be kept as a voice message).
         val (server, hen, dana) = paired()
         hen.controller.stop()
         advanceUntilIdle()
         hen.work.launch { hen.talk.press("dana") }
-        advanceUntilIdle()
+        advanceTimeBy(100)
         assertEquals(TalkPhase.OFFLINE, hen.state.talk.own?.phase)
-        hen.mic.say(0, 40)
+        assertNull(hen.mic.onPacket, "the microphone let go at once")
         hen.work.launch { hen.talk.release() }
         advanceUntilIdle()
-        val kept = hen.chat("dana").single()
-        assertEquals(ClipKind.VOICE, kept.clip?.kind)
-        assertEquals(MessageStatus.PENDING, kept.status)
-
+        assertTrue(hen.chat("dana").isEmpty())
         hen.controller.start()
         advanceUntilIdle()
-        assertEquals(MessageStatus.DELIVERED, hen.chat("dana").single().status)
-        assertNotNull(server.files[kept.id])
-        val got = dana.chat("hen").single()
-        assertEquals(ClipKind.VOICE, got.clip?.kind)
-        assertEquals(800L, got.clip?.durationMs)
-        assertTrue(dana.speaker.played.isEmpty(), "a voice message doesn't play by itself")
-
-        dana.work.launch { dana.talk.play(got.id) }
-        advanceUntilIdle()
-        assertEquals(40, dana.speaker.played.single().size)
-        assertEquals(listOf(false), dana.speaker.live)
+        assertTrue(dana.chat("hen").isEmpty())
+        assertTrue(server.files.isEmpty())
         hen.stop()
         dana.stop()
     }

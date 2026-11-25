@@ -650,9 +650,25 @@ The Firebase project for phase 3's push is `talk-3e556` (2026-11-22): `androidAp
 Android app `com.chencohen.ptt`. It isn't wired in yet (no google-services plugin, no Firebase dependency); phase 3
 adds them. That file holds only public identifiers; the server's service-account key never goes in git.
 
+## Sending only while the screen shows it (2026-11-25, standing rule)
+
+hen: "when sending video or voice, only when the UI says it's transmitting, then transmit." What the screen shows and
+what goes out are one thing:
+
+- A press is live (pill or box, Stop) from the moment its sound goes into the talk room, and the room's microphone and
+  camera are unmuted only while it is live.
+- Waiting for someone else's floor (TalkPhase.WAITING) is shown as waiting: nothing is recorded, nothing is sent, the
+  room's microphone is muted. When their floor ends, the press goes live at that moment and sends from then on.
+- Let go while waiting, offline, or with no answer to the floor: nothing of it is kept or sent (it used to be kept as a
+  voice message, which put 0:01 bubbles in the chat). Only the composer's voice message button records to keep.
+- A burst that was live and then lost the connection keeps what went out as its clip.
+
+Tests: TalkTest aPressWhileTheOtherTalksWaitsSendingNothingAndGoesLiveWhenTheirsEnds,
+aPressLetGoWhileWaitingSendsAndKeepsNothing, aPushWhileOfflineIsShownOfflineAndNothingIsKeptOrSent.
+
 ## Open issues
 
-### A push saved as kept message bubbles (parked 2026-11-25, hen: "fix this later")
+### A push saved as kept message bubbles (fixed 2026-11-25 by the rule above)
 
 At 12:50 a quick push from the S25 to testbot (voice, then slide up to video) ended as two kept bubbles on hen's side, a
 0:01 voice and a 0:01 video, although testbot's keep switches were off. The pushes after it folded into the quiet line as
