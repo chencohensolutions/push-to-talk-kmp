@@ -79,6 +79,25 @@ internal data class TalkEnd(@ProtoNumber(1) val burstId: String = "")
 @Serializable
 internal data class TalkAck(@ProtoNumber(1) val burstId: String = "")
 
+@Serializable
+internal data class BufferedTalkFrame(@ProtoNumber(14) val bufferedTalk: BufferedTalk) : FrameKind
+
+/**
+ * A push kept for this user by the server's recorder because they weren't in the talk room (the server's
+ * docs/messaging.md, "Talk buffer"): GET /blob/[blobId], track records still encrypted with the talker's room key.
+ */
+@Serializable
+internal data class BufferedTalk(
+    @ProtoNumber(1) val blobId: String = "",
+    @ProtoNumber(2) val talker: String = "",
+    @ProtoNumber(3) val peer: String = "",
+    @ProtoNumber(4) val group: String = "",
+    @ProtoNumber(5) val media: String = "",
+    @ProtoNumber(6) val codec: String = "",
+    @ProtoNumber(7) val startedAt: Long = 0,
+    @ProtoNumber(8) val burstId: String = "",
+)
+
 /** The floor's news: the answer to a TalkStart, or a burst STARTED or ENDED in a conversation. Live only. */
 @Serializable
 internal data class TalkState(

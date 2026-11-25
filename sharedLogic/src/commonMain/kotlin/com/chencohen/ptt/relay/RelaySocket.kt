@@ -247,7 +247,7 @@ internal class RelaySocket(
                 }
                 is PingFrame -> sendMutex.withLock { open.send(Frames.encode(Frame(PongFrame(Pong(kind.ping.id))))) }
                 is PresenceFrame -> onPresence(kind.presence)
-                is TalkStateFrame, is ClipSegmentFrame -> try {
+                is TalkStateFrame, is ClipSegmentFrame, is BufferedTalkFrame -> try {
                     onTalk(kind)
                 } catch (e: CancellationException) {
                     throw e

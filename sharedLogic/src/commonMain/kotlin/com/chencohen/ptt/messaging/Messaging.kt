@@ -127,6 +127,8 @@ data class TalkSettings(
     val replyBubble: Boolean = true,
     /** Settings › Talk › Get camera ready while talking (on by default; 2026-11-24, hen). */
     val cameraReady: Boolean = true,
+    /** Settings › Talk › Send through the server when they're away (off; 2026-11-25, hen: the server buffer). */
+    val clipUpload: Boolean = false,
     /**
      * Settings › Calls › Video: VP8 (standard) or H.265 (smaller and sharper; 2026-11-22, hen), offered only on a phone
      * with a hardware H.265 encoder. Phones that can't take H.265 get VP8 from the same sender (a backup codec).
@@ -560,7 +562,8 @@ internal class Messaging(
     /** Stay connected's service runs: bursts play without the app on screen. */
     var stayConnected = false
 
-    private val blobs: BlobApi = blobApi ?: object : BlobApi {
+    /** The blobs on the server (a buffered push is read from here too). */
+    internal val blobs: BlobApi = blobApi ?: object : BlobApi {
         override suspend fun read(id: String, onBytes: suspend (ByteArray) -> Unit) = throw BlobException(0, "No server")
         override suspend fun put(id: String, peer: String?, group: String?, bytes: ByteArray) = throw BlobException(0, "No server")
     }
@@ -650,6 +653,7 @@ internal class Messaging(
     init {
         if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) talk.live = live
         talk.sendVideo = { chat -> talkSettings().pushVideoFor(chat) }
+        talk.clipUpload = { _ -> talkSettings().clipUpload }
         talk.keepsPush = { chat, video -> talkSettings().let { if (video) chat in it.keepVideo else chat in it.keepVoice } }
         scope.launchCollect(calls.state) { c ->
             val was = _state.value.call != null
@@ -764,6 +768,7 @@ internal class Messaging(
         openOnTalk = settings.openOnTalk,
         replyBubble = settings.replyBubble,
         cameraReady = settings.cameraReady,
+        clipUpload = settings.clipUpload,
         callVideo = com.chencohen.ptt.calls.CallVideo.entries.firstOrNull { it.name == settings.callVideo } ?: com.chencohen.ptt.calls.CallVideo.H265,
         pushVideo = settings.pushVideo,
         bubbleVideo = settings.bubbleVideo,
@@ -802,6 +807,7 @@ internal class Messaging(
         val before = _state.value.talkSettings
         if (talk.replyBubble != before.replyBubble) settings.replyBubble = talk.replyBubble
         if (talk.cameraReady != before.cameraReady) settings.cameraReady = talk.cameraReady
+        if (talk.clipUpload != before.clipUpload) settings.clipUpload = talk.clipUpload
         if (talk.callVideo != before.callVideo) settings.callVideo = talk.callVideo.name
         settings.pushVideo = talk.pushVideo
         settings.bubbleVideo = talk.bubbleVideo

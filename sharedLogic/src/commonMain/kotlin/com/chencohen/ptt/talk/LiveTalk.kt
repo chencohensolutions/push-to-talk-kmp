@@ -140,6 +140,9 @@ internal class LiveTalk(
 
     /** Others' keys, by "user.device", as they last sent them: set again on each join. */
     private val keys = mutableMapOf<String, Pair<ByteArray, Int>>()
+
+    /** [identity]'s room key (its raw bytes; the frames' key is derived from their base64), for a buffered push. */
+    fun keyOf(identity: String): ByteArray? = keys[identity]?.first
     private var ownKey: ByteArray? = null
     private var ownIndex = 0
     private var identity: String? = null

@@ -10,6 +10,8 @@ import com.chencohen.ptt.messaging.MessagingStore
 import com.chencohen.ptt.messaging.TextMessage
 import com.chencohen.ptt.relay.ClipSegment
 import com.chencohen.ptt.relay.ClipSegmentFrame
+import com.chencohen.ptt.relay.BufferedTalk
+import com.chencohen.ptt.relay.BufferedTalkFrame
 import com.chencohen.ptt.relay.FrameKind
 import com.chencohen.ptt.relay.PushKind
 import com.chencohen.ptt.relay.SendStatus
@@ -173,6 +175,13 @@ internal class Talk(
 
     /** The chat keeps its pushes ([video]: video ones) as messages: their clip is always uploaded (the kept copy). */
     var keepsPush: (chat: String, video: Boolean) -> Boolean = { _, _ -> true }
+
+    /**
+     * Settings › Talk › Send through the server when they're away (off; 2026-11-25, hen: the server buffer): the old
+     * clip upload, for a server without the talk buffer. Off, a push goes into the room only, and the server's
+     * recorder keeps it for whoever is away.
+     */
+    var clipUpload: (chat: String) -> Boolean = { true }
     var player: TalkPlayer? = null
     var host: TalkHost? = null
 
@@ -227,6 +236,8 @@ internal class Talk(
          * fallback); it is all kept here, and goes from its first segment the moment someone can't.
          */
         var holdClip = false
+        /** Into the room only: the server's recorder keeps it for whoever is away (no clip upload at all). */
+        var roomOnly = false
         /** Still this phone's live press: the room's microphone may come on for it. */
         fun liveNow() = outgoing === this && !released && !waiting
         var consumer: Job? = null
@@ -395,7 +406,7 @@ internal class Talk(
         if (out.voiceOnly || out.phase == TalkPhase.OFFLINE || out.cancelled) return
         out.unsent += segment
         // Someone stopped hearing it live (left the room, the room failed): the clip goes now, from its start.
-        if (out.holdClip && live?.allHearing(out.chat, out.video) != true) out.holdClip = false
+        if (out.holdClip && !out.roomOnly && live?.allHearing(out.chat, out.video) != true) out.holdClip = false
         if (out.granted && !out.holdClip) drain(out)
     }
 
@@ -444,7 +455,7 @@ internal class Talk(
             out.granted -> {
                 // Heard live by everyone to the end: no clip went up; the floor ends here instead of at its last
                 // segment.
-                if (out.holdClip && live?.allHearing(out.chat, out.video) == true) {
+                if (out.holdClip && (out.roomOnly || live?.allHearing(out.chat, out.video) == true)) {
                     out.unsent.clear()
                     sendFrame(TalkEndFrame(TalkEnd(out.id)))
                 } else if (out.holdClip) {
@@ -527,12 +538,15 @@ internal class Talk(
             )
         )
         publish()
-        // Held while it's decided (segments recorded meanwhile wait, in order).
-        if (!keepsPush(out.chat, out.video) && live != null) out.holdClip = true
+        // Into the room only (the server buffer keeps it for whoever is away), unless the old clip upload is on.
+        if (live?.transport != null && !clipUpload(out.chat)) {
+            out.holdClip = true
+            out.roomOnly = true
+        } else if (!keepsPush(out.chat, out.video) && live != null) out.holdClip = true
         scope.launch {
             // Everyone hears it in the room (one to one, subscribed), and the chat doesn't keep it: no clip upload.
             // Asked for up to CLIP_DECIDE_MS (the other side's subscription may still be on its way).
-            if (out.holdClip) {
+            if (out.holdClip && !out.roomOnly) {
                 var waited = 0L
                 while (live?.allHearing(out.chat, out.video) != true && waited < CLIP_DECIDE_MS && !out.finished) {
                     delay(50)
@@ -592,6 +606,7 @@ internal class Talk(
         when (kind) {
             is TalkStateFrame -> onState(kind.talkState)
             is ClipSegmentFrame -> onSegment(kind.clipSegment, live = true)
+            is BufferedTalkFrame -> onBuffered(kind.bufferedTalk)
             else -> Unit
         }
     }
@@ -719,6 +734,87 @@ internal class Talk(
     }
 
     private val bursts = mutableMapOf<String, Incoming>()
+
+    /**
+     * Reads a push the server kept for this phone (the server's docs/messaging.md, "Talk buffer"): the Android side
+     * follows /blob/<id> as it grows and decrypts each frame with the talker's room key; [onFrame] gets an Opus
+     * packet (audio) or a picture.
+     */
+    interface BufferReader {
+        suspend fun read(blobId: String, talker: String, codec: String, onAudio: (ByteArray) -> Unit, onVideo: (TalkVideo.Frame) -> Unit)
+    }
+
+    var bufferReader: BufferReader? = null
+
+    /** A buffered push turned back into its burst's clip segments (sealed with the burst's own key), per burst. */
+    private inner class Rebuild(val burst: Incoming) {
+        val lock = kotlinx.coroutines.sync.Mutex()
+        var pending = mutableListOf<ByteArray>()
+        var audio = 0
+        var index = 0
+        var readers = 0
+        var pictures = 0
+    }
+
+    private val rebuilds = mutableMapOf<String, Rebuild>()
+
+    /**
+     * A push this phone's user wasn't in the room for (2026-11-25, hen: the server buffer): it plays as its burst,
+     * from its first word, through the usual path (catch-up, pictures, the chat's keeping). Heard live already: nothing.
+     */
+    private fun onBuffered(b: BufferedTalk) {
+        val reader = bufferReader ?: return
+        val chat = if (b.group.isNotEmpty()) Group.chatOf(b.group) else b.peer
+        val talker = b.talker.substringBeforeLast('.')
+        val id = b.burstId.ifEmpty { _state.value.talkers[chat]?.clip.orEmpty() }
+        if (!validId(id)) return
+        val burst = incoming(id, chat, talker)
+        if (burst.heardLive) return
+        val rebuild = rebuilds.getOrPut(id) { Rebuild(burst) }
+        rebuild.readers++
+        scope.launch {
+            // The burst's key comes in its "clip start" message, end to end.
+            var waited = 0
+            while (burst.key == null && waited < BUFFER_KEY_WAIT) {
+                delay(100)
+                waited += 100
+            }
+            val key = burst.key ?: return@launch
+            try {
+                reader.read(b.blobId, b.talker, b.codec, onAudio = { opus ->
+                    scope.launch { rebuild.add(key, if (burst.video) TalkVideo.audio(opus) else opus, audio = true) }
+                }, onVideo = { frame ->
+                    scope.launch { TalkVideo.pieces(rebuild.pictures++ and 0xffff, frame).forEach { rebuild.add(key, it, audio = false) } }
+                })
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+            rebuild.lock.withLock {
+                rebuild.readers--
+                if (rebuild.readers == 0) {
+                    rebuild.flush(key, last = true)
+                    rebuilds.remove(id)
+                }
+            }
+        }
+    }
+
+    private suspend fun Rebuild.add(key: ByteArray, packet: ByteArray, audio: Boolean) = lock.withLock {
+        pending += packet
+        if (audio) this.audio++
+        if (this.audio >= TalkAudioFormat.FRAMES_PER_SEGMENT || pending.sumOf { it.size } > SEGMENT_BYTES) flush(key, last = false)
+    }
+
+    private fun Rebuild.flush(key: ByteArray, last: Boolean) {
+        if (pending.isEmpty() && !last) return
+        val ciphertext = ClipCrypto.seal(key, burst.id, index, last, pending)
+        val segment = ClipSegment(burst.id, index, last, ciphertext)
+        index++
+        pending = mutableListOf()
+        audio = 0
+        onSegment(segment, live = true)
+    }
 
     private fun incoming(id: String, chat: String, from: String): Incoming {
         dropOld()
@@ -1052,6 +1148,8 @@ internal class Talk(
 
         /** How long a press waits for the floor before it records a voice message instead. */
         const val GRANT_WAIT = 3_000L
+        /** How long a buffered push waits for its burst's key (its "clip start" message). */
+        const val BUFFER_KEY_WAIT = 5_000
         /** How long a grant waits to learn whether everyone hears it in the room (else the clip goes). */
         const val CLIP_DECIDE_MS = 500L
 
