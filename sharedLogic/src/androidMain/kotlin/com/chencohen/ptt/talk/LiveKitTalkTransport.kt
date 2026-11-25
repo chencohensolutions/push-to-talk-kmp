@@ -139,6 +139,8 @@ class LiveKitTalkTransport(
         speakerphone.end()
         sampleCapture.detach()
         mic = null
+        micHeard = false
+        cameraSeen = false
         talkingNow = false
         muting?.cancel()
         stopping?.cancel()
@@ -214,6 +216,7 @@ class LiveKitTalkTransport(
         val track = mic ?: return
         if (talkingNow) return
         mic = null
+        micHeard = false
         MicGuard.roomBaseline = -1
         sampleCapture.detach()
         runCatching { room.localParticipant.unpublishTrack(track, true) }
@@ -422,8 +425,19 @@ class LiveKitTalkTransport(
         }
     }
 
+    /** The other side subscribed this phone's microphone / camera track (one to one: the clip copy can wait). */
+    @Volatile private var micHeard = false
+    @Volatile private var cameraSeen = false
+
+    override fun subscribed(video: Boolean): Boolean = if (video) cameraSeen else micHeard
+
     private fun onEvent(event: RoomEvent) {
         when (event) {
+            is RoomEvent.LocalTrackSubscribed -> when (event.publication.source) {
+                Track.Source.MICROPHONE -> micHeard = true
+                Track.Source.CAMERA -> cameraSeen = true
+                else -> {}
+            }
             is RoomEvent.ParticipantConnected -> event.participant.identity?.value?.let { listener?.joined(it) }
             is RoomEvent.TrackE2EEStateEvent -> {
                 val who = event.participant.identity?.value ?: return
@@ -452,6 +466,8 @@ class LiveKitTalkTransport(
                 if (event.publication.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else decrypting.remove(it)
             }
             is RoomEvent.ParticipantDisconnected -> event.participant.identity?.value?.let {
+                micHeard = false
+                cameraSeen = false
                 listener?.gone(it)
                 decrypting.remove(it)
                 LiveTalkVideo.gone(it)

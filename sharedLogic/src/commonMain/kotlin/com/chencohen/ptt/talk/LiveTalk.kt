@@ -48,6 +48,9 @@ interface TalkTransport {
     /** The microphone is someone else's now (a call, another app): a press is refused rather than taken. */
     fun micBusy(): Boolean = false
 
+    /** The other side subscribed this phone's microphone ([video]: camera) track in the room. */
+    fun subscribed(video: Boolean): Boolean = false
+
     /** A call in the room ([on]): the microphone (and the camera, [video]) stay unmuted, outside the floor. */
     suspend fun setCall(on: Boolean, video: Boolean) {
         setTalking(on)
@@ -203,6 +206,18 @@ internal class LiveTalk(
             transport?.leave()
             _state.update { it.copy(room = null, present = emptySet()) }
         }
+    }
+
+    /**
+     * Everyone this push goes to hears it live in [chat]'s room (2026-11-25, hen: the clip copy only as a fallback):
+     * one to one, they are in this phone's room and subscribed its microphone ([video]: and camera). A group always
+     * gets the clip (who is in it isn't known here).
+     */
+    fun allHearing(chat: String, video: Boolean): Boolean {
+        val t = transport ?: return false
+        if (Group.idOf(chat) != null) return false
+        val s = _state.value
+        return s.room == chat && chat in s.present && t.subscribed(false) && (!video || t.subscribed(true))
     }
 
     /** The floating window's Push for [chat] is showing (null: none): the microphone is ready for it too. */

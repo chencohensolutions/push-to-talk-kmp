@@ -170,6 +170,9 @@ internal class Talk(
 
     /** The microphone is someone else's now (a phone call, another app recording): a press is refused, not taken. */
     var micBusy: () -> Boolean = { false }
+
+    /** The chat keeps its pushes ([video]: video ones) as messages: their clip is always uploaded (the kept copy). */
+    var keepsPush: (chat: String, video: Boolean) -> Boolean = { _, _ -> true }
     var player: TalkPlayer? = null
     var host: TalkHost? = null
 
@@ -219,6 +222,11 @@ internal class Talk(
         var cancelled = false
         /** The button came up (or Stop): nothing of it may go live in the room after this. */
         var released = false
+        /**
+         * Its clip isn't uploaded while everyone hears it live in the room (2026-11-25, hen: the clip copy only as a
+         * fallback); it is all kept here, and goes from its first segment the moment someone can't.
+         */
+        var holdClip = false
         /** Still this phone's live press: the room's microphone may come on for it. */
         fun liveNow() = outgoing === this && !released && !waiting
         var consumer: Job? = null
@@ -386,7 +394,9 @@ internal class Talk(
         out.pendingAudio = 0
         if (out.voiceOnly || out.phase == TalkPhase.OFFLINE || out.cancelled) return
         out.unsent += segment
-        if (out.granted) drain(out)
+        // Someone stopped hearing it live (left the room, the room failed): the clip goes now, from its start.
+        if (out.holdClip && live?.allHearing(out.chat, out.video) != true) out.holdClip = false
+        if (out.granted && !out.holdClip) drain(out)
     }
 
     /**
@@ -432,6 +442,15 @@ internal class Talk(
                 if (out.granted) sendFrame(TalkEndFrame(TalkEnd(out.id)))
             }
             out.granted -> {
+                // Heard live by everyone to the end: no clip went up; the floor ends here instead of at its last
+                // segment.
+                if (out.holdClip && live?.allHearing(out.chat, out.video) == true) {
+                    out.unsent.clear()
+                    sendFrame(TalkEndFrame(TalkEnd(out.id)))
+                } else if (out.holdClip) {
+                    out.holdClip = false
+                    drain(out)
+                }
                 clips.write(out.id, concat(out.records))
                 val kept = store.message(out.id)
                 if (kept != null) store.putMessage(kept.copy(clip = kept.clip?.copy(durationMs = duration, kept = true)))
@@ -508,9 +527,21 @@ internal class Talk(
             )
         )
         publish()
+        // Held while it's decided (segments recorded meanwhile wait, in order).
+        if (!keepsPush(out.chat, out.video) && live != null) out.holdClip = true
         scope.launch {
+            // Everyone hears it in the room (one to one, subscribed), and the chat doesn't keep it: no clip upload.
+            // Asked for up to CLIP_DECIDE_MS (the other side's subscription may still be on its way).
+            if (out.holdClip) {
+                var waited = 0L
+                while (live?.allHearing(out.chat, out.video) != true && waited < CLIP_DECIDE_MS && !out.finished) {
+                    delay(50)
+                    waited += 50
+                }
+                out.holdClip = live?.allHearing(out.chat, out.video) == true
+            }
             // What was recorded before the grant, then the rest as it comes (in order: drain).
-            drain(out)
+            if (!out.holdClip) drain(out)
             if (out.finished) finish(out)
         }
         scope.launch {
@@ -653,7 +684,9 @@ internal class Talk(
                 bursts[s.burstId]?.let { burst ->
                     burst.ended = true
                     // Ended without its last segment here: the server's copy has the rest.
-                    if (burst.lastIndex == null) scope.launch { delay(END_GRACE); if (burst.lastIndex == null) follow(burst) }
+                    // Heard live through the room: there may be no clip at all (the sender uploads it only when
+                    // someone can't hear it live), and nothing is missing.
+                    if (burst.lastIndex == null && !burst.heardLive) scope.launch { delay(END_GRACE); if (burst.lastIndex == null) follow(burst) }
                 }
             }
         }
@@ -1019,6 +1052,8 @@ internal class Talk(
 
         /** How long a press waits for the floor before it records a voice message instead. */
         const val GRANT_WAIT = 3_000L
+        /** How long a grant waits to learn whether everyone hears it in the room (else the clip goes). */
+        const val CLIP_DECIDE_MS = 500L
 
         /** A clip shorter than this that never went live isn't sent (a tap, not a message). */
         const val MIN_CLIP_MS = 400L

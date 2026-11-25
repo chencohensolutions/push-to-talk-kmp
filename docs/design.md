@@ -693,6 +693,20 @@ once (no linger); a quick press again opens it anew one step at a time, so it ne
 holds is not taken (CameraManager's availability): the slide up stays voice only and says "The camera is in use by
 another app".
 
+## Each push sent once: the room, or the clip (2026-11-25, hen)
+
+A push goes through the talk room when the other side hears it there; its clip is uploaded only as the fallback.
+
+- One to one: at the grant the phone waits up to 500 ms (CLIP_DECIDE_MS) to see the other user in this phone's room
+  with its microphone (and, for video, its camera) track subscribed (LiveKit's LocalTrackSubscribed). If so, the
+  clip's segments are recorded and kept on the phone but not uploaded, and the floor ends with a TalkEnd.
+- If they aren't in the room, aren't subscribed in time, or leave or the room fails during the push, the clip goes
+  up from its first segment, as before.
+- A chat that keeps its pushes (Keep voice / Keep video) always uploads the clip, live, as the kept copy.
+- Groups always upload for now (who is in the room isn't known on the phone).
+- The receiver that heard a push live doesn't read the clip from the server afterwards; a woken phone's screen shows
+  the room's picture and keeps it through a moment without frames (a simulcast layer switch had blanked it).
+
 ## Open issues
 
 ### A push saved as kept message bubbles (fixed 2026-11-25 by the rule above)

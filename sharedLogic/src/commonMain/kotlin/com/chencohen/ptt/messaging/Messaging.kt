@@ -650,6 +650,7 @@ internal class Messaging(
     init {
         if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) talk.live = live
         talk.sendVideo = { chat -> talkSettings().pushVideoFor(chat) }
+        talk.keepsPush = { chat, video -> talkSettings().let { if (video) chat in it.keepVideo else chat in it.keepVoice } }
         scope.launchCollect(calls.state) { c ->
             val was = _state.value.call != null
             _state.update { it.copy(call = c) }
