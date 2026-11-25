@@ -718,15 +718,18 @@ internal fun TalkSession(run: List<TextMessage>, nameOf: (TextMessage) -> String
 
 /** Locked, hands-free: the big button's place shows Stop. */
 @Composable
-internal fun StopLive(size: Dp, stop: () -> Unit) {
+internal fun StopLive(size: Dp, stop: () -> Unit, urgent: Boolean = false) {
     val label = stringResource(R.string.talk_stop)
+    // Locked on the urgent bell (2026-11-26, hen): a red Stop with the bell.
+    val fill by androidx.compose.animation.animateColorAsState(if (urgent) LibraryColors.Error else com.chencohen.ptt.ui.style.Pink, tween(220), label = "stop fill")
     Box(
-        Modifier.size(size).shadow(10.dp, CircleShape).background(com.chencohen.ptt.ui.style.Pink, CircleShape)
+        Modifier.size(size).shadow(10.dp, CircleShape).background(fill, CircleShape)
             .clickable(role = Role.Button, onClickLabel = label, onClick = stop),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(size * 0.26f).background(Color.White, RoundedCornerShape(4.dp)))
+            if (urgent) androidx.compose.material3.Icon(com.chencohen.ptt.ui.style.LibraryIcons.Bell, null, tint = Color.White, modifier = Modifier.size(size * 0.3f))
+            else Box(Modifier.size(size * 0.26f).background(Color.White, RoundedCornerShape(4.dp)))
             Text(label, color = Color.White, style = LibraryType.Tiny, modifier = Modifier.padding(top = 4.dp))
         }
     }

@@ -403,7 +403,7 @@ internal fun ChatButtons(
                     .graphicsLayer { alpha = if (waitingFor != null) 0.45f else 1f },
             ) {
                 if (handsFree) {
-                    StopLive(big, stopLive)
+                    StopLive(big, stopLive, urgent)
                 } else Box(
                     Modifier.fillMaxSize()
                         .shadow(10.dp, CircleShape)
@@ -443,7 +443,9 @@ internal fun ChatButtons(
                             onRelease = { locked ->
                                 lifting = -1f
                                 side = 0f
-                                // The bell is this press's: the next one starts plain (2026-11-26: it stayed red).
+                                // Let go on the urgent bell's push: it locks, hands-free, until Stop (2026-11-26, hen:
+                                // "when swiping to urgent it continues to transmit voice until I push stop").
+                                val urgentLock = urgentNow
                                 urgentNow = false
                                 onPressed(false)
                                 if (slidingNow) {
@@ -453,7 +455,7 @@ internal fun ChatButtons(
                                 // Already switched to hands-free video at the lock.
                                 if (lockedNow) return@holdOrLock
                                 val r = onRelease
-                                if (r != null) r(false) else actions.finishVoice(true)
+                                if (r != null) r(urgentLock) else if (!urgentLock) actions.finishVoice(true)
                                 @Suppress("UNUSED_EXPRESSION") locked
                             },
                         ),

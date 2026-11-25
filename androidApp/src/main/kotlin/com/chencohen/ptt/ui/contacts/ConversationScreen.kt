@@ -346,6 +346,8 @@ private fun ConversationScreenIn(
         // Live in the chat (2026-11-24, hen): what this phone sends with its camera, hands-free, and standby (below).
         val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
         var handsFree by remember(user) { mutableStateOf(false) }
+        // Hands-free on the urgent bell (2026-11-26, hen): voice, urgent, until Stop; each renewal urgent again.
+        var urgentHandsFree by remember(user) { mutableStateOf(false) }
         var standby by remember(user) { mutableStateOf(false) }
         var standbySince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
         var sliding by remember(user) { mutableStateOf(false) }
@@ -692,7 +694,18 @@ private fun ConversationScreenIn(
                     delay(800)
                     val may = runs.may(run)
                     say("hands-free renewal: " + (if (handsFreeNow && may) "starts" else "doesn't start") + " (run $run of ${runs.now}, hands-free $handsFreeNow)")
-                    if (handsFreeNow && (may || !ENFORCE_RUNS)) actionsNow.startVoice()
+                    if (handsFreeNow && (may || !ENFORCE_RUNS)) {
+                        actionsNow.startVoice()
+                        // Urgent again from its first moment.
+                        if (urgentHandsFree) {
+                            var w = 0
+                            while (ownNow == null && w < 3_000) {
+                                delay(50)
+                                w += 50
+                            }
+                            actionsNow.markUrgent()
+                        }
+                    }
                 }
             }
         }
@@ -1144,6 +1157,7 @@ private fun ConversationScreenIn(
                                     runs.end()
                                     val stoppedRun = runs.now
                                     handsFree = false
+                                    urgentHandsFree = false
                                     standby = false
                                     // Always: a burst whose start is still on its way shows no own yet, and was left
                                     // running (2026-11-25: 20 s of voice after Stop).
@@ -1169,7 +1183,11 @@ private fun ConversationScreenIn(
                                 release = { locked ->
                                     say("finger up (run ${runs.now}, locked $locked, standby $standby, own ${ownNow?.phase})")
                                     when {
-                                        locked -> handsFree = true
+                                        locked -> {
+                                            say("urgent lock: hands-free voice until Stop (run ${runs.now})")
+                                            handsFree = true
+                                            urgentHandsFree = true
+                                        }
                                         standby -> {
                                             standby = false
                                             runs.end()
@@ -1685,8 +1703,11 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                 .background(LibraryColors.Raised.copy(alpha = 0.5f + 0.5f * s), shape)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
-            // "Writing…" fades out; in a group the author's name stays, as on any message.
-            if (message == null || s < 1f || who != null) {
+            // In a group the author's line stays on top ("Dana is writing…", then "Dana"): the same row, its words change.
+            // One to one, "Writing…" is in the footer, where the time comes (2026-11-26, hen: "it's jumping, it's
+            // supposed to feel calm"): it was a line on top that went as the time's line came, so the bubble grew, then
+            // shrank, and the list moved up and back.
+            if (who != null) {
                 Text(
                     when {
                         message != null && who != null -> who
@@ -1734,12 +1755,19 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                 )
             }
             }
-            if (message != null) {
+            // The footer, from the first letter: one to one "Writing…" fading out as the time fades in, in the same place;
+            // both are always laid out, so the bubble's size doesn't change when the draft becomes the message.
+            Box(Modifier.align(Alignment.End).padding(top = 2.dp)) {
                 Text(
-                    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at)),
+                    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message?.at ?: System.currentTimeMillis())),
                     color = LibraryColors.Muted.copy(alpha = s), style = LibraryType.Tiny,
-                    modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
                 )
+                if (who == null) {
+                    Text(
+                        com.chencohen.ptt.genderedString(R.string.chat_draft, draftUser),
+                        color = LibraryColors.Accent.copy(alpha = 1f - s), style = LibraryType.Tiny, maxLines = 1,
+                    )
+                }
             }
         }
     }

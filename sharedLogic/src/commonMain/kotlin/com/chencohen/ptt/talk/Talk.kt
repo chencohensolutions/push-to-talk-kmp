@@ -719,6 +719,17 @@ internal class Talk(
             // Heard live through the room: there may be no clip at all (the sender uploads it only when
             // someone can't hear it live), and nothing is missing.
             if (burst.lastIndex == null && !burst.heardLive) scope.launch { delay(END_GRACE); if (burst.lastIndex == null) follow(burst) }
+            // Still playing once its floor ended with nothing more coming (its key never came, or no segment for
+            // END_STUCK_MS, the server's copy not there either): its playback ends here, so it doesn't stay "live" on
+            // screen for ever (2026-11-26: testbot showed "hen talking" for 6 minutes after a 2 s video push).
+            val at = burst.next
+            scope.launch {
+                delay(END_STUCK_MS)
+                if (!burst.playing || burst.next != at || burst.kept || !burst.ended) return@launch
+                burst.fetch?.cancel()
+                if (burst.lastIndex == null) burst.lastIndex = burst.next - 1
+                if (burst.key == null) burst.playback?.finish() else drain(burst)
+            }
         }
     }
 
@@ -1418,6 +1429,9 @@ internal class Talk(
 
         /** Someone's floor shown at most this long (the server's 60 s limit, and some): a lost end can't block it. */
         const val STALE_TALKER_MS = 75_000L
+
+        /** A burst whose floor ended and that got nothing more for this long stops playing (it isn't live any more). */
+        const val END_STUCK_MS = 6_000L
 
         /** How often the watchdog looks for talkers gone quiet (TalkBeat.LOST_MS). */
         const val WATCH_EVERY = 500L
