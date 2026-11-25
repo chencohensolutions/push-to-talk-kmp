@@ -250,8 +250,9 @@ internal fun Modifier.holdOrLock(
             val event = awaitPointerEvent(PointerEventPass.Main)
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
             up = (down.position.y - change.position.y).coerceAtLeast(0f)
-            onLift(up)
+            // Sideways first, so the lift knows which way the thumb is going (towards the bell, or up to the lock).
             onSide((change.position.x - down.position.x).coerceAtLeast(0f))
+            onLift(up)
             change.consume()
             if (!change.pressed) break
         }

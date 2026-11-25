@@ -244,6 +244,14 @@ object TalkBubble {
 
     private var burstOverApp: Context? = null
 
+    /** Their burst in [chat] ended while its chat was in front: the row's live state ends, nothing new shows. */
+    fun burstEnded(context: Context, chat: String) = main.post {
+        if (this.chat != chat || !burstLive) return@post
+        burstOverApp = context.applicationContext
+        main.removeCallbacks(burstOver)
+        main.postDelayed(burstOver, BURST_HOLD_MS)
+    }
+
     /** Their burst ended and no other followed within [BURST_HOLD_MS]: now it goes. */
     private val burstOver = Runnable {
         val app = burstOverApp ?: return@Runnable
@@ -570,12 +578,13 @@ object TalkBubble {
                     showUrgent(context)
                 }
                 // Starting to slide up: the camera opens now, so the video starts fast at the lock.
-                if (talking && !locked && !warming && up > dp(context, 16) && cameraAllowed(context)) {
+                if (talking && !locked && !warming && !urgent && up > e.rawX - downX && up > dp(context, 16) && cameraAllowed(context)) {
                     warming = true
                     showMode(context)
                 }
                 // At the lock: hands-free video until Stop. The voice so far goes as it is; the video burst follows.
-                if (talking && !locked && up > dp(context, LOCK_DP)) {
+                // Not when heading for the bell, or urgent already: the same push goes on (2026-11-26, hen).
+                if (talking && !locked && !urgent && up > e.rawX - downX && up > dp(context, LOCK_DP)) {
                     if (!cameraAllowed(context)) {
                         chat?.let { askCamera(context, it) }
                         return true

@@ -115,6 +115,10 @@ object TalkPlaying {
                 onQuietEnd?.invoke()
             } else if (chatInFront(app) != chat) {
                 TalkBubble.show(app, chat, TalkBubble.titleOf(app, chat, from), live = false)
+            } else {
+                // Their chat is in front now, but the floating window's row may still show them live (it showed before
+                // the chat came up): it ends there too (2026-11-26: "hen talking" stayed 4 minutes on testbot).
+                TalkBubble.burstEnded(app, chat)
             }
         }
     }

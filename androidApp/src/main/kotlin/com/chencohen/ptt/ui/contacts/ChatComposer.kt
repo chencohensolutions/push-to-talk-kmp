@@ -422,12 +422,16 @@ internal fun ChatButtons(
                             },
                             onLift = { up ->
                                 lifting = up
-                                val slide = up > warmFrom && !lockedNow
+                                // Heading for the bell (more sideways than up), or already urgent: the same push goes on,
+                                // never the lock's video (2026-11-26, hen: "when swiping to urgent stay the
+                                // transmission on until pushing stop"; a thumb's arc to the bell reached the lock).
+                                val towardsBell = urgentNow || side > up
+                                val slide = up > warmFrom && !lockedNow && !towardsBell
                                 if (slide != slidingNow) {
                                     slidingNow = slide
                                     onSliding(slide)
                                 }
-                                if (up >= lockAt && !lockedNow) {
+                                if (up >= lockAt && !lockedNow && !towardsBell) {
                                     if (cameraAllowed()) {
                                         lockedNow = true
                                         onLock()
