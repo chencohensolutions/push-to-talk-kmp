@@ -214,6 +214,10 @@ internal class Talk(
         var frames = 0
         var finished = false
         var cancelled = false
+        /** The button came up (or Stop): nothing of it may go live in the room after this. */
+        var released = false
+        /** Still this phone's live press: the room's microphone may come on for it. */
+        fun liveNow() = outgoing === this && !released && !waiting
         var consumer: Job? = null
         var mic: TalkCapture? = null
         /** The camera goes too (push-to-video): every packet is tagged (TalkVideo). */
@@ -268,7 +272,7 @@ internal class Talk(
         if (!voiceOnly) {
             live?.burst(chat, null)
             // The live path doesn't wait for the grant; a Busy stops it again.
-            scope.launch { live?.talking(chat, true, out.video) }
+            scope.launch { live?.talking(chat, true, out.video) { out.liveNow() } }
         }
         out.consumer = scope.launch { consume(out) }
         if (!voiceOnly) {
@@ -320,6 +324,7 @@ internal class Talk(
     /** The button came up: the clip ends (and a voice message is sent, unless [send] is false: cancelled). */
     fun release(send: Boolean = true) {
         val out = outgoing ?: return
+        out.released = true
         if (!send) out.cancelled = true
         // Let go while waiting for their floor: nothing of it went out, and nothing is kept.
         if (out.waiting) {
@@ -626,7 +631,7 @@ internal class Talk(
                     w.startedAt = now()
                     showOwn(w)
                     // Live again from this moment, on screen and in the room together.
-                    scope.launch { live?.talking(w.chat, true, w.video) }
+                    scope.launch { live?.talking(w.chat, true, w.video) { w.liveNow() } }
                     scope.launch { if (!sendFrame(TalkStartFrame(talkStart(w.chat, w.id)))) toVoice(w) }
                     scope.launch {
                         delay(GRANT_WAIT)

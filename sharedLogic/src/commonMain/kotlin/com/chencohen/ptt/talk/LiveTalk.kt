@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlin.random.Random
 
 /**
@@ -220,8 +221,11 @@ internal class LiveTalk(
     }
 
     /** In [chat]'s room, the microphone goes there too, and the camera with a video burst ([video]). */
-    suspend fun talking(chat: String, on: Boolean, video: Boolean = false) {
+    suspend fun talking(chat: String, on: Boolean, video: Boolean = false, still: () -> Boolean = { true }) {
         val t = transport ?: return
+        // Only the newest say counts: an "on" still waiting for the room must not land after the "off" that followed
+        // it (2026-11-25: Stop, then the room's microphone came on and stayed live for 20 s).
+        val my = ++talkingSeq
         // A video burst from outside the chat (the floating window): the room is still being joined; wait a little.
         if (on && video && _state.value.room != chat) {
             var waited = 0
@@ -233,9 +237,16 @@ internal class LiveTalk(
         if (_state.value.room != chat) return
         // A call in the room keeps its media whatever the floor does.
         if (inCall) return
-        if (audio) runCatching { t.setTalking(on) }
-        if (on && video) runCatching { t.setVideo(true) } else if (!on) runCatching { t.setVideo(false) }
+        talkingLock.withLock {
+            // On: only while its press is still live. Off: unless a newer press came on meanwhile.
+            if (if (on) !still() else my != talkingSeq) return
+            if (audio) runCatching { t.setTalking(on) }
+            if (on && video) runCatching { t.setVideo(true) } else if (!on) runCatching { t.setVideo(false) }
+        }
     }
+
+    private var talkingSeq = 0
+    private val talkingLock = kotlinx.coroutines.sync.Mutex()
 
     /** The camera is warm for [chat] (null: not): its room's camera track reads it, muted, ready for a video burst. */
     fun readyVideo(chat: String?) {
