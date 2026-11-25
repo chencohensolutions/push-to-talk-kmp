@@ -34,6 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -115,12 +117,13 @@ internal fun LiveBoxes(
 }
 
 /**
- * Push-to-video under the header (2026-11-24, hen: "when two sides push to video show videos at top side by side; when
- * I push show the video on the top, never on bottom"; then "the video should be the same size" as the floating
- * window): theirs (or, in a group, whoever holds the floor: [who] named) and mine, each a box 23.6% of the screen high
- * and as wide as its picture's own shape (no crop, no bars), rounded, centred, theirs at the start side and mine at the
- * end. Slides down in 250 ms when the first starts, back up when the last ends; it always pushes the chat down.
- * [waitingFor]: mine queued behind someone else's floor (a group).
+ * Live in the chat, floating over it under the header (2026-11-24, hen: "the video and pills should be floating, not
+ * inside black box"; "same ux in chat screen"): for each side, theirs at the start and mine at the end, a voice pill or
+ * a video box 23.6% of the screen high in the picture's own shape (no crop, no bars), with only their own rounded shape
+ * and a soft shadow: nothing behind them, the chat scrolls on beneath. "The pill becomes the video": a side turning to
+ * video grows its box out of the pill's size and place (250 ms), and back. The whole slides down from under the
+ * header when the first side starts and back up when the last ends. [waitingFor]: mine queued behind someone else's
+ * floor (a group).
  */
 @Composable
 internal fun LivePanel(
@@ -130,7 +133,7 @@ internal fun LivePanel(
     theirIdentity: String? = null,
     /** How far behind the clip path's picture plays (the test builds' readout). */
     behindMs: Long? = null,
-    /** Voice beside the video (one side on voice, the other on video): its pill, top-aligned beside the box. */
+    /** Voice (a side not on video): its pill, in that side's place. */
     voices: List<VoiceSide> = emptyList(),
 ) {
     val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
@@ -145,73 +148,80 @@ internal fun LivePanel(
         if (s.rotation % 180 != 0) 1f / a else a
     } else 3f / 4f
     val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
-    // Kept while the panel slides away, so it doesn't empty first.
-    var lastSides by remember { androidx.compose.runtime.mutableStateOf(theirs to mine) }
-    if (theirs || mine) lastSides = theirs to mine
-    val (t, m) = lastSides
+    val theirVoice = voices.firstOrNull { !it.mine }
+    val myVoice = voices.firstOrNull { it.mine }
+    val any = theirs || mine || theirVoice != null || myVoice != null
+    // Kept while it slides away, so it doesn't empty first.
+    var last by remember { androidx.compose.runtime.mutableStateOf(Triple(theirs to mine, theirVoice, myVoice)) }
+    if (any) last = Triple(theirs to mine, theirVoice, myVoice)
+    val (videos, tv, mv) = last
     AnimatedVisibility(
-        theirs || mine,
-        enter = expandVertically(tween(PANEL_MS), expandFrom = Alignment.Top) + slideInVertically(tween(PANEL_MS)) { -it },
-        exit = shrinkVertically(tween(PANEL_MS), shrinkTowards = Alignment.Top) + slideOutVertically(tween(PANEL_MS)) { -it },
+        any,
+        enter = fadeIn(tween(PANEL_MS)) + slideInVertically(tween(PANEL_MS)) { -it },
+        exit = fadeOut(tween(PANEL_MS)) + slideOutVertically(tween(PANEL_MS)) { -it },
     ) {
-        val sides = listOfNotNull(if (t) "theirs" else null, if (m) "mine" else null)
-        LiveBoxes(
-            sides.map { if (it == "theirs") theirShape else myShape },
-            before = { voices.filter { !it.mine }.forEach { VoicePill(it) } },
-            after = { voices.filter { it.mine }.forEach { VoicePill(it) } },
-        ) { i, box ->
-            if (sides[i] == "theirs") {
-                Box(box) {
-                    if (room != null) com.chencohen.ptt.ui.talk.RoomVideoView(room, Modifier.fillMaxSize())
-                    else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
-                    com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.TopEnd).padding(6.dp))
-                    // One line in a narrow box: the red dot says live.
-                    val words = listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · ")
-                    LiveTag(words, Modifier.align(Alignment.BottomStart).padding(8.dp))
+        val screen = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.TopCenter) {
+            val gap = 6.dp
+            // The boxes' height: 23.6% of the screen, both shrunk together only if they'd be wider than the space.
+            val shapes = listOfNotNull(if (videos.first) theirShape else null, if (videos.second) myShape else null)
+            var h = screen * LIVE_VIDEO_SHARE
+            if (shapes.isNotEmpty()) {
+                val wide = h * shapes.sum() + gap * (shapes.size - 1)
+                if (wide > maxWidth) h *= (maxWidth - gap * (shapes.size - 1)) / (h * shapes.sum())
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.Top) {
+                if (videos.first || tv != null) {
+                    LiveSlot(videos.first, h * theirShape, h, pill = { tv?.let { VoicePill(it) } }) { box ->
+                        Box(box) {
+                            if (room != null) com.chencohen.ptt.ui.talk.RoomVideoView(room, Modifier.fillMaxSize())
+                            else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
+                            // One line in a narrow box: the red dot says live.
+                            LiveTag(listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · "), Modifier.align(Alignment.BottomStart).padding(8.dp))
+                            com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.TopEnd).padding(6.dp))
+                        }
+                    }
                 }
-            } else {
-                Box(box) {
-                    com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true)
-                    val me = stringResource(R.string.talk_panel_you)
-                    val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor)
-                    else listOf(me, elapsedSince(mySince)).joinToString(" · ")
-                    LiveTag(words, Modifier.align(Alignment.BottomStart).padding(8.dp))
+                if (videos.second || mv != null) {
+                    LiveSlot(videos.second, h * myShape, h, pill = { mv?.let { VoicePill(it) } }) { box ->
+                        Box(box) {
+                            com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true)
+                            val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor)
+                            else listOf(stringResource(R.string.talk_panel_you), elapsedSince(mySince)).joinToString(" · ")
+                            LiveTag(words, Modifier.align(Alignment.BottomStart).padding(8.dp))
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-/** Someone pushing voice in the chat, for the [VoiceBar]: their face ("" is mine), name, and when they started. */
-internal data class VoiceSide(val user: String, val name: String, val mine: Boolean, val since: Long)
-
 /**
- * Voice push-to-talk under the header (2026-11-24, hen: mock A, then "B, a slim pill at the top" and "if we both voice
- * pushing then it's side by side pills"): a slim pill per talker, centred, side by side when both: their face in a
- * ring that glows with their voice (teal; coral for mine; no wave), "Sharon is talking" and the time, or for mine one
- * line, "You · 0:03". Slides down in 250 ms and pushes the chat down; beside the other side's video box when they're on
- * video.
+ * One side's place: its voice [pill], or its video box ([w] × [h]) grown out of the pill's size and place (250 ms),
+ * and back to the pill when the video stops while the voice goes on. Only the shape and a soft shadow, nothing behind.
  */
 @Composable
-internal fun VoiceBar(sides: List<VoiceSide>) {
-    // Kept while it slides away, so the words don't vanish first.
-    var last by remember { androidx.compose.runtime.mutableStateOf(sides) }
-    if (sides.isNotEmpty()) last = sides
-    AnimatedVisibility(
-        sides.isNotEmpty(),
-        enter = expandVertically(tween(PANEL_MS), expandFrom = Alignment.Top) + slideInVertically(tween(PANEL_MS)) { -it },
-        exit = shrinkVertically(tween(PANEL_MS), shrinkTowards = Alignment.Top) + slideOutVertically(tween(PANEL_MS)) { -it },
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.Top,
-        ) {
-            // Theirs at the start side, mine at the end.
-            last.sortedBy { it.mine }.forEach { VoicePill(it) }
-        }
+private fun LiveSlot(video: Boolean, w: Dp, h: Dp, pill: @Composable () -> Unit, box: @Composable (Modifier) -> Unit) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var pillSize by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val p by androidx.compose.animation.core.animateFloatAsState(if (video) 1f else 0f, tween(PANEL_MS), label = "pill to video")
+    if (p == 0f) {
+        Box(Modifier.onSizeChanged { pillSize = it }) { pill() }
+        return
+    }
+    val pw = with(density) { pillSize.width.toDp() }
+    val ph = with(density) { pillSize.height.toDp() }
+    val shape = RoundedCornerShape(androidx.compose.ui.unit.lerp(32.dp, 18.dp, p))
+    Box(Modifier.size(androidx.compose.ui.unit.lerp(pw, w, p), androidx.compose.ui.unit.lerp(ph, h, p)).shadow(6.dp, shape).clip(shape).background(Color.Black)) {
+        box(Modifier.fillMaxSize())
+        // The pill's face fades into the first picture.
+        if (p < 1f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - p }) { pill() }
     }
 }
+
+/** Someone pushing voice in the chat, for the [VoiceBar]: their face ("" is mine), name, and when they started. */
+internal data class VoiceSide(val user: String, val name: String, val mine: Boolean, val since: Long)
 
 @Composable
 private fun VoicePill(side: VoiceSide) {

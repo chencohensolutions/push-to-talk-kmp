@@ -360,7 +360,8 @@ private fun ConversationScreenIn(
         val myPanel = sendingVideo != null || (standby && pushVideo)
         // The panel under the header (2026-11-24, hen: "when two sides push to video show videos at top side by side;
         // when I push show the video on the top, never on bottom"), or the call in the chat in its place.
-        if (chatLive.call != null) {
+        // Floating over the chat (2026-11-24, hen: "not inside black box"): drawn over the list below, nothing behind it.
+        val liveOverlay: @Composable () -> Unit = { if (chatLive.call != null) {
             chatLive.call.top()
         } else {
             // Playing here, or heard live through the room (sound there, pictures from its segments): their floor, with
@@ -383,7 +384,6 @@ private fun ConversationScreenIn(
             val myVoice = talk.own?.takeIf { it.chat == user && !pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
                 ?.let { VoiceSide("", stringResource(R.string.talk_panel_you), true, it.startedAt) }
             val voicesNow = listOfNotNull(theirVoice, myVoice)
-            val videoBoxes = (theirClip != null && fullVideo == null) || myPanel
             LivePanel(
                 theirClip != null && fullVideo == null, if (group != null) (theirs?.from ?: talker?.user) else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis(),
                 myPanel, sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
@@ -392,10 +392,8 @@ private fun ConversationScreenIn(
                 behindMs = theirs?.behindMs,
                 voices = voicesNow,
             )
-            // With a video box showing, the voice pill sits beside it; else the pills alone.
-            VoiceBar(if (videoBoxes) emptyList() else voicesNow)
             BothLiveChip(bothLiveNow && actions.callInChat != null) { makeCallNow[0]() }
-        }
+        } }
         if (contact?.changedKey != null) {
             HomeCard(
                 title = stringResource(R.string.chat_key_changed, contact.user),
@@ -657,17 +655,6 @@ private fun ConversationScreenIn(
           androidx.compose.runtime.CompositionLocalProvider(LocalVideoAutoplay provides autoplay) {
             LazyColumn(
                 Modifier.fillMaxSize()
-                    // The oldest line in view fades out at the top edge, so nothing reads as tucked under the header
-                    // or the live panel (2026-11-24, hen).
-                    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            androidx.compose.ui.graphics.Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, endY = 20.dp.toPx()),
-                            size = androidx.compose.ui.geometry.Size(size.width, 20.dp.toPx()),
-                            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-                        )
-                    }
                     .pointerInput(Unit) {
                     // A tap on the chat puts the keyboard away (the draft stays).
                     detectTapGestures(onTap = {
@@ -875,6 +862,8 @@ private fun ConversationScreenIn(
                     }
                 }
             }
+            // The live pills and boxes, floating over the chat under the header.
+            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) { liveOverlay() }
             // Floating at the bottom: this phone's draft (or a voice message's recording), then the buttons.
             // How far the keyboard is open, 0 to 1, as it animates: the button row folds away by the same amount.
             val imeNow = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
