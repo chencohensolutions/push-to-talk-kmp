@@ -562,6 +562,15 @@ private fun ConversationScreenIn(
         live.observe(liveDrafts, newest)
         androidx.compose.runtime.SideEffect { live.seen(liveDrafts) }
         val shownDrafts = live.shown(liveDrafts)
+        // Their draft coming or going, or turning into its message, while the chat is at its end: the end stays in view, in
+        // the same frame (2026-11-26, hen's recording at 32.4 s: as testbot started typing, the circle's item moved to the
+        // end as the draft, the list kept its old anchor and jumped down two items for two seconds, the newest hidden).
+        val draftsShownNow = shownDrafts.isNotEmpty()
+        val draftsWere = remember(user) { booleanArrayOf(false) }
+        if (draftsShownNow != draftsWere[0]) {
+            draftsWere[0] = draftsShownNow
+            if (androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation { list.firstVisibleItemIndex } <= 1) list.requestScrollToItem(0)
+        }
         LaunchedEffect(newest?.id) {
             if (newest == null) return@LaunchedEffect
             // A draft that became this message is in its place already: nothing scrolls.
