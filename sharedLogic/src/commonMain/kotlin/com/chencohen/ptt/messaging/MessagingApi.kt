@@ -121,6 +121,8 @@ internal interface MessagingApi {
 
     suspend fun setPresenceVisible(visible: Boolean): Boolean
 
+    suspend fun setHearVisible(visible: Boolean): Boolean
+
     /** Whether each contact is online, and when last seen (milliseconds; null when unknown or hidden). */
     suspend fun presence(users: List<String>): List<UserPresence>
 
@@ -223,7 +225,13 @@ data class KeptTrack(
 )
 
 /** A contact online now, or when last connected ([lastSeen], milliseconds; null when unknown or hidden). */
-data class UserPresence(val user: String, val online: Boolean, val lastSeen: Long?)
+data class UserPresence(
+    val user: String,
+    val online: Boolean,
+    val lastSeen: Long?,
+    /** While online: whether they can hear talk now (2026-11-25, hen); UNKNOWN when not said or hidden. */
+    val hear: com.chencohen.ptt.talk.Hear = com.chencohen.ptt.talk.Hear.UNKNOWN,
+)
 
 /**
  * A new invite: its [code] (for the link), when it expires (RFC 3339), and its [passcode], the six digits this phone
@@ -303,11 +311,21 @@ internal class ApolloMessagingApi(private val http: ServerHttp) : MessagingApi {
     override suspend fun setPresenceVisible(visible: Boolean): Boolean =
         run { it.mutation(SetPresenceVisibleMutation(visible)).execute() }.setPresenceVisible
 
+    override suspend fun setHearVisible(visible: Boolean): Boolean =
+        run { it.mutation(com.chencohen.ptt.graphql.SetHearVisibleMutation(visible)).execute() }.setHearVisible
+
     @OptIn(kotlin.time.ExperimentalTime::class)
     override suspend fun presence(users: List<String>): List<UserPresence> =
         run { it.query(PresenceQuery(users)).execute() }.presence.map { p ->
             val seen = p.lastSeen?.let { t -> runCatching { kotlin.time.Instant.parse(t.toString()).toEpochMilliseconds() }.getOrNull() }
-            UserPresence(p.user, p.online, seen)
+            val hear = when (p.hear) {
+                com.chencohen.ptt.graphql.type.Hear.OK -> com.chencohen.ptt.talk.Hear.OK
+                com.chencohen.ptt.graphql.type.Hear.SILENT -> com.chencohen.ptt.talk.Hear.SILENT
+                com.chencohen.ptt.graphql.type.Hear.DND -> com.chencohen.ptt.talk.Hear.DND
+                com.chencohen.ptt.graphql.type.Hear.IN_CALL -> com.chencohen.ptt.talk.Hear.IN_CALL
+                else -> com.chencohen.ptt.talk.Hear.UNKNOWN
+            }
+            UserPresence(p.user, p.online, seen, hear)
         }
 
     override suspend fun liveTalk(): Boolean = run { it.query(com.chencohen.ptt.graphql.LiveTalkQuery()).execute() }.serverInfo.liveTalk

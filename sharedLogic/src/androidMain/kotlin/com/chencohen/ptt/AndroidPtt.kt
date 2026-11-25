@@ -137,6 +137,10 @@ private fun hub(context: Context): Messaging {
         it.talk.volume = com.chencohen.ptt.talk.AndroidTalkVolume(context)
         // Other apps dimmed while a push is heard in the live room (TalkDuck; the focus shared with TalkReady).
         it.talk.duck = com.chencohen.ptt.talk.AndroidTalkFocus.roomDuck(context)
+        // Who can hear you (2026-11-25, hen): Do Not Disturb, silent, a call; and Do Not Disturb opened for urgent pushes.
+        it.talk.dndGate = com.chencohen.ptt.talk.AndroidDndGate(context)
+        val hearHub = it
+        runCatching { com.chencohen.ptt.talk.AndroidHear(context, { settings.unmuteForTalk }) { h -> hearHub.setHear(h) }.start() }
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }

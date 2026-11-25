@@ -51,6 +51,8 @@ data class MessagingState(
     val linkedDevice: Int? = null,
     /** Contacts online now, or when last seen, by user (presence; only contacts who show theirs). */
     val presence: Map<String, UserPresence> = emptyMap(),
+    /** Whether this phone's user can hear talk now (setHear; 2026-11-25, hen). */
+    val hearNow: com.chencohen.ptt.talk.Hear = com.chencohen.ptt.talk.Hear.OK,
     /** Contacts typing to this user now: until when, milliseconds since 1970. */
     val typing: Map<String, Long> = emptyMap(),
     /**
@@ -104,6 +106,8 @@ data class TalkSettings(
     val hardwareButtons: Boolean = false,
     /** Chats set to Notify only. */
     val notifyOnly: Set<String> = emptySet(),
+    /** Contacts whose urgent pushes play through Do Not Disturb (their page; off unless turned on). */
+    val urgentThroughDnd: Set<String> = emptySet(),
     /** Kept calls already downloaded from the server (by id): their Download button is gone. */
     val downloadedCalls: Set<String> = emptySet(),
     /** Settings › Calls › Save calls (phase 6). */
@@ -502,9 +506,12 @@ internal class Messaging(
             }
         },
         onRevoked = onRevoked,
-        onPresence = { p -> updatePresence(UserPresence(p.user, p.online, p.lastSeen.takeIf { it > 0 })) },
+        onPresence = { p -> updatePresence(UserPresence(p.user, p.online, p.lastSeen.takeIf { it > 0 }, com.chencohen.ptt.talk.Hear.fromProto(p.hear))) },
         onTalk = { talk.onFrame(it) },
         onLive = {
+            // Whether this user can hear talk, again for this connection (the server forgets it with the last one).
+            hearSent = null
+            scope.launch { sendHear() }
             scope.launch {
                 // The groups first: a message waiting for a group needs its devices and readers.
                 groups.refresh()
@@ -541,6 +548,7 @@ internal class Messaging(
             }
         },
         onTalkKey = { identity, key -> live.takeKey(identity, key) },
+        onTalkHeard = { author, heard -> talk.takeHeard(author, heard) },
         onCall = { group, author, call, at -> calls.receive(group.chat, author, call, at, ownCopy = author == device()?.user) },
         onRead = { group, author, ids ->
             var changed = false
@@ -598,6 +606,7 @@ internal class Messaging(
                 get() = settings.catchUp?.let { name -> CatchUpMode.entries.firstOrNull { it.name == name } } ?: CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP
 
             override fun notifyOnly(chat: String): Boolean = chat in settings.notifyOnlyChats
+            override fun urgentThroughDnd(chat: String): Boolean = chat in settings.urgentThroughDndChats
 
             override val unmute: Boolean get() = settings.unmuteForTalk
             override val talkVolume: Double get() = settings.talkVolume
@@ -609,7 +618,7 @@ internal class Messaging(
         },
         publish = ::publish,
         awake = { foreground || stayConnected },
-    )
+    ).also { it.hearNow = { hearNow } }
 
     val live: com.chencohen.ptt.talk.LiveTalk = com.chencohen.ptt.talk.LiveTalk(
         scope = scope,
@@ -770,6 +779,7 @@ internal class Messaging(
         defaultChat = settings.defaultTalkChat,
         hardwareButtons = settings.hardwareButtons,
         notifyOnly = settings.notifyOnlyChats,
+        urgentThroughDnd = settings.urgentThroughDndChats,
         downloadedCalls = settings.downloadedCalls,
         saveCalls = settings.saveCalls?.let { name -> com.chencohen.ptt.calls.SaveCalls.entries.firstOrNull { it.name == name } } ?: com.chencohen.ptt.calls.SaveCalls.OFF,
         autoDownloadCalls = settings.autoDownloadCalls,
@@ -810,6 +820,7 @@ internal class Messaging(
         settings.defaultTalkChat = talk.defaultChat
         settings.hardwareButtons = talk.hardwareButtons
         settings.notifyOnlyChats = talk.notifyOnly
+        settings.urgentThroughDndChats = talk.urgentThroughDnd
         settings.downloadedCalls = talk.downloadedCalls
         settings.saveCalls = talk.saveCalls.name
         settings.autoDownloadCalls = talk.autoDownloadCalls
@@ -969,6 +980,37 @@ internal class Messaging(
 
     private fun updatePresence(p: UserPresence) {
         _state.update { it.copy(presence = it.presence + (p.user to p)) }
+    }
+
+    // --- Who can hear you (2026-11-25, hen) -------------------------------------------------------------------
+
+    /** Whether this user can hear talk now, as the platform sees it (Android: ringer, Do Not Disturb, a call). */
+    private var hearNow: com.chencohen.ptt.talk.Hear = com.chencohen.ptt.talk.Hear.OK
+    private var hearSent: com.chencohen.ptt.talk.Hear? = null
+
+    /**
+     * The platform's word on whether this user can hear talk now: pushes that come while they can't are saved
+     * (Talk), and their contacts are told (HearState), when it changed.
+     */
+    fun setHear(hear: com.chencohen.ptt.talk.Hear) {
+        hearNow = hear
+        _state.update { it.copy(hearNow = hear) }
+        scope.launch { sendHear() }
+    }
+
+    private suspend fun sendHear() {
+        val h = hearNow
+        if (hearSent == h || socket.state.value !is SocketState.Live) return
+        if (socket.sendFrame(com.chencohen.ptt.relay.HearStateFrame(com.chencohen.ptt.relay.HearState(h.proto)))) hearSent = h
+    }
+
+    /** Whether this user shows contacts when they can't hear (Settings › Privacy › Show when I can't hear). */
+    val hearVisible: Boolean get() = settings.hearVisible
+
+    suspend fun setHearVisible(visible: Boolean): Boolean {
+        val shown = api.setHearVisible(visible)
+        settings.hearVisible = shown
+        return shown
     }
 
     // --- Push-to-video's camera --------------------------------------------------------------------------------
@@ -2146,6 +2188,7 @@ internal class Messaging(
         content.edit?.let { takeEdit(contact.user, null, mine = false, it) }
         content.delete?.let { takeDelete(contact.user, null, mine = false, it) }
         content.talkKey?.let { live.takeKey("${contact.user}.${envelope.senderDevice}", it) }
+        content.talkHeard?.let { talk.takeHeard(contact.user, it) }
         content.call?.let { calls.receive(contact.user, contact.user, it, envelope.serverTimestamp, ownCopy = false) }
         content.clip?.let { clip ->
             val fresh = store.message(clip.id) == null

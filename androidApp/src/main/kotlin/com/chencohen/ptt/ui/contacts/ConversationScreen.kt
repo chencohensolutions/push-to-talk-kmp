@@ -113,6 +113,8 @@ class ConversationActions(
     val startVoice: () -> Unit = {},
     /** The Voice message button: a voice message starts recording (no floor); [finishVoice] sends or drops it. */
     val startVoiceMessage: () -> Unit = {},
+    /** The press slid onto the red bell: an urgent push (2026-11-25, hen). */
+    val markUrgent: () -> Unit = {},
     /** A video burst's bubble tapped: it plays full screen over the chat. */
     val playVideo: (String) -> Unit = {},
     val finishVoice: (send: Boolean) -> Unit = {},
@@ -1069,6 +1071,7 @@ private fun ConversationScreenIn(
                             ChatButtons(
                                 false, talkingHere, recordingVoice, actions, video = false, handsFree = handsFree,
                                 waitingFor = waitingFor,
+                                urgent = talk.own?.let { it.chat == user && it.urgent } == true,
                                 // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.
                                 lock = {
                                     val run = runs.now

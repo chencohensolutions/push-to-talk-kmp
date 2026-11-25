@@ -127,6 +127,16 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_AUTO_DL_CHARGING) == "true"
         set(value) = store.putString(KEY_AUTO_DL_CHARGING, value.toString())
 
+    /** The contacts whose urgent pushes play through Do Not Disturb (their page's switch; 2026-11-25, hen). */
+    var urgentThroughDndChats: Set<String>
+        get() = store.getString(KEY_URGENT_DND)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
+        set(value) = store.putString(KEY_URGENT_DND, json.encodeToString(value.sorted()))
+
+    /** This user shows contacts when they can't hear (setHearVisible), as last set from this phone; on by default. */
+    var hearVisible: Boolean
+        get() = store.getString(KEY_HEAR_VISIBLE) != "false"
+        set(value) = store.putString(KEY_HEAR_VISIBLE, value.toString())
+
     /** The chats set to When I'm away: Notify only (the rest play aloud). */
     var notifyOnlyChats: Set<String>
         get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
@@ -325,6 +335,8 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
         private const val KEY_LOWER_OTHERS_FOR_TALK = "lower_others_for_talk"
         private const val KEY_TALK_VOLUME = "talk_volume"
+        private const val KEY_URGENT_DND = "urgent_through_dnd"
+        private const val KEY_HEAR_VISIBLE = "hear_visible"
         private const val KEY_BOOST_VOICE = "boost_voice"
         private const val KEY_SOFT_RING = "call_soft_ring"
         private const val KEY_SOFT_MESSAGE = "message_soft_sound"

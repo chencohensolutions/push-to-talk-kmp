@@ -67,6 +67,18 @@ internal data class Content(
      * live) stay open there until either ends it ([ViewingContent.open] false). Older apps skip it.
      */
     @ProtoNumber(25) val roomCall: ViewingContent? = null,
+    /**
+     * What became of the talker's push here (2026-11-25, hen: "who can hear you"): heard, or saved and why
+     * (HeardStatus). To the talker only, live only. Older apps skip it.
+     */
+    @ProtoNumber(26) val talkHeard: TalkHeardContent? = null,
+)
+
+/** A push's fate at one listener: [burstId] and one of HeardStatus. */
+@Serializable
+internal data class TalkHeardContent(
+    @ProtoNumber(1) val burstId: String = "",
+    @ProtoNumber(2) val status: Int = 0,
 )
 
 /** One expression of the sender's face ([code]: Expression code), a small WebP with alpha. */
@@ -231,9 +243,12 @@ internal data class ClipContent(
     @ProtoNumber(5) val durationMs: Long = 0,
     /** Push-to-video: the clip's packets are tagged, audio and pieces of the camera's frames (TalkVideo). */
     @ProtoNumber(6) val video: Boolean = false,
+    /** An urgent push (2026-11-25, hen): may play through Do Not Disturb where the listener allows it. */
+    @ProtoNumber(7) val urgent: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean = other is ClipContent && id == other.id && key.contentEquals(other.key) &&
-        kind == other.kind && sentAt == other.sentAt && durationMs == other.durationMs && video == other.video
+        kind == other.kind && sentAt == other.sentAt && durationMs == other.durationMs && video == other.video &&
+        urgent == other.urgent
 
     override fun hashCode(): Int = id.hashCode()
 

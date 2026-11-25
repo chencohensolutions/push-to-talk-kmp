@@ -75,8 +75,8 @@ class AndroidTalkHost(private val app: TalkApp) : TalkHost {
         const val TAG = "TalkHost"
     }
 
-    override fun talkNotify(chat: String, from: String, clip: String, video: Boolean) {
-        app.scope.launch { TalkNotifications.show(app, chat, from, clip, video) }
+    override fun talkNotify(chat: String, from: String, clip: String, video: Boolean, status: Int) {
+        app.scope.launch { TalkNotifications.show(app, chat, from, clip, video, status) }
     }
 
     override fun idle() {
@@ -693,13 +693,16 @@ object TalkNotifications {
      * Sharon" ("Missed video push", "… in Family"), a tap opens the chat, with Play and Reply; it goes when the chat is
      * read (Notifications.read).
      */
-    suspend fun show(context: Context, chat: String, from: String, clip: String, video: Boolean) {
+    suspend fun show(context: Context, chat: String, from: String, clip: String, video: Boolean, status: Int = 0) {
+        // Saved because this phone couldn't hear it (Do Not Disturb, silent, a call): a quiet one (2026-11-25, hen).
+        val quiet = status != 0
+        val urgent = status == com.chencohen.ptt.talk.HeardStatus.SAVED_URGENT_NOT_ALLOWED
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val who = runCatching { chatName(context, from) }.getOrDefault(from)
         val title = if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) {
-            context.getString(if (video) R.string.talk_missed_video_group else R.string.talk_missed_group, who, runCatching { chatName(context, chat) }.getOrDefault(chat))
+            context.getString(if (urgent) R.string.talk_missed_urgent_group else if (video) R.string.talk_missed_video_group else R.string.talk_missed_group, who, runCatching { chatName(context, chat) }.getOrDefault(chat))
         } else {
-            context.getString(if (video) R.string.talk_missed_video else R.string.talk_missed, who)
+            context.getString(if (urgent) R.string.talk_missed_urgent else if (video) R.string.talk_missed_video else R.string.talk_missed, who)
         }
         val id = (chat.hashCode() and 0x3fffffff) * 2
         fun open(action: String, request: Int) = PendingIntent.getActivity(
@@ -723,6 +726,7 @@ object TalkNotifications {
             .addAction(0, context.getString(R.string.talk_notify_reply), open(ACTION_TALK, id + 1))
             .addAction(Notifications.replyAction(context, chat, id + 2))
             .addAction(Notifications.readAction(context, chat, id + 3))
+            .setSilent(quiet)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)

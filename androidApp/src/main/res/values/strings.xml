@@ -600,6 +600,9 @@
     <string name="talk_missed_video">Missed video push from %1$s</string>
     <string name="talk_missed_group">Missed push from %1$s in %2$s</string>
     <string name="talk_missed_video_group">Missed video push from %1$s in %2$s</string>
+    <string name="talk_missed_urgent">Missed urgent push from %1$s</string>
+    <string name="talk_missed_urgent_group">Missed urgent push from %1$s in %2$s</string>
+    <string name="talk_urgent">Urgent</string>
     <string name="talk_missed_body">Tap to open the chat</string>
     <string name="talk_notify_play">Play</string>
     <string name="talk_notify_reply">Reply</string>

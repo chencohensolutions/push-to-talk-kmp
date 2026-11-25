@@ -714,6 +714,7 @@ fun HomeApp(
                             // The chat's microphone is push-to-talk (2026-11-22, hen), not a voice message.
                             startVoice = { pressOrUnlock(user) },
                             startVoiceMessage = { messaging.startVoice(user) },
+                            markUrgent = { messaging.markUrgent() },
                             finishVoice = { messaging.releaseTalk(it) },
                             micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                             call = { video -> call(user, video) },

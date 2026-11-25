@@ -7,6 +7,7 @@ import com.chencohen.ptt.messaging.Content
 import com.chencohen.ptt.messaging.Group
 import com.chencohen.ptt.messaging.MessageStatus
 import com.chencohen.ptt.messaging.MessagingStore
+import com.chencohen.ptt.messaging.TalkHeardContent
 import com.chencohen.ptt.messaging.TextMessage
 import com.chencohen.ptt.relay.ClipSegment
 import com.chencohen.ptt.relay.ClipSegmentFrame
@@ -76,6 +77,8 @@ data class OwnTalk(
     val busyWith: String? = null,
     /** One of `SendStatus`, or [MIC] when the microphone didn't open. */
     val refusal: Int = 0,
+    /** An urgent push (2026-11-25, hen: the red bell). */
+    val urgent: Boolean = false,
 ) {
     companion object {
         const val MIC = -1
@@ -114,6 +117,11 @@ data class TalkUiState(
     val queued: List<String> = emptyList(),
     /** Both kept pushing at once (3 times within a minute) in this chat: a video call may suit them better. */
     val suggestCall: String? = null,
+    /**
+     * This phone's pushes: what each listener said became of it (2026-11-25, hen: "who can hear you"), by clip, then
+     * user (HeardStatus). The chips under my pill show it while I push.
+     */
+    val heard: Map<String, Map<String, Int>> = emptyMap(),
 )
 
 /** [talker] started in [chat]: one more of its talkers (the same burst again replaces itself), and the newest. */
@@ -149,7 +157,7 @@ interface TalkHost {
      * that was heard (played, or live in the room) never comes here (2026-11-25, hen: "show notification only if i
      * missed the stream").
      */
-    fun talkNotify(chat: String, from: String, clip: String, video: Boolean)
+    fun talkNotify(chat: String, from: String, clip: String, video: Boolean, status: Int)
 
     /** Nothing plays now; a talk session may end (20 s after, the plan says, so a reply can follow). */
     fun idle()
@@ -173,6 +181,9 @@ interface TalkPrefs {
 
     /** Settings › Talk › Lower other audio while someone talks (TalkDuck). */
     val lowerOthers: Boolean get() = true
+
+    /** [chat]'s page › Let urgent pushes through Do Not Disturb (off by default; 2026-11-25, hen). */
+    fun urgentThroughDnd(chat: String): Boolean = false
 }
 
 /**
@@ -227,9 +238,23 @@ internal class Talk(
     var volume: TalkVolume? = null
     private val loudness = TalkLoudness({ volume }, { prefs.unmute }, { prefs.talkVolume }, { prefs.saveTalkVolume(it) })
 
+    /** Whether this phone can hear talk now (2026-11-25, hen): pushes that come while it can't are saved. */
+    var hearNow: () -> Hear = { Hear.OK }
+
+    /** Do Not Disturb, opened for an urgent push the user lets through; null: it can't be. */
+    var dndGate: DndGate? = null
+
     /** Other apps' sound, dimmed while someone is heard (TalkDuck); null: left alone. */
     var duck: AudioDuck? = null
-    private val dimmer = TalkDuck(scope, { duck?.takeIf { prefs.lowerOthers } }, { loudness.begin() }, { loudness.end() })
+    private val dimmer = TalkDuck(scope, { duck?.takeIf { prefs.lowerOthers } }, { loudness.begin() }, {
+        loudness.end()
+        // Do Not Disturb opened for an urgent push comes back as it was.
+        if (dndOpened) {
+            dndOpened = false
+            runCatching { dndGate?.close() }
+        }
+    })
+    private var dndOpened = false
 
     /** Other apps are dimmed for a push heard live now (TalkDuck). */
     val ducking: Boolean get() = dimmer.holding
@@ -294,13 +319,32 @@ internal class Talk(
         var videoBytes = 0L
         var pendingBytes = 0
         var pendingAudio = 0
+        /** An urgent push (the red bell). */
+        var urgent = false
     }
 
     private var outgoing: Outgoing? = null
 
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     /** [video]: this press's own choice (the floating window's slide up), over the chat's setting. */
-    fun press(chat: String, video: Boolean? = null) = begin(chat, voiceOnly = false, video = video)
+    fun press(chat: String, video: Boolean? = null, urgent: Boolean = false) = begin(chat, voiceOnly = false, video = video, urgent = urgent)
+
+    /**
+     * The press became urgent while held (2026-11-25, hen: released on the red bell, or kept there): the floor and
+     * the clip say so from here. True when a press is going on.
+     */
+    fun markUrgent(): Boolean {
+        val out = outgoing?.takeIf { !it.voiceOnly } ?: return false
+        if (out.urgent) return true
+        out.urgent = true
+        _state.update { s -> s.copy(own = s.own?.takeIf { it.clip == out.id }?.copy(urgent = true) ?: s.own) }
+        store.message(out.id)?.let { m -> m.clip?.let { c -> store.putMessage(m.copy(clip = c.copy(urgent = true))) } }
+        // The listeners decided at its start: its clip start again, urgent, lets a saved one through after all.
+        if (out.granted) scope.launch {
+            runCatching { sendContent(out.chat, Content(clip = ClipContent(out.id, out.key, ClipContent.BURST, out.startedAt, video = out.video, urgent = true)), PushKind.NONE) }
+        }
+        return true
+    }
 
     /** A Talk screen is on screen ([on]) or left: the microphone is kept open for an instant press, or closed. */
     fun warmMicrophone(on: Boolean) {
@@ -311,13 +355,14 @@ internal class Talk(
     /** The composer's microphone went down: a voice message, without the floor. */
     fun startVoice(chat: String) = begin(chat, voiceOnly = true)
 
-    private fun begin(chat: String, voiceOnly: Boolean, video: Boolean? = null) {
+    private fun begin(chat: String, voiceOnly: Boolean, video: Boolean? = null, urgent: Boolean = false) {
         if (outgoing != null) return
         // Never taken from a call or another app (2026-11-25, hen: "don't hijack it"): refused, so nothing looks live.
         if (micBusy()) return refuse(chat, OwnTalk.MIC)
         // In the conversation's room, the room's microphone feeds the clip too.
         val mic = captureOverride ?: (if (voiceOnly) null else live?.captureFor(chat)) ?: capture ?: return refuse(chat, OwnTalk.MIC)
         val out = Outgoing(chat, voiceOnly)
+        out.urgent = urgent && !voiceOnly
         out.mic = mic
         // One to one, both talk at once: what they say now goes on playing while I talk (2026-11-25, hen). Anything
         // else playing (an older clip, a group's burst) stops.
@@ -350,7 +395,7 @@ internal class Talk(
         if (!voiceOnly) {
             if (connected()) {
                 scope.launch {
-                    if (!sendFrame(TalkStartFrame(talkStart(chat, out.id)))) toVoice(out)
+                    if (!sendFrame(TalkStartFrame(talkStart(chat, out.id, out.urgent)))) toVoice(out)
                 }
                 // No answer in a few seconds: the connection is gone in all but name.
                 scope.launch {
@@ -579,7 +624,7 @@ internal class Talk(
             TextMessage(
                 out.id, out.chat, outgoing = true, body = "", at = out.startedAt, status = MessageStatus.SENT,
                 author = if (Group.idOf(out.chat) != null) me()?.user else null,
-                clip = Clip(out.id, Base64.encode(out.key), ClipKind.BURST, video = out.video),
+                clip = Clip(out.id, Base64.encode(out.key), ClipKind.BURST, video = out.video, urgent = out.urgent),
             )
         )
         publish()
@@ -605,7 +650,7 @@ internal class Talk(
         }
         scope.launch {
             try {
-                sendContent(out.chat, Content(clip = ClipContent(out.id, out.key, ClipContent.BURST, out.startedAt, video = out.video)), PushKind.TALK)
+                sendContent(out.chat, Content(clip = ClipContent(out.id, out.key, ClipContent.BURST, out.startedAt, video = out.video, urgent = out.urgent)), PushKind.TALK)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -628,12 +673,12 @@ internal class Talk(
             out.packets.close()
             scope.launch { live?.talking(out.chat, false) }
         }
-        _state.update { it.copy(own = OwnTalk(out.chat, out.id, phase, out.startedAt, busyWith, refusal)) }
+        _state.update { it.copy(own = OwnTalk(out.chat, out.id, phase, out.startedAt, busyWith, refusal, urgent = out.urgent)) }
         clearOwnLater()
     }
 
     private fun showOwn(out: Outgoing) {
-        _state.update { it.copy(own = OwnTalk(out.chat, out.id, out.phase, out.startedAt)) }
+        _state.update { it.copy(own = OwnTalk(out.chat, out.id, out.phase, out.startedAt, urgent = out.urgent)) }
     }
 
     private fun clearOwnLater() {
@@ -674,7 +719,7 @@ internal class Talk(
                 o.unsent.clear()
                 o.index = 0
                 o.frames = 0
-                _state.update { it.copy(own = OwnTalk(o.chat, o.id, TalkPhase.WAITING, o.startedAt, s.talkerUser)) }
+                _state.update { it.copy(own = OwnTalk(o.chat, o.id, TalkPhase.WAITING, o.startedAt, s.talkerUser, urgent = o.urgent)) }
                 scope.launch { live?.talking(o.chat, false) }
                 noteOverlap(o.chat)
                 scope.launch {
@@ -708,6 +753,7 @@ internal class Talk(
                 val burst = incoming(s.burstId, chat, s.talkerUser)
                 burst.announced = true
                 burst.device = s.talkerDevice
+                if (s.urgent) burst.urgent = true
                 scope.launch { consider(burst) }
             }
             TalkEvent.ENDED -> {
@@ -734,7 +780,7 @@ internal class Talk(
                     showOwn(w)
                     // Live again from this moment, on screen and in the room together.
                     scope.launch { live?.talking(w.chat, true, w.video) { w.liveNow() } }
-                    scope.launch { if (!sendFrame(TalkStartFrame(talkStart(w.chat, w.id)))) toVoice(w) }
+                    scope.launch { if (!sendFrame(TalkStartFrame(talkStart(w.chat, w.id, w.urgent)))) toVoice(w) }
                     scope.launch {
                         delay(GRANT_WAIT)
                         if (!w.decided && !w.waiting) toVoice(w)
@@ -777,6 +823,12 @@ internal class Talk(
         var heardLive = false
         /** Push-to-video: its packets are tagged, the pictures go to videoOut. */
         var video = false
+        /** An urgent push (STARTED, or its clip start). */
+        var urgent = false
+        /** Played through Do Not Disturb (an urgent push let through). */
+        var throughDnd = false
+        /** What this phone told the talker became of it (HeardStatus; 0 nothing yet). */
+        var told = 0
         val splitter = TalkVideo.Splitter()
         val createdAt = now()
     }
@@ -902,7 +954,7 @@ internal class Talk(
                     clip.id, chat, outgoing = outgoingCopy, body = "", at = if (outgoingCopy) clip.sentAt else serverTimestamp,
                     status = MessageStatus.SENT, read = outgoingCopy,
                     author = if (Group.idOf(chat) != null) from else null,
-                    clip = Clip(clip.id, Base64.encode(clip.key), kind, clip.durationMs, video = clip.video),
+                    clip = Clip(clip.id, Base64.encode(clip.key), kind, clip.durationMs, video = clip.video, urgent = clip.urgent),
                 )
             )
         }
@@ -911,6 +963,11 @@ internal class Talk(
         burst.key = clip.key
         burst.sentAt = clip.sentAt
         burst.video = clip.video
+        if (clip.urgent && !burst.urgent) {
+            burst.urgent = true
+            // Marked urgent after it was saved here: let through after all, if this user allows it.
+            if (burst.decidedPlay && !burst.play && !burst.heardLive && burst.told != 0 && !HeardStatus.heard(burst.told)) scope.launch { reconsiderUrgent(burst) }
+        }
         // Already playing (the floor's news came first, and it started then): its pictures begin now, before any
         // packet (none opens without this key). 2026-11-22: later bursts showed no video.
         // Heard live through the room (sound only there): its pictures still come from its segments (2026-11-24: the
@@ -924,12 +981,73 @@ internal class Talk(
         drain(burst)
     }
 
+    /**
+     * [burst] came while this phone can't hear (Do Not Disturb, silent, a call): saved, with a silent "Missed push"
+     * and its talker told why; true then. An urgent one the user lets through opens Do Not Disturb and plays.
+     */
+    private fun saveIfCantHear(burst: Incoming): Boolean {
+        val allowed = prefs.urgentThroughDnd(burst.from)
+        when (val d = CanHearRules.decide(hearNow(), burst.urgent, allowed, dndGate?.canOpen() == true)) {
+            HearDecision.Play -> return false
+            HearDecision.ThroughDnd -> {
+                if (!dndOpened && runCatching { dndGate?.open() }.getOrNull() == true) dndOpened = true
+                burst.throughDnd = true
+                return false
+            }
+            is HearDecision.Save -> {
+                if (burst.announced && live?.state?.value?.room == burst.chat) live?.silence(burst.chat, "${burst.from}.${burst.device}")
+                host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, d.status)
+                tell(burst, d.status)
+                drain(burst)
+                return true
+            }
+        }
+    }
+
+    /** A saved [burst] its talker then marked urgent: played from its start when this user lets urgent ones through. */
+    private suspend fun reconsiderUrgent(burst: Incoming) {
+        if (saveIfCantHear(burst)) return
+        if (!awake() && host?.prepareToPlay(burst.chat, burst.from) != true) return
+        burst.play = true
+        follow(burst)
+        enqueue(burst)
+    }
+
+    /** Tells [burst]'s talker what became of it here (HeardStatus), once each. */
+    private fun tell(burst: Incoming, status: Int) {
+        if (burst.told == status) return
+        burst.told = status
+        scope.launch {
+            try {
+                sendContent(burst.chat, Content(talkHeard = TalkHeardContent(burst.id, status)), PushKind.NONE)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /**
+     * [from] told what became of this phone's push [heard] at their end (TalkHeardContent): kept on its message
+     * (the bubble's "Saved: Do Not Disturb") and in [TalkUiState.heard] (the chips while pushing).
+     */
+    internal fun takeHeard(from: String, heard: TalkHeardContent) {
+        if (!validId(heard.burstId) || heard.status !in HeardStatus.HEARING..HeardStatus.SAVED_URGENT_NOT_ALLOWED) return
+        val message = store.message(heard.burstId)?.takeIf { it.outgoing } ?: return
+        val clip = message.clip ?: return
+        store.putMessage(message.copy(clip = clip.copy(heardBy = clip.heardBy + (from to heard.status))))
+        _state.update { s -> s.copy(heard = s.heard + (heard.burstId to (s.heard[heard.burstId].orEmpty() + (from to heard.status)))) }
+        publish()
+    }
+
     /** Whether to play [burst] now, asked once its conversation is known. */
     private suspend fun consider(burst: Incoming) {
         if (burst.decidedPlay || burst.chat.isEmpty()) return
         burst.decidedPlay = true
         val age = now() - (burst.sentAt.takeIf { it > 0 } ?: burst.createdAt)
         val fresh = burst.announced || age < PLAY_IF_NEWER
+        // Do Not Disturb, silent, a call (2026-11-25, hen): not out loud, saved, unless it is urgent and let through.
+        if (fresh && saveIfCantHear(burst)) return
         // In the conversation's room the talker may be heard live already (their phone doesn't wait for the grant).
         if (fresh && burst.announced && live?.audio == true && live?.state?.value?.room == burst.chat) {
             val identity = "${burst.from}.${burst.device}"
@@ -941,6 +1059,7 @@ internal class Talk(
             if (live?.hearsLive(burst.chat, identity) == true) {
                 burst.heardLive = true
                 live?.heard(waited)
+                tell(burst, if (burst.throughDnd) HeardStatus.HEARD_URGENT_DND else HeardStatus.HEARING)
                 // Others' music dims while it's heard (2026-11-25, hen).
                 dimmer.heard("live:${burst.id}")
                 // Heard through the room, the app off screen: the same as a burst that plays (the talk session or
@@ -955,13 +1074,13 @@ internal class Talk(
         when {
             !fresh -> {
                 // Too late to play as it happens, nobody looking: missed.
-                if (!awake()) host?.talkNotify(burst.chat, burst.from, burst.id, burst.video)
+                if (!awake()) host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
                 return drain(burst)
             }
             awake() -> burst.play = true
-            prefs.notifyOnly(burst.chat) -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video)
+            prefs.notifyOnly(burst.chat) -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
             host?.prepareToPlay(burst.chat, burst.from) == true -> burst.play = true
-            else -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video)
+            else -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
         }
         if (!burst.play) return drain(burst)
         if (burst.announced) sendFrame(TalkAckFrame(TalkAck(burst.id)))
@@ -999,6 +1118,7 @@ internal class Talk(
         val player = player ?: return
         // Heard while it plays (a played burst's end is its playback's, not its floor's).
         dimmer.heard("play:${burst.id}")
+        tell(burst, if (burst.throughDnd) HeardStatus.HEARD_URGENT_DND else HeardStatus.HEARING)
         burst.playing = true
         _state.update { it.copy(playing = NowPlaying(burst.chat, burst.id, burst.from, live = true, video = burst.video), queued = it.queued - burst.id) }
         if (burst.video) videoOut?.begin(burst.id)
@@ -1176,9 +1296,9 @@ internal class Talk(
                 bursts.values.any { it.play && !it.kept && now() - it.createdAt < KEEP_BURST }
         }
 
-    private fun talkStart(chat: String, id: String): TalkStart {
+    private fun talkStart(chat: String, id: String, urgent: Boolean): TalkStart {
         val group = Group.idOf(chat)
-        return if (group != null) TalkStart(id, group = group) else TalkStart(id, peer = chat)
+        return if (group != null) TalkStart(id, group = group, urgent = urgent) else TalkStart(id, peer = chat, urgent = urgent)
     }
 
     private fun newClipId(): String = random.nextBytes(16).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }

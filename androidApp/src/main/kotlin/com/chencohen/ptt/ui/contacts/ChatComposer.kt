@@ -329,6 +329,8 @@ internal fun ChatButtons(
      * dimmed inside a dashed ring, and "Waiting for Sharon…" beside it.
      */
     waitingFor: String? = null,
+    /** My push now is urgent (the red bell; 2026-11-25, hen): the button red with a bell. */
+    urgent: Boolean = false,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
@@ -367,8 +369,15 @@ internal fun ChatButtons(
             var lifting by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
             var lockedNow by remember { androidx.compose.runtime.mutableStateOf(false) }
             var slidingNow by remember { androidx.compose.runtime.mutableStateOf(false) }
+            // Sideways, away from the voice message button (its right, in Hebrew too: the row is laid out on the
+            // screen): the red bell, Urgent (2026-11-25, hen). Released on it, or kept there: an urgent push.
+            var side by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+            var urgentNow by remember { androidx.compose.runtime.mutableStateOf(false) }
             val density = androidx.compose.ui.platform.LocalDensity.current
             val lockAt = with(density) { 72.dp.toPx() }
+            val urgentAt = with(density) { 72.dp.toPx() }
+            val onUrgent by androidx.compose.runtime.rememberUpdatedState(actions.markUrgent)
+            val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
             val warmFrom = with(density) { 16.dp.toPx() }
             val context = androidx.compose.ui.platform.LocalContext.current
             val canAsk = androidx.activity.compose.LocalActivityResultRegistryOwner.current != null
@@ -398,11 +407,19 @@ internal fun ChatButtons(
                 } else Box(
                     Modifier.fillMaxSize()
                         .shadow(10.dp, CircleShape)
-                        .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
+                        .background(if (urgent || urgentNow) LibraryColors.Error else if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
                         .semantics { contentDescription = talkLabel }
                         .holdOrLock(
                             lockAt = lockAt,
-                            onPress = { lifting = 0f; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
+                            onPress = { lifting = 0f; side = 0f; urgentNow = false; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
+                            onSide = { right ->
+                                side = right
+                                if (right >= urgentAt && !urgentNow && !lockedNow) {
+                                    urgentNow = true
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    onUrgent()
+                                }
+                            },
                             onLift = { up ->
                                 lifting = up
                                 val slide = up > warmFrom && !lockedNow
@@ -421,6 +438,7 @@ internal fun ChatButtons(
                             },
                             onRelease = { locked ->
                                 lifting = -1f
+                                side = 0f
                                 onPressed(false)
                                 if (slidingNow) {
                                     slidingNow = false
@@ -435,7 +453,24 @@ internal fun ChatButtons(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
+                    Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
+                }
+                // The red bell, sideways while it is held: it fills red as the thumb nears it.
+                if (lifting >= 0f && !handsFree) {
+                    val near = if (urgentNow) 1f else (side / urgentAt).coerceIn(0f, 1f)
+                    val urgentLabel = stringResource(R.string.talk_urgent)
+                    androidx.compose.foundation.layout.Column(
+                        Modifier.align(Alignment.CenterEnd).offset(x = 72.dp + 12.dp * near).size(64.dp, 44.dp)
+                            .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                            .background(androidx.compose.ui.graphics.lerp(LibraryColors.Background, LibraryColors.Error, near), androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                            .semantics { contentDescription = urgentLabel },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        val ink = if (near > 0.5f) Color.White else LibraryColors.Error
+                        Icon(LibraryIcons.Bell, null, tint = ink, modifier = Modifier.size(18.dp))
+                        Text(urgentLabel, color = ink, style = LibraryType.Tiny)
+                    }
                 }
                 // The target, over the button while it is held: a camera over a lock; it fills as the thumb nears it.
                 if (lifting >= 0f && !handsFree) {

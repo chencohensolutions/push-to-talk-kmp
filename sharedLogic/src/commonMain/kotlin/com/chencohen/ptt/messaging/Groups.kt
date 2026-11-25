@@ -51,6 +51,8 @@ internal class Groups(
     private val onTyping: (Group, String, TypingContent) -> Unit,
     /** A member device's live talk key in the group's room. */
     private val onTalkKey: (identity: String, key: TalkKeyContent) -> Unit = { _, _ -> },
+    /** A member told what became of a push of this phone's (TalkHeardContent). */
+    private val onTalkHeard: (author: String, heard: TalkHeardContent) -> Unit = { _, _ -> },
     /** A call's signalling in the group, from [author]. */
     private val onCall: (group: Group, author: String, call: CallContent, at: Long) -> Unit = { _, _, _, _ -> },
     /** A member read messages in the group (2026-11-23, hen: read circles in groups). */
@@ -442,6 +444,7 @@ internal class Groups(
         content.receipt?.takeIf { it.read && author != self.user }?.let { onRead(group, author, it.ids) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }
         content.talkKey?.let { onTalkKey("$author.${envelope.senderDevice}", it) }
+        content.talkHeard?.let { onTalkHeard(author, it) }
         content.call?.let { onCall(group, author, it, envelope.serverTimestamp) }
     }
 }

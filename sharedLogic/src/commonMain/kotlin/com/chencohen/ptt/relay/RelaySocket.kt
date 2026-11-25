@@ -253,7 +253,7 @@ internal class RelaySocket(
                     throw e
                 } catch (_: Exception) {
                 }
-                is PongFrame, is AckFrame, is SendFrame, is TalkStartFrame, is TalkEndFrame, is TalkAckFrame, null -> Unit
+                is PongFrame, is AckFrame, is SendFrame, is TalkStartFrame, is TalkEndFrame, is TalkAckFrame, is HearStateFrame, null -> Unit
             }
         }
     }

@@ -117,14 +117,17 @@ private class FakePlayer : TalkPlayer {
 
 private class FakeHost(var allow: Boolean) : TalkHost {
     val notified = mutableListOf<String>()
+    /** Each notification's HeardStatus (0 for a plain missed push). */
+    val notifiedWhy = mutableListOf<Int>()
     var prepared = 0
     override suspend fun prepareToPlay(chat: String, from: String): Boolean {
         prepared++
         return allow
     }
 
-    override fun talkNotify(chat: String, from: String, clip: String, video: Boolean) {
+    override fun talkNotify(chat: String, from: String, clip: String, video: Boolean, status: Int) {
         notified += clip
+        notifiedWhy += status
     }
 
     override fun idle() {}
@@ -176,19 +179,139 @@ private class TalkPhone(val server: FakeServer, val user: String, scope: TestSco
 class TalkTest {
     private fun packets(from: Int, count: Int) = (from until from + count).map { byteArrayOf(7, (it and 0xff).toByte(), (it shr 8).toByte()) }
 
-    private suspend fun TestScope.paired(): Triple<FakeServer, TalkPhone, TalkPhone> {
+    private suspend fun TestScope.paired(other: String = "dana"): Triple<FakeServer, TalkPhone, TalkPhone> {
         val server = FakeServer()
         val hen = TalkPhone(server, "hen", this, 1)
-        val dana = TalkPhone(server, "dana", this, 2)
+        val dana = TalkPhone(server, other, this, 2)
         hen.controller.start()
         dana.controller.start()
         advanceUntilIdle()
         val (code, _) = hen.messaging.newPairCode()
         dana.messaging.pairWith(code, verified = true)
         advanceUntilIdle()
-        assertTrue(hen.messaging.accept("dana"))
+        assertTrue(hen.messaging.accept(other))
         advanceUntilIdle()
         return Triple(server, hen, dana)
+    }
+
+    /** hen pushes to testbot ([urgent]: the red bell, from the press), ten packets, and lets go. */
+    private suspend fun TestScope.push(hen: TalkPhone, urgent: Boolean = false): String {
+        hen.work.launch { hen.talk.press("testbot", urgent = urgent) }
+        advanceUntilIdle()
+        val id = hen.state.talk.own!!.clip
+        hen.mic.say(0, 10)
+        hen.work.launch { hen.talk.release() }
+        advanceUntilIdle()
+        return id
+    }
+
+    @Test
+    fun aPushHeardOutLoudTellsTheTalkerItIsHeard() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        val id = push(hen)
+        assertEquals(10, bot.speaker.played.single().size)
+        assertEquals(mapOf("testbot" to HeardStatus.HEARING), hen.state.talk.heard[id])
+        assertEquals(mapOf("testbot" to HeardStatus.HEARING), hen.chat("testbot").single().clip?.heardBy)
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun inDoNotDisturbAPushIsSavedSilentlyAndTheTalkerIsToldWhy() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        bot.messaging.setHear(Hear.DND)
+        advanceUntilIdle()
+        val id = push(hen)
+        assertTrue(bot.speaker.played.isEmpty(), "not out loud")
+        assertEquals(listOf(id), bot.host.notified)
+        assertEquals(listOf(HeardStatus.SAVED_DND), bot.host.notifiedWhy)
+        assertEquals(ClipKind.BURST, bot.chat("hen").single().clip?.kind)
+        assertEquals(false, bot.chat("hen").single().read, "kept unread: a missed push")
+        assertEquals(HeardStatus.SAVED_DND, hen.state.talk.heard[id]?.get("testbot"))
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun anUrgentPushGoesThroughDoNotDisturbOnlyWhereItIsLetThrough() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        val gate = object : DndGate {
+            var opened = 0
+            var closed = 0
+            override fun canOpen() = true
+            override fun open(): Boolean { opened++; return true }
+            override fun close() { closed++ }
+        }
+        bot.talk.dndGate = gate
+        bot.messaging.setHear(Hear.DND)
+        advanceUntilIdle()
+        // Not let through for hen: saved, and hen is told so.
+        val first = push(hen, urgent = true)
+        assertTrue(bot.speaker.played.isEmpty())
+        assertEquals(listOf(HeardStatus.SAVED_URGENT_NOT_ALLOWED), bot.host.notifiedWhy)
+        assertEquals(HeardStatus.SAVED_URGENT_NOT_ALLOWED, hen.state.talk.heard[first]?.get("testbot"))
+        assertEquals(true, hen.chat("testbot").first { it.id == first }.clip?.urgent)
+
+        // Let through on hen's page: it plays, Do Not Disturb opened for it and put back after.
+        bot.settings.urgentThroughDndChats = setOf("hen")
+        val second = push(hen, urgent = true)
+        assertEquals(10, bot.speaker.played.single().size)
+        assertEquals(HeardStatus.HEARD_URGENT_DND, hen.state.talk.heard[second]?.get("testbot"))
+        assertEquals(1, gate.opened)
+        assertEquals(1, gate.closed)
+
+        // A plain push in Do Not Disturb is still saved.
+        push(hen)
+        assertEquals(1, bot.speaker.played.size)
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun aPushMadeUrgentWhileHeldIsLetThroughAfterAll() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        bot.talk.dndGate = object : DndGate {
+            override fun canOpen() = true
+            override fun open() = true
+            override fun close() {}
+        }
+        bot.settings.urgentThroughDndChats = setOf("hen")
+        bot.messaging.setHear(Hear.DND)
+        advanceUntilIdle()
+        hen.work.launch { hen.talk.press("testbot") }
+        advanceUntilIdle()
+        val id = hen.state.talk.own!!.clip
+        hen.mic.say(0, 5)
+        advanceUntilIdle()
+        assertEquals(HeardStatus.SAVED_DND, hen.state.talk.heard[id]?.get("testbot"), "saved at first")
+        // Slid onto the red bell.
+        assertTrue(hen.talk.markUrgent())
+        advanceUntilIdle()
+        assertTrue(hen.state.talk.own!!.urgent)
+        hen.mic.say(5, 5)
+        hen.work.launch { hen.talk.release() }
+        advanceUntilIdle()
+        assertEquals(HeardStatus.HEARD_URGENT_DND, hen.state.talk.heard[id]?.get("testbot"))
+        assertTrue(bot.speaker.played.single().isNotEmpty(), "played after all (catch-up may shorten it)")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun thisPhonesHearStateGoesToTheServerAndContactsSeeIt() = runTest {
+        val (server, hen, bot) = paired("testbot")
+        bot.messaging.setHear(Hear.SILENT)
+        advanceUntilIdle()
+        hen.messaging.refreshPresence()
+        advanceUntilIdle()
+        assertEquals(Hear.SILENT, hen.state.presence["testbot"]?.hear)
+        bot.messaging.setHearVisible(false)
+        hen.messaging.refreshPresence()
+        advanceUntilIdle()
+        assertEquals(Hear.UNKNOWN, hen.state.presence["testbot"]?.hear)
+        assertEquals(false, bot.settings.hearVisible)
+        hen.stop()
+        bot.stop()
     }
 
     @Test

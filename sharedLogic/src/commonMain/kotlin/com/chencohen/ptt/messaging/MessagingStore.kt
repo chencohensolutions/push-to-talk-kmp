@@ -162,6 +162,10 @@ data class Clip(
     val heard: Boolean = false,
     /** Push-to-video: the camera too (TalkVideo). */
     val video: Boolean = false,
+    /** An urgent push (2026-11-25, hen). */
+    val urgent: Boolean = false,
+    /** A push this phone said: what became of it at each listener ("user" to HeardStatus), as they told it. */
+    val heardBy: Map<String, Int> = emptyMap(),
 )
 
 /** A member of a group as the owner's devices named them: the user and the identity key the owner trusts (base64). */
