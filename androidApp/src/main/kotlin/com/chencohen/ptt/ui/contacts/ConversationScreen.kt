@@ -1326,9 +1326,10 @@ private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk:
 private fun MemberFaces(members: List<String>, here: Set<String>, inRoom: Set<String>) {
     if (members.isEmpty()) return
     val sorted = members.sortedBy { if (it in here) 0 else if (it in inRoom) 1 else 2 }
-    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.widthIn(max = 168.dp).fillMaxHeight()) {
-        val step = 30.dp
-        val face = 26.dp
+    // A little bigger, with a little room between them (2026-11-25, hen).
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.widthIn(max = 196.dp).fillMaxHeight()) {
+        val step = 46.dp
+        val face = 36.dp
         val fit = ((maxWidth - 8.dp) / step).toInt().coerceAtLeast(1)
         val shown = if (sorted.size <= fit) sorted else sorted.take((fit - 1).coerceAtLeast(1))
         val more = sorted.size - shown.size
