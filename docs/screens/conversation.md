@@ -311,3 +311,13 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   "Video call · 3:20" with End, then mute, camera, flip and full screen. Messages stay visible
   between them. Full screen moves it to the usual call screen; leaving the chat shows the usual call screen too. When
   it ends, the panels go and the call's line ("Video call · 3:20") stays, with its entry in Calls.
+
+## Header edge (2026-11-25, hen: "A · Hairline")
+
+The header (in the floating chat too) keeps the screen's own background, with one 1-px line under it in the palette's
+outline variant. The live row rests just below that line.
+
+## Bottom buttons (2026-11-25, hen)
+
+Push-to-talk sits in the middle of the screen, and the voice message button just to its left, the same in Hebrew and
+English (not mirrored). No call buttons in the chat. While a press waits, "Waiting for …" shows left of them.

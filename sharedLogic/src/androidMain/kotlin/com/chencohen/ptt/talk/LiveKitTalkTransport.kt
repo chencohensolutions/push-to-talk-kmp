@@ -101,6 +101,14 @@ class LiveKitTalkTransport(
                     audioOptions = AudioOptions(
                         audioOutputType = AudioType.MediaAudioType(),
                         audioHandler = NoAudioHandler(),
+                        // Both talk at once (2026-11-25, hen: "my mic will not send the other person's voice from my
+                        // speaker"): WebRTC's own echo canceller (AEC3) and noise suppression, which take what this
+                        // room plays as their reference. The phone's built-in ones are made for call mode; the room
+                        // plays as media (the speaker, normal mode), where they don't see it.
+                        javaAudioDeviceModuleCustomizer = { builder ->
+                            builder.setUseHardwareAcousticEchoCanceler(false)
+                            builder.setUseHardwareNoiseSuppressor(false)
+                        },
                     ),
                 ),
             )
@@ -170,7 +178,13 @@ class LiveKitTalkTransport(
         if (this.room !== room) return@withLock null
         val local = room.localParticipant
         // LiveKit's own capture options: echo cancelling, noise suppression and automatic gain control (WebRTC's).
-        val track = local.createAudioTrack("talk")
+        val track = local.createAudioTrack(
+            "talk",
+            io.livekit.android.room.track.LocalAudioTrackOptions(
+                noiseSuppression = true, echoCancellation = true, autoGainControl = true, highPassFilter = true, typingNoiseDetection = true,
+            ),
+        )
+        Log.i(TAG, "microphone in the room: echo cancelling and noise suppression on (WebRTC's own, the room's playback as reference)")
         sampleCapture.attach(track)
         if (!local.publishAudioTrack(track)) {
             Log.w(TAG, "the microphone wasn't published")

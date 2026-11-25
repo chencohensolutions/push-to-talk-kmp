@@ -64,6 +64,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -584,7 +585,9 @@ private fun ConversationScreenIn(
         // call; when their floor ends while I'm still live, my burst starts.
         // (Or pretended to, in a test build: TestBubble.)
         val pretendTheirs by LivePretend.theirs.collectAsState()
-        val theyHold = group == null && (talk.talkers[user] != null || pretendTheirs != LiveKind.None) && talk.own?.chat != user
+        // One to one, both talk at once (2026-11-25, hen: "both parties to be able to transmit simultaneously"): a press
+        // while they talk starts at once, no standing by. (An older server still answers Busy: that is shown as waiting.)
+        val theyHold = false
         // Stop is final (TalkRun): what a press set going may start a burst only while its run is the current one.
         val runs = remember(user) { TalkRun() }
         fun say(what: String) = android.util.Log.i(CHAT_TALK, what)
@@ -1170,12 +1173,22 @@ private const val ENFORCE_RUNS = true
 
 /** The chat header's height under the status bar, and its face (2026-11-25, hen: slimmer; the live row rests below it). */
 private val HEADER_HEIGHT = 48.dp
+
+/**
+ * The header's own edge (2026-11-25, hen chose "A · Hairline"): the screen's background, and one 1-px line under it in
+ * the palette's outline variant, so the live row below reads as apart from it.
+ */
+@Composable
+private fun Modifier.headerHairline(): Modifier {
+    val line = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant
+    return drawBehind { drawLine(line, androidx.compose.ui.geometry.Offset(0f, size.height - 0.5f), androidx.compose.ui.geometry.Offset(size.width, size.height - 0.5f), strokeWidth = 1f) }
+}
 private val HEADER_FACE = 32.dp
 
 @Composable
 private fun Header(user: String, contact: Contact?, header: ConversationHeader, actions: ConversationActions, canTalk: Boolean) {
     // Slim (2026-11-25, hen: "shrink the header height"): 48 dp under the status bar, the touch targets still 48 dp.
-    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).headerHairline().padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back),
             contentAlignment = Alignment.Center,
@@ -1206,7 +1219,7 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
 
 @Composable
 private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk: Boolean) {
-    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).headerHairline().padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back), contentAlignment = Alignment.Center) {
             Icon(LibraryIcons.Back, stringResource(R.string.library_back), tint = LibraryColors.OnBackground)
         }

@@ -249,7 +249,9 @@ internal class Talk(
         val mic = captureOverride ?: (if (voiceOnly) null else live?.captureFor(chat)) ?: capture ?: return refuse(chat, OwnTalk.MIC)
         val out = Outgoing(chat, voiceOnly)
         out.mic = mic
-        stopPlaying()
+        // One to one, both talk at once: what they say now goes on playing while I talk (2026-11-25, hen). Anything
+        // else playing (an older clip, a group's burst) stops.
+        if (Group.idOf(chat) != null || _state.value.playing?.live != true) stopPlaying()
         // The camera first, so the voice's packets are tagged from the first one.
         val camera = videoCapture?.takeIf { !voiceOnly && sendVideo(chat) }
         if (camera != null) {

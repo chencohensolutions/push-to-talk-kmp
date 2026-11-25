@@ -62,6 +62,9 @@ Named sizes in `LibraryType` (`LibraryStyle.kt`); no hand-typed sizes. A call ma
 
 Nothing is drawn below 11 sp. Text fields keep their own sizes.
 
+- **A header's edge** is a 1-px hairline in the outline variant, on the screen's own background (no tinted band;
+  2026-11-25, hen chose A).
+
 ## Motion
 
 - **Combined changes move together, in one move** (2026-11-25, hen: "every combined animation in the app should be in

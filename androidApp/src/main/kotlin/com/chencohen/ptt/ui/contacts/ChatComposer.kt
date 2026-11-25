@@ -335,11 +335,12 @@ internal fun ChatButtons(
     val big by animateDpAsState(if (compact) 48.dp else 84.dp, label = "talk button")
     // The language's own direction, for words in the row (the row itself is laid out left to right).
     val reading = androidx.compose.ui.platform.LocalLayoutDirection.current
-    // Laid out on the screen itself, the same in Hebrew and English (2026-11-24, hen: the thumb finds it in one
-    // place): voice message, then the big button near the right edge, both under the right thumb.
+    // Laid out on the screen itself, the same in Hebrew and English: the big button in the middle of the screen and
+    // voice message just left of it (2026-11-25, hen: "make the push button in center and the voice message button on
+    // its left").
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = if (compact) 6.dp else 12.dp, bottom = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = if (compact) 6.dp else 12.dp, bottom = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
@@ -380,7 +381,7 @@ internal fun ChatButtons(
             val onPress by androidx.compose.runtime.rememberUpdatedState(press ?: actions.startVoice)
             val ring = com.chencohen.ptt.ui.style.Pink
             Box(
-                Modifier.padding(start = 8.dp).size(big)
+                Modifier.size(big)
                     .drawBehind {
                         // Waiting: a dashed ring around the button, the button itself dimmed.
                         if (waitingFor != null) {
@@ -452,6 +453,8 @@ internal fun ChatButtons(
                     }
                 }
             }
+            // The same width as the left side's, so the big button sits in the middle of the screen.
+            Spacer(Modifier.weight(1f).padding(start = 8.dp))
         }
     }
 }
