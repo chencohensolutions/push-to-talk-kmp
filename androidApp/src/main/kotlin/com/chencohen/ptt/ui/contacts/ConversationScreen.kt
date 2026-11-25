@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -52,6 +53,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
@@ -419,18 +421,45 @@ private fun ConversationScreenIn(
                     theirVoiceHeld = null
                 }
             }
-            val voicesNow = listOfNotNull(theirVoice ?: theirVoiceHeld?.takeIf { theirClip == null }, myVoice)
-            LivePanel(
-                theirClip != null && fullVideo == null, if (group != null) (theirs?.from ?: talker?.user) else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                myPanel, runSince.takeIf { it > 0 } ?: sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
-                theirIdentity = talk.talkers[user]?.let { "${it.user}.${it.device}" },
-                theirUser = talk.talkers[user]?.user ?: theirs?.from ?: user,
-                theirName = (talk.talkers[user]?.user ?: theirs?.from)?.let { u -> if (group != null) u else contact?.name ?: u } ?: contact?.name ?: user,
-                behindMs = theirs?.behindMs,
-                voices = voicesNow,
-            )
-            BothLiveChip(bothLiveNow && actions.callInChat != null) { makeCallNow[0]() }
+            // Test builds (TestBubble): the other side shown live here without a real push.
+            val pretend by LivePretend.theirs.collectAsState()
+            val pretendVoice = if (pretend == LiveKind.Voice) VoiceSide(user, contact?.name ?: user, false, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis()) else null
+            LaunchedEffect(pretend) { if (pretend != LiveKind.None && theirSince == 0L) theirSince = System.currentTimeMillis() }
+            val theirVoiceNow = theirVoice ?: pretendVoice ?: theirVoiceHeld?.takeIf { theirClip == null && pretend == LiveKind.None }
+            val voicesNow = listOfNotNull(theirVoiceNow, myVoice)
+            val theirVideo = (theirClip != null && fullVideo == null) || pretend == LiveKind.Video
+            val theirSinceNow = theirSince.takeIf { it > 0 } ?: System.currentTimeMillis()
+            val mySinceNow = runSince.takeIf { it > 0 } ?: sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis()
+            val theirUser = talk.talkers[user]?.user ?: theirs?.from ?: user
+            val theirName = (talk.talkers[user]?.user ?: theirs?.from)?.let { u -> if (group != null) u else contact?.name ?: u } ?: contact?.name ?: user
+            val liveRow = chatLive.liveRow
+            if (liveRow != null) {
+                // The floating chat (2026-11-25, hen: "the video and pills should appear from the top of the screen,
+                // not in the chat floating window"): nothing is drawn here; the row at the top of the screen is told.
+                val theirKind = if (theirVideo) LiveKind.Video else if (theirVoiceNow != null) LiveKind.Voice else LiveKind.None
+                val myKind = if (myPanel) LiveKind.Video else if (myVoice != null) LiveKind.Voice else LiveKind.None
+                val now = LiveNow(
+                    theirs = theirKind, mine = myKind,
+                    theirUser = theirVoiceNow?.user ?: theirUser, theirName = theirVoiceNow?.name ?: theirName,
+                    theirSince = if (theirKind == LiveKind.None) 0L else theirVoiceNow?.since ?: theirSinceNow,
+                    mySince = if (myKind == LiveKind.None) 0L else myVoice?.since ?: mySinceNow,
+                    bothLive = bothLiveNow,
+                )
+                LaunchedEffect(now) { liveRow(now) }
+                androidx.compose.runtime.DisposableEffect(user) { onDispose { liveRow(LiveNow()) } }
+            } else {
+                LivePanel(
+                    theirVideo, if (group != null) (theirs?.from ?: talker?.user) else null, theirSinceNow,
+                    myPanel, mySinceNow,
+                    sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
+                    theirIdentity = talk.talkers[user]?.let { "${it.user}.${it.device}" } ?: LivePretend.IDENTITY.takeIf { pretend != LiveKind.None },
+                    theirUser = theirUser,
+                    theirName = theirName,
+                    behindMs = theirs?.behindMs,
+                    voices = voicesNow,
+                )
+                BothLiveChip(bothLiveNow && actions.callInChat != null) { makeCallNow[0]() }
+            }
         } }
         if (contact?.changedKey != null) {
             HomeCard(
@@ -791,6 +820,10 @@ private fun ConversationScreenIn(
                         }
                         return@forEach
                     }
+                    // The floating chat: a burst is at the top of the screen while it is live, and lands here once said.
+                    if (chatLive.liveRow != null && message.clip != null && !message.deleted &&
+                        (talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id || (talk.playing?.clip == message.id && talk.playing?.live == true))
+                    ) return@forEach
                     val liveKey = live.morphed[message.id]
                     if (liveKey != null) {
                         liveItem(liveKey, LiveLine.Message(message, if (group != null) message.author else null, live.lastText[message.id]))
@@ -901,10 +934,8 @@ private fun ConversationScreenIn(
                 }
             }
             // The live pills and boxes, floating over the chat under the header.
-            var liveTop by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().onGloballyPositioned { liveTop = it.positionInWindow().y.toInt() }) {
-                androidx.compose.runtime.CompositionLocalProvider(LocalLiveTop provides liveTop) { liveOverlay() }
-            }
+            // (2026-11-25, hen: "just below the header"; they come out from under its edge.)
+            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) { liveOverlay() }
             // Floating at the bottom: this phone's draft (or a voice message's recording), then the buttons.
             // How far the keyboard is open, 0 to 1, as it animates: the button row folds away by the same amount.
             val imeNow = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
@@ -1064,18 +1095,23 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
 )
 
 
+/** The chat header's height under the status bar, and its face (2026-11-25, hen: slimmer; the live row rests below it). */
+private val HEADER_HEIGHT = 48.dp
+private val HEADER_FACE = 32.dp
+
 @Composable
 private fun Header(user: String, contact: Contact?, header: ConversationHeader, actions: ConversationActions, canTalk: Boolean) {
-    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    // Slim (2026-11-25, hen: "shrink the header height"): 48 dp under the status bar, the touch targets still 48 dp.
+    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back),
             contentAlignment = Alignment.Center,
         ) { Icon(LibraryIcons.Back, stringResource(R.string.library_back), tint = LibraryColors.OnBackground) }
         Row(
-            Modifier.weight(1f).clickable(role = Role.Button, onClick = actions.openContact).padding(vertical = 4.dp),
+            Modifier.weight(1f).fillMaxHeight().clickable(role = Role.Button, onClick = actions.openContact),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(user, 40.dp)
+            Avatar(user, HEADER_FACE)
             Column(Modifier.padding(start = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(contact?.name ?: user, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
@@ -1097,15 +1133,15 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
 
 @Composable
 private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk: Boolean) {
-    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back), contentAlignment = Alignment.Center) {
             Icon(LibraryIcons.Back, stringResource(R.string.library_back), tint = LibraryColors.OnBackground)
         }
         Row(
-            Modifier.weight(1f).clickable(role = Role.Button, onClick = actions.openContact).padding(vertical = 4.dp),
+            Modifier.weight(1f).fillMaxHeight().clickable(role = Role.Button, onClick = actions.openContact),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            com.chencohen.ptt.ui.groups.GroupAvatar(group.name, group.picture, 40.dp)
+            com.chencohen.ptt.ui.groups.GroupAvatar(group.name, group.picture, HEADER_FACE)
             Column(Modifier.padding(start = 12.dp)) {
                 Text(group.name, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
                 Text(group.line, color = LibraryColors.Muted, style = LibraryType.Caption)
@@ -2046,4 +2082,9 @@ class ChatLive(
     val cameraReady: Boolean = true,
     /** A call in this chat's talk room with this phone's camera on: the camera stays open for it. */
     val roomCallCamera: Boolean = false,
+    /**
+     * The live row (voice pills, video boxes) is drawn elsewhere, not in the chat: told here what is live, each
+     * time it changes (the floating chat: TalkBubble's row at the top of the screen).
+     */
+    val liveRow: ((LiveNow) -> Unit)? = null,
 )

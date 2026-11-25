@@ -4,7 +4,8 @@
 Signal's conversation in the library's look. How texts, receipts, typing and presence work is in
 [design.md](../design.md), "Phase 3".
 
-- **Header:** back; the contact's letter circle, their name (the display name when they gave one) and a shield when
+- **Header:** slim (2026-11-25, hen: "shrink the header height"): 48 dp under the status bar, with a 32 dp face; back
+  and the name's row keep 48 dp touch targets. Back; the contact's letter circle, their name (the display name when they gave one) and a shield when
   verified; under it "typing…" or "online" (teal), or "last seen <time>" (muted; a date before today), or nothing when
   it isn't known or hidden. A tap on the name opens the [contact's page](contacts.md) (safety number, block, remove).
   At the right, **Video call** and **Voice call** ([calls.md](calls.md)), then the **Talk button** (a walkie-talkie) opens [Talk mode](talk.md); it shows only where one can talk
@@ -243,24 +244,31 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
 - **The live panel** (2026-11-24, hen: "when two sides push to video show videos at top side by side; when I push
   show the video on the top, never on bottom"; then "the video should be the same size" as the floating window).
   Push-to-video shows only under the header, never at the bottom: a box 23.6% of the screen high and as wide as the
-  picture's own shape (no crop, no bars), rounded 18 dp, centred; it drops down (250 ms) when the first video starts
-  and slides back up when the last ends. Both at once: two such boxes of the same height side by side, centred,
-  theirs at the start side and mine at the end (following the chat's direction), shrunk together only if they'd be
-  wider than the screen. The tags sit inside each video on one line, a red dot with the name in a group (or "You") and the time. The boxes and pills float
+  picture's own shape (no crop, no bars), rounded 18 dp, centred. Both at once: two such boxes of the same height side
+  by side, centred as a pair, theirs at the language's start side and mine at the other (the right and the left in
+  Hebrew), shrunk together only if they'd be wider than the screen. The tags sit inside each video on one line, a red dot with the name in a group (or "You") and the time. The boxes and pills float
   over the chat (2026-11-25, hen: "floating, not inside black box"): only their own rounded shape and a soft shadow,
-  nothing behind them; the chat keeps its full height under the header and scrolls on beneath. A side turning from
-  voice to video grows its box out of its pill's size and place (250 ms), and back. While my camera
+  nothing behind them; the chat keeps its full height under the header and scrolls on beneath.
+  **Where they rest and how they move** (2026-11-25, hen: "every combined animation in one move"; "just below the
+  header"): the row rests just below the slim header, 8 dp under its edge. Every change is one move of 300 ms with an
+  ease, for everything at once ([style.md](style.md), "Motion"): a side that starts comes down from under the header's
+  edge (cut there, so it comes out from under the header, not over it) straight into its own place, while a side
+  already there glides aside; a side that ends goes back up under the header while the other glides to the centre; a
+  side turning from voice to video is ONE frame that grows from the pill into the box about its own centre, its top
+  edge still (the pair staying centred when there are two), straight to the picture's known shape, and back. A side
+  never leaves and comes back for that. The places are worked out left to right from the screen's edge whatever the
+  language, which only picks the order (`LiveLayout`, `LiveMotion`, shared with the floating window; `LiveStage` in
+  the chat). `adb shell setprop log.tag.LiveRow VERBOSE` logs each frame of a move. While my camera
   shows there, the small preview on the Talk button's corner is hidden (one preview at a time). A voice-only press
   shows the voice bar instead.
 - **Voice pills** (2026-11-24, hen: a voice push "isn't really showing"; then "B, a slim pill at the top" and "if we
-  both voice pushing then it's side by side pills"). While someone pushes voice, a slim pill slides down under the
-  header (250 ms) and pushes the chat down: their face in a teal ring that glows with their voice (brightness, glow
+  both voice pushing then it's side by side pills"). While someone pushes voice, a slim pill comes down from under
+  the header, floating over the chat as the boxes do: their face in a teal ring that glows with their voice (brightness, glow
   and thickness; no wave), "Sharon is talking" (gendered) and the time. My own voice push: my face in a coral ring,
   one line "You · 0:03". Both at once: two pills side by side, centred, theirs at the start side. In a group it is the
   floor holder's face and name. When one side is on video and the other on voice, the pill sits beside the video box,
-  top-aligned. Voice turning into video: the pill shrinks away as the box grows in (the floating window morphs the
-  pill into the box).
-  It slides back up when the talking ends. The header's "talking" line is gone (the bar or the panel says it); the
+  top-aligned. Voice turning into video: the pill itself grows into the box (above), here and in the floating window.
+  It goes back up under the header when the talking ends. The header's "talking" line is gone (the bar or the panel says it); the
   line under the header is kept only for the rest (busy, refused, offline, recording a voice message, my other phone).
 - **Not kept by default.** A push-to-talk burst stays in the chat as a voice or video message only when the chat's
   "Keep voice in chat" / "Keep videos in chat" is on (contact or group page, In the chat; both off by default). Off,

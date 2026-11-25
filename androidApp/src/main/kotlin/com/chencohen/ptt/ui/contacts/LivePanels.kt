@@ -4,13 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,6 +38,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -50,15 +50,17 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.chencohen.ptt.R
 import com.chencohen.ptt.messaging.TextMessage
+import com.chencohen.ptt.ui.live.LiveItem
+import com.chencohen.ptt.ui.live.LiveLayout
+import com.chencohen.ptt.ui.live.LiveMotion
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryType
 import com.chencohen.ptt.ui.talk.clipLength
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 // Push-to-video out of the chat's flow (2026-11-24, hen): theirs drops down under the header, mine rises above the
 // buttons; the chat stays between them, still usable. docs/screens/conversation.md, "Live panels".
-
-private const val PANEL_MS = 250
 
 /** m:ss since [since], ticking. */
 @Composable
@@ -85,9 +87,6 @@ private fun LiveTag(text: String, modifier: Modifier = Modifier) {
         Text(text, color = Color.White, style = LibraryType.Small.copy(textDirection = layoutTextDirection()), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
-
-/** How far below the screen's top edge the live overlay sits (px): it slides in from the edge itself. */
-internal val LocalLiveTop = androidx.compose.runtime.compositionLocalOf { 0 }
 
 /** The live videos' height: this share of the screen's (2026-11-24, hen: the same size as the floating window). */
 internal const val LIVE_VIDEO_SHARE = 0.236f
@@ -122,14 +121,45 @@ internal fun LiveBoxes(
     }
 }
 
+/** A side of a chat that is live now, for a live row drawn outside the chat (ChatLive.liveRow). */
+enum class LiveKind { None, Voice, Video }
+
 /**
- * Live in the chat, floating over it under the header (2026-11-24, hen: "the video and pills should be floating, not
- * inside black box"; "same ux in chat screen"): for each side, theirs at the start and mine at the end, a voice pill or
- * a video box 23.6% of the screen high in the picture's own shape (no crop, no bars), with only their own rounded shape
- * and a soft shadow: nothing behind them, the chat scrolls on beneath. "The pill becomes the video": a side turning to
- * video grows its box out of the pill's size and place (250 ms), and back. The whole slides down from under the
- * header when the first side starts and back up when the last ends. [waitingFor]: mine queued behind someone else's
- * floor (a group).
+ * What is live in a chat now, for a live row drawn outside it (the floating chat: TalkBubble's row at the top of the
+ * screen): each side's kind and since when, whose face and name theirs is, and whether both are live.
+ */
+data class LiveNow(
+    val theirs: LiveKind = LiveKind.None,
+    val mine: LiveKind = LiveKind.None,
+    val theirUser: String = "",
+    val theirName: String = "",
+    val theirSince: Long = 0L,
+    val mySince: Long = 0L,
+    val bothLive: Boolean = false,
+)
+
+/** Test builds only (TestBubble): the other side shown live in the open chat without a real push. */
+internal object LivePretend {
+    /** Whose shape LiveTalkVideo.shapes holds for the pretended video. */
+    const val IDENTITY = "pretend.0"
+    val theirs = kotlinx.coroutines.flow.MutableStateFlow(LiveKind.None)
+}
+
+/** The log tag of the chat's live row. */
+private const val LIVE_ROW = "LiveRow"
+
+/** One side of the live row: [key] whose it is (LiveLayout.THEIRS, MINE), a video box [shape] wide for 1 high or a voice pill. */
+internal data class LiveSide(val key: String, val video: Boolean, val shape: Float)
+
+/**
+ * Live in the chat, floating over it just below the header (2026-11-24, hen: "the video and pills should be floating,
+ * not inside black box"; 2026-11-25: "just below the header"): for each side, theirs at the language's start side and
+ * mine at the other, a voice pill or a video box 23.6% of the screen high in the picture's own shape (no crop, no
+ * bars), with only their own rounded shape and a soft shadow: nothing behind them, the chat scrolls on beneath.
+ * Where each rests and how they move is LiveLayout and LiveMotion's (one move for everything; docs/screens/style.md,
+ * "Motion"): a side comes down from under the header's edge and goes back up under it, the other glides aside or
+ * back to the centre meanwhile, and "the pill becomes the video" as one frame growing about its centre. [waitingFor]:
+ * mine queued behind someone else's floor (a group).
  */
 @Composable
 internal fun LivePanel(
@@ -162,70 +192,54 @@ internal fun LivePanel(
     val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
     val theirVoice = voices.firstOrNull { !it.mine }
     val myVoice = voices.firstOrNull { it.mine }
-    val any = theirs || mine || theirVoice != null || myVoice != null
-    // Kept while it slides away, so it doesn't empty first.
-    var last by remember { androidx.compose.runtime.mutableStateOf(Triple(theirs to mine, theirVoice, myVoice)) }
-    if (any) last = Triple(theirs to mine, theirVoice, myVoice)
-    val (videos, tv, mv) = last
-    val liveTop = LocalLiveTop.current
-    AnimatedVisibility(
-        any,
-        // From the screen's very top edge, over the header (2026-11-25, hen), and back up the same way; no fade, so it
-        // reads as one thing travelling.
-        enter = slideInVertically(tween(PANEL_MS + 50)) { -(it + liveTop) },
-        exit = slideOutVertically(tween(PANEL_MS)) { -(it + liveTop) },
-    ) {
-        val screen = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
-        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.TopCenter) {
-            val gap = 6.dp
-            // The boxes' height: 23.6% of the screen, both shrunk together only if they'd be wider than the space.
-            val shapes = listOfNotNull(if (videos.first) theirShape else null, if (videos.second) myShape else null)
-            var h = screen * LIVE_VIDEO_SHARE
-            if (shapes.isNotEmpty()) {
-                val wide = h * shapes.sum() + gap * (shapes.size - 1)
-                if (wide > maxWidth) h *= (maxWidth - gap * (shapes.size - 1)) / (h * shapes.sum())
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.Top) {
-                // Each side comes and goes on its own: dropping in from the top while the other glides to make room
-                // (or back to the centre), in one eased move (2026-11-25, hen).
-                androidx.compose.animation.AnimatedVisibility(
-                    videos.first || tv != null,
-                    enter = expandHorizontally(tween(300), expandFrom = Alignment.CenterHorizontally) + slideInVertically(tween(300)) { -(it + liveTop) },
-                    exit = shrinkHorizontally(tween(300), shrinkTowards = Alignment.CenterHorizontally) + slideOutVertically(tween(300)) { -(it + liveTop) },
-                ) {
-                    val side = tv ?: VoiceSide(theirUser, who ?: theirName, false, theirSince)
-                    val ready = room != null || s != null || said != null
-                    // The pill grows once its picture's shape is known (2026-11-25, hen): until the first picture it
-                    // stays the pill, so the box never grows to a guessed size and then changes again.
-                    LiveSlot(videos.first && ready, ready, h * theirShape, h, side, listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · ")) { box ->
-                        Box(box) {
-                            if (room != null) com.chencohen.ptt.ui.talk.RoomVideoView(room, Modifier.fillMaxSize())
-                            else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
-                            com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.TopEnd).padding(6.dp))
-                        }
-                    }
-                }
-                androidx.compose.animation.AnimatedVisibility(
-                    videos.second || mv != null,
-                    enter = expandHorizontally(tween(300), expandFrom = Alignment.CenterHorizontally) + slideInVertically(tween(300)) { -(it + liveTop) },
-                    exit = shrinkHorizontally(tween(300), shrinkTowards = Alignment.CenterHorizontally) + slideOutVertically(tween(300)) { -(it + liveTop) },
-                ) {
-                    val me = stringResource(R.string.talk_panel_you)
-                    val side = mv ?: VoiceSide("", me, true, mySince)
-                    val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor) else listOf(me, elapsedSince(mySince)).joinToString(" · ")
-                    // Mine is ready once the camera's picture is there (the room's track), or a moment after.
-                    val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsState()
-                    var settled by remember { androidx.compose.runtime.mutableStateOf(false) }
-                    LaunchedEffect(videos.second) {
-                        settled = false
-                        if (videos.second) {
-                            kotlinx.coroutines.delay(700)
-                            settled = true
-                        }
-                    }
-                    LiveSlot(videos.second, local != null || settled, h * myShape, h, side, words) { box ->
-                        com.chencohen.ptt.ui.talk.PushVideoPreview(box, cover = true)
-                    }
+    val me = stringResource(R.string.talk_panel_you)
+    // Each side's face and words as they last were, kept while it goes up, so it doesn't empty first.
+    val last = remember { arrayOfNulls<VoiceSide>(2) }
+    if (theirs || theirVoice != null) last[0] = theirVoice ?: VoiceSide(theirUser, who ?: theirName, false, theirSince)
+    if (mine || myVoice != null) last[1] = myVoice ?: VoiceSide("", me, true, mySince)
+    // The pill grows once its picture's shape is known (2026-11-25, hen): until then it stays the pill, so the box
+    // never grows to a guessed size and then changes again.
+    val ready = room != null || s != null || said != null
+    // Mine is ready once the camera's picture is there (the room's track), or a moment after.
+    val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsState()
+    var settled by remember { androidx.compose.runtime.mutableStateOf(false) }
+    LaunchedEffect(mine) {
+        settled = false
+        if (mine) {
+            delay(700)
+            settled = true
+        }
+    }
+    val sides = buildList {
+        if (theirs || theirVoice != null) add(LiveSide(LiveLayout.THEIRS, theirs && ready, theirShape))
+        if (mine || myVoice != null) add(LiveSide(LiveLayout.MINE, mine, myShape))
+    }
+    val screen = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val teal = LibraryColors.Accent
+    LiveStage(
+        sides,
+        boxHeight = screen * LIVE_VIDEO_SHARE,
+        ring = { if (it.key == LiveLayout.MINE) com.chencohen.ptt.ui.style.Pink else teal },
+        pill = { side ->
+            val voice = last[if (side.key == LiveLayout.MINE) 1 else 0]
+            if (voice != null) VoicePillRow(voice, if (voice.mine) com.chencohen.ptt.ui.style.Pink else LibraryColors.Accent)
+        },
+    ) { side, w, h, p ->
+        val isMine = side.key == LiveLayout.MINE
+        val voice = last[if (isMine) 1 else 0] ?: return@LiveStage
+        val tag = when {
+            !isMine -> listOfNotNull(who, elapsedSince(voice.since)).joinToString(" · ")
+            waitingFor != null -> stringResource(R.string.talk_waiting_for, waitingFor)
+            else -> listOf(me, elapsedSince(voice.since)).joinToString(" · ")
+        }
+        LiveBoxInside(voice, tag, w, h, p, pictured = side.video && (if (isMine) local != null || settled else ready)) { box ->
+            if (isMine) {
+                com.chencohen.ptt.ui.talk.PushVideoPreview(box, cover = true)
+            } else {
+                Box(box) {
+                    if (room != null) com.chencohen.ptt.ui.talk.RoomVideoView(room, Modifier.fillMaxSize())
+                    else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
+                    com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.TopEnd).padding(6.dp))
                 }
             }
         }
@@ -233,47 +247,137 @@ internal fun LivePanel(
 }
 
 /**
- * One side's place (2026-11-25, hen: "the voice pill should transform to a video box"): ONE element whose frame grows
- * from the pill's size, corners and colour to the box's ([w] × [h], 18 dp corners, black) in 300 ms, and back. Inside,
- * the face, name and time fade out as the box's tag fades in at the bottom; the video fades in behind once it is
- * [ready] (its first picture), the face shown large until then, so the box is never black.
+ * The live row's stage: [sides] in reading order (theirs first), each ONE frame that is a voice pill ([pill], at its
+ * own size) or a video box ([box], [boxHeight] high unless they must all shrink to fit) and grows from one to the
+ * other. Every frame is placed by LiveLayout and moved by LiveMotion, in pixels from the left edge whatever the
+ * language (2026-11-25, hen: in Hebrew items came in at the wrong side and moved in steps): no Row, no arrangement,
+ * nothing mirrored. A side comes in from above the stage's top edge (cut there: the chat's header is above it) and
+ * leaves the same way.
  */
 @Composable
-private fun LiveSlot(video: Boolean, ready: Boolean, w: Dp, h: Dp, side: VoiceSide, tag: String, box: @Composable (Modifier) -> Unit) {
+internal fun LiveStage(
+    sides: List<LiveSide>,
+    boxHeight: Dp,
+    modifier: Modifier = Modifier,
+    ring: (LiveSide) -> Color,
+    pill: @Composable (LiveSide) -> Unit,
+    /** A box's inside, drawn in the frame: its picture's full size [w] × [h], and how far it is a box by now, 0 to 1. */
+    box: @Composable androidx.compose.foundation.layout.BoxScope.(side: LiveSide, w: Dp, h: Dp, p: Float) -> Unit,
+) {
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val ring = if (side.mine) com.chencohen.ptt.ui.style.Pink else LibraryColors.Accent
-    var pillSize by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-    val p by androidx.compose.animation.core.animateFloatAsState(
-        if (video) 1f else 0f, tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "pill to video",
-    )
-    val shape = RoundedCornerShape(androidx.compose.ui.unit.lerp(32.dp, 18.dp, p))
-    val frame = if (p == 0f || pillSize == androidx.compose.ui.unit.IntSize.Zero) {
-        Modifier.onSizeChanged { if (p == 0f) pillSize = it }
-    } else {
-        val pw = with(density) { pillSize.width.toDp() }
-        val ph = with(density) { pillSize.height.toDp() }
-        Modifier.size(androidx.compose.ui.unit.lerp(pw, w, p), androidx.compose.ui.unit.lerp(ph, h, p))
-    }
-    Box(
-        frame.shadow(6.dp, shape).clip(shape)
-            .background(androidx.compose.ui.graphics.lerp(LibraryColors.Raised, Color.Black, p))
-            .border(1.dp, ring.copy(alpha = 1f - 0.6f * p), shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (p > 0f) {
-            val shown by androidx.compose.animation.core.animateFloatAsState(if (video && ready) 1f else 0f, tween(250), label = "first picture")
-            // The video at the box's full size, centred: the growing frame uncovers it.
-            Box(Modifier.requiredSize(w, h).graphicsLayer { alpha = shown }) { box(Modifier.fillMaxSize()) }
-            // Until the first picture: the face, large.
-            if (shown < 1f) {
-                Box(Modifier.graphicsLayer { alpha = p * (1f - shown) }) { BigFace(side) }
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    val motion = remember { LiveMotion() }
+    // Each pill's own size, measured; each side as it last was (kept while it goes); each box's size.
+    val pills = remember { androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.ui.unit.IntSize>() }
+    val known = remember { HashMap<String, LiveSide>() }
+    val boxes = remember { HashMap<String, Pair<Float, Float>>() }
+    sides.forEach { known[it.key] = it }
+    // Read below: the stage is laid out again on each frame of a move.
+    val frame = remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val running = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
+        val width = constraints.maxWidth.toFloat()
+        val side = with(density) { 12.dp.toPx() }
+        val top = with(density) { 8.dp.toPx() }
+        val gap = with(density) { 6.dp.toPx() }
+        frame.longValue
+        // A pill not measured yet (it is, a frame from now): the row waits for it, so nothing moves twice.
+        if (sides.all { it.video || pills[it.key] != null }) {
+            val h = LiveLayout.boxHeight(
+                with(density) { boxHeight.toPx() }, sides.filter { it.video }.map { it.shape },
+                sides.filter { !it.video }.map { pills.getValue(it.key).width.toFloat() }, width - 2 * side, gap,
+            )
+            val items = sides.map { s ->
+                if (s.video) LiveItem(s.key, h * s.shape, h, true).also { boxes[s.key] = it.w to it.h }
+                else pills.getValue(s.key).let { LiveItem(s.key, it.width.toFloat(), it.height.toFloat(), false) }
             }
-            LiveTag(tag, Modifier.align(Alignment.BottomStart).padding(8.dp).graphicsLayer { alpha = p })
+            // From above the stage's top edge, the shadow too.
+            motion.target(LiveLayout.place(items, width, gap, rtl), offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() })
         }
-        if (p < 1f) {
-            Box(Modifier.graphicsLayer { alpha = 1f - p }) { VoicePillRow(side, ring) }
+        androidx.compose.runtime.SideEffect {
+            if (motion.running && running[0]?.isActive != true) {
+                running[0] = scope.launch {
+                    // The system's animation speed (Remove animations: at once), as the app's other animations.
+                    val scale = coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f
+                    while (motion.running) androidx.compose.runtime.withFrameMillis {
+                        motion.frame(it, scale)
+                        frame.longValue = it
+                        // `adb shell setprop log.tag.LiveRow VERBOSE`: each frame of a move, to check it is one move.
+                        if (android.util.Log.isLoggable(LIVE_ROW, android.util.Log.VERBOSE)) {
+                            android.util.Log.v(LIVE_ROW, "frame $it: " + motion.rects.entries.joinToString { (k, r) -> "$k cx=%.1f top=%.1f w=%.1f h=%.1f".format(r.centreX, top + r.y, r.w, r.h) })
+                        }
+                    }
+                }
+            }
+        }
+        val rects = motion.rects
+        val shown = (sides.map { it.key } + rects.keys).distinct()
+        androidx.compose.ui.layout.Layout(
+            content = {
+                shown.forEach { k ->
+                    val s = known.getValue(k)
+                    androidx.compose.runtime.key(k) {
+                        val p = rects[k]?.video ?: if (s.video) 1f else 0f
+                        val shape = RoundedCornerShape(androidx.compose.ui.unit.lerp(32.dp, 18.dp, p))
+                        val size = boxes[k]
+                        Box(
+                            Modifier.testTag("live-$k").shadow(6.dp, shape).clip(shape)
+                                .background(androidx.compose.ui.graphics.lerp(LibraryColors.Raised, Color.Black, p))
+                                .border(1.dp, ring(s).copy(alpha = 1f - 0.6f * p), shape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if ((s.video || p > 0f) && size != null) box(s, with(density) { size.first.toDp() }, with(density) { size.second.toDp() }, p)
+                            if (!s.video || p < 1f) {
+                                // At its own size whatever the frame's, centred: the frame growing covers or uncovers it.
+                                Box(Modifier.wrapContentSize(unbounded = true).onSizeChanged { pills[k] = it }.graphicsLayer { alpha = 1f - p }) { pill(s) }
+                            }
+                        }
+                    }
+                }
+            },
+            // Cut at the stage's top edge: a side comes out from under the header, not over it.
+            modifier = Modifier.drawWithContent {
+                clipRect(left = -size.width, top = 0f, right = 2 * size.width, bottom = size.height + 4 * top) { this@drawWithContent.drawContent() }
+            },
+        ) { measurables, constraints ->
+            val placed = measurables.mapIndexed { i, m ->
+                val r = rects[shown[i]]
+                if (r == null) {
+                    // Not in the row yet: only measured (its pill's size is wanted).
+                    m.measure(androidx.compose.ui.unit.Constraints.fixed(0, 0))
+                    null
+                } else {
+                    // Both edges from the centre: growing, the frame's centre stays where it is to the pixel.
+                    val left = kotlin.math.round(r.centreX - r.w / 2).toInt()
+                    val right = kotlin.math.round(r.centreX + r.w / 2).toInt()
+                    Triple(m.measure(androidx.compose.ui.unit.Constraints.fixed((right - left).coerceAtLeast(0), kotlin.math.round(r.h).toInt().coerceAtLeast(0))), left, kotlin.math.round(top + r.y).toInt())
+                }
+            }
+            val bottom = rects.values.maxOfOrNull { top + it.bottom + top } ?: 0f
+            layout(constraints.maxWidth, kotlin.math.ceil(bottom).toInt().coerceAtLeast(0)) {
+                // Left to right always (place, never placeRelative): the language picks the order, not the geometry.
+                placed.forEach { it?.let { (p, x, y) -> p.place(x, y) } }
+            }
         }
     }
+}
+
+/**
+ * A video box's inside (2026-11-25, hen: "the voice pill should transform to a video box"): the picture at the box's
+ * full size [w] × [h], centred, so the growing frame uncovers it; it fades in once [pictured] (its first picture), the
+ * face shown large until then, so the box is never black; the tag fades in at the bottom as the frame becomes a box
+ * ([p], 0 to 1).
+ */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.LiveBoxInside(side: VoiceSide, tag: String, w: Dp, h: Dp, p: Float, pictured: Boolean, picture: @Composable (Modifier) -> Unit) {
+    val shown by androidx.compose.animation.core.animateFloatAsState(if (pictured) 1f else 0f, tween(250), label = "first picture")
+    Box(Modifier.requiredSize(w, h).graphicsLayer { alpha = shown }) { picture(Modifier.fillMaxSize()) }
+    // Until the first picture: the face, large.
+    if (shown < 1f) {
+        Box(Modifier.graphicsLayer { alpha = p * (1f - shown) }) { BigFace(side) }
+    }
+    LiveTag(tag, Modifier.align(Alignment.BottomStart).padding(8.dp).graphicsLayer { alpha = p })
 }
 
 /** The face, large, while the box waits for its first picture. */

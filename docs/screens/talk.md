@@ -124,6 +124,12 @@ chat"). Bursts aren't kept as messages unless the chat's In the chat switches sa
 ## Push-to-video through LiveKit (2026-11-24, hen)
 
 Nothing on screen changes: the same gestures, the same top video box and floating window, the same quiet line after.
+
+**Where the live row rests** (2026-11-25, hen): the voice pills and video boxes of a push rest just below the slim
+header in the chat (coming down from under its edge), and just below the status bar in the floating window and for the
+floating chat (coming in from the screen's top edge). Both are the same row, placed and moved the same way: each change
+one move for everything, theirs at the language's start side (conversation.md, "The live panel"; notifications.md,
+"The row's places and moves").
 Underneath, a video burst's picture also goes through the conversation's talk room while it is said, and the listener
 shows it from there while it arrives (smaller and steadier on a weak link: simulcast), else the clip's pictures as
 before. The clips still go with every burst (a sleeping phone, "Keep videos in chat", no room). The debug and fast

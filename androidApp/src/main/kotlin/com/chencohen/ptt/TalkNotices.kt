@@ -71,6 +71,19 @@ object TalkPlaying {
         }
     }
 
+    /**
+     * The floating chat closed while someone is live in its conversation (their burst plays, or is heard through the
+     * room): the floating window shows for it from here on, its row at the top staying as it is.
+     */
+    fun windowClosed(app: TalkApp) {
+        app.scope.launch {
+            val talk = messagingState(app).value.talk
+            val playing = talk.playing?.takeIf { it.live } ?: heardInRoom(app, talk) ?: return@launch
+            if (quiet || chatInFront(app) == playing.chat || !TalkBubble.allowed(app)) return@launch
+            TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video, who = playing.from)
+        }
+    }
+
     private suspend fun update(app: TalkApp, talk: TalkUiState) {
         // Played from its clip, or heard live through the talk room (2026-11-25, hen: "i didn't see the testbot push":
         // a burst heard in the room never "plays", so nothing showed): either shows the same.

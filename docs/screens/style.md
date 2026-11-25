@@ -73,6 +73,9 @@ Nothing is drawn below 11 sp. Text fields keep their own sizes.
   video) never leaves and comes back.
 - **Geometry doesn't depend on the language's direction.** Positions are worked out left to right and the language's
   order (theirs at its start side) is chosen explicitly, so Hebrew mirrors the order, never the motion.
+- **Placed by number, not by a row.** Things that move together (the live row's pills and boxes) are each put at a
+  place worked out from all of them (LiveLayout) and moved there by one clock (LiveMotion), not laid out by a row or
+  an arrangement with its own enter and exit animations: those animate each child by itself and mirror in Hebrew.
 - **No size guessed and corrected.** A box grows straight to its final size (its picture's shape known before it
   grows), so it never moves a second time.
 

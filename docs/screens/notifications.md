@@ -54,8 +54,9 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     time. My own voice push the same with my face in a coral ring and one line, "You · 0:03". Both at once: two pills
     side by side; a pill beside a video box when one side is on video (top-aligned). A tap opens the chat, a swipe up
     puts it away. "The pill becomes the video": when voice turns into video (sliding up to hands-free video, or theirs),
-    the box grows out of the pill's size and place while the pill fades (250 ms), and the pill grows back out of the
-    box if video stops while the voice goes on. The bottom pill stays Chat · Push · Close (Stop while hands-free).
+    the pill itself grows into the box, one frame growing about its own centre with its top edge still, straight to
+    the picture's known shape (300 ms), and back if video stops while the voice goes on. The bottom pill stays
+    Chat · Push · Close (Stop while hands-free).
   - **Video**: a box at the top centre slides in from the very top edge of the screen and comes to rest just below
     the status bar (2026-11-24, hen: "enter from the edge of the screen and start just below the notification bar";
     250 ms; a swipe up sends it back out the same way): 23.6% of the screen high and as wide as
@@ -63,6 +64,19 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     bottom-start corner. While I send video my camera shows the same way (coral outline, "● You · LIVE 0:03", one line),
     side by side with theirs when both are live, and "You're both live · Make it a call" under them (a tap starts a
     video call). Drag moves it; a swipe up puts it away until their next burst; a tap opens the chat.
+  - **The row's places and moves** (2026-11-25, hen: "every combined animation in one move"; his phone is in Hebrew,
+    where items came in at the wrong side and moved in steps). The row's window is as wide as the screen and as tall
+    as the tallest row, once: nothing that shows in it moves or resizes it, and only the items themselves take touches
+    (the app beneath stays usable around them). Each side is one cell, a voice pill or a video box, put at a place
+    counted in pixels from the screen's left edge (`LiveLayout`): alone it is centred on the screen; two are centred
+    as a pair, 6 dp apart, theirs at the language's start side (the right in Hebrew) and mine at the other. The
+    language picks only that order; nothing in the geometry is mirrored, and the row is centred on the screen wherever
+    the system puts the window. Every change is one move of 300 ms with an ease for everything at once
+    (`LiveMotion`; [style.md](style.md), "Motion"): a new item drops in from above the screen's top edge straight into
+    its own place while the other glides aside; one that ends goes back up through the top edge while the other glides
+    to the centre; a pill growing into a box keeps its centre and its top. A change in the middle of a move starts
+    from wherever everything is. The system's animation speed counts (Remove animations: at once).
+    `adb shell setprop log.tag.TalkBubble VERBOSE` logs each frame of a move.
 - **From the floating video to the chat** (2026-11-24, hen: "open the chat with the video stay connected"): a tap on
   the top box, or on the pill's Chat, opens the chat; their video goes on in the chat's live
   panel without a break (the same decoder moves to the chat's picture), and the top box grows a little and fades into
@@ -93,6 +107,15 @@ the conversation open in the app while it is in front; skipped (off, not allowed
 always. Every decision is logged (QuickReply). 2026-11-23: it crashed the app as it attached (Compose found no
 lifecycle on the window's root view), so it never showed; fixed.
 
+- **2026-11-25 (hen): live pills and videos are not in this window** ("the video and pills should appear from the
+  top of the screen, not in the chat floating window"). While the window is open on a chat, whoever is live in it
+  (their push, or mine from the window's own button) shows in the floating window's row at the top of the screen, just
+  below the status bar, entering from the top edge, exactly as when only the floating window shows; the window draws
+  no pill or box and no live bubble in its list (a burst lands in the list once it is said, if the chat keeps it).
+  The window tells the row what is live (`ChatLive.liveRow`, `TalkBubble.liveRow`); opening or closing it doesn't
+  move or re-create a row already showing, and a push that comes while it is open adds no bottom pill over it (the
+  window has its own buttons). If the window closes while they are still live, the floating window takes over with
+  its pill. With the keyboard up the window stays below the row's bottom edge.
 - **2026-11-24 (hen): the chat itself.** Under its own header the window shows the conversation screen
   (`ConversationScreen` with `embeddedHeader`), the same design and ways: the whole conversation, teal bubbles, the
   pinned draft, status and read circles, live drafts morphing into their messages, video and voice bursts, the live

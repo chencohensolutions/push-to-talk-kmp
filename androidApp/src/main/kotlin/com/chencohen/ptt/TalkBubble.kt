@@ -26,6 +26,12 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.compose.ui.graphics.asAndroidBitmap
 import com.chencohen.ptt.messaging.Group
+import com.chencohen.ptt.ui.contacts.LiveKind
+import com.chencohen.ptt.ui.contacts.LiveNow
+import com.chencohen.ptt.ui.live.LiveItem
+import com.chencohen.ptt.ui.live.LiveLayout
+import com.chencohen.ptt.ui.live.LiveMotion
+import com.chencohen.ptt.ui.live.LiveRect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -79,14 +85,20 @@ object TalkBubble {
     private var pushBox: FrameLayout? = null
     private var stopPill: TextView? = null
     private var lockHint: ImageView? = null
-    // Who talks, by voice, at the pill's start: their face (or mine) in a ring glowing with the voice.
-    /** Voice pills at the top (2026-11-24, hen: "both voice pushing then side by side pills"): theirs and mine. */
+    // The live row at the top (its own window, as wide as the screen; what shows in it never moves or resizes it):
+    // one cell for each side, a voice pill or a video box, placed by LiveLayout and moved by LiveMotion.
+    private var topWindow: FrameLayout? = null
+    private var topCard: FrameLayout? = null
+    private var theirCell: LiveCell? = null
+    private var myCell: LiveCell? = null
+    private val topMotion = LiveMotion()
+    /** The cells' resting top in the window: just below the status bar. */
+    private var restTop = 0
+    /** The language reads right to left: theirs rests at the right. Only the order; the geometry is left to right. */
+    private var topRtl = false
+    /** Voice pills (2026-11-24, hen: "both voice pushing then side by side pills"): theirs and mine, each in its cell. */
     private var theirPill: VoicePill? = null
     private var myPill: VoicePill? = null
-
-    // The top box (its own window).
-    private var topWindow: FrameLayout? = null
-    private var topCard: LinearLayout? = null
     private var theirBox: FrameLayout? = null
     private var theirTag: TextView? = null
     private var theirFace: ImageView? = null
@@ -125,6 +137,20 @@ object TalkBubble {
     private var ringing: com.chencohen.ptt.calls.CallUi? = null
     /** The last picture's shape and turn, kept when the burst ends (no sideways frame as it goes). */
     private var lastShown: com.chencohen.ptt.talk.AndroidTalkVideoOut.Shown? = null
+    /**
+     * What a chat drawn elsewhere says is live (the floating chat, 2026-11-25, hen: "the video and pills should appear
+     * from the top of the screen, not in the chat floating window"): shown in the row with the window's own.
+     */
+    private var outside: LiveNow? = null
+    private var outsideChat: String? = null
+    /** Test builds only (TestBubble): their picture's shape as if they had said it. */
+    internal var pretendShape: Float? = null
+
+    /**
+     * The live row's bottom edge on the screen while it shows, else 0 (the floating chat keeps below it): a Compose
+     * state, read there.
+     */
+    val topRoom = androidx.compose.runtime.mutableIntStateOf(0)
 
     /** The floating window is on screen now. */
     val showing: Boolean get() = pillWindow != null
@@ -142,6 +168,8 @@ object TalkBubble {
         val app = context.applicationContext
         if (pillWindow == null) {
             if (!allowed(app)) return@post
+            // The floating chat shows this conversation: it has its own buttons, and tells the row what is live.
+            if (QuickReplyWindow.showing(chat)) return@post
             if (!addPill(app)) return@post
         }
         if (this.chat != chat) setHere(app, chat)
@@ -179,6 +207,22 @@ object TalkBubble {
         burstSince = 0L
         refreshTop(app)
         showMode(app)
+    }
+
+    /**
+     * [chat], drawn elsewhere (the floating chat), says what is live in it ([now]; null or nothing live: no more): the
+     * row at the top shows it, alone or with the window's own, without the bottom pill.
+     */
+    fun liveRow(context: Context, chat: String, now: LiveNow?) = main.post {
+        val app = context.applicationContext
+        val live = now?.takeIf { it.theirs != LiveKind.None || it.mine != LiveKind.None }
+        if (live == null && (outside == null || outsideChat != chat)) return@post
+        if (live != null && !Settings.canDrawOverlays(app)) return@post
+        // Their next burst: the row comes back even if it was put away.
+        if (live != null && live.theirs != LiveKind.None && outside?.theirs.let { it == null || it == LiveKind.None }) topPutAway = false
+        outside = live
+        outsideChat = if (live != null) chat else null
+        refreshTop(app)
     }
 
     /** The app came on screen, or the floating window isn't wanted any more. */
@@ -357,7 +401,7 @@ object TalkBubble {
     private fun pickPreview() {
         val local = com.chencohen.ptt.talk.LiveTalkVideo.local.value
         val box = myBox
-        if ((sendingVideo || goingLive) && local != null && box != null) {
+        if ((sendingVideo || goingLive || outside?.mine == LiveKind.Video) && local != null && box != null) {
             if (myRoomTrack !== local) {
                 dropMyRoomVideo()
                 val r = io.livekit.android.renderer.TextureViewRenderer(box.context)
@@ -375,7 +419,7 @@ object TalkBubble {
         }
         val capture = com.chencohen.ptt.talkVideoCapture ?: return
         val mine = mySurface ?: return
-        if (sendingVideo) capture.setPreview(mine) else capture.clearPreview(mine) {}
+        if (sendingVideo || outside?.mine == LiveKind.Video) capture.setPreview(mine) else capture.clearPreview(mine) {}
     }
 
     private var myRoomRenderer: io.livekit.android.renderer.TextureViewRenderer? = null
@@ -600,160 +644,123 @@ object TalkBubble {
         dismissNow()
     }
 
-    // ---- The top box --------------------------------------------------------------------------------------------
+    // ---- The live row at the top -------------------------------------------------------------------------------
+
+    /** The conversation the row is about, whose face and name theirs is, and since when each side is live. */
+    private fun rowChat(): String? = chat ?: outsideChat
+    private fun rowFrom(): String = (if (burstLive) from else null) ?: outside?.theirUser?.takeIf { it.isNotEmpty() } ?: from ?: ""
+    private fun rowTitle(): String = if (chat != null) title else outside?.theirName ?: title
+    private fun theirSince(): Long = burstSince.takeIf { it > 0 } ?: outside?.theirSince?.takeIf { it > 0 } ?: System.currentTimeMillis()
+    private fun mySince(): Long = runStarted.takeIf { it > 0 } ?: talkStarted.takeIf { talking && it > 0 } ?: outside?.mySince?.takeIf { it > 0 } ?: talkStarted
+
+    /** Their side is on video (the window's own burst, or the floating chat's). */
+    private fun theirVideoWanted(): Boolean = burstVideo || outside?.theirs == LiveKind.Video
 
     /**
-     * What the top box shows now: their video and mine (side by side, with the both-live chip), or nothing; and, for
-     * voice, who talks in the pill.
+     * What the row shows now: for each side nothing, a voice pill or a video box (side by side when both, with the
+     * both-live chip under two boxes). Whatever changed, everything moves to its new place in one move ([placeTop]).
      */
     private fun refreshTop(context: Context) {
-        // Their video shows once its first picture (and so its shape) is here: until then their pill stays, so the pill
-        // grows once, straight to the right size (2026-11-25, hen: "the video size aspect ratio that comes in delay").
-        val theirPicture = theirPictureReady(context)
-        val theirPillUp = theirPill?.view?.visibility == View.VISIBLE
-        val theirsVideo = burstVideo && !topPutAway && (theirPicture || !theirPillUp)
-        val mine = sendingVideo || goingLive
-        val voice = !topPutAway && ((burstLive && (!burstVideo || !theirsVideo)) || (talking && !sendingVideo))
-        if (!theirsVideo && !mine && !voice) {
-            // Nothing live for a moment (one push ending as the next starts): the window waits before it goes, so it
+        val out = outside
+        // Their video shows once its picture's shape is known: until then their pill stays, so the pill grows once,
+        // straight to the right size (2026-11-25, hen: "the video size aspect ratio that comes in delay").
+        val theirWasPill = theirCell?.let { it.on && !it.video } == true
+        val theirOn = (burstLive || (out != null && out.theirs != LiveKind.None)) && !topPutAway
+        val theirsVideo = theirOn && theirVideoWanted() && (theirPictureReady(context) || !theirWasPill)
+        val mine = sendingVideo || goingLive || out?.mine == LiveKind.Video
+        val myVoice = !mine && !topPutAway && (talking || out?.mine == LiveKind.Voice)
+        if (!theirOn && !mine && !myVoice) {
+            // Nothing live for a moment (one push ending as the next starts): the row waits before it goes, so it
             // isn't taken away and brought back (2026-11-25, hen: "move up out of screen and down again").
             main.removeCallbacks(hideSoon)
             main.postDelayed(hideSoon, 900)
             return
         }
         main.removeCallbacks(hideSoon)
-        if (topWindow == null || topHiding) addTop(context)
-        // "The pill becomes the video" (2026-11-24, hen): a voice pill turning into video grows into the box, and back.
-        val theirPillWas = theirPill?.view?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }
-        val myPillWas = myPill?.view?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }
-        val theirWas = theirBox?.visibility == View.VISIBLE
-        val myWas = myBox?.visibility == View.VISIBLE
-        // A pill turning into its box (or back) changes in place: not an item leaving and another coming, so the
-        // boxes' coming-and-going moves sit this one out.
-        val theirMorph = (theirsVideo && !theirWas && theirPillWas != null) || (theirWas && !theirsVideo)
-        val myMorph = (mine && !myWas && myPillWas != null) || (myWas && !mine)
-        val transition = topBoxes?.layoutTransition
-        if (theirMorph || myMorph) topBoxes?.layoutTransition = null
-        refreshVoice(context)
-        theirBox?.visibility = if (theirsVideo) View.VISIBLE else View.GONE
-        myBox?.visibility = if (mine) View.VISIBLE else View.GONE
-        if (theirsVideo && !theirWas && theirPillWas != null) morph(theirPillWas, theirBox!!, context)
-        if (mine && !myWas && myPillWas != null) morph(myPillWas, myBox!!, context)
-        // Back: the box gives way to the pill growing out of it.
-        if (theirWas && !theirsVideo) theirPill?.view?.takeIf { it.visibility == View.VISIBLE }?.let { unmorph(it) }
-        if (myWas && !mine) myPill?.view?.takeIf { it.visibility == View.VISIBLE }?.let { unmorph(it) }
-        if ((theirMorph || myMorph) && transition != null) {
-            val boxes = topBoxes
-            main.postDelayed({ if (topBoxes === boxes && boxes?.layoutTransition == null) boxes?.layoutTransition = transition }, 350)
-        }
+        if (!addTop(context)) return
+        topHiding = false
+        theirCell?.let { it.on = theirOn; it.video = theirsVideo }
+        myCell?.let { it.on = mine || myVoice; it.video = mine }
+        theirPill?.show(context, if (theirOn) rowFrom() else null, rowTitle())
+        myPill?.show(context, if (mine || myVoice) "" else null, rowTitle())
+        // Their words as they are now, before the pills are measured: a pill comes in at its real width.
+        theirPill?.tick(0f, theirSince())
+        myPill?.tick(0f, mySince())
         bothChip?.visibility = if (bothLive(context)) View.VISIBLE else View.GONE
-        shapeTop(context)
+        placeTop(context)
         pickPreview()
         main.removeCallbacks(topTick)
         main.post(topTick)
     }
 
-    /**
-     * The voice pill grows into [box] (250 ms): the box starts at the pill's size and place and grows to its own while
-     * the pill's face fades out, so the pill reads as becoming the video.
-     */
-    private fun morph(pill: View, box: View, context: Context) {
-        // ONE element (2026-11-25, hen: "the voice pill should transform to a video box"): the pill goes at once and
-        // the box takes its exact size and place, then its frame grows to its own (300 ms); its corners stay round.
-        val pw = pill.width
-        val ph = pill.height
-        // The box's own size first (its picture's shape is known by now), then the growth to it: one move.
-        morphing?.cancel()
-        morphing = null
-        shapeTop(context)
-        val lp = box.layoutParams
-        val h = lp.height.takeIf { it > 0 } ?: topHeight(context)
-        val w = lp.width.takeIf { it > 0 } ?: (h * 3 / 4)
-        pill.visibility = View.GONE
-        morphing?.cancel()
-        size(box, pw, ph)
-        morphing = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 300
-            interpolator = android.view.animation.DecelerateInterpolator()
-            addUpdateListener {
-                val f = it.animatedValue as Float
-                size(box, (pw + (w - pw) * f).toInt(), (ph + (h - ph) * f).toInt())
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    morphing = null
-                }
-            })
-            start()
-        }
-    }
-
-    private var topParams: WindowManager.LayoutParams? = null
-    private var topBoxes: LinearLayout? = null
-
-    /** The pill-to-box growth running now: the boxes' sizes wait for it. */
-    private var morphing: android.animation.ValueAnimator? = null
-
-    private fun unmorph(pill: View) {
-        pill.pivotY = 0f
-        pill.scaleX = 1.6f
-        pill.scaleY = 1.6f
-        pill.alpha = 0f
-        pill.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(SLIDE_MS).start()
-    }
-
-    /** Their video's first picture (its shape) is known: through the room, or from the clip. */
+    /** Their video's shape is known (said with their key, or from a first picture, through the room or the clip). */
     private fun theirPictureReady(context: Context): Boolean {
-        val talker = chat?.let { messagingState(context).value.talk.talkers[it] }
+        val talker = rowChat()?.let { messagingState(context).value.talk.talkers[it] }
         val room = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.arriving.value["${it.user}.${it.device}"] }
         val said = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.shapes.value["${it.user}.${it.device}"] }
-        return room != null || said != null || com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value != null
+        return room != null || said != null || pretendShape != null || com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value != null
     }
 
-    /** The top window goes once nothing has been live for a moment. */
+    /** The row goes once nothing has been live for a moment. */
     private val hideSoon = Runnable { hideTop() }
 
     /** Both live: I send while their video plays, or while they wait for my floor. */
     private fun bothLive(context: Context): Boolean {
+        if (outside?.bothLive == true) return true
         val chat = chat ?: return false
         if (!sendingVideo) return false
         val waiting = (messagingState(context).value.liveWaiting[chat] ?: 0L) > System.currentTimeMillis()
         return burstVideo || waiting
     }
 
-    /** Who talks by voice: their pill (teal) and mine (coral), side by side when both. */
-    private fun refreshVoice(context: Context) {
-        val theirVoice = burstLive && !topPutAway && (!burstVideo || theirBox?.visibility != View.VISIBLE && !theirPictureReady(context) && theirPill?.view?.visibility == View.VISIBLE)
-        val myVoice = talking && !sendingVideo && !goingLive && !topPutAway
-        theirPill?.show(context, if (theirVoice) from ?: "" else null, title)
-        myPill?.show(context, if (myVoice) "" else null, title)
+    /** Where the window's left and top edges are on the screen, without what a drag added. */
+    private fun windowAt(): IntArray {
+        val window = topWindow?.takeIf { it.isAttachedToWindow } ?: return intArrayOf(0, 0)
+        val at = IntArray(2).also { window.getLocationOnScreen(it) }
+        val params = topParams ?: return at
+        return intArrayOf(at[0] - params.x, at[1] - params.y)
     }
 
-    /** The boxes' sizes: 23.6% of the screen's height, each as wide as its picture's shape. */
-    private fun shapeTop(context: Context) {
-        if (morphing != null) return
-        val theirs = theirBox?.takeIf { it.visibility == View.VISIBLE }
-        val mine = myBox?.takeIf { it.visibility == View.VISIBLE }
+    /**
+     * Where everything in the row rests now (LiveLayout: side by side, centred on the screen, theirs at the language's
+     * start side) and the ONE move there (LiveMotion; 2026-11-25, hen: "every combined animation in one move"): a new
+     * item drops in from the screen's top edge into its own place while the other glides aside, one leaving goes back
+     * up while the other glides to the centre, a pill grows into its box about its own centre. Counted in pixels from
+     * the screen's left edge, whatever the language and wherever the system put the window.
+     */
+    private fun placeTop(context: Context) {
+        // Not on screen yet (just added): its first layout calls this again, so the first move is seen from its start.
+        if (topWindow?.isLaidOut != true) return
+        val theirs = theirCell ?: return
+        val mine = myCell ?: return
+        val screen = context.getSystemService(WindowManager::class.java).currentWindowMetrics.bounds.width().toFloat()
+        val window = windowAt()
+        val gap = dp(context, 6).toFloat()
+        // Their picture's shape: said with their key, else the first picture's; mine is the camera's, upright.
         val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
         lastShown = shown
         val rotation = shown?.rotation ?: 0
         val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 3f / 4f
         val turned = rotation % 180 != 0
-        val talker = chat?.let { messagingState(context).value.talk.talkers[it] }
+        val talker = rowChat()?.let { messagingState(context).value.talk.talkers[it] }
         val said = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.shapes.value["${it.user}.${it.device}"] }?.let { it / 1000f }
-        val theirShape = roomLive?.aspect ?: said ?: if (turned) 1f / aspect else aspect
+        val theirShape = roomLive?.aspect ?: said ?: pretendShape ?: if (turned) 1f / aspect else aspect
         val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+        fun shape(cell: LiveCell) = if (cell === theirs) theirShape else myShape
+        // Reading order: theirs, then mine.
+        val cells = listOf(theirs, mine).filter { it.on }
+        val pills = cells.filter { !it.video }.associateWith { it.pillSize(screen.toInt()) }
         // 23.6% of the screen high, all shrunk together only if side by side they'd be wider than the screen
         // (2026-11-25, hen: testbot's box was cut at the edge).
-        var h = topHeight(context).toFloat()
-        val pills = listOfNotNull(theirPill?.view, myPill?.view).filter { it.visibility == View.VISIBLE }.sumOf { it.width + dp(context, 6) }
-        val shapes = (if (theirs != null) theirShape else 0f) + (if (mine != null) myShape else 0f)
-        val room = context.resources.displayMetrics.widthPixels - dp(context, 40) - pills - (if (theirs != null && mine != null) dp(context, 6) else 0)
-        if (shapes > 0f && h * shapes > room) h = room / shapes
-        theirs?.let { box ->
+        val h = LiveLayout.boxHeight(
+            topHeight(context).toFloat(), cells.filter { it.video }.map { shape(it) }, pills.values.map { it.first.toFloat() },
+            screen - dp(context, 40), gap,
+        )
+        // Each box's inside at its full size, centred in its cell: the growing frame uncovers it.
+        if (theirs.on && theirs.video) {
             val w = (h * theirShape).toInt()
-            size(box, w, h.toInt())
-            box.findViewWithTag<View>("video")?.let { v ->
+            size(theirs.box, w, h.toInt())
+            theirs.box.findViewWithTag<View>("video")?.let { v ->
                 val (vw, vh) = if (turned) h.toInt() to w else w to h.toInt()
                 val lp = v.layoutParams
                 if (lp.width != vw || lp.height != vh) {
@@ -764,8 +771,75 @@ object TalkBubble {
                 v.rotation = rotation.toFloat()
             }
         }
-        mine?.let { box -> size(box, (h * myShape).toInt(), h.toInt()) }
+        if (mine.on && mine.video) size(mine.box, (h * myShape).toInt(), h.toInt())
+        val items = cells.map { cell ->
+            if (cell.video) LiveItem(cell.key, h * shape(cell), h, true)
+            else pills.getValue(cell).let { (w, ph) -> LiveItem(cell.key, w.toFloat(), ph.toFloat(), false) }
+        }
+        // The screen's own left edge and width, as the window sees them.
+        val targets = LiveLayout.place(items, screen, gap, topRtl, left = -window[0].toFloat())
+        // From above the screen's top edge, the shadow too.
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat())
+        topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
+        if (moved) Log.i(TAG, "row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (screen ${screen.toInt()}, window at ${window[0]},${window[1]}, ${if (topRtl) "right to left" else "left to right"})")
+        showTop()
+        touchTop()
+        if (topMotion.running) frames()
     }
+
+    /** Each cell where the motion has it now, and the chip under them. */
+    private fun showTop() {
+        val rects = topMotion.rects
+        theirCell?.place(rects[LiveLayout.THEIRS], restTop)
+        myCell?.place(rects[LiveLayout.MINE], restTop)
+        bothChip?.takeIf { it.visibility == View.VISIBLE }?.translationY = restTop + (rects.values.maxOfOrNull { it.bottom } ?: 0f) + dp(topCard?.context ?: return, 8)
+    }
+
+    private var topFrames = false
+
+    /** A move's frames, in step with the display; the system's animation speed counts (Remove animations: at once). */
+    private val topFrame = object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(nanos: Long) {
+            topFrames = false
+            if (topWindow == null) return
+            topMotion.frame(nanos / 1_000_000, android.animation.ValueAnimator.getDurationScale())
+            showTop()
+            // `adb shell setprop log.tag.TalkBubble VERBOSE`: each frame of a move, to check it is one move.
+            if (Log.isLoggable(TAG, Log.VERBOSE)) Log.v(TAG, "frame ${nanos / 1_000_000}: " + topMotion.rects.entries.joinToString { (k, r) -> "$k cx=%.1f top=%.1f w=%.1f h=%.1f".format(r.centreX, restTop + r.y, r.w, r.h) })
+            if (topMotion.running) frames() else settled()
+        }
+    }
+
+    private fun frames() {
+        if (topFrames) return
+        topFrames = true
+        android.view.Choreographer.getInstance().postFrameCallback(topFrame)
+    }
+
+    /** A move ended: touches go only to what is there now, and a row asked to go, goes. */
+    private fun settled() {
+        touchTop()
+        if (topHiding && topMotion.rects.isEmpty()) removeTop()
+    }
+
+    /**
+     * The window is as wide as the screen, but only the items in it take touches (where they are and where they are
+     * going, and the chip): the rest goes to the app beneath, which stays usable.
+     */
+    private fun touchTop() {
+        val window = topWindow?.takeIf { it.isAttachedToWindow } ?: return
+        val region = android.graphics.Region()
+        for (r in topMotion.rects.values + topMotion.goals.values) {
+            region.union(android.graphics.Rect(r.x.toInt(), (restTop + r.y).toInt().coerceAtLeast(0), (r.x + r.w).toInt() + 1, (restTop + r.bottom).toInt().coerceAtLeast(0) + 1))
+        }
+        bothChip?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }?.let { chip ->
+            val top = chip.top + chip.translationY.toInt()
+            region.union(android.graphics.Rect(chip.left, top, chip.right, top + chip.height))
+        }
+        window.rootSurfaceControl?.setTouchableRegion(region)
+    }
+
+    private var topParams: WindowManager.LayoutParams? = null
 
     private fun size(v: View, w: Int, h: Int) {
         val lp = v.layoutParams
@@ -776,7 +850,7 @@ object TalkBubble {
         }
     }
 
-    /** The tags' time and the pictures' shape, while the top box shows. */
+    /** The tags' time, the pictures' sources and shape, while the row shows. */
     private val topTick = object : Runnable {
         override fun run() {
             val window = topWindow ?: return
@@ -785,15 +859,26 @@ object TalkBubble {
                 val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
                 return "%d:%02d".format(s / 60, s % 60)
             }
-            theirTag?.text = "${android.text.BidiFormatter.getInstance().unicodeWrap(title)} · ${clock(if (burstSince > 0) burstSince else System.currentTimeMillis())}"
+            theirTag?.text = "${android.text.BidiFormatter.getInstance().unicodeWrap(rowTitle())} · ${clock(theirSince())}"
             useRoomVideo(window.context)
             showTheirFace(window.context)
-            // Their first picture came while their pill waited for it: now the pill grows into the box.
-            if (burstVideo && theirBox?.visibility != View.VISIBLE && theirPictureReady(window.context)) refreshTop(window.context)
+            // Their picture's shape came while their pill waited for it: now the pill grows into the box.
+            if (theirVideoWanted() && theirCell?.let { it.on && !it.video } == true && theirPictureReady(window.context)) refreshTop(window.context)
             pickPreview()
-            myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(if (runStarted > 0) runStarted else talkStarted)
-            shapeTop(window.context)
+            myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(mySince())
+            // A pill's words got wider, their picture's shape changed: everything to its place again.
+            placeTop(window.context)
             main.postDelayed(this, 250)
+        }
+    }
+
+    /** The voice pills' rings glow with the voice, theirs and mine, and their times count. */
+    private val topPulse = object : Runnable {
+        override fun run() {
+            if (topWindow == null) return
+            theirPill?.tick(com.chencohen.ptt.talk.TalkAudio.playLevel, theirSince())
+            myPill?.tick(com.chencohen.ptt.talk.TalkAudio.micLevel, mySince())
+            main.postDelayed(this, 60)
         }
     }
 
@@ -802,14 +887,14 @@ object TalkBubble {
         val faceView = theirFace ?: return
         val picture = roomLive != null || com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value != null
         faceView.visibility = if (picture) View.GONE else View.VISIBLE
-        val who = from ?: return
+        val who = rowFrom().takeIf { it.isNotEmpty() } ?: return
         if (picture || theirFaceOf == who) return
         theirFaceOf = who
         Log.i(TAG, "their face until the first picture ($who)")
         val app = context.applicationContext as? TalkApp ?: return
         app.scope.launch {
-            // In a process just woken the faces' list may not be read yet: waited for a moment.
-            // In a process just woken the faces' list may not be published yet: the picture is read directly then.
+            // In a process just woken the faces' list may not be published yet: waited for a moment, then the picture
+            // is read directly.
             val id = kotlinx.coroutines.withTimeoutOrNull(1_000) { com.chencohen.ptt.ui.face.Faces.ids(app).first { it.containsKey(who) } }?.get(who) ?: "-"
             val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, who, id) }.getOrNull() ?: run { Log.i(TAG, "no face for $who"); return@launch }
             main.post { if (theirFace === faceView) faceView.setImageBitmap(bitmap.asAndroidBitmap()) }
@@ -819,8 +904,8 @@ object TalkBubble {
     /** Their video through the talk room while its frames come, else the clip's (never both). */
     private fun useRoomVideo(context: Context) {
         val box = theirBox ?: return
-        val talker = chat?.let { messagingState(context).value.talk.talkers[it] }
-        val live = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.arriving.value["${it.user}.${it.device}"] }?.takeIf { burstVideo }
+        val talker = rowChat()?.let { messagingState(context).value.talk.talkers[it] }
+        val live = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.arriving.value["${it.user}.${it.device}"] }?.takeIf { theirVideoWanted() }
         roomLive = live
         if (live != null && roomTrack !== live.track) {
             dropRoomVideo()
@@ -847,69 +932,37 @@ object TalkBubble {
         roomTrack = null
     }
 
-    @SuppressLint("ClickableViewAccessibility")
-    private fun addTop(context: Context) {
-        topWindow?.let { old ->
-            // Still sliding away: back at once.
-            topHiding = false
-            topCard?.animate()?.cancel()
-            topCard?.translationY = 0f
-            if (old.isAttachedToWindow) return
-        }
+    /** The row's window, once (true: it is there). Nothing shows in it until [placeTop] brings the items in. */
+    // Left, not start: the cells are placed by their left edge whatever the language (LiveLayout).
+    @SuppressLint("ClickableViewAccessibility", "RtlHardcoded")
+    private fun addTop(context: Context): Boolean {
+        if (topWindow != null) return true
         val wm = context.getSystemService(WindowManager::class.java)
         fun dp(v: Int) = dp(context, v)
         val bars = wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
         // An overlay window may be told no insets (2026-11-25, hen: the box sat over the status bar): the status bar's
         // own height then.
         val statusTop = maxOf(bars.top, statusBarHeight(context))
-        val card = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-        // Laid out left to right always, the language's order made here (theirs at its start side), so nothing in the
-        // geometry is mirrored (2026-11-25, hen: in Hebrew the growth came in from the right). Items coming and going
-        // move the others in one eased move, and a new one drops in from the top.
+        // Just under the status bar (2026-11-24, hen: "enter from the edge of the screen and start just below the
+        // notification bar").
+        restTop = statusTop + dp(2)
+        // The language's order (theirs at its start side: the right in Hebrew, the left in English), decided here once
+        // and said outright to everything below; no view in the row takes its direction from where it happens to sit.
         val rtl = context.resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL
-        val boxes = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            elevation = dp(8).toFloat()
-            layoutTransition = android.animation.LayoutTransition().apply {
-                setDuration(300)
-                setInterpolator(android.animation.LayoutTransition.CHANGE_APPEARING, android.view.animation.DecelerateInterpolator())
-                setInterpolator(android.animation.LayoutTransition.CHANGE_DISAPPEARING, android.view.animation.DecelerateInterpolator())
-                setAnimator(android.animation.LayoutTransition.APPEARING, android.animation.ObjectAnimator.ofPropertyValuesHolder(
-                    null as Any?,
-                    android.animation.PropertyValuesHolder.ofFloat(View.TRANSLATION_Y, -dp(160).toFloat(), 0f),
-                    android.animation.PropertyValuesHolder.ofFloat(View.ALPHA, 0f, 1f),
-                ))
-                setAnimator(android.animation.LayoutTransition.DISAPPEARING, android.animation.ObjectAnimator.ofPropertyValuesHolder(
-                    null as Any?,
-                    android.animation.PropertyValuesHolder.ofFloat(View.TRANSLATION_Y, 0f, -dp(160).toFloat()),
-                    android.animation.PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0f),
-                ))
-                disableTransitionType(android.animation.LayoutTransition.CHANGING)
-                // All at once: an item leaving and the others gliding back (or one coming and the others making room)
-                // is one move, not one after the other (2026-11-25, hen: "every combined animation in one move").
-                listOf(
-                    android.animation.LayoutTransition.APPEARING, android.animation.LayoutTransition.DISAPPEARING,
-                    android.animation.LayoutTransition.CHANGE_APPEARING, android.animation.LayoutTransition.CHANGE_DISAPPEARING,
-                ).forEach { setStartDelay(it, 0) }
-            }
+        topRtl = rtl
+        val inside = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+        fun tag() = TextView(context).apply {
+            textDirection = View.TEXT_DIRECTION_LOCALE
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            maxLines = 1
+            setPadding(dp(8), dp(3), dp(8), dp(3))
+            background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0x80000000.toInt()) }
         }
-        topBoxes = boxes
-        fun outlined(box: FrameLayout, color: Int = TEAL) = box.apply {
-            outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(v: View, outline: android.graphics.Outline) = outline.setRoundRect(0, 0, v.width, v.height, dp(18).toFloat())
-            }
-            clipToOutline = true
-            foreground = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(Color.TRANSPARENT); setStroke(dp(1).coerceAtLeast(2), color) }
-            setBackgroundColor(Color.BLACK)
-        }
+        fun tagAt() = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) }
         // Their video, drawn in step with the voice (AndroidTalkVideoOut); the same decoder moves to the chat on a tap.
-        val theirs = outlined(FrameLayout(context)).apply {
-            visibility = View.GONE
+        val theirs = FrameLayout(context).apply {
+            layoutDirection = inside
             addView(
                 android.view.TextureView(context).apply {
                     tag = "video"
@@ -933,42 +986,31 @@ object TalkBubble {
             // Their face, large, until the first picture (2026-11-25, hen: the box is never black).
             theirFace = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
             addView(theirFace, FrameLayout.LayoutParams(dp(96), dp(96), Gravity.CENTER))
-            theirTag = TextView(context).apply {
-                textDirection = View.TEXT_DIRECTION_LOCALE
-                setTextColor(Color.WHITE)
-                textSize = 12f
-                maxLines = 1
-                setPadding(dp(8), dp(3), dp(8), dp(3))
-                background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0x80000000.toInt()) }
-            }
-            addView(theirTag, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) })
+            theirTag = tag()
+            addView(theirTag, tagAt())
         }
-        // Mine while I send video, beside theirs (at the end side): a coral outline, "● You · LIVE 0:03".
-        val mine = outlined(FrameLayout(context), PINK).apply {
-            visibility = View.GONE
+        // Mine while I send video: "● You · LIVE 0:03".
+        val mine = FrameLayout(context).apply {
+            layoutDirection = inside
             addView(ownTexture(context) { s -> mySurface = s }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-            myTag = TextView(context).apply {
-                textDirection = View.TEXT_DIRECTION_LOCALE
-                setTextColor(Color.WHITE)
-                textSize = 12f
-                maxLines = 1
-                setPadding(dp(8), dp(3), dp(8), dp(3))
-                background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0x80000000.toInt()) }
-            }
-            addView(myTag, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) })
+            myTag = tag()
+            addView(myTag, tagAt())
         }
-        // Side by side when both are live: a voice pill and a video box, or two boxes (2026-11-24, hen).
-        val pillAt = { LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(3); marginEnd = dp(3) } }
-        boxes.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        theirPill = VoicePill(context, mine = false)
-        myPill = VoicePill(context, mine = true)
-        val boxAt = { LinearLayout.LayoutParams(dp(120), dp(160)).apply { marginStart = dp(3); marginEnd = dp(3) } }
-        // Theirs at the language's start side: the right in Hebrew, the left in English.
-        val order = listOf(theirPill!!.view to pillAt(), theirs to boxAt(), myPill!!.view to pillAt(), mine to boxAt())
-        (if (rtl) order.reversed() else order).forEach { (v, lp) -> boxes.addView(v, lp) }
-        card.addView(boxes)
+        val theirVoice = VoicePill(context, mine = false, rtl = rtl)
+        val myVoice = VoicePill(context, mine = true, rtl = rtl)
+        // One cell a side: a voice pill that grows into a video box and back (teal theirs, coral mine).
+        val theirItem = LiveCell(context, LiveLayout.THEIRS, TEAL, theirVoice, theirs)
+        val myItem = LiveCell(context, LiveLayout.MINE, PINK, myVoice, mine)
+        // The stage: as large as the window, its children put by their left edge and top (never start or end).
+        val stage = FrameLayout(context).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            clipChildren = false
+            clipToPadding = false
+            addView(theirItem.view, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.LEFT))
+            addView(myItem.view, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.LEFT))
+        }
         // Both live: "You're both live · Make it a call" under the boxes; a tap starts a video call.
-        bothChip = TextView(context).apply {
+        val chip = TextView(context).apply {
             visibility = View.GONE
             text = context.getString(R.string.talk_both_live) + " · " + context.getString(R.string.talk_make_call)
             setTextColor(Color.WHITE)
@@ -976,7 +1018,7 @@ object TalkBubble {
             setPadding(dp(14), dp(8), dp(14), dp(8))
             background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), PINK) }
             setOnClickListener {
-                val chat = chat ?: return@setOnClickListener
+                val chat = rowChat() ?: return@setOnClickListener
                 if (talking) {
                     locked = false
                     endTalk(context, send = true)
@@ -985,60 +1027,67 @@ object TalkBubble {
                 dismissNow()
             }
         }
-        card.addView(bothChip, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
-        // From the very top edge of the screen (2026-11-24, hen: "enter from the edge of the screen and start just below
-        // the notification bar"): the window starts at the edge, its content resting just under the status bar.
+        stage.addView(chip, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         val holder = FrameLayout(context).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
-            setPadding(dp(8), statusTop + dp(2), dp(8), dp(8))
-            addView(card, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+            addView(stage, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         }
         val params = WindowManager.LayoutParams(
-            // As wide as the screen and never resized sideways: the items move and grow inside it about its centre
-            // (2026-11-25, hen: "symmetrical, in one move"; a window resizing each frame nudged them).
+            // As wide as the screen and tall enough for the tallest row, once: nothing that shows in it moves or
+            // resizes the window (2026-11-25, hen: "symmetrical, in one move"; a window resizing each frame nudged the
+            // items). Only the items take touches ([touchTop]).
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            restTop + statusTop + topHeight(context) + dp(96),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.TOP or Gravity.LEFT
+            x = 0
             y = 0
-            if (Build.VERSION.SDK_INT >= 28) layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            fitInsetsTypes = 0
             title = "Talk video"
         }
-        card.setOnTouchListener(TopTouch(context, wm, holder, params))
-        topParams = params
+        val touch = TopTouch(context, wm, holder, params)
+        theirItem.view.setOnTouchListener(touch)
+        myItem.view.setOnTouchListener(touch)
         try {
             wm.addView(holder, params)
         } catch (e: Exception) {
-            Log.w(TAG, "can't show the top box", e)
-            return
+            Log.w(TAG, "can't show the top row", e)
+            return false
         }
+        topParams = params
         topWindow = holder
-        topCard = card
-        // Wherever the system put the window (the S25 drew it at the screen's very top, under the status bar, though
-        // the content is padded below it; 2026-11-25), the boxes end up just below the status bar.
-        holder.post {
-            if (topWindow !== holder) return@post
-            val at = IntArray(2).also { holder.getLocationOnScreen(it) }[1] + holder.paddingTop
-            Log.i(TAG, "top box: window at ${at - holder.paddingTop}, content at $at, status bar $statusTop")
-            if (at < statusTop) {
-                params.y += statusTop - at + dp(2)
-                runCatching { wm.updateViewLayout(holder, params) }
-            }
-        }
+        topCard = stage
+        theirCell = theirItem
+        myCell = myItem
+        theirPill = theirVoice
+        myPill = myVoice
         theirBox = theirs
         myBox = mine
+        bothChip = chip
         topHiding = false
-        // Slides down from the top edge of the screen.
-        card.translationY = -(statusTop + dp(2) + topHeight(context) + dp(80)).toFloat()
-        card.animate().translationY(0f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        // Wherever the system put the window (the S25 drew it at the screen's very top, under the status bar;
+        // 2026-11-25), the items rest just below the status bar and are centred on the screen: once the window is
+        // laid out, where it really is is taken into the places (the window itself stays put).
+        holder.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (topWindow !== holder || (left == oldLeft && top == oldTop && right == oldRight && bottom == oldBottom)) return@addOnLayoutChangeListener
+            val at = IntArray(2).also { holder.getLocationOnScreen(it) }
+            val low = statusTop + dp(2) - (at[1] - params.y + restTop)
+            if (low > 0) restTop += low
+            Log.i(TAG, "top row: window at ${at[0]},${at[1]}, ${right - left} wide, rests at ${at[1] + restTop}, status bar $statusTop, ${if (rtl) "right to left" else "left to right"}")
+            holder.post { if (topWindow === holder && !topHiding) placeTop(context) }
+        }
+        main.removeCallbacks(topPulse)
+        main.post(topPulse)
+        return true
     }
 
-    /** Drag moves the top box; a swipe up puts it away (until their next burst); a tap opens the chat. */
+    /** Drag moves the row; a swipe up puts it away (until their next burst); a tap opens the chat. */
     private class TopTouch(val context: Context, val wm: WindowManager, val window: View, val params: WindowManager.LayoutParams) : View.OnTouchListener {
         private var x0 = 0f
         private var y0 = 0f
@@ -1073,11 +1122,10 @@ object TalkBubble {
                     val dy = e.rawY - y0
                     val fast = System.currentTimeMillis() - t0 < 400
                     when {
-                        !moved -> chat?.let { intoChat(context, it) }
+                        !moved -> rowChat()?.let { intoChat(context, it) }
                         // Up and quick, or dragged up past the top: put away.
                         (fast && dy < -dp(context, 40)) || py + dy < -dp(context, 24) -> {
                             topPutAway = true
-                            params.y = py.coerceAtLeast(0)
                             hideTop()
                         }
                     }
@@ -1087,29 +1135,27 @@ object TalkBubble {
         }
     }
 
-    /** Slides the top box up off the screen, then it goes. */
+    /** Every item goes back up through the screen's top edge, in one move; then the window goes. */
     private fun hideTop() {
         val window = topWindow ?: return
         if (topHiding) return
         topHiding = true
         main.removeCallbacks(topTick)
-        val card = topCard
-        val done = {
-            if (topWindow === window && topHiding) removeTop()
-        }
-        if (card == null) {
-            done()
-            return
-        }
-        // Back out through the top edge.
-        card.animate().translationY(-(card.bottom + dp(card.context, 40)).toFloat()).setDuration(SLIDE_MS)
-            .setInterpolator(android.view.animation.AccelerateInterpolator()).withEndAction(done).start()
+        theirCell?.on = false
+        myCell?.on = false
+        bothChip?.visibility = View.GONE
+        topRoom.intValue = 0
+        topMotion.target(emptyMap(), (restTop + windowAt()[1] + dp(window.context, 12)).toFloat())
+        if (topMotion.running) frames() else removeTop()
     }
 
     private fun removeTop() {
         val window = topWindow ?: return
         topWindow = null
         main.removeCallbacks(topTick)
+        main.removeCallbacks(topPulse)
+        topMotion.clear()
+        topRoom.intValue = 0
         videoSurface?.let { com.chencohen.ptt.talk.AndroidTalkVideoOut.detach(it) }
         videoSurface = null
         dropRoomVideo()
@@ -1117,7 +1163,8 @@ object TalkBubble {
         roomLive = null
         topCard = null
         topParams = null
-        topBoxes = null
+        theirCell = null
+        myCell = null
         theirBox = null
         theirTag = null
         theirFace = null
@@ -1129,6 +1176,83 @@ object TalkBubble {
         bothChip = null
         topHiding = false
         runCatching { window.context.getSystemService(WindowManager::class.java).removeView(window) }
+    }
+
+    /**
+     * One side's item in the row (2026-11-25, hen: "the voice pill should transform to a video box"): ONE view whose
+     * frame is the voice pill or the video box and grows from one into the other about its centre, its corners, colour
+     * and inside changing with it: the pill's face and words fade as the box's picture and tag show. It never leaves
+     * and comes back for that. Put by its left edge and top (LiveMotion's frame), never by start or end.
+     */
+    private class LiveCell(context: Context, val key: String, color: Int, val pill: VoicePill, val box: FrameLayout) {
+        val view = FrameLayout(context)
+        /** In the row now; as a video box (else a voice pill). */
+        var on = false
+        var video = false
+        private val density = context.resources.displayMetrics.density
+        private val fill = GradientDrawable()
+        private val edge = GradientDrawable()
+        private var radius = -1f
+
+        init {
+            view.layoutDirection = View.LAYOUT_DIRECTION_LTR
+            view.visibility = View.GONE
+            view.elevation = 8 * density
+            view.background = fill
+            edge.setColor(Color.TRANSPARENT)
+            edge.setStroke(density.toInt().coerceAtLeast(2), color)
+            view.foreground = edge
+            view.outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, outline: android.graphics.Outline) = outline.setRoundRect(0, 0, v.width, v.height, radius.coerceAtLeast(0f))
+            }
+            view.clipToOutline = true
+            view.addView(box, FrameLayout.LayoutParams((120 * density).toInt(), (160 * density).toInt(), Gravity.CENTER))
+            view.addView(pill.view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        }
+
+        /** The pill's own size, whatever the cell's is now ([most]: the screen's width). */
+        fun pillSize(most: Int): Pair<Int, Int> {
+            // Asked afresh, as a window would ask it (a text keeps the width it was last laid out at otherwise).
+            pill.forceLayout()
+            pill.view.measure(View.MeasureSpec.makeMeasureSpec(most, View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            return pill.view.measuredWidth to pill.view.measuredHeight
+        }
+
+        /** The cell at [rect] (null: not in the row), [rest] below the window's top. */
+        fun place(rect: LiveRect?, rest: Int) {
+            if (rect == null) {
+                if (view.visibility != View.GONE) view.visibility = View.GONE
+                return
+            }
+            // Both edges from the centre: growing, the frame's centre stays where it is to the pixel.
+            val left = kotlin.math.round(rect.centreX - rect.w / 2).toInt()
+            val right = kotlin.math.round(rect.centreX + rect.w / 2).toInt()
+            val h = kotlin.math.round(rect.h).toInt()
+            val lp = view.layoutParams
+            if (lp.width != right - left || lp.height != h) {
+                lp.width = right - left
+                lp.height = h
+                view.layoutParams = lp
+            }
+            view.translationX = left.toFloat()
+            view.translationY = rest + rect.y
+            val p = rect.video.coerceIn(0f, 1f)
+            val r = (32 - 14 * p) * density
+            if (r != radius) {
+                radius = r
+                fill.cornerRadius = r
+                edge.cornerRadius = r
+                view.invalidateOutline()
+            }
+            fill.setColor(androidx.core.graphics.ColorUtils.blendARGB(0xF2191D1C.toInt(), Color.BLACK, p))
+            box.alpha = p
+            val boxShows = if (p > 0f) View.VISIBLE else View.GONE
+            if (box.visibility != boxShows) box.visibility = boxShows
+            pill.view.alpha = 1f - p
+            val pillShows = if (p < 1f) View.VISIBLE else View.GONE
+            if (pill.view.visibility != pillShows) pill.view.visibility = pillShows
+            if (view.visibility != View.VISIBLE) view.visibility = View.VISIBLE
+        }
     }
 
     // ---- The pulse, calls, leaving --------------------------------------------------------------------------------
@@ -1154,9 +1278,6 @@ object TalkBubble {
             val scale = 1f + 0.15f * (if (talking) level else 0f)
             button?.scaleX = scale
             button?.scaleY = scale
-            // Who talks by voice: the ring glows with their voice, or mine.
-            theirPill?.tick(com.chencohen.ptt.talk.TalkAudio.playLevel, burstSince)
-            myPill?.tick(com.chencohen.ptt.talk.TalkAudio.micLevel, talkStarted)
             updateStop()
             main.postDelayed(this, 60)
         }
@@ -1202,7 +1323,17 @@ object TalkBubble {
      */
     private fun intoChat(context: Context, chat: String) {
         openChat(context, chat)
-        topCard?.animate()?.scaleX(1.1f)?.scaleY(1.1f)?.alpha(0f)?.setDuration(200)?.start()
+        if (outside != null) {
+            // The floating chat's row: the chat opens in the app, the floating one closes, and the row goes with it.
+            QuickReplyWindow.close(context)
+        } else {
+            topCard?.let { card ->
+                // About the row's own middle.
+                card.pivotX = card.width / 2f
+                card.pivotY = restTop + (topMotion.rects.values.maxOfOrNull { it.bottom } ?: 0f) / 2
+                card.animate().scaleX(1.1f).scaleY(1.1f).alpha(0f).setDuration(200).start()
+            }
+        }
         pill?.animate()?.alpha(0f)?.setDuration(200)?.withEndAction { remove() }?.start() ?: remove()
     }
 
@@ -1233,7 +1364,8 @@ object TalkBubble {
     /** Both pieces slide away (the pill down, the top box up), then go. */
     private fun dismissNow() {
         val row = pill ?: return remove()
-        hideTop()
+        // The floating chat's row stays while that chat is live.
+        if (outside == null) hideTop()
         row.animate().translationY((row.height + dp(row.context, 60)).toFloat()).setDuration(SLIDE_MS)
             .setInterpolator(android.view.animation.AccelerateInterpolator())
             .withEndAction { if (pill === row) remove() }
@@ -1243,7 +1375,8 @@ object TalkBubble {
     private fun remove() {
         val window = pillWindow
         val context = window?.context
-        removeTop()
+        // The floating chat's row outlives the bottom pill.
+        if (outside == null) removeTop()
         if (window == null || context == null) return
         pillWindow = null
         pill = null
@@ -1261,8 +1394,6 @@ object TalkBubble {
         pushBox = null
         stopPill = null
         lockHint = null
-        theirPill = null
-        myPill = null
         talking = false
         locked = false
         sendingVideo = false
@@ -1270,10 +1401,12 @@ object TalkBubble {
         burstVideo = false
         burstSince = 0L
         topPutAway = false
+        goingLive = false
         chat = null
         from = null
         runCatching { context.getSystemService(WindowManager::class.java).removeView(window) }
         Log.i(TAG, "gone")
+        if (outside != null) refreshTop(context.applicationContext)
     }
 
     /** The title for a burst from [from] in [chat]: their name, and the group's. */
@@ -1288,9 +1421,10 @@ object TalkBubble {
 
     /**
      * A slim voice pill at the top (2026-11-24, hen, "B"): the talker's face in a ring glowing with the voice (teal,
-     * coral for mine; no wave), "Sharon is talking" and the time, or for mine one line, "You · 0:03".
+     * coral for mine; no wave), "Sharon is talking" and the time, or for mine one line, "You · 0:03". Only the
+     * inside: its frame (shape, colour, outline, shadow) is its LiveCell's, which grows into the video box.
      */
-    private class VoicePill(context: Context, val mine: Boolean) {
+    private class VoicePill(context: Context, val mine: Boolean, rtl: Boolean) {
         private fun dp(v: Int) = dp(view.context, v)
         val view = LinearLayout(context)
         private val ring = GlowRing(context).also { it.color = if (mine) PINK else TEAL }
@@ -1305,19 +1439,17 @@ object TalkBubble {
         init {
             view.orientation = LinearLayout.HORIZONTAL
             view.gravity = Gravity.CENTER_VERTICAL
-            // Its inside in the language's direction (the row around it is laid out left to right).
-            view.layoutDirection = View.LAYOUT_DIRECTION_LOCALE
-            view.visibility = View.GONE
-            view.setPadding(dp(2), dp(2), dp(18), dp(2))
-            view.background = GradientDrawable().apply { cornerRadius = dp(32).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), if (mine) PINK else TEAL) }
-            view.elevation = dp(8).toFloat()
+            // Its inside in the language's direction, said outright (the cell around it is laid out left to right): the
+            // face at the start, the room after the words at the end (2026-11-25: it was at the right in Hebrew too).
+            view.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+            view.setPaddingRelative(dp(2), dp(2), dp(18), dp(2))
             letter.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
             val faceBox = FrameLayout(context).apply { clipChildren = false }
             faceBox.addView(ring, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER))
             faceBox.addView(letter, FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER))
             faceBox.addView(face, FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER))
             view.addView(faceBox, LinearLayout.LayoutParams(dp(60), dp(60)))
-            val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(2), 0, 0, 0) }
+            val words = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPaddingRelative(dp(2), 0, 0, 0) }
             words.addView(name)
             if (!mine) words.addView(time)
             view.addView(words)
@@ -1326,11 +1458,9 @@ object TalkBubble {
         /** Shows [user]'s face ("" mine; null hides), titled [title] (theirs). */
         fun show(context: Context, user: String?, title: String) {
             if (user == null) {
-                view.visibility = View.GONE
                 shown = null
                 return
             }
-            view.visibility = View.VISIBLE
             // In their own form (testbot set male: "testbot מדבר"), the name wrapped so a Latin name doesn't turn the
             // Hebrew line around (2026-11-25, hen).
             if (!mine) name.text = Gendered.string(context, R.string.talk_someone, user, android.text.BidiFormatter.getInstance().unicodeWrap(title))
@@ -1352,13 +1482,22 @@ object TalkBubble {
             }
         }
 
+        /** Its texts measure themselves anew at the next measure. */
+        fun forceLayout() {
+            name.forceLayout()
+            time.forceLayout()
+            (name.parent as? View)?.forceLayout()
+            view.forceLayout()
+        }
+
         /** The voice's [level] on the ring, and the time since [since]. */
         fun tick(level: Float, since: Long) {
-            if (view.visibility != View.VISIBLE) return
-            ring.level(level)
+            if (view.visibility == View.VISIBLE) ring.level(level)
             val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
             val t = "%d:%02d".format(s / 60, s % 60)
-            if (mine) name.text = view.context.getString(R.string.talk_panel_you) + " · " + t else time.text = t
+            // Only when it changes: a text set again asks for a layout each time.
+            val (line, words) = if (mine) name to view.context.getString(R.string.talk_panel_you) + " · " + t else time to t
+            if (line.text.toString() != words) line.text = words
         }
     }
 
