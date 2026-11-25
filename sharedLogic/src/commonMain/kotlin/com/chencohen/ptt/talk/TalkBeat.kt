@@ -50,7 +50,7 @@ internal class LiveSigns(private val now: () -> Long) {
         signs.getOrPut(burstId) { Sign(now(), false) }.at = now()
     }
 
-    /** A beat or a live segment of [burstId]: it is alive now, and watched from here. */
+    /** A beat of [burstId] (or a segment of one taken off): it is alive now, and watched from here. */
     fun alive(burstId: String) {
         val s = signs.getOrPut(burstId) { Sign(now(), true) }
         s.at = now()

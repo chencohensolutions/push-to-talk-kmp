@@ -121,6 +121,8 @@ class HomeActions(
     val newChat: () -> Unit = {},
     val reviewRequest: (String) -> Unit = {},
     val openContact: (String) -> Unit = {},
+    /** A Chats row's shield (not verified): their safety number. */
+    val openSafety: (String) -> Unit = {},
     /** A group invitation's card: the group's page, to accept or decline. */
     val openGroup: (String) -> Unit = {},
     val replaceIdentityKey: () -> Unit = {},
@@ -297,6 +299,7 @@ fun HomeApp(
                         newChat = { push("new") },
                         reviewRequest = { push("review/$it") },
                         openContact = { push("chat/$it") },
+                        openSafety = { push("safety/$it") },
                         openGroup = { push("group/$it") },
                         replaceIdentityKey = {
                             messaging.replaceIdentityKey { result ->
@@ -710,6 +713,7 @@ fun HomeApp(
                         actions = ConversationActions(
                             back = ::pop,
                             openContact = { Group.idOf(user)?.let { push("group/$it") } ?: push("contact/$user") },
+                            openSafetyNumber = { push("safety/$user") },
                             sendFace = { code, fallback -> com.chencohen.ptt.sendFace(context, user, code, fallback) },
                             react = { id, code -> com.chencohen.ptt.react(context, id, code) },
                             send = { body ->
@@ -1091,7 +1095,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                                 GroupRow(group, chats.lastMessages[key], chats.unread[key] ?: 0) { actions.openContact(key) }
                             } else {
                                 chats.contacts.firstOrNull { it.user == key }?.let { contact ->
-                                    ContactRow(contact, chats.lastMessages[key], chats.unread[key] ?: 0) { actions.openContact(key) }
+                                    ContactRow(contact, chats.lastMessages[key], chats.unread[key] ?: 0, openSafety = { actions.openSafety(contact.user) }) { actions.openContact(key) }
                                 }
                             }
                         }

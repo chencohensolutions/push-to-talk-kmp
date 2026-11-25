@@ -1027,8 +1027,9 @@ internal class Talk(
     }
 
     private fun onSegment(segment: ClipSegment, live: Boolean) {
-        // A live segment is a sign of life too (the clip path's listeners get no beats).
-        if (live) alive(segment.burstId)
+        // A live segment puts a talker the watchdog took off back on the row (it is plainly still going). It doesn't
+        // start the watch: off the room the server's own end comes within 3 s of the talker's connection closing.
+        if (live && segment.burstId in cleared) alive(segment.burstId)
         val burst = bursts[segment.burstId] ?: if (live) incoming(segment.burstId, "", "") else return
         if (segment.index < burst.next || burst.segments.containsKey(segment.index)) return
         if (burst.lastIndex != null && segment.index > burst.lastIndex!!) return

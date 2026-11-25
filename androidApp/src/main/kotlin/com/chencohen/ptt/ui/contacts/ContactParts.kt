@@ -60,7 +60,7 @@ internal fun Avatar(user: String, size: Dp = 48.dp, name: String = user) {
  * changed safety number in orange, not confirmed yet), else the last test message, else "Paired".
  */
 @Composable
-internal fun ContactRow(contact: Contact, last: TextMessage?, unread: Int = 0, onClick: () -> Unit) {
+internal fun ContactRow(contact: Contact, last: TextMessage?, unread: Int = 0, openSafety: (() -> Unit)? = null, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -95,8 +95,15 @@ internal fun ContactRow(contact: Contact, last: TextMessage?, unread: Int = 0, o
                 Text(if (unread > 99) "99+" else unread.toString(), color = LibraryColors.OnInverse, style = LibraryType.Small)
             }
         }
-        if (contact.verified && contact.changedKey == null) {
-            Icon(LibraryIcons.Shield, stringResource(R.string.safety_verified), tint = LibraryColors.Muted, modifier = Modifier.size(18.dp))
+        // A shield only when their safety number isn't verified (2026-11-26, hen: "show only when not verified"); a
+        // tap opens it. A changed one says so in the line above already.
+        if (contact.paired && !contact.blocked && !contact.verified && contact.changedKey == null) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).then(if (openSafety != null) Modifier.clickable(role = Role.Button, onClick = openSafety) else Modifier),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(LibraryIcons.Shield, stringResource(R.string.contact_safety_unverified), tint = LibraryColors.Warning, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }

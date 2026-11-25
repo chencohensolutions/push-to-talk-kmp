@@ -64,6 +64,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.res.stringResource
@@ -97,6 +98,8 @@ class ConversationActions(
     val back: () -> Unit = {},
     /** The header: the contact's page (safety number, block, remove). */
     val openContact: () -> Unit = {},
+    /** The header's shield (not verified): their safety number. */
+    val openSafetyNumber: () -> Unit = {},
     val send: (String) -> Unit = {},
     val retry: (String) -> Unit = {},
     /** Typing started (true) or stopped; already throttled here. */
@@ -1204,7 +1207,7 @@ private fun ConversationScreenIn(
 
 /** [actions] with the video bubble's tap playing it full screen. */
 private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) -> Unit) = ConversationActions(
-    back = a.back, openContact = a.openContact, send = a.send, retry = a.retry, typing = a.typing, draft = a.draft, openTalk = a.openTalk,
+    back = a.back, openContact = a.openContact, openSafetyNumber = a.openSafetyNumber, send = a.send, retry = a.retry, typing = a.typing, draft = a.draft, openTalk = a.openTalk,
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
@@ -1297,8 +1300,14 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
             Column(Modifier.padding(start = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(contact?.name ?: user, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
-                    if (contact?.verified == true) {
-                        Icon(LibraryIcons.Shield, stringResource(R.string.contact_safety_verified), tint = LibraryColors.Muted, modifier = Modifier.padding(start = 4.dp).size(16.dp))
+                    // A shield only while their safety number isn't verified (2026-11-26, hen); a tap opens it.
+                    if (contact != null && contact.paired && !contact.verified) {
+                        Box(
+                            Modifier.size(32.dp).clip(androidx.compose.foundation.shape.CircleShape).clickable(role = Role.Button, onClick = actions.openSafetyNumber),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(LibraryIcons.Shield, stringResource(R.string.contact_safety_unverified), tint = LibraryColors.Warning, modifier = Modifier.size(16.dp))
+                        }
                     }
                 }
                 // No general "online" or "last seen" (2026-11-24, hen: "useless"): whether they are in this chat shows
