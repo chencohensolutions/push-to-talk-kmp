@@ -680,6 +680,7 @@ fun HomeApp(
                             val typers = groupTyping.filterValues { it > now }.keys.map { it.substringAfter('/') }
                             GroupChat(
                                 name = group?.let { groupName(it) } ?: resources.getString(R.string.group_unnamed),
+                                members = group?.readers?.map { it.user }?.filter { it != me }.orEmpty(),
                                 picture = group?.picture,
                                 line = when {
                                     typers.isNotEmpty() -> com.chencohen.ptt.Gendered.stringFor(context, R.string.group_typing, typers, typers.joinToString(", "))
