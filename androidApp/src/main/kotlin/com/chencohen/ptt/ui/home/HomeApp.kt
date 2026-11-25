@@ -718,10 +718,11 @@ fun HomeApp(
                             call = { video -> call(user, video) },
                             sendLiveWaiting = { waiting -> messaging.sendLiveWaiting(user, waiting) },
                             callInChat = {
-                                // In the talk room already: it becomes the call at once; else the usual call.
+                                // In the talk room already: it becomes the call at once. Without a room to turn, a
+                                // short word, never a ringing call (2026-11-25, hen: "it's calling the recipient
+                                // instead of opening the call seamlessly").
                                 messaging.startRoomCall(user, video = messagingState.talkSettings.pushVideoFor(user)) {
-                                    inChatCallFor = user
-                                    call(user, true)
+                                    messages.post(resources.getString(R.string.talk_call_no_room))
                                 }
                             },
                             shareCall = { file -> com.chencohen.ptt.ui.calls.shareCall(context, file) },

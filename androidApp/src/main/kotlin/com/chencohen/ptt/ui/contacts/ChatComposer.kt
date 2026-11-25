@@ -324,10 +324,17 @@ internal fun ChatButtons(
     release: ((locked: Boolean) -> Unit)? = null,
     /** My camera, small, on the button's corner. */
     thumb: Boolean = true,
+    /**
+     * My press waits for this one's floor (2026-11-25, hen: waiting looks like waiting, not live): the big button
+     * dimmed inside a dashed ring, and "Waiting for Sharon…" beside it.
+     */
+    waitingFor: String? = null,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
     val big by animateDpAsState(if (compact) 48.dp else 84.dp, label = "talk button")
+    // The language's own direction, for words in the row (the row itself is laid out left to right).
+    val reading = androidx.compose.ui.platform.LocalLayoutDirection.current
     // Laid out on the screen itself, the same in Hebrew and English (2026-11-24, hen: the thumb finds it in one
     // place): voice message, then the big button near the right edge, both under the right thumb.
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
@@ -336,6 +343,16 @@ internal fun ChatButtons(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (waitingFor != null) {
+                    Text(
+                        // The line in the language's direction, the name wrapped: a Latin name doesn't turn a Hebrew line around.
+                        stringResource(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(waitingFor)), color = LibraryColors.Muted,
+                        style = LibraryType.Caption.copy(textDirection = if (reading == androidx.compose.ui.unit.LayoutDirection.Rtl) androidx.compose.ui.text.style.TextDirection.Rtl else androidx.compose.ui.text.style.TextDirection.Ltr),
+                        // Beside the buttons, which are at the right whatever the language.
+                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Right,
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    )
+                }
                 if (recording) {
                     RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
                 } else {
@@ -361,7 +378,20 @@ internal fun ChatButtons(
             val onPressed by androidx.compose.runtime.rememberUpdatedState(pressed)
             val onRelease by androidx.compose.runtime.rememberUpdatedState(release)
             val onPress by androidx.compose.runtime.rememberUpdatedState(press ?: actions.startVoice)
-            Box(Modifier.padding(start = 8.dp).size(big)) {
+            val ring = com.chencohen.ptt.ui.style.Pink
+            Box(
+                Modifier.padding(start = 8.dp).size(big)
+                    .drawBehind {
+                        // Waiting: a dashed ring around the button, the button itself dimmed.
+                        if (waitingFor != null) {
+                            drawCircle(
+                                ring, radius = size.minDimension / 2 + 5.dp.toPx(),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(7.dp.toPx(), 6.dp.toPx()))),
+                            )
+                        }
+                    }
+                    .graphicsLayer { alpha = if (waitingFor != null) 0.45f else 1f },
+            ) {
                 if (handsFree) {
                     StopLive(big, stopLive)
                 } else Box(

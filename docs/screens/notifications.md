@@ -46,8 +46,16 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     switches to hands-free video (2026-11-24, hen: "sliding the button up open hands free video"; the camera opens as
     the finger starts to slide), and the button becomes a coral "■ Stop · 0:42" (renewed at 55 s, as the server ends a
     floor at 60 s). No Voice | Video switch and no hands-free voice any more. A ring around the pill pulses with the
-    voice. A call ringing turns the pill into Answer (the push button, green) and Decline (Close, red). Voice and video
-    calls start from the chat.
+    voice. A call ringing turns the pill into Answer (the push button, green) and Decline (Close, red).
+    **One frame, one move** (2026-11-25, hen: "the bottom pill transition is juggling when morphing"): the pill is one
+    frame that grows and shrinks about its centre in 300 ms with an ease, Chat at its left end and Close at its right
+    gliding with it, and Stop widening out of the Push button's own circle; the same in Hebrew and English (each
+    button is put by its left edge, `shapePill`). The timer's digits are all one width and Stop is as wide as its
+    widest time, so the seconds don't nudge it. The room for the lock above the button is always there, unseen, so
+    the window never changes size and the pill never moves when the lock shows; only the pill itself takes touches.
+    A press that waits for the floor looks like waiting, not live: the Push button dimmed inside a dashed ring,
+    "Waiting for Sharon…" in Stop's place when hands-free, and no pill or box of mine in the row at the top until
+    its turn comes.
   - **Voice** (2026-11-24, hen, "B, a slim pill at the top"): a slim pill at the top centre, entering like the video
     box (from the top edge, resting just below the status bar): their face in a teal ring that glows with their voice
     (brightness, glow and thickness follow the level, 60 ms up and 200 ms down; no wave), "Sharon is talking" and the
@@ -62,8 +70,8 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     250 ms; a swipe up sends it back out the same way): 23.6% of the screen high and as wide as
     the picture's own shape (no crop, no bars), rounded 18 dp with a thin teal outline, "Name · 0:04" inside its
     bottom-start corner. While I send video my camera shows the same way (coral outline, "● You · LIVE 0:03", one line),
-    side by side with theirs when both are live, and "You're both live · Make it a call" under them (a tap starts a
-    video call). Drag moves it; a swipe up puts it away until their next burst; a tap opens the chat.
+    side by side with theirs when both are live, and "You're both live · Make it a call" under them (a tap turns
+    the talk room into the call, no ringing, and opens the chat with it; without a room to turn, a short word). Drag moves it; a swipe up puts it away until their next burst; a tap opens the chat.
   - **The row's places and moves** (2026-11-25, hen: "every combined animation in one move"; his phone is in Hebrew,
     where items came in at the wrong side and moved in steps). The row's window is as wide as the screen and as tall
     as the tallest row, once: nothing that shows in it moves or resizes it, and only the items themselves take touches

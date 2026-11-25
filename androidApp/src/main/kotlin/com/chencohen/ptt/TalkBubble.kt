@@ -76,7 +76,15 @@ object TalkBubble {
 
     // The bottom pill (its own window).
     private var pillWindow: LinearLayout? = null
-    private var pill: LinearLayout? = null
+    private var pill: FrameLayout? = null
+    /** The pill's frame now: how far its middle is Stop (0: Push) and how far the Chat button is there (0: not). */
+    private var pillStop = 0f
+    private var pillChat = 1f
+    private var pillMorph: android.animation.ValueAnimator? = null
+    /** "■ Stop · 00:00" at its widest: the Stop pill's width, the same whatever the time says. */
+    private var stopWidth = 0
+    /** My press waits for the floor (TalkPhase.WAITING): shown as waiting, never as live. */
+    private var waiting = false
     private var chatButton: ImageView? = null
     private var button: ImageView? = null
     private var closeButton: ImageView? = null
@@ -247,22 +255,18 @@ object TalkBubble {
 
     // ---- The bottom pill ----------------------------------------------------------------------------------------
 
-    @SuppressLint("ClickableViewAccessibility")
+    // Left, not start: the pill's buttons are put by their left edge whatever the language ([shapePill]).
+    @SuppressLint("ClickableViewAccessibility", "RtlHardcoded")
     private fun addPill(context: Context): Boolean {
         val wm = context.getSystemService(WindowManager::class.java)
         fun dp(v: Int) = dp(context, v)
         val bars = wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.navigationBars())
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            // One order whatever the language (2026-11-25, hen: mirrored in Hebrew it read wrong): Chat, Push, Close,
-            // as the chat's own button row; its changes (Push to Stop and back) animate, growing from the centre.
+        // One frame that grows and shrinks about its centre in one move ([shapePill]; 2026-11-25, hen: "the bottom pill
+        // transition is juggling when morphing"): Chat at its left end, Push or Stop in its middle, Close at its right,
+        // each put by its left edge, the same in Hebrew and English. No LinearLayout and LayoutTransition any more.
+        val row = FrameLayout(context).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
-            layoutTransition = android.animation.LayoutTransition().apply {
-                enableTransitionType(android.animation.LayoutTransition.CHANGING)
-                setDuration(200)
-            }
-            setPadding(dp(8), dp(6), dp(8), dp(6))
+            clipChildren = false
             background = GradientDrawable().apply { cornerRadius = dp(40).toFloat(); setColor(0xF2191D1C.toInt()) }
             elevation = dp(8).toFloat()
         }
@@ -289,13 +293,26 @@ object TalkBubble {
         pushBox = push
         // Hands-free: the push button's place shows a coral "■ Stop · 0:42"; a tap stops.
         stopPill = TextView(context).apply {
-            visibility = View.GONE
+            visibility = View.INVISIBLE
             setTextColor(Color.WHITE)
             textSize = 15f
             gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
             setTypeface(typeface, android.graphics.Typeface.BOLD)
+            // Digits all one width, and the pill as wide as its widest time: the seconds don't nudge it.
+            fontFeatureSettings = "tnum"
             setPadding(dp(16), 0, dp(16), 0)
+            stopWidth = ((paint.measureText("■  " + context.getString(R.string.talk_stop) + " · 00:00") + dp(32)).toInt() / 2 + 1) * 2
             background = GradientDrawable().apply { cornerRadius = dp(23).toFloat(); setColor(PINK) }
+            // Shown through a round frame that widens from the Push button's own circle to the whole pill.
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, outline: android.graphics.Outline) {
+                    val shown = dp(46) + (v.width - dp(46)) * pillStop
+                    outline.setRoundRect(((v.width - shown) / 2).toInt(), 0, ((v.width + shown) / 2).toInt(), v.height, dp(23).toFloat())
+                }
+            }
+            clipToOutline = true
             contentDescription = context.getString(R.string.talk_stop)
             setOnClickListener {
                 locked = false
@@ -303,17 +320,18 @@ object TalkBubble {
             }
         }
         closeButton = round(R.drawable.ic_bubble_close, R.string.bubble_close, dp(34), 0x33FFFFFF) { closeOrDecline(context) }
-        val gap = dp(10)
-        row.addView(chatButton, LinearLayout.LayoutParams(dp(34), dp(34)))
-        row.addView(push, LinearLayout.LayoutParams(dp(56), dp(56)).apply { marginStart = gap; marginEnd = gap })
-        row.addView(stopPill, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(46)).apply { marginStart = gap; marginEnd = gap })
-        row.addView(closeButton, LinearLayout.LayoutParams(dp(34), dp(34)))
-        // The lock, above the push button while it is held (the window grows upwards; the pill stays put).
+        val left = Gravity.LEFT or Gravity.CENTER_VERTICAL
+        row.addView(chatButton, FrameLayout.LayoutParams(dp(34), dp(34), left))
+        row.addView(push, FrameLayout.LayoutParams(dp(56), dp(56), left))
+        row.addView(stopPill, FrameLayout.LayoutParams(stopWidth, dp(46), left))
+        row.addView(closeButton, FrameLayout.LayoutParams(dp(34), dp(34), left))
+        // The lock, above the push button while it is held. Its room is always there (unseen), so the window never
+        // changes size and the pill never moves when it shows.
         lockHint = ImageView(context).apply {
             setImageResource(R.drawable.ic_bubble_lock)
             setPadding(dp(9), dp(9), dp(9), dp(9))
             background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(0xF2191D1C.toInt()) }
-            visibility = View.GONE
+            visibility = View.INVISIBLE
         }
         val holder = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -321,7 +339,7 @@ object TalkBubble {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
             addView(lockHint, LinearLayout.LayoutParams(dp(42), dp(58)).apply { bottomMargin = dp(8) })
-            addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            addView(row, LinearLayout.LayoutParams(dp(PILL_WINDOW_DP), dp(68)))
             // Room for the shadow.
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
@@ -344,6 +362,14 @@ object TalkBubble {
             wm.addView(holder, params)
             pillWindow = holder
             pill = row
+            pillStop = 0f
+            pillChat = 1f
+            waiting = false
+            shapePill()
+            // Only the pill takes touches: the room kept for the lock above it is the app's beneath.
+            row.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                if (pill === row) holder.rootSurfaceControl?.setTouchableRegion(android.graphics.Region(row.left, row.top, row.right, row.bottom))
+            }
             // Slides up and fades in, untouchable for a moment (OverlayArrival).
             row.post { OverlayArrival.arrive(wm, holder, params, row, (row.height + params.y + dp(16)).toFloat()) { a -> row.alpha = a } }
             Log.i(TAG, "shown")
@@ -538,22 +564,116 @@ object TalkBubble {
             lock.visibility = View.VISIBLE
             lock.animate().alpha(1f).setDuration(150).start()
         } else if (lock.visibility == View.VISIBLE) {
-            lock.visibility = View.GONE
+            lock.visibility = View.INVISIBLE
         }
+    }
+
+    /**
+     * Waiting for the floor looks like waiting (2026-11-25, hen): the push button dimmed inside a dashed ring, and
+     * "Waiting for Sharon…" in Stop's place when hands-free; back to its live look the moment the turn comes.
+     */
+    private fun showWaiting(context: Context) {
+        (button?.background as? GradientDrawable)?.apply {
+            if (waiting) {
+                setColor(0x66E9504F)
+                setStroke(dp(context, 2), 0xFFFFB3A8.toInt(), dp(context, 5).toFloat(), dp(context, 4).toFloat())
+            } else {
+                setColor(PINK)
+                if (talking) setStroke(dp(context, 4), 0x80FFB3A8.toInt()) else setStroke(0, Color.TRANSPARENT)
+            }
+        }
+        button?.contentDescription = if (waiting) context.getString(R.string.talk_waiting_for, title) else context.getString(if (talking) R.string.bubble_send else R.string.bubble_talk_hint)
+        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else PINK)
+        updateStop()
     }
 
     /** Hands-free: the push button's place is "■ Stop · 0:42". */
     private fun showLocked(on: Boolean) {
-        pushBox?.visibility = if (on) View.GONE else View.VISIBLE
-        stopPill?.visibility = if (on) View.VISIBLE else View.GONE
+        stopShown = on
         updateStop()
+        morphPill()
+    }
+
+    private var stopShown = false
+
+    /**
+     * The pill's frame for [pillStop] and [pillChat]: as wide as what is in it, about its centre (its width kept
+     * even, so the centre is a whole pixel), Chat at its left end, Close at its right, and in the middle the Push
+     * button giving way to Stop, which widens out of the button's own circle.
+     */
+    private fun shapePill() {
+        val row = pill ?: return
+        val context = row.context
+        val pad = dp(context, 8)
+        val gap = dp(context, 10)
+        val side = dp(context, 34)
+        val middle = dp(context, 56) + (stopWidth - dp(context, 56)) * pillStop
+        val chat = (side + gap) * pillChat
+        val width = ((pad + chat + middle + gap + side + pad) / 2).toInt() * 2
+        val lp = row.layoutParams
+        if (lp.width != width) {
+            lp.width = width
+            row.layoutParams = lp
+        }
+        val centre = pad + chat + middle / 2
+        chatButton?.let {
+            it.translationX = pad.toFloat()
+            it.alpha = pillChat
+            it.visibility = if (pillChat > 0f) View.VISIBLE else View.INVISIBLE
+        }
+        // Stop is there in the first third of the move, over the button it grows out of.
+        val stop = (pillStop * 3).coerceAtMost(1f)
+        pushBox?.let {
+            it.translationX = centre - dp(context, 28)
+            it.alpha = 1f - stop
+            it.visibility = if (stop < 1f) View.VISIBLE else View.INVISIBLE
+        }
+        stopPill?.let {
+            it.translationX = centre - stopWidth / 2f
+            it.alpha = stop
+            it.visibility = if (pillStop > 0f) View.VISIBLE else View.INVISIBLE
+            it.invalidateOutline()
+        }
+        closeButton?.translationX = (width - pad - side).toFloat()
+    }
+
+    /** The pill to what it should be now (Push or Stop, with or without Chat), in one eased move. */
+    private fun morphPill() {
+        val toStop = if (stopShown) 1f else 0f
+        val toChat = if (ringing == null) 1f else 0f
+        pillMorph?.cancel()
+        pillMorph = null
+        if (pill == null || (pillStop == toStop && pillChat == toChat)) return
+        val fromStop = pillStop
+        val fromChat = pillChat
+        pillMorph = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 300
+            interpolator = android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)
+            addUpdateListener {
+                val f = it.animatedValue as Float
+                pillStop = fromStop + (toStop - fromStop) * f
+                pillChat = fromChat + (toChat - fromChat) * f
+                shapePill()
+            }
+            start()
+        }
+    }
+
+    /** Test builds only (TestBubble): the pill as if locked hands-free ([on]) or not, nothing sent. */
+    internal fun pretendLocked(on: Boolean) = main.post {
+        if (pill == null) return@post
+        lockSince = System.currentTimeMillis()
+        showLocked(on)
     }
 
     private fun updateStop() {
         val stop = stopPill ?: return
-        if (stop.visibility != View.VISIBLE) return
+        if (!stopShown) return
         val s = ((System.currentTimeMillis() - lockSince) / 1000).coerceAtLeast(0)
-        stop.text = "■  " + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
+        // Waiting for the floor says so, not a time that looks like sending.
+        val words = if (waiting) stop.context.getString(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(title))
+        else "■  " + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
+        if (stop.text.toString() != words) stop.text = words
     }
 
     private val coolCamera = Runnable {
@@ -626,6 +746,10 @@ object TalkBubble {
         // Stop: my box keeps its last picture and goes up at once; the camera closes after (never black first).
         if (sendingVideo && !keepLock) freezeMine()
         talking = false
+        if (waiting) {
+            waiting = false
+            showWaiting(context)
+        }
         if (!keepLock) {
             locked = false
             warming = false
@@ -678,8 +802,10 @@ object TalkBubble {
         val theirOn = (burstLive || (out != null && out.theirs != LiveKind.None)) && !topPutAway
         val theirsVideo = theirOn && theirVideoWanted() && (theirPictureReady(context) || !theirWasPill)
         // Mine stays a box from the lock to Stop, through the moment between a hands-free floor and its renewal.
-        val mine = sendingVideo || goingLive || locked || out?.mine == LiveKind.Video
-        val myVoice = !mine && !topPutAway && (talking || out?.mine == LiveKind.Voice)
+        // A press that waits for the floor sends nothing and shows nothing live (2026-11-25, hen: "only when the UI
+        // says it's transmitting, then transmit"): no pill or box of mine until its turn comes.
+        val mine = ((sendingVideo || goingLive || locked) && !waiting) || out?.mine == LiveKind.Video
+        val myVoice = !mine && !topPutAway && ((talking && !waiting) || out?.mine == LiveKind.Voice)
         main.removeCallbacks(hideSoon)
         if (!theirOn && !mine && !myVoice) {
             // Nothing live: what shows goes up at once (2026-11-25, hen: "it should stop transmitting, slide up
@@ -1079,12 +1205,23 @@ object TalkBubble {
             background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), PINK) }
             setOnClickListener {
                 val chat = rowChat() ?: return@setOnClickListener
+                // The talk room becomes the call (2026-11-25, hen: "it's calling the recipient instead of opening the
+                // call seamlessly"): no ringing; the chat opens with the call in it. Without a room to turn, a short
+                // word, never a ringing call.
+                val video = sendingVideo || outside?.mine == LiveKind.Video || theirVideoWanted()
                 if (talking) {
                     locked = false
                     endTalk(context, send = true)
                 }
-                call(context, chat, true)
-                dismissNow()
+                startRoomCall(context, chat, video) { ok ->
+                    if (ok) {
+                        openChat(context, chat)
+                        if (outside != null) QuickReplyWindow.close(context)
+                        dismissNow()
+                    } else {
+                        android.widget.Toast.makeText(context, R.string.talk_call_no_room, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
         stage.addView(chip, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
@@ -1345,9 +1482,16 @@ object TalkBubble {
                 if (active) (density * (1.5f + 4 * level)).toInt().coerceAtLeast((1.5f * density).toInt()) else 0,
                 if (ringing != null) HERE else TEAL,
             )
-            val scale = 1f + 0.15f * (if (talking) level else 0f)
+            val scale = 1f + 0.15f * (if (talking && !waiting) level else 0f)
             button?.scaleX = scale
             button?.scaleY = scale
+            // My press waits for the floor, or its turn came: the button and the row say which.
+            val waits = talking && state.talk.own?.takeIf { it.chat == chat }?.phase == com.chencohen.ptt.talk.TalkPhase.WAITING
+            if (waits != waiting) {
+                waiting = waits
+                showWaiting(context)
+                refreshTop(context)
+            }
             updateStop()
             main.postDelayed(this, 60)
         }
@@ -1363,7 +1507,7 @@ object TalkBubble {
         button?.contentDescription = context.getString(R.string.call_answer)
         (closeButton?.background as? GradientDrawable)?.setColor(Color.RED)
         closeButton?.contentDescription = context.getString(R.string.call_decline)
-        chatButton?.visibility = View.GONE
+        morphPill()
         showMode(context)
     }
 
@@ -1374,7 +1518,7 @@ object TalkBubble {
         (button?.background as? GradientDrawable)?.setColor(PINK)
         (closeButton?.background as? GradientDrawable)?.setColor(0x33FFFFFF)
         closeButton?.contentDescription = context.getString(R.string.bubble_close)
-        chatButton?.visibility = View.VISIBLE
+        morphPill()
         showMode(context)
     }
 
@@ -1410,14 +1554,6 @@ object TalkBubble {
     private fun openChat(context: Context, chat: String) = runCatching {
         context.startActivity(
             Intent(context, MainActivity::class.java).setAction(Notifications.ACTION_OPEN).putExtra(Notifications.EXTRA_USER, chat)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-        )
-    }
-
-    private fun call(context: Context, chat: String, video: Boolean) = runCatching {
-        context.startActivity(
-            Intent(context, MainActivity::class.java).setAction(MainActivity.ACTION_CALL).putExtra(Notifications.EXTRA_USER, chat)
-                .putExtra(MainActivity.EXTRA_VIDEO, video)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         )
     }
@@ -1464,6 +1600,10 @@ object TalkBubble {
         pushBox = null
         stopPill = null
         lockHint = null
+        pillMorph?.cancel()
+        pillMorph = null
+        stopShown = false
+        waiting = false
         talking = false
         locked = false
         sendingVideo = false

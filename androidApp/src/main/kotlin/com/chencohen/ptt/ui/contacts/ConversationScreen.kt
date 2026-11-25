@@ -338,7 +338,7 @@ private fun ConversationScreenIn(
             )
         }
         // Live in the chat (2026-11-24, hen): what this phone sends with its camera, hands-free, and standby (below).
-        val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING || it.phase == TalkPhase.WAITING) }
+        val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
         var handsFree by remember(user) { mutableStateOf(false) }
         var standby by remember(user) { mutableStateOf(false) }
         var standbySince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
@@ -374,7 +374,17 @@ private fun ConversationScreenIn(
                 goingLive = false
             }
         }
-        val myPanel = sendingVideo != null || (standby && pushVideo) || goingLive
+        // A press that waits for the floor (queued behind theirs, or standing by while they hold it) is shown as
+        // waiting, never as live (2026-11-25, hen: "only when the UI says it's transmitting, then transmit"): no pill
+        // or box of mine in the row and no "both live"; the Push button says "Waiting for Sharon…". Mine comes into
+        // the row the moment its turn does (REQUESTING, TALKING).
+        val waitingFor: String? = when {
+            standby -> contact?.name ?: user
+            else -> talk.own?.takeIf { it.chat == user && it.phase == TalkPhase.WAITING }?.let { o ->
+                if (group == null) contact?.name ?: user else o.busyWith?.takeIf { b -> b.isNotEmpty() } ?: group.name
+            }
+        }
+        val myPanel = waitingFor == null && (sendingVideo != null || goingLive)
         // One run of mine (voice, then video after the slide up, and its hands-free renewals): one time that keeps
         // counting.
         val ownActive = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
@@ -454,7 +464,7 @@ private fun ConversationScreenIn(
                 LivePanel(
                     theirVideo, if (group != null) (theirs?.from ?: talker?.user) else null, theirSinceNow,
                     myPanel, mySinceNow,
-                    sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
+                    null, handsFree,
                     theirIdentity = talk.talkers[user]?.let { "${it.user}.${it.device}" } ?: LivePretend.IDENTITY.takeIf { pretend != LiveKind.None },
                     theirUser = theirUser,
                     theirName = theirName,
@@ -570,7 +580,9 @@ private fun ConversationScreenIn(
         // Both live, app only (2026-11-24, hen, "a"): in a one-to-one chat, a press while they hold the floor doesn't
         // wait behind it. My camera shows in my panel (nothing sent), they're told I'm live, and both phones offer the
         // call; when their floor ends while I'm still live, my burst starts.
-        val theyHold = group == null && talk.talkers[user] != null && talk.own?.chat != user
+        // (Or pretended to, in a test build: TestBubble.)
+        val pretendTheirs by LivePretend.theirs.collectAsState()
+        val theyHold = group == null && (talk.talkers[user] != null || pretendTheirs != LiveKind.None) && talk.own?.chat != user
         val chainScope = androidx.compose.runtime.rememberCoroutineScope()
         val handsFreeNow by androidx.compose.runtime.rememberUpdatedState(handsFree)
         val ownHere = talk.own?.takeIf { it.chat == user }
@@ -1003,7 +1015,8 @@ private fun ConversationScreenIn(
                     ) {
                         if (chatLive.call == null) {
                             ChatButtons(
-                                false, talkingHere || standby, recordingVoice, actions, video = false, handsFree = handsFree,
+                                false, talkingHere, recordingVoice, actions, video = false, handsFree = handsFree,
+                                waitingFor = waitingFor,
                                 // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.
                                 lock = {
                                     goingLiveAt = System.currentTimeMillis()

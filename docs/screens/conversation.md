@@ -291,13 +291,20 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   which takes the button's place. The server ends a floor at 60 s, so at 55 s it is let go and taken again at once
   (each part a burst of its own). Leaving the chat stops it. There is no Voice | Video switch any more, and no
   hands-free voice (it went with this gesture). Without the camera allowed, reaching the target asks for it.
-- **Both live.** In a one-to-one chat a press (or a lock) while they hold the floor doesn't wait behind it
-  (2026-11-24, hen, "a"): my camera shows in the live panel beside theirs, nothing is sent yet, and my phone tells theirs I'm live
-  (`liveWaiting`, live only). If their floor ends while I'm still live, my burst starts. In a group a press still waits
-  its turn. A press the server still queues (it came just as their floor started, or a hands-free renewal) is turned
-  into the same standby. Either side then shows "You're both live · Make it a call" just under the live panel, in its
-  own space. A tap starts a video call shown inside
-  the chat; their phone, both live too, takes it at once, also inside the chat. With "Both live becomes a call" on
+- **Waiting for the floor looks like waiting** (2026-11-25, hen: "when sending video or voice, only when the UI says
+  it's transmitting, then transmit"). In a one-to-one chat a press (or a lock) while they hold the floor stands by
+  (2026-11-24, hen, "a"): nothing is sent, my phone tells theirs I'm waiting (`liveWaiting`, live only), and when
+  their floor ends while I still stand by, my burst starts. In a group a press waits its turn in the queue, and a
+  press the server still queues in a one-to-one chat is turned into the same standby. While it waits, no pill or box
+  of mine is in the live row and nothing says "both live": the Push button (or Stop, hands-free) is dimmed inside a
+  dashed ring, with "Waiting for Sharon…" beside it. Mine comes into the row the moment its turn does (the floor asked
+  for or held: REQUESTING, TALKING), in one move with theirs.
+- **Both live.** "You're both live · Make it a call" shows just under the live panel, in its own space, only while
+  both sides' items are in the row. A tap turns the talk room into the call, with no ringing (2026-11-25, hen: "it's
+  calling the recipient instead of opening the call seamlessly"), the same from the chat, the floating window and the
+  floating chat (`startRoomCall`); when there is no shared room to turn, a short word ("Can't make this a call right
+  now"), never a ringing call. The call is shown inside
+  the chat; their phone takes it at once, also inside the chat. With "Both live becomes a call" on
   for the chat (off by default) it happens after 10 s without the tap.
 - **A call inside the chat.** In the live panel's place and the same size: 3:4 boxes 23.6% of the screen high, side
   by side and centred, theirs from the start side and mine at the end (in a group two of theirs at most, then "+N"). At the bottom only a teal bar

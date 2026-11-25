@@ -844,6 +844,7 @@
     <string name="talk_panel_hands_free">בשידור, בלי ידיים</string>
     <string name="talk_both_live">שניכם בשידור</string>
     <string name="talk_make_call">להפוך לשיחה</string>
+    <string name="talk_call_no_room">אי אפשר להפוך לשיחה כרגע</string>
     <string name="talk_stop">עצירה</string>
     <string name="talk_lock_hint">להחליק למעלה לשידור וידאו רציף</string>
     <string name="talk_trace_my_video">שלחת וידאו חי</string>

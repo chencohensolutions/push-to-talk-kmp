@@ -457,6 +457,14 @@ object QuickReplyWindow {
                     finishVoice = { send -> endTalk(context, send) },
                     micDenied = { openChat(context, current) },
                     call = { video -> call(context, current, video) },
+                    // "Make it a call": the talk room becomes the call, no ringing, and the chat opens with it;
+                    // without a room to turn, a short word (2026-11-25, hen).
+                    callInChat = {
+                        startRoomCall(context, current, pushVideo) { ok ->
+                            if (ok) openChat(context, current)
+                            else android.widget.Toast.makeText(context, R.string.talk_call_no_room, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     shareCall = { openChat(context, current) },
                     playKept = { openChat(context, current) },
                     // The same memory as the reply bubble's Voice | Video.
