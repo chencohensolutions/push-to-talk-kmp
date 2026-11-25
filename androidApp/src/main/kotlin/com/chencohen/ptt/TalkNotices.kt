@@ -55,7 +55,12 @@ object TalkPlaying {
     fun watch(app: TalkApp) {
         if (watching?.isActive == true) return
         watching = app.scope.launch {
-            messagingState(app).map { it.talk }.distinctUntilChanged().collect { update(app, it) }
+            // Their video can start inside a burst heard through the room (voice, then the slide up): the pictures
+            // arriving count too, or the floating window kept a voice pill (2026-11-25, hen).
+            kotlinx.coroutines.flow.combine(
+                messagingState(app).map { it.talk }.distinctUntilChanged(),
+                com.chencohen.ptt.talk.LiveTalkVideo.arriving.map { it.keys },
+            ) { talk, _ -> talk }.collect { update(app, it) }
         }
     }
 
