@@ -421,6 +421,8 @@ private fun ConversationScreenIn(
                 myPanel, runSince.takeIf { it > 0 } ?: sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
                 sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
                 theirIdentity = talk.talkers[user]?.let { "${it.user}.${it.device}" },
+                theirUser = talk.talkers[user]?.user ?: theirs?.from ?: user,
+                theirName = (talk.talkers[user]?.user ?: theirs?.from)?.let { u -> if (group != null) u else contact?.name ?: u } ?: contact?.name ?: user,
                 behindMs = theirs?.behindMs,
                 voices = voicesNow,
             )

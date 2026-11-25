@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -135,6 +136,9 @@ internal fun LivePanel(
     behindMs: Long? = null,
     /** Voice (a side not on video): its pill, in that side's place. */
     voices: List<VoiceSide> = emptyList(),
+    /** The other side, for its face while its box waits for a first picture. */
+    theirUser: String = "",
+    theirName: String = "",
 ) {
     val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
     // Through the room while its frames come; else the clips' pictures (never both).
@@ -172,24 +176,22 @@ internal fun LivePanel(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.Top) {
                 if (videos.first || tv != null) {
-                    LiveSlot(videos.first, h * theirShape, h, pill = { tv?.let { VoicePill(it) } }) { box ->
+                    val side = tv ?: VoiceSide(theirUser, who ?: theirName, false, theirSince)
+                    val ready = room != null || s != null
+                    LiveSlot(videos.first, ready, h * theirShape, h, side, listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · ")) { box ->
                         Box(box) {
                             if (room != null) com.chencohen.ptt.ui.talk.RoomVideoView(room, Modifier.fillMaxSize())
                             else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
-                            // One line in a narrow box: the red dot says live.
-                            LiveTag(listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · "), Modifier.align(Alignment.BottomStart).padding(8.dp))
                             com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.TopEnd).padding(6.dp))
                         }
                     }
                 }
                 if (videos.second || mv != null) {
-                    LiveSlot(videos.second, h * myShape, h, pill = { mv?.let { VoicePill(it) } }) { box ->
-                        Box(box) {
-                            com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true)
-                            val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor)
-                            else listOf(stringResource(R.string.talk_panel_you), elapsedSince(mySince)).joinToString(" · ")
-                            LiveTag(words, Modifier.align(Alignment.BottomStart).padding(8.dp))
-                        }
+                    val me = stringResource(R.string.talk_panel_you)
+                    val side = mv ?: VoiceSide("", me, true, mySince)
+                    val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor) else listOf(me, elapsedSince(mySince)).joinToString(" · ")
+                    LiveSlot(videos.second, true, h * myShape, h, side, words) { box ->
+                        com.chencohen.ptt.ui.talk.PushVideoPreview(box, cover = true)
                     }
                 }
             }
@@ -198,25 +200,59 @@ internal fun LivePanel(
 }
 
 /**
- * One side's place: its voice [pill], or its video box ([w] × [h]) grown out of the pill's size and place (250 ms),
- * and back to the pill when the video stops while the voice goes on. Only the shape and a soft shadow, nothing behind.
+ * One side's place (2026-11-25, hen: "the voice pill should transform to a video box"): ONE element whose frame grows
+ * from the pill's size, corners and colour to the box's ([w] × [h], 18 dp corners, black) in 300 ms, and back. Inside,
+ * the face, name and time fade out as the box's tag fades in at the bottom; the video fades in behind once it is
+ * [ready] (its first picture), the face shown large until then, so the box is never black.
  */
 @Composable
-private fun LiveSlot(video: Boolean, w: Dp, h: Dp, pill: @Composable () -> Unit, box: @Composable (Modifier) -> Unit) {
+private fun LiveSlot(video: Boolean, ready: Boolean, w: Dp, h: Dp, side: VoiceSide, tag: String, box: @Composable (Modifier) -> Unit) {
     val density = androidx.compose.ui.platform.LocalDensity.current
+    val ring = if (side.mine) com.chencohen.ptt.ui.style.Pink else LibraryColors.Accent
     var pillSize by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-    val p by androidx.compose.animation.core.animateFloatAsState(if (video) 1f else 0f, tween(PANEL_MS), label = "pill to video")
-    if (p == 0f) {
-        Box(Modifier.onSizeChanged { pillSize = it }) { pill() }
-        return
-    }
-    val pw = with(density) { pillSize.width.toDp() }
-    val ph = with(density) { pillSize.height.toDp() }
+    val p by androidx.compose.animation.core.animateFloatAsState(
+        if (video) 1f else 0f, tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "pill to video",
+    )
     val shape = RoundedCornerShape(androidx.compose.ui.unit.lerp(32.dp, 18.dp, p))
-    Box(Modifier.size(androidx.compose.ui.unit.lerp(pw, w, p), androidx.compose.ui.unit.lerp(ph, h, p)).shadow(6.dp, shape).clip(shape).background(Color.Black)) {
-        box(Modifier.fillMaxSize())
-        // The pill's face fades into the first picture.
-        if (p < 1f) Box(Modifier.fillMaxSize().graphicsLayer { alpha = 1f - p }) { pill() }
+    val frame = if (p == 0f || pillSize == androidx.compose.ui.unit.IntSize.Zero) {
+        Modifier.onSizeChanged { if (p == 0f) pillSize = it }
+    } else {
+        val pw = with(density) { pillSize.width.toDp() }
+        val ph = with(density) { pillSize.height.toDp() }
+        Modifier.size(androidx.compose.ui.unit.lerp(pw, w, p), androidx.compose.ui.unit.lerp(ph, h, p))
+    }
+    Box(
+        frame.shadow(6.dp, shape).clip(shape)
+            .background(androidx.compose.ui.graphics.lerp(LibraryColors.Raised, Color.Black, p))
+            .border(1.dp, ring.copy(alpha = 1f - 0.6f * p), shape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (p > 0f) {
+            val shown by androidx.compose.animation.core.animateFloatAsState(if (video && ready) 1f else 0f, tween(250), label = "first picture")
+            // The video at the box's full size, centred: the growing frame uncovers it.
+            Box(Modifier.requiredSize(w, h).graphicsLayer { alpha = shown }) { box(Modifier.fillMaxSize()) }
+            // Until the first picture: the face, large.
+            if (shown < 1f) {
+                Box(Modifier.graphicsLayer { alpha = p * (1f - shown) }) { BigFace(side) }
+            }
+            LiveTag(tag, Modifier.align(Alignment.BottomStart).padding(8.dp).graphicsLayer { alpha = p })
+        }
+        if (p < 1f) {
+            Box(Modifier.graphicsLayer { alpha = 1f - p }) { VoicePillRow(side, ring) }
+        }
+    }
+}
+
+/** The face, large, while the box waits for its first picture. */
+@Composable
+private fun BigFace(side: VoiceSide) {
+    val face = com.chencohen.ptt.ui.face.faceOf(if (side.mine) "" else side.user)
+    if (face != null) {
+        androidx.compose.foundation.Image(face, side.name, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.size(96.dp))
+    } else {
+        Box(Modifier.size(72.dp).background(LibraryColors.Mine, CircleShape), contentAlignment = Alignment.Center) {
+            Text(side.name.take(1).uppercase(), color = LibraryColors.OnMine, style = LibraryType.RowTitle)
+        }
     }
 }
 
@@ -227,8 +263,14 @@ internal data class VoiceSide(val user: String, val name: String, val mine: Bool
 private fun VoicePill(side: VoiceSide) {
     val ring = if (side.mine) com.chencohen.ptt.ui.style.Pink else LibraryColors.Accent
     val shape = RoundedCornerShape(32.dp)
+    Box(Modifier.shadow(6.dp, shape).clip(shape).background(LibraryColors.Raised).border(1.dp, ring, shape)) { VoicePillRow(side, ring) }
+}
+
+/** A voice pill's inside: the face in its glowing ring, then who and the time. */
+@Composable
+private fun VoicePillRow(side: VoiceSide, ring: Color) {
     Row(
-        Modifier.shadow(6.dp, shape).clip(shape).background(LibraryColors.Raised).border(1.dp, ring, shape).padding(start = 2.dp, top = 2.dp, bottom = 2.dp, end = 16.dp),
+        Modifier.padding(start = 2.dp, top = 2.dp, bottom = 2.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TalkingFace(side, ring)

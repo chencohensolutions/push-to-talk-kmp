@@ -614,24 +614,34 @@ object TalkBubble {
      * the pill's face fades out, so the pill reads as becoming the video.
      */
     private fun morph(pill: View, box: View, context: Context) {
-        val pw = pill.width.toFloat()
-        val ph = pill.height.toFloat()
-        // Kept in place (faded) for the moment it takes, so nothing jumps.
-        val keep = pill.visibility
-        pill.visibility = View.VISIBLE
-        pill.animate().alpha(0f).setDuration(SLIDE_MS / 2).withEndAction {
-            pill.alpha = 1f
-            pill.visibility = if ((theirPill?.view === pill && theirPill?.shown != null) || (myPill?.view === pill && myPill?.shown != null)) keep else View.GONE
-        }.start()
-        val h = topHeight(context).toFloat()
-        val w = (box.layoutParams?.width ?: pill.width).toFloat().coerceAtLeast(1f)
-        box.pivotX = w / 2
-        box.pivotY = 0f
-        box.scaleX = (pw / w).coerceIn(0.2f, 1f)
-        box.scaleY = (ph / h).coerceIn(0.1f, 1f)
-        box.alpha = 0.4f
-        box.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        // ONE element (2026-11-25, hen: "the voice pill should transform to a video box"): the pill goes at once and
+        // the box takes its exact size and place, then its frame grows to its own (300 ms); its corners stay round.
+        val pw = pill.width
+        val ph = pill.height
+        val h = topHeight(context)
+        val lp = box.layoutParams
+        val w = lp.width.takeIf { it > 0 } ?: (h * 3 / 4)
+        pill.visibility = View.GONE
+        morphing?.cancel()
+        size(box, pw, ph)
+        morphing = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 300
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener {
+                val f = it.animatedValue as Float
+                size(box, (pw + (w - pw) * f).toInt(), (ph + (h - ph) * f).toInt())
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    morphing = null
+                }
+            })
+            start()
+        }
     }
+
+    /** The pill-to-box growth running now: the boxes' sizes wait for it. */
+    private var morphing: android.animation.ValueAnimator? = null
 
     private fun unmorph(pill: View) {
         pill.pivotY = 0f
@@ -659,6 +669,7 @@ object TalkBubble {
 
     /** The boxes' sizes: 23.6% of the screen's height, each as wide as its picture's shape. */
     private fun shapeTop(context: Context) {
+        if (morphing != null) return
         val h = topHeight(context)
         theirBox?.takeIf { it.visibility == View.VISIBLE }?.let { box ->
             val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
