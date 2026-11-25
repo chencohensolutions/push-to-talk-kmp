@@ -67,6 +67,12 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
 ./gradlew :sharedLogic:syncServerSchema      # copy the GraphQL schema and ptt.proto from ../push-to-talk-server-go
 ```
 
+Releases are built and signed on GitHub's servers (`.github/workflows/release.yml`, the key in the repository's
+secrets): bump `versionName` and `versionCode` in `androidApp/build.gradle.kts` on main, then merge main into the
+`release` branch through a pull request whose description is the release notes. A version already published is
+skipped. Actions › Release › Run workflow does the same by hand. Then `ptt-server app-update --push` on the server
+tells the phones.
+
 Test results land in `sharedLogic/build/test-results/<task>/*.xml`. CI: `.github/workflows/build.yml` runs both on
 every push.
 
