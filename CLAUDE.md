@@ -68,9 +68,10 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
 ```
 
 Releases are built and signed on GitHub's servers (`.github/workflows/release.yml`, the key in the repository's
-secrets): bump `versionName` and `versionCode` in `androidApp/build.gradle.kts` on main, then merge main into the
-`release` branch through a pull request whose description is the release notes. A version already published is
-skipped. Actions › Release › Run workflow does the same by hand. Then `ptt-server app-update --push` on the server
+secrets): merge main into the `release` branch through a pull request whose description is the release notes. The
+version is the latest release's plus one (a bigger jump: set `versionName` in `androidApp/build.gradle.kts`, the
+higher wins) and the version code follows from it (major * 1000000 + minor * 1000 + patch). Actions › Release › Run
+workflow does the same by hand. Then `ptt-server app-update --push` on the server
 tells the phones.
 
 Test results land in `sharedLogic/build/test-results/<task>/*.xml`. CI: `.github/workflows/build.yml` runs both on
