@@ -2204,14 +2204,18 @@ private fun <T> CoroutineScope.launchCollect(flow: StateFlow<T>, block: (T) -> U
 }
 
 /**
- * Talk audio through LiveKit rooms (phase 5b), off since 1.4.0 (2026-11-22, hen: bursts started late and ended early).
+ * Talk audio through LiveKit rooms (phase 5b), off from 1.4.0 (2026-11-22, hen: bursts started late and ended early),
+ * on again since 2026-11-25 (hen) the other way: the microphone's track is published once, muted, while the chat is
+ * on screen, unmuted at the press and muted 300 ms after the release; the clip keeps recording the same samples (with
+ * the 300 ms before the press) and stays the record; the listener plays the room's audio only once it is unmuted and
+ * decrypting, else the clip. What follows is the 1.4.0 note.
  * In a room a press published a new microphone track, which took a moment to start, so the first words were lost,
  * and the release took it down at once, so the listener lost the end still on its way; the listener, hearing it
  * live, didn't play the clip. Now every burst goes by the clip path: the app's own microphone, kept open on the Talk
  * screens with the last 300 ms before the press, recorded from the press and sent once the floor is granted, and
  * the listener plays all of it to the end.
  */
-internal const val LIVE_TALK_AUDIO = false
+internal const val LIVE_TALK_AUDIO = true
 
 /**
  * Push-to-video's pictures through the conversation's LiveKit room (2026-11-24, hen: "do it"): the room is joined as

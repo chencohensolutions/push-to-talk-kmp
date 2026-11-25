@@ -41,6 +41,9 @@ interface TalkTransport {
     /** The camera is warm ([on]): the room's camera track reads it, muted, so a video burst only unmutes it. */
     suspend fun readyVideo(on: Boolean) {}
 
+    /** The chat is on screen ([on]): the microphone's track waits in the room, muted, so a press only unmutes it. */
+    suspend fun prepareAudio(on: Boolean) {}
+
     /** [identity]'s audio is coming through the room now, and opens (its key works). */
     fun hears(identity: String): Boolean
 
@@ -52,6 +55,9 @@ interface TalkTransport {
 
     /** While in a room, the clip records from the room's own microphone (so it isn't opened twice). */
     val capture: TalkCapture
+
+    /** The room's microphone track is there (published, muted until a press): [capture] has its samples. */
+    val micReady: Boolean get() = true
 }
 
 interface TalkTransportListener {
@@ -71,6 +77,8 @@ data class LiveState(
     val room: String? = null,
     /** From a burst's STARTED to its live audio: the press-to-hear on this phone (debug builds show it). */
     val lastLatencyMs: Long? = null,
+    /** How many bursts were heard through the room (each one a new readout). */
+    val heardCount: Int = 0,
     val joining: Boolean = false,
 )
 
@@ -156,7 +164,16 @@ internal class LiveTalk(
     /** The chat on screen (a conversation, or its Talk mode); null when none is. Its room is joined. */
     fun show(chat: String?) {
         onScreen = chat
-        if (chat != null) scope.launch { enter(chat) } else leaveLater()
+        if (chat != null) {
+            scope.launch {
+                enter(chat)
+                if (audio && _state.value.room == chat) runCatching { transport?.prepareAudio(true) }
+            }
+        } else {
+            leaveLater()
+            // Off screen (a warm room too): the microphone isn't kept open.
+            if (audio) scope.launch { runCatching { transport?.prepareAudio(false) } }
+        }
     }
 
     /** A burst started in [chat] (someone else's, or this phone's own press): its room is joined for the next one. */
@@ -191,7 +208,7 @@ internal class LiveTalk(
     }
 
     /** The microphone of the room [chat] is in; null when not in it (the app's own recorder is used). */
-    fun captureFor(chat: String): TalkCapture? = transport?.takeIf { audio && _state.value.room == chat && identity != null }?.capture
+    fun captureFor(chat: String): TalkCapture? = transport?.takeIf { audio && _state.value.room == chat && identity != null && it.micReady }?.capture
 
     /** [identity] ("user.device") is heard live in [chat]'s room: its clip needn't play. */
     fun hearsLive(chat: String, identity: String): Boolean = audio && _state.value.room == chat && transport?.hears(identity) == true
@@ -199,6 +216,11 @@ internal class LiveTalk(
     /** The clip of [identity]'s burst plays: its live audio, if it comes late, isn't played over it. */
     fun silence(chat: String, identity: String) {
         if (audio && _state.value.room == chat) transport?.silence(identity)
+    }
+
+    /** A burst is heard through the room, [waitedMs] after its start came (the readout and the log). */
+    fun heard(waitedMs: Long) {
+        _state.update { it.copy(lastLatencyMs = waitedMs, heardCount = it.heardCount + 1) }
     }
 
     /** Another device's key came (Content.talkKey). */

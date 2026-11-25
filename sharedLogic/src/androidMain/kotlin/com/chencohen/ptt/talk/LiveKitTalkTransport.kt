@@ -126,6 +126,8 @@ class LiveKitTalkTransport(
         speakerphone.end()
         sampleCapture.detach()
         mic = null
+        talkingNow = false
+        muting?.cancel()
         camera?.let { c -> runCatching { c.stop() } }
         camera = null
         capturing = false
@@ -150,29 +152,67 @@ class LiveKitTalkTransport(
         keys?.setKey(k, identity, index)
     }
 
-    override suspend fun setTalking(on: Boolean) {
-        val room = room ?: return
+    /**
+     * The microphone's track (2026-11-25, hen: voice back in the room): published once, muted, while the chat is on
+     * screen ([prepareAudio]), so a press only unmutes it (the first words go at once) and the release mutes it
+     * [TAIL_MS] later (the last ones leave). The clip records the same samples, with the last [SampleCapture.BEFORE_MS]
+     * before the press.
+     */
+    private val preparingMic = kotlinx.coroutines.sync.Mutex()
+    private var talkingNow = false
+    private var muting: Job? = null
+
+    private suspend fun prepareMic(room: Room): LocalAudioTrack? = preparingMic.withLock {
+        mic?.let { return@withLock it }
+        if (this.room !== room) return@withLock null
         val local = room.localParticipant
+        // LiveKit's own capture options: echo cancelling, noise suppression and automatic gain control (WebRTC's).
+        val track = local.createAudioTrack("talk")
+        sampleCapture.attach(track)
+        if (!local.publishAudioTrack(track)) {
+            Log.w(TAG, "the microphone wasn't published")
+            sampleCapture.detach()
+            runCatching { track.stop() }
+            return@withLock null
+        }
+        local.getTrackPublication(Track.Source.MICROPHONE)?.muted = true
+        mic = track
+        Log.i(TAG, "microphone track ready in the room (muted)")
+        track
+    }
+
+    override suspend fun prepareAudio(on: Boolean) {
+        val room = room ?: return
         if (on) {
-            if (mic != null) return
-            speakerphone.begin()
-            // LiveKit's own capture options: echo cancelling, noise suppression and automatic gain control (WebRTC's).
-            val track = local.createAudioTrack("talk")
-            mic = track
-            sampleCapture.attach(track)
-            if (!local.publishAudioTrack(track)) {
-                Log.w(TAG, "the microphone wasn't published")
-                sampleCapture.detach()
-                mic = null
-                runCatching { track.stop() }
-                speakerphone.end()
-            }
-        } else {
+            prepareMic(room)
+        } else if (!talkingNow) {
+            // Off screen: the microphone goes (nothing of it stays open).
             val track = mic ?: return
             mic = null
             sampleCapture.detach()
-            local.unpublishTrack(track, true)
-            speakerphone.end()
+            runCatching { room.localParticipant.unpublishTrack(track, true) }
+        }
+    }
+
+    override suspend fun setTalking(on: Boolean) {
+        val room = room ?: return
+        val publication = { room.localParticipant.getTrackPublication(Track.Source.MICROPHONE) }
+        if (on) {
+            muting?.cancel()
+            talkingNow = true
+            prepareMic(room) ?: return
+            speakerphone.begin()
+            publication()?.muted = false
+            Log.i(TAG, "microphone live in the room")
+        } else {
+            talkingNow = false
+            muting?.cancel()
+            muting = scope.launch {
+                kotlinx.coroutines.delay(TAIL_MS)
+                if (talkingNow) return@launch
+                publication()?.muted = true
+                speakerphone.end()
+            }
         }
     }
 
@@ -265,7 +305,14 @@ class LiveKitTalkTransport(
         }
     }
 
-    override fun hears(identity: String): Boolean = identity in decrypting
+    /** Their microphone's audio decrypts and is unmuted (a press), not just published and waiting. */
+    override val micReady: Boolean get() = mic != null
+
+    override fun hears(identity: String): Boolean {
+        if (identity !in decrypting) return false
+        val p = room?.remoteParticipants?.values?.firstOrNull { it.identity?.value == identity } ?: return false
+        return p.audioTrackPublications.any { (pub, _) -> !pub.muted }
+    }
 
     override fun silence(identity: String) {
         val room = room ?: return
@@ -323,6 +370,10 @@ class LiveKitTalkTransport(
         private val frame = ShortArray(TalkAudioFormat.SAMPLES_PER_FRAME)
         private var filled = 0
         private var resampleAt = 0.0
+        /** The last [BEFORE_MS] before a press, kept while the microphone runs muted: the clip starts with them. */
+        private val before = ShortArray(TalkAudioFormat.SAMPLE_RATE * BEFORE_MS / 1000)
+        private var beforeAt = 0
+        private var beforeFull = false
 
         private val sink = AudioTrackSink { data, bits, rate, channels, frames, _ -> take(data, bits, rate, channels, frames) }
 
@@ -336,7 +387,19 @@ class LiveKitTalkTransport(
             }
             this.onPacket = onPacket
             filled = 0
-            resampleAt = 0.0
+            // The moment before the press first (as the app's own warm microphone does).
+            val enc = encoder!!
+            val n = if (beforeFull) before.size else beforeAt
+            val start = if (beforeFull) beforeAt else 0
+            for (k in 0 until n) {
+                frame[filled++] = before[(start + k) % before.size]
+                if (filled == frame.size) {
+                    enc.encode(frame).forEach(onPacket)
+                    filled = 0
+                }
+            }
+            beforeAt = 0
+            beforeFull = false
             true
         }
 
@@ -368,10 +431,27 @@ class LiveKitTalkTransport(
         private fun take(data: ByteBuffer, bits: Int, rate: Int, channels: Int, frames: Int) {
             if (bits != 16 || channels < 1 || rate <= 0) return
             synchronized(lock) {
-                val enc = encoder ?: return
-                val out = onPacket ?: return
+                val enc = encoder
+                val out = onPacket
                 val pcm = data.duplicate().order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
                 val step = rate.toDouble() / TalkAudioFormat.SAMPLE_RATE
+                if (enc == null || out == null) {
+                    // Not recording a clip: the ring of the moment before keeps going.
+                    var at = resampleAt
+                    while (at < frames) {
+                        val i = at.toInt()
+                        var sum = 0
+                        for (c in 0 until channels) sum += pcm.get(i * channels + c)
+                        before[beforeAt++] = (sum / channels).toShort()
+                        if (beforeAt == before.size) {
+                            beforeAt = 0
+                            beforeFull = true
+                        }
+                        at += step
+                    }
+                    resampleAt = at - frames
+                    return
+                }
                 // Picks the nearest input sample for each 48 kHz output sample (the microphone is 48 kHz on phones,
                 // so this is normally a straight copy).
                 while (resampleAt < frames) {
@@ -392,6 +472,12 @@ class LiveKitTalkTransport(
 
     private companion object {
         const val TAG = "LiveKitTalk"
+
+        /** How much of the moment before a press the clip starts with (as the app's own warm microphone). */
+        const val BEFORE_MS = 300
+
+        /** The microphone stays unmuted this long after the release, so the last words still on their way leave. */
+        const val TAIL_MS = 300L
 
         /** LiveKit takes the key as a string it derives the AES key from: the 32 random bytes, in base64. */
         fun encode(key: ByteArray): String = Base64.encodeToString(key, Base64.NO_WRAP)

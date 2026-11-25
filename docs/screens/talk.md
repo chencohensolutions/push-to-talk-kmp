@@ -135,3 +135,10 @@ Talk › Get camera ready while talking, on by default): the camera opens unseen
 talk room's camera track reads it muted, so sliding up to hands-free video only unmutes it. Nothing is sent or shown
 until the slide up; Android's camera dot shows while Push is held. It is let go 2 s after the finger lifts without
 sliding (a quick press again reuses it). Off, the camera opens when the slide up starts.
+
+**Voice through the room again, and the silent warm-up** (2026-11-25, hen). The voice goes through the chat's talk room
+while it is said (the microphone's track waits there muted while the chat is on screen, so a press only unmutes it),
+and the clip still records every burst (with the 300 ms before the press) for phones that sleep and for "Keep voice in
+chat". Opening a chat quietly gets the other phone into the room (nothing on its screen), so the first words reach it
+at once. See [design.md](../design.md), "Voice back in the talk room, and the silent warm-up".
+

@@ -600,6 +600,29 @@ voice), so the picture arrives as the voice does instead of in clip segments ove
 - **Server.** Nothing changed: the talk token already lets a device publish any track.
 - **Not yet:** "Make it a call" still starts a separate video call (its own room), as before.
 
+## Voice back in the talk room, and the silent warm-up (2026-11-24/25, hen)
+
+**Why voice had left the room (1.4.0, commit 2fa066b).** A press published a new microphone track, which took a
+moment to start (first words lost), and the release unpublished it at once (the end still on its way lost), while the
+listener played the room's audio instead of the clip.
+
+**Now.** The microphone's track is published once, muted, while the chat is on screen (`prepareAudio`), unmuted at the
+press and muted 300 ms after the release (`TAIL_MS`). The clip records the same samples (`SampleCapture`), starting
+with the 300 ms before the press from a ring it keeps while muted, and stays the record (sleeping phones, "Keep voice
+in chat"). The listener counts a talker as heard through the room only while their microphone publication is unmuted
+and decrypting (`hears`); otherwise it plays the clip. Off screen (a warm room in the background) no microphone track
+is published. While muted, no voice leaves the phone, but the microphone itself is open while the chat is on screen
+(Android's microphone dot), as LiveKit's audio device keeps recording for the published track.
+
+**Silent warm-up.** Opening a chat sends `Content.warm` (field 24) to its other phones, pushed as `PUSH_WARM` (the
+server's ux/warm-push branch; older servers deliver it as `sync`), again every 5 minutes while it stays open, and once
+more when it is left. The phone it reaches joins the chat's talk room quietly, keeps `/ws` open, and Talk's quiet
+service (`TalkReadyService`, the least important, silent notification) keeps the process: no sound, no heads-up,
+nothing lights the screen. It stays until the sender leaves the chat, 6 minutes pass without a refresh, or 10 minutes
+pass without a burst (battery; the next chat open or burst warms it again). Android may demote high-priority pushes
+that end in no notification: the app logs each push's priority as sent and as delivered. The `TalkDelay` log says
+whether the phone was in the room before a push.
+
 ## Live in the chat (2026-11-24, hen)
 
 - Presence is per chat only: the viewing signal (`ViewingContent`, every 20 s while the chat is open and in view, from

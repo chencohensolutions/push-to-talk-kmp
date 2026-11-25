@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.withContext
 import kotlin.random.asKotlinRandom
 import com.chencohen.ptt.messaging.MessageNotifier
@@ -143,6 +144,11 @@ private fun hub(context: Context): Messaging {
         // Push-to-video's delay by each path (2026-11-24, hen: compare LiveKit and the clips), in the log: from the
         // server's floor start to the first picture through the room, and to the clip path's first picture.
         val messaging = it
+        CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
+            messaging.live.state.distinctUntilChangedBy { it.heardCount }.collect { s ->
+                if (s.heardCount > 0) android.util.Log.i("TalkDelay", "voice through the room, unmuted ${s.lastLatencyMs} ms after the burst's start came (#${s.heardCount})")
+            }
+        }
         CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
             val said = HashSet<String>()
             kotlinx.coroutines.flow.combine(messaging.state, com.chencohen.ptt.talk.LiveTalkVideo.arriving, com.chencohen.ptt.talk.AndroidTalkVideoOut.shown) { st, room, shown ->

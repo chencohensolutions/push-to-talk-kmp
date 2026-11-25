@@ -728,6 +728,7 @@ internal class Talk(
             }
             if (live?.hearsLive(burst.chat, identity) == true) {
                 burst.heardLive = true
+                live?.heard(waited)
                 if (burst.video) videoOut?.begin(burst.id)
                 sendFrame(TalkAckFrame(TalkAck(burst.id)))
                 return drain(burst)
