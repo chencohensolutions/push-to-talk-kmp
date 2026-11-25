@@ -607,6 +607,7 @@ internal class Messaging(
         },
         now = now, random = random,
         audio = LIVE_TALK_AUDIO,
+        busy = { talk.busy },
     )
 
     val calls: com.chencohen.ptt.calls.Calls = com.chencohen.ptt.calls.Calls(
@@ -673,6 +674,11 @@ internal class Messaging(
     suspend fun start() {
         foreground = true
         updateViewing()
+        // Back in front on a chat: its room again, and the others warmed again.
+        openChat?.let { chat ->
+            if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) live.show(chat)
+            if (warmSent != chat) sendWarm(chat, true)
+        }
         open()
         // Once a run: this user's email to contacts (some paired since it was last said).
         if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET || store.pictureId("") != null)) {
@@ -690,6 +696,9 @@ internal class Messaging(
     fun stop() {
         foreground = false
         updateViewing()
+        // The app went to the back with a chat open (2026-11-25, hen: "when going to background, leave the room"): as
+        // leaving the chat; a room this phone is warm in for someone else's open chat stays.
+        live.background()
         // The app left: the warmed phones are told (then the connection closes, unless something keeps it).
         val warm = warmSent
         if (warm != null) {

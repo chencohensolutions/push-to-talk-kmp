@@ -357,7 +357,29 @@ private fun ConversationScreenIn(
         // Both live, and the call it can become: worked out further down, shown here under the panel.
         var bothLiveNow by remember(user) { mutableStateOf(false) }
         val makeCallNow = remember(user) { arrayOf<() -> Unit>({}) }
-        val myPanel = sendingVideo != null || (standby && pushVideo)
+        // Slid up to the lock: the voice burst ends and the video one starts a moment later; meanwhile the pill is
+        // already becoming the box (2026-11-25, hen: "the voice pill should transition to video, not leave the screen
+        // and enter again").
+        var goingLive by remember(user) { mutableStateOf(false) }
+        LaunchedEffect(goingLive, sendingVideo != null) {
+            if (sendingVideo != null) goingLive = false
+            else if (goingLive) {
+                delay(4_000)
+                goingLive = false
+            }
+        }
+        val myPanel = sendingVideo != null || (standby && pushVideo) || goingLive
+        // One run of mine (voice, then video after the slide up, and its hands-free renewals): one time that keeps
+        // counting.
+        val ownActive = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
+        var runSince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
+        if (ownActive != null && runSince == 0L) runSince = ownActive.startedAt
+        LaunchedEffect(ownActive != null || goingLive || handsFree) {
+            if (ownActive == null && !goingLive && !handsFree) {
+                delay(1_500)
+                runSince = 0L
+            }
+        }
         // The panel under the header (2026-11-24, hen: "when two sides push to video show videos at top side by side;
         // when I push show the video on the top, never on bottom"), or the call in the chat in its place.
         // Floating over the chat (2026-11-24, hen: "not inside black box"): drawn over the list below, nothing behind it.
@@ -382,11 +404,21 @@ private fun ConversationScreenIn(
                 else -> null
             }
             val myVoice = talk.own?.takeIf { it.chat == user && !pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
-                ?.let { VoiceSide("", stringResource(R.string.talk_panel_you), true, it.startedAt) }
-            val voicesNow = listOfNotNull(theirVoice, myVoice)
+                ?.let { VoiceSide("", stringResource(R.string.talk_panel_you), true, runSince.takeIf { r -> r > 0 } ?: it.startedAt) }
+            // Their voice turning into video: their pill stays a moment after the voice ends, so their video, starting
+            // right after, grows out of it instead of the pill leaving and a box coming.
+            var theirVoiceHeld by remember(user) { mutableStateOf<VoiceSide?>(null) }
+            LaunchedEffect(theirVoice) {
+                if (theirVoice != null) theirVoiceHeld = theirVoice
+                else {
+                    delay(1_200)
+                    theirVoiceHeld = null
+                }
+            }
+            val voicesNow = listOfNotNull(theirVoice ?: theirVoiceHeld?.takeIf { theirClip == null }, myVoice)
             LivePanel(
                 theirClip != null && fullVideo == null, if (group != null) (theirs?.from ?: talker?.user) else null, theirSince.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                myPanel, sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                myPanel, runSince.takeIf { it > 0 } ?: sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis(),
                 sendingVideo?.busyWith?.takeIf { sendingVideo.phase == TalkPhase.WAITING }, handsFree,
                 theirIdentity = talk.talkers[user]?.let { "${it.user}.${it.device}" },
                 behindMs = theirs?.behindMs,
@@ -931,6 +963,7 @@ private fun ConversationScreenIn(
                                 false, talkingHere || standby, recordingVoice, actions, video = false, handsFree = handsFree,
                                 // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.
                                 lock = {
+                                    goingLive = true
                                     actions.setPushVideo?.invoke(true)
                                     handsFree = true
                                     val wasStandby = standby

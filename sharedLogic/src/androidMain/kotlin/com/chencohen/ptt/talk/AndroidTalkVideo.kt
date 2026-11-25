@@ -360,11 +360,8 @@ class AndroidTalkVideoCapture(
 
     private var sensorRead = false
 
-    /** The front camera's sensor orientation (clockwise degrees from the phone's natural orientation). */
-    fun sensorOrientation(): Int {
-        previewRotation()
-        return sensor
-    }
+    /** The open camera's sensor orientation (clockwise degrees from the phone's natural orientation). */
+    fun sensorOrientation(): Int = sensor
 
     /** Clockwise degrees to turn the front camera's frames upright as the phone is held now. */
     private fun rotation(): Int {

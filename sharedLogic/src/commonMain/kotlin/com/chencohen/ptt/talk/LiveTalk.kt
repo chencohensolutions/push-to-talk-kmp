@@ -109,6 +109,8 @@ internal class LiveTalk(
      * push-to-video's pictures (2026-11-24, hen): the voice stays on the clip path, from the first word to the last.
      */
     val audio: Boolean = true,
+    /** A burst is going on now (heard or said): the room isn't left under it. */
+    private val busy: () -> Boolean = { false },
 ) {
     var transport: TalkTransport? = null
         set(value) {
@@ -168,6 +170,25 @@ internal class LiveTalk(
     fun warmFor(): Long {
         if (warmChat == null) return 0
         return minOf(warmUntil, maxOf(warmSince, lastBurst) + WARM_IDLE)
+    }
+
+    /**
+     * The app went to the back: the chat on screen is left. Its room goes now (a burst going on finishes first), unless
+     * this phone is warm in it for someone else's open chat.
+     */
+    fun background() {
+        val room = _state.value.room
+        onScreen = null
+        if (audio) scope.launch { runCatching { transport?.prepareAudio(false) } }
+        if (room == null || (warmChat == room && now() < warmFor())) return
+        leaving?.cancel()
+        leaving = scope.launch {
+            // A burst still going (heard or said) ends first.
+            while (busy() || now() - lastBurst < BACKGROUND_GRACE) delay(500)
+            if (onScreen == room || (warmChat == room && now() < warmFor())) return@launch
+            transport?.leave()
+            _state.update { it.copy(room = null) }
+        }
     }
 
     /** The chat on screen (a conversation, or its Talk mode); null when none is. Its room is joined. */
@@ -341,6 +362,9 @@ internal class LiveTalk(
 
         /** How long the room is kept after the last burst once the conversation is off screen. */
         const val STAY_AFTER_BURST = 60_000L
+
+        /** Going to the back, the room is left once this long has passed since the last burst. */
+        const val BACKGROUND_GRACE = 3_000L
 
         /** A warm-up lasts this long after each refresh (the sender refreshes it every 5 min while the chat is open). */
         const val WARM_FOR = 6 * 60_000L

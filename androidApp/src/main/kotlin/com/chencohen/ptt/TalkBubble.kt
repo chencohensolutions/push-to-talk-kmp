@@ -109,6 +109,10 @@ object TalkBubble {
     private var talking = false
     private var talkStarted = 0L
     private var locked = false
+    /** Slid up to the lock: between the voice burst's end and the video one's start, the pill is already the box. */
+    private var goingLive = false
+    /** When this run of mine began (voice, then video): one time that keeps counting. */
+    private var runStarted = 0L
     private var lockSince = 0L
     private var downY = 0f
     private var sendingVideo = false
@@ -390,7 +394,9 @@ object TalkBubble {
                     // Get camera ready while talking (on by default): the camera opens now, unseen.
                     warming = messagingState(context).value.talkSettings.cameraReady && cameraAllowed(context)
                     downY = e.rawY
+                    goingLive = false
                     startTalk(context, video = false)
+                    runStarted = talkStarted
                     showLockHint(true)
                 }
                 v.isPressed = true
@@ -413,6 +419,7 @@ object TalkBubble {
                     v.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
                     showLockHint(false)
                     showLocked(true)
+                    goingLive = true
                     endTalk(context, send = true, keepLock = true)
                     main.postDelayed({
                         if (locked && !talking && pillWindow != null) {
@@ -514,6 +521,7 @@ object TalkBubble {
         val wantVideo = video && cameraAllowed(context)
         val callOn = messagingState(context).value.call != null
         sendingVideo = wantVideo && !callOn
+        if (sendingVideo) goingLive = false
         talking = true
         talkStarted = System.currentTimeMillis()
         // Glows while held.
@@ -541,6 +549,8 @@ object TalkBubble {
         if (!keepLock) {
             locked = false
             warming = false
+            goingLive = false
+            runStarted = 0L
             main.removeCallbacks(renew)
             showLocked(false)
         }
@@ -572,7 +582,7 @@ object TalkBubble {
      */
     private fun refreshTop(context: Context) {
         val theirsVideo = burstVideo && !topPutAway
-        val mine = sendingVideo
+        val mine = sendingVideo || goingLive
         val voice = !topPutAway && ((burstLive && !burstVideo) || (talking && !sendingVideo))
         if (!theirsVideo && !mine && !voice) {
             hideTop()
@@ -642,7 +652,7 @@ object TalkBubble {
     /** Who talks by voice: their pill (teal) and mine (coral), side by side when both. */
     private fun refreshVoice(context: Context) {
         val theirVoice = burstLive && !burstVideo && !topPutAway
-        val myVoice = talking && !sendingVideo && !topPutAway
+        val myVoice = talking && !sendingVideo && !goingLive && !topPutAway
         theirPill?.show(context, if (theirVoice) from ?: "" else null, title)
         myPill?.show(context, if (myVoice) "" else null, title)
     }
@@ -697,7 +707,7 @@ object TalkBubble {
             theirTag?.text = "$title · ${clock(if (burstSince > 0) burstSince else System.currentTimeMillis())}"
             useRoomVideo(window.context)
             pickPreview()
-            myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(if (locked) lockSince else talkStarted)
+            myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(if (runStarted > 0) runStarted else talkStarted)
             shapeTop(window.context)
             main.postDelayed(this, 250)
         }

@@ -133,13 +133,32 @@ internal class TalkCameraCapturer(private val camera: () -> AndroidTalkVideoCapt
         h.setTextureSize(AndroidTalkVideoCapture.WIDTH, AndroidTalkVideoCapture.HEIGHT)
         val s = Surface(h.surfaceTexture)
         surface = s
-        // The camera's output to a SurfaceTexture already comes turned for the phone held upright (its transform
-        // matrix, which the renderers and the encoder apply), so the frame's own rotation is only the screen's turn.
-        // (Said as the sensor's angle too, the picture showed a quarter turn off; 2026-11-25, hen: "the video is
-        // rotated".)
-        val sensor = cam.sensorOrientation()
-        h.setFrameRotation(((cam.previewRotation() - sensor) % 360 + 360) % 360)
-        h.startListening { frame -> observer?.onFrameCaptured(frame) }
+        // As WebRTC's own Camera2Session does: the camera's output to a SurfaceTexture comes turned by the sensor's
+        // angle (its transform matrix); that turn is undone and said as the frame's rotation instead, so the frame
+        // keeps the camera's own 640×480 and every phone turns it upright (the clip's frames carry the same rotation).
+        // Left in the matrix, the other phones got the upright picture squeezed into a 640×480 frame (2026-11-25).
+        var logged = false
+        h.startListening { frame ->
+            // Read per frame: the camera opened may not be known yet when this starts (and isn't the front one on a
+            // phone that has none).
+            val sensor = cam.sensorOrientation()
+            val buffer = frame.buffer as? VideoFrame.TextureBuffer
+            if (buffer == null) {
+                observer?.onFrameCaptured(frame)
+                return@startListening
+            }
+            val m = android.graphics.Matrix()
+            m.preTranslate(0.5f, 0.5f)
+            m.preRotate(-sensor.toFloat())
+            m.preTranslate(-0.5f, -0.5f)
+            val out = VideoFrame(buffer.applyTransformMatrix(m, buffer.width, buffer.height), cam.previewRotation(), frame.timestampNs)
+            if (!logged) {
+                logged = true
+                android.util.Log.i("LiveTalkVideo", "camera to the room: ${buffer.width}x${buffer.height}, rotation ${out.rotation} (sensor $sensor), shown ${out.rotatedWidth}x${out.rotatedHeight}")
+            }
+            observer?.onFrameCaptured(out)
+            out.release()
+        }
         observer?.onCapturerStarted(true)
         cam.setLiveTarget(s)
     }

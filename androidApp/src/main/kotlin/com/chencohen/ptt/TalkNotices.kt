@@ -72,7 +72,9 @@ object TalkPlaying {
     }
 
     private suspend fun update(app: TalkApp, talk: TalkUiState) {
-        val playing = talk.playing
+        // Played from its clip, or heard live through the talk room (2026-11-25, hen: "i didn't see the testbot push":
+        // a burst heard in the room never "plays", so nothing showed): either shows the same.
+        val playing = talk.playing ?: heardInRoom(app, talk)
         if (playing != null) {
             if (shown == null) TalkWidgets.show(app, playing.chat, com.chencohen.ptt.talk.TalkWidgetView.Incoming(playing.from))
             shown = playing.chat to playing.from
@@ -95,6 +97,15 @@ object TalkPlaying {
                 TalkBubble.show(app, chat, TalkBubble.titleOf(app, chat, from), live = false)
             }
         }
+    }
+
+    /** Someone else holds a floor now (its voice heard through the room, not played from a clip). */
+    private fun heardInRoom(app: TalkApp, talk: TalkUiState): com.chencohen.ptt.talk.NowPlaying? {
+        val me = myUser(app)
+        val (chat, t) = talk.talkers.entries.firstOrNull { (c, t) -> t.user != me && talk.own?.chat != c }?.toPair() ?: return null
+        val video = com.chencohen.ptt.talk.LiveTalkVideo.arriving.value.containsKey("${t.user}.${t.device}") ||
+            messagingState(app).value.conversations[chat]?.firstOrNull { it.id == t.clip }?.clip?.video == true
+        return com.chencohen.ptt.talk.NowPlaying(chat, t.clip, t.user, live = true, video = video)
     }
 
     private suspend fun post(app: TalkApp, chat: String, from: String, playedMs: Long, live: Boolean, video: Boolean = false) {
