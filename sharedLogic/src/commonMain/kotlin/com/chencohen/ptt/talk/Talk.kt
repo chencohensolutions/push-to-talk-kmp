@@ -966,6 +966,34 @@ internal class Talk(
 
     private val rebuilds = mutableMapOf<String, Rebuild>()
 
+    /** A buffered push read before its key came: its packets, held until the key's message, by burst. */
+    private class LateKey(val rebuild: Any, val packets: List<Pair<ByteArray, Boolean>>, val at: Long)
+
+    private val lateKey = mutableMapOf<String, LateKey>()
+
+    /** [burst]'s key just came: a buffered push held for it becomes its clip now, a missed push to play. */
+    private fun keyCame(burst: Incoming) {
+        val late = lateKey.remove(burst.id) ?: return
+        val key = burst.key ?: return
+        if (now() - late.at > LATE_KEY_MS) return
+        @Suppress("UNCHECKED_CAST") val rebuild = late.rebuild as Rebuild
+        burst.play = false
+        burst.ended = true
+        // Whatever was given up on meanwhile (no key: taken as ending with nothing) starts again from the held copy.
+        burst.fetch?.cancel()
+        burst.segments.clear()
+        burst.next = 0
+        burst.lastIndex = null
+        burst.frames = 0
+        burst.kept = false
+        scope.launch {
+            rebuild.lock.withLock { rebuild.index = 0; rebuild.pending = mutableListOf(); rebuild.audio = 0 }
+            late.packets.forEach { (packet, audio) -> rebuild.add(key, packet, audio) }
+            rebuild.lock.withLock { rebuild.flush(key, last = true) }
+            host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
+        }
+    }
+
     /**
      * A push this phone's user wasn't in the room for (2026-11-25, hen: the server buffer): it plays as its burst,
      * from its first word, through the usual path (catch-up, pictures, the chat's keeping). Heard live already: nothing.
@@ -988,9 +1016,28 @@ internal class Talk(
                 waited += 100
             }
             val key = burst.key ?: run {
-                // Its key never came (2026-11-26: testbot, just restarted, waited for ever on hen's video push): nothing
-                // of it can be opened; it stops playing at its floor's end (END_STUCK_MS).
-                rebuilds.remove(id)
+                // Its key is late (2026-11-26: testbot, just restarted, showed hen "talking" for minutes waiting on it):
+                // not live any more, at once; what the server kept is read now (the room key opens it) and held, and
+                // when the key comes it becomes a missed push to play. Held up to LATE_KEY_MS.
+                if (burst.playing) burst.playback?.stop()
+                burst.play = false
+                val held = mutableListOf<Pair<ByteArray, Boolean>>()
+                var pictures = 0
+                try {
+                    reader.read(b.blobId, b.talker, b.codec, onAudio = { opus ->
+                        held += (if (burst.video) TalkVideo.audio(opus) else opus) to true
+                    }, onVideo = { frame ->
+                        TalkVideo.pieces(pictures++ and 0xffff, frame).forEach { held += it to false }
+                    })
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+                rebuild.lock.withLock {
+                    rebuild.readers--
+                    if (rebuild.readers == 0) rebuilds.remove(id)
+                }
+                if (held.isNotEmpty()) lateKey[id] = LateKey(rebuild, held, now())
                 return@launch
             }
             try {
@@ -1079,6 +1126,8 @@ internal class Talk(
         burst.key = clip.key
         burst.sentAt = clip.sentAt
         burst.video = clip.video
+        // A buffered push read before this key came: its clip now.
+        keyCame(burst)
         if (clip.urgent && !burst.urgent) {
             burst.urgent = true
             // Marked urgent after it was saved here: let through after all, if this user allows it.
@@ -1437,6 +1486,9 @@ internal class Talk(
 
         /** A burst whose floor ended and that got nothing more for this long stops playing (it isn't live any more). */
         const val END_STUCK_MS = 6_000L
+
+        /** A buffered push whose key is late is held this long for it. */
+        const val LATE_KEY_MS = 24 * 3_600_000L
 
         /** How often the watchdog looks for talkers gone quiet (TalkBeat.LOST_MS). */
         const val WATCH_EVERY = 500L

@@ -887,6 +887,37 @@ class TalkTest {
         sealed[sealed.size - 1] = (sealed[sealed.size - 1].toInt() xor 1).toByte()
         assertNull(TalkBeat.open(key, sealed))
     }
+
+    @Test
+    fun aBufferedPushWhoseKeyIsLateStopsBeingLiveAndBecomesAMissedPushWhenTheKeyComes() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        val id = "cd".repeat(16)
+        bot.talk.bufferReader = object : Talk.BufferReader {
+            override suspend fun read(blobId: String, talker: String, codec: String, onAudio: (ByteArray) -> Unit, onVideo: (TalkVideo.Frame) -> Unit) {
+                packets(0, 25).forEach(onAudio)
+            }
+        }
+        // hen's floor starts and ends; the server's buffered copy comes, but not the key's message.
+        bot.talk.onFrame(com.chencohen.ptt.relay.TalkStateFrame(com.chencohen.ptt.relay.TalkState(TalkEvent.STARTED, id, "hen", 1, peer = "hen", startedAt = bot.clock)))
+        runCurrent()
+        bot.talk.onFrame(com.chencohen.ptt.relay.BufferedTalkFrame(com.chencohen.ptt.relay.BufferedTalk(blobId = "b1", talker = "hen.1", peer = "hen", burstId = id)))
+        bot.talk.onFrame(com.chencohen.ptt.relay.TalkStateFrame(com.chencohen.ptt.relay.TalkState(TalkEvent.ENDED, id, "hen", 1, peer = "hen", endReason = com.chencohen.ptt.relay.TalkEndReason.RELEASED)))
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertNull(bot.state.talk.playing, "not shown live while its key is missing")
+        assertTrue(bot.state.talk.talkers.isEmpty())
+        // The key's message comes late: a missed push, whole, to play.
+        val key = ByteArray(com.chencohen.ptt.talk.ClipCrypto.KEY_BYTES) { 5 }
+        bot.talk.receiveClip("hen", "hen", com.chencohen.ptt.messaging.ClipContent(id, key, com.chencohen.ptt.messaging.ClipContent.BURST, bot.clock), bot.clock, outgoingCopy = false)
+        advanceUntilIdle()
+        val m = bot.chat("hen").single { it.id == id }
+        assertTrue(m.clip!!.kept, "kept from the held copy")
+        assertEquals(500L, m.clip!!.durationMs)
+        assertFalse(m.read)
+        assertTrue(id in bot.host.notified, "a missed-push notification")
+        hen.stop()
+        bot.stop()
+    }
 }
 
 class ClipCryptoTest {
