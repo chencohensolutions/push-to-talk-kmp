@@ -73,9 +73,14 @@ object HeardStatus {
     const val HEARD_URGENT_DND = 5
     /** An urgent push, saved: they don't let urgent pushes from this talker through. */
     const val SAVED_URGENT_NOT_ALLOWED = 6
+    /** An urgent push, heard though the phone is on silent. */
+    const val HEARD_URGENT_SILENT = 7
+
+    /** The highest known. */
+    const val LAST = HEARD_URGENT_SILENT
 
     /** It reached their ears. */
-    fun heard(status: Int): Boolean = status == HEARING || status == HEARD_URGENT_DND
+    fun heard(status: Int): Boolean = status == HEARING || status == HEARD_URGENT_DND || status == HEARD_URGENT_SILENT
 }
 
 /** How a push that came in is to be heard here. */

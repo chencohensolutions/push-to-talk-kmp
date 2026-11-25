@@ -168,6 +168,9 @@ class MessagingController internal constructor(
     /** Whether this user shows contacts when they're online (Settings). */
     val presenceVisible: Boolean get() = messaging.presenceVisible
 
+    /** Settings › Privacy › Show when I can't hear (on by default). */
+    val hearVisible: Boolean get() = messaging.hearVisible
+
     /** Shows or hides this user's presence; [done] gets the setting now, or null when the server couldn't be told. */
     fun setPresenceVisible(visible: Boolean, done: (Boolean?) -> Unit) {
         scope.launch {

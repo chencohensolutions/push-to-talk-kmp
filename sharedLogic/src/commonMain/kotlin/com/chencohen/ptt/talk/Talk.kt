@@ -825,8 +825,8 @@ internal class Talk(
         var video = false
         /** An urgent push (STARTED, or its clip start). */
         var urgent = false
-        /** Played through Do Not Disturb (an urgent push let through). */
-        var throughDnd = false
+        /** Played through Do Not Disturb or silence (an urgent push let through): its HeardStatus; 0 not. */
+        var throughDnd = 0
         /** What this phone told the talker became of it (HeardStatus; 0 nothing yet). */
         var told = 0
         val splitter = TalkVideo.Splitter()
@@ -990,8 +990,8 @@ internal class Talk(
         when (val d = CanHearRules.decide(hearNow(), burst.urgent, allowed, dndGate?.canOpen() == true)) {
             HearDecision.Play -> return false
             HearDecision.ThroughDnd -> {
-                if (!dndOpened && runCatching { dndGate?.open() }.getOrNull() == true) dndOpened = true
-                burst.throughDnd = true
+                if (hearNow() == Hear.DND && !dndOpened && runCatching { dndGate?.open() }.getOrNull() == true) dndOpened = true
+                burst.throughDnd = if (hearNow() == Hear.DND) HeardStatus.HEARD_URGENT_DND else HeardStatus.HEARD_URGENT_SILENT
                 return false
             }
             is HearDecision.Save -> {
@@ -1013,6 +1013,9 @@ internal class Talk(
         enqueue(burst)
     }
 
+    /** What to tell [burst]'s talker once it is heard here. */
+    private fun heardStatus(burst: Incoming): Int = burst.throughDnd.takeIf { it != 0 } ?: HeardStatus.HEARING
+
     /** Tells [burst]'s talker what became of it here (HeardStatus), once each. */
     private fun tell(burst: Incoming, status: Int) {
         if (burst.told == status) return
@@ -1032,7 +1035,7 @@ internal class Talk(
      * (the bubble's "Saved: Do Not Disturb") and in [TalkUiState.heard] (the chips while pushing).
      */
     internal fun takeHeard(from: String, heard: TalkHeardContent) {
-        if (!validId(heard.burstId) || heard.status !in HeardStatus.HEARING..HeardStatus.SAVED_URGENT_NOT_ALLOWED) return
+        if (!validId(heard.burstId) || heard.status !in HeardStatus.HEARING..HeardStatus.LAST) return
         val message = store.message(heard.burstId)?.takeIf { it.outgoing } ?: return
         val clip = message.clip ?: return
         store.putMessage(message.copy(clip = clip.copy(heardBy = clip.heardBy + (from to heard.status))))
@@ -1059,7 +1062,7 @@ internal class Talk(
             if (live?.hearsLive(burst.chat, identity) == true) {
                 burst.heardLive = true
                 live?.heard(waited)
-                tell(burst, if (burst.throughDnd) HeardStatus.HEARD_URGENT_DND else HeardStatus.HEARING)
+                tell(burst, heardStatus(burst))
                 // Others' music dims while it's heard (2026-11-25, hen).
                 dimmer.heard("live:${burst.id}")
                 // Heard through the room, the app off screen: the same as a burst that plays (the talk session or
@@ -1118,7 +1121,7 @@ internal class Talk(
         val player = player ?: return
         // Heard while it plays (a played burst's end is its playback's, not its floor's).
         dimmer.heard("play:${burst.id}")
-        tell(burst, if (burst.throughDnd) HeardStatus.HEARD_URGENT_DND else HeardStatus.HEARING)
+        tell(burst, heardStatus(burst))
         burst.playing = true
         _state.update { it.copy(playing = NowPlaying(burst.chat, burst.id, burst.from, live = true, video = burst.video), queued = it.queued - burst.id) }
         if (burst.video) videoOut?.begin(burst.id)

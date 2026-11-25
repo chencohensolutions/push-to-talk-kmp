@@ -882,4 +882,36 @@
     <string name="call_in_chat">שיחת וידאו · %1$s</string>
     <string name="call_end">סיום</string>
     <string name="call_full_screen">מסך מלא</string>
+    <!-- Who can hear you, urgent pushes (2026-11-25, hen) -->
+    <string name="urgent_dnd_section">דיבור דחוף</string>
+    <string name="urgent_dnd_title">לתת לדיבור דחוף לעבור את ״נא לא להפריע״</string>
+    <string name="urgent_dnd_body">הדיבור הדחוף מאיש הקשר הזה יושמע בקול גם כשהטלפון במצב ״נא לא להפריע״ או מושתק.</string>
+    <string name="urgent_dnd_no_access">בלי גישה ל״נא לא להפריע״, דיבור דחוף עדיין מגיע, בשקט.</string>
+    <string name="urgent_dnd_ask_title">גישה ל״נא לא להפריע״</string>
+    <string name="urgent_dnd_ask_body">כדי להשמיע דיבור דחוף בקול, Talk פותח את ״נא לא להפריע״ בזמן ההשמעה ומחזיר אותו אחר כך. יש להפעיל את Talk במסך הבא.</string>
+    <string name="urgent_dnd_ask_open">לפתוח הגדרות</string>
+    <string name="urgent_dnd_ask_later">לא עכשיו</string>
+    <string name="settings_hear_title">להראות מתי אני לא שומע/ת</string>
+    <string name="settings_hear_on">אנשי הקשר רואים כשהטלפון ב״נא לא להפריע״, מושתק או בשיחה</string>
+    <string name="settings_hear_off">מוסתר</string>
+    <string name="settings_hear_failed">לא הצלחנו לשנות. כדאי לנסות שוב.</string>
+    <string name="hear_dnd">נא לא להפריע</string>
+    <string name="hear_silent">מושתק</string>
+    <string name="hear_silent_line">מושתק · יישמע אחר כך</string>
+    <string name="hear_in_call">בשיחה</string>
+    <string name="hear_group_count">%1$d מתוך %2$d שומעים עכשיו</string>
+    <string name="heard_saved_dnd">נשמר: נא לא להפריע</string>
+    <string name="heard_saved_silent">נשמר: מושתק</string>
+    <string name="heard_saved_call">נשמר: בשיחה</string>
+    <string name="heard_saved_urgent">נשמר: דחוף לא מאושר</string>
+    <string name="heard_urgent">דחוף ✓ נשמע</string>
+    <string name="heard_urgent_dnd">דחוף ✓ נשמע דרך ״נא לא להפריע״</string>
+    <string name="heard_urgent_silent">דחוף ✓ נשמע למרות ההשתקה</string>
+    <string name="push_cant_hear">%1$s לא שומע/ת עכשיו · %2$s · נשמר</string>
+    <string name="push_cant_hear_m">%1$s לא שומע עכשיו · %2$s · נשמר</string>
+    <string name="push_cant_hear_f">%1$s לא שומעת עכשיו · %2$s · נשמר</string>
+    <string name="push_hearing">%1$s שומע/ת אותך</string>
+    <string name="push_hearing_m">%1$s שומע אותך</string>
+    <string name="push_hearing_f">%1$s שומעת אותך</string>
+    <string name="push_group_hear">%1$d שומעים · %2$d יקבלו אחר כך</string>
 </resources>

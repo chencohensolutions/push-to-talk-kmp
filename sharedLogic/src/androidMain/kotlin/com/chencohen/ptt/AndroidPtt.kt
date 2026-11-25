@@ -383,6 +383,12 @@ fun editLive(context: Context, id: String, text: String?, selStart: Int = -1, se
     kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editLive(id, text, selStart, selEnd) }
 }
 
+/** The press going on now became urgent (the floating window's red bell; 2026-11-25, hen). */
+fun markUrgent(context: Context) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.talk.markUrgent() }
+}
+
 /** Changes Talk's settings from outside the screens (the reply bubble's Video). */
 fun setTalkSettings(context: Context, talk: com.chencohen.ptt.messaging.TalkSettings) = hub(context).setTalkSettings(talk)
 

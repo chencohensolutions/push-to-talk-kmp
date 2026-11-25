@@ -278,7 +278,10 @@ fun HomeApp(
         onCallTaken()
         call(user, video)
     }
-    CompositionLocalProvider(LocalMessages provides messages) {
+    // Who can hear now (2026-11-25, hen): each contact's Do Not Disturb, silent or call, from their presence.
+    val presence = messagingState.presence
+    val hearOf = remember(presence) { { u: String -> presence[u]?.let { com.chencohen.ptt.talk.Hear.of(it.online, it.hear) } ?: com.chencohen.ptt.talk.Hear.UNKNOWN } }
+    CompositionLocalProvider(LocalMessages provides messages, com.chencohen.ptt.ui.talk.LocalHear provides hearOf) {
         Box(Modifier.fillMaxSize()) {
             val page = stack.lastOrNull()
             val name = page.orEmpty()
@@ -327,6 +330,7 @@ fun HomeApp(
                 )
                 name == "settings" -> {
                     var presenceVisible by remember { mutableStateOf<Boolean?>(messaging.presenceVisible) }
+                    var hearVisible by remember { mutableStateOf<Boolean?>(messaging.hearVisible) }
                     val settingsState by settings.state.collectAsStateWithLifecycle()
                     SettingsScreen(
                         state = settingsState,
@@ -354,6 +358,14 @@ fun HomeApp(
                         softMessage = messagingState.talkSettings.softMessage,
                         setSoftMessage = { soft -> onTalkSettings(messagingState.talkSettings.copy(softMessage = soft)) },
                         presenceVisible = presenceVisible,
+                        hearVisible = hearVisible,
+                        setHearVisible = { visible ->
+                            hearVisible = null
+                            messaging.setHearVisible(visible) { shown ->
+                                hearVisible = shown ?: messaging.hearVisible
+                                if (shown == null) messages.post(resources.getString(R.string.settings_hear_failed))
+                            }
+                        },
                         liveTyping = messagingState.talkSettings.liveTyping,
                         setLiveTyping = { on -> onTalkSettings(messagingState.talkSettings.copy(liveTyping = on)) },
                         setPresenceVisible = { visible ->
@@ -774,11 +786,16 @@ fun HomeApp(
                                 }
                             },
                             setNotifyOnly = { on -> setNotifyOnly(user, on) },
+                            setUrgentThroughDnd = { on ->
+                                val talk = messagingState.talkSettings
+                                messaging.setTalkSettings(talk.copy(urgentThroughDnd = if (on) talk.urgentThroughDnd + user else talk.urgentThroughDnd - user))
+                            },
                             setQuickTalk = { on -> setQuickTalk(user, on) },
                             setLiveTyping = { on -> setLiveTyping(user, on) },
                             setDirection = { d -> onTalkSettings(messagingState.talkSettings.withDirection(user, d)) },
                         ),
                         notifyOnly = user in messagingState.talkSettings.notifyOnly,
+                        urgentThroughDnd = user in messagingState.talkSettings.urgentThroughDnd,
                         inChat = { com.chencohen.ptt.ui.talk.KeepInChatCard(user, messagingState.talkSettings, onTalkSettings) },
                         quickTalk = user in messagingState.talkSettings.quickTalk,
                         liveTyping = messagingState.talkSettings.liveTypingTo(user),

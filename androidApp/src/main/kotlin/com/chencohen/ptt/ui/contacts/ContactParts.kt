@@ -68,7 +68,7 @@ internal fun ContactRow(contact: Contact, last: TextMessage?, unread: Int = 0, o
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(contact.user)
+        com.chencohen.ptt.ui.talk.HearFace(contact.user, 48.dp) { Avatar(contact.user) }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             // The name they gave, with the user name the server knows them by: two people may both be "Dana".

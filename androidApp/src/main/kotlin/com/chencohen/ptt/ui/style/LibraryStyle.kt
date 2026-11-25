@@ -257,6 +257,8 @@ internal object LibraryIcons {
     val Plus = icon("Plus", false, "M12 5v14", "M5 12h14")
     /** Urgent push (2026-11-25, hen): a bell. */
     val Bell = icon("Bell", false, "M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9", "M13.73 21a2 2 0 0 1-3.46 0")
+    /** Silent (who can hear you; 2026-11-25, hen): a bell crossed out. */
+    val BellOff = icon("BellOff", false, "M13.73 21a2 2 0 0 1-3.46 0", "M18.63 13A17.9 17.9 0 0 1 18 8", "M6.26 6.26A5.9 5.9 0 0 0 6 8c0 7-3 9-3 9h14", "M18 8a6 6 0 0 0-9.33-5", "M2 2l20 20")
     /** Do Not Disturb (2026-11-25, hen: Android's own sign, not a moon): a filled circle with a bar through it. */
     val DoNotDisturb = icon("DoNotDisturb", true, "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11H7v-2h10v2z")
     val Group = icon("Group", false, "M9 4a4 4 0 1 0 0.01 0", "M2 21v-1a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v1", "M16 3.2a4 4 0 0 1 0 7.6", "M19 14.2a6 6 0 0 1 3 5.8v1")

@@ -99,6 +99,11 @@ object TalkBubble {
     private var pushBox: FrameLayout? = null
     private var stopPill: TextView? = null
     private var lockHint: ImageView? = null
+    /** The red bell beside Push while it is held: slid onto it, the push is urgent (2026-11-25, hen). */
+    private var bellHint: ImageView? = null
+    /** This press is urgent. */
+    private var urgent = false
+    private var downX = 0f
     // The live row at the top (its own window, as wide as the screen; what shows in it never moves or resizes it):
     // one cell for each side, a voice pill or a video box, placed by LiveLayout and moved by LiveMotion.
     private var topWindow: FrameLayout? = null
@@ -363,12 +368,26 @@ object TalkBubble {
             background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(0xF2191D1C.toInt()) }
             visibility = View.INVISIBLE
         }
+        bellHint = ImageView(context).apply {
+            setImageResource(R.drawable.ic_bubble_bell)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xF2191D1C.toInt()); setStroke(dp(2), URGENT) }
+            contentDescription = context.getString(R.string.talk_urgent)
+            visibility = View.INVISIBLE
+        }
+        // The lock and the bell share the room above the pill: the lock over Push, the bell up and to its right (on
+        // the screen, in either language), both in the window's own room so nothing moves when they show.
+        val hints = FrameLayout(context).apply {
+            clipChildren = false
+            addView(lockHint, FrameLayout.LayoutParams(dp(42), dp(58), Gravity.CENTER))
+            addView(bellHint, FrameLayout.LayoutParams(dp(42), dp(42), Gravity.CENTER or Gravity.BOTTOM))
+        }
         val holder = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
-            addView(lockHint, LinearLayout.LayoutParams(dp(42), dp(58)).apply { bottomMargin = dp(8) })
+            addView(hints, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)).apply { bottomMargin = dp(8) })
             addView(row, LinearLayout.LayoutParams(dp(PILL_WINDOW_DP), dp(68)))
             // Room for the shadow; below, down to the screen's own bottom edge over the navigation bar, so the pill
             // comes in from the very bottom and leaves there, never cut at the bar (2026-11-25, hen).
@@ -532,6 +551,8 @@ object TalkBubble {
                     // Get camera ready while talking (on by default): the camera opens now, unseen.
                     warming = messagingState(context).value.talkSettings.cameraReady && cameraAllowed(context)
                     downY = e.rawY
+                    downX = e.rawX
+                    urgent = false
                     goingLive = false
                     startTalk(context, video = false)
                     runStarted = talkStarted
@@ -541,6 +562,13 @@ object TalkBubble {
             }
             MotionEvent.ACTION_MOVE -> {
                 val up = downY - e.rawY
+                // Slid right onto the bell (on the screen, in either language): this push is urgent from here.
+                if (talking && !locked && !urgent && e.rawX - downX > dp(context, URGENT_DP - 8)) {
+                    urgent = true
+                    v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    markUrgent(context)
+                    showUrgent(context)
+                }
                 // Starting to slide up: the camera opens now, so the video starts fast at the lock.
                 if (talking && !locked && !warming && up > dp(context, 16) && cameraAllowed(context)) {
                     warming = true
@@ -585,6 +613,14 @@ object TalkBubble {
         return true
     }
 
+    /** The push button red with a bell while my push is urgent; Pink again after. */
+    private fun showUrgent(context: Context) {
+        (button?.background as? GradientDrawable)?.setColor(if (urgent) URGENT else PINK)
+        if (urgent) button?.setImageResource(R.drawable.ic_bubble_bell)
+        (bellHint?.background as? GradientDrawable)?.setColor(if (urgent) URGENT else 0xF2191D1C.toInt())
+        refreshTop(context)
+    }
+
     /** The lock above the push button while it is held. */
     private fun showLockHint(on: Boolean) {
         val lock = lockHint ?: return
@@ -597,8 +633,15 @@ object TalkBubble {
             lock.alpha = 0f
             lock.visibility = View.VISIBLE
             lock.animate().alpha(1f).setDuration(150).start()
+            bellHint?.let { bell ->
+                bell.translationX = (at - holder.width / 2 + dp(push.context, URGENT_DP)).toFloat()
+                bell.alpha = 0f
+                bell.visibility = View.VISIBLE
+                bell.animate().alpha(1f).setDuration(150).start()
+            }
         } else if (lock.visibility == View.VISIBLE) {
             lock.visibility = View.INVISIBLE
+            bellHint?.visibility = View.INVISIBLE
         }
     }
 
@@ -801,6 +844,10 @@ object TalkBubble {
             context.startService(Intent(context, TalkReadyService::class.java).setAction(if (send) TalkReadyService.ACTION_SEND else TalkReadyService.ACTION_CANCEL_TALK))
         }
         (button?.background as? GradientDrawable)?.apply { setColor(PINK); setStroke(0, Color.TRANSPARENT) }
+        if (urgent && !keepLock) {
+            urgent = false
+            (bellHint?.background as? GradientDrawable)?.setColor(0xF2191D1C.toInt())
+        }
         sendingVideo = false
         showMode(context)
         refreshTop(context)
@@ -897,6 +944,10 @@ object TalkBubble {
         }
         theirPill?.show(context, if (theirOn) rowFrom() else null, rowTitle())
         myPill?.show(context, if (mine || myVoice) "" else null, rowTitle())
+        // My push urgent: "You · Urgent" in red (2026-11-25, hen).
+        val urgentNow = urgent || outside?.myUrgent == true
+        myPill?.urgent = urgentNow
+        myCell?.edgeColor(if (urgentNow) URGENT else PINK)
         // Their words as they are now, before the pills are measured: a pill comes in at its real width.
         theirPill?.tick(0f, theirSince())
         myPill?.tick(0f, mySince())
@@ -1728,6 +1779,9 @@ object TalkBubble {
         private val edge = GradientDrawable()
         private var radius = -1f
 
+        /** Its outline's colour (mine red while my push is urgent; 2026-11-25, hen). */
+        fun edgeColor(color: Int) = edge.setStroke((density).toInt().coerceAtLeast(2), color)
+
         init {
             view.layoutDirection = View.LAYOUT_DIRECTION_LTR
             view.visibility = View.GONE
@@ -1941,6 +1995,7 @@ object TalkBubble {
         pushBox = null
         stopPill = null
         lockHint = null
+        bellHint = null
         pillMorph?.cancel()
         pillMorph = null
         stopShown = false
@@ -1986,6 +2041,14 @@ object TalkBubble {
         /** Whose face shows ("" mine); null: hidden. */
         var shown: String? = null
             private set
+
+        /** Mine, urgent (the red bell; 2026-11-25, hen): "You · Urgent · 0:03", the ring red. */
+        var urgent = false
+            set(value) {
+                if (field == value) return
+                field = value
+                ring.color = if (value) URGENT else PINK
+            }
 
         init {
             view.orientation = LinearLayout.HORIZONTAL
@@ -2047,7 +2110,8 @@ object TalkBubble {
             val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
             val t = "%d:%02d".format(s / 60, s % 60)
             // Only when it changes: a text set again asks for a layout each time.
-            val (line, words) = if (mine) name to view.context.getString(R.string.talk_panel_you) + " · " + t else time to t
+            val you = view.context.getString(R.string.talk_panel_you) + if (urgent) " · " + view.context.getString(R.string.talk_urgent) else ""
+            val (line, words) = if (mine) name to "$you · $t" else time to t
             if (line.text.toString() != words) line.text = words
         }
     }
@@ -2103,6 +2167,10 @@ object TalkBubble {
     }
 
     private const val PINK = 0xFFE9504F.toInt()
+    /** An urgent push's red (2026-11-25, hen). */
+    private const val URGENT = 0xFFD93025.toInt()
+    /** How far sideways from Push the bell is, and the slide that reaches it. */
+    private const val URGENT_DP = 56
     private const val TEAL = 0xFF2BB3A3.toInt()
     private const val HERE = 0xFF34C759.toInt()
 }

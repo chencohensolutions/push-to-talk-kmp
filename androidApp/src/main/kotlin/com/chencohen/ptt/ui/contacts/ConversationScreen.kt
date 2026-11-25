@@ -427,7 +427,9 @@ private fun ConversationScreenIn(
                 else -> null
             }
             val myVoice = talk.own?.takeIf { it.chat == user && !pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
-                ?.let { VoiceSide("", stringResource(R.string.talk_panel_you), true, runSince.takeIf { r -> r > 0 } ?: it.startedAt) }
+                ?.let { VoiceSide("", youLabel(it.urgent), true, runSince.takeIf { r -> r > 0 } ?: it.startedAt) }
+            // My push now is urgent (the red bell): "You · Urgent" in red, in the row and the floating window's.
+            val myUrgent = talk.own?.let { it.chat == user && it.urgent } == true
             // Their voice turning into video: their pill stays a moment after the voice ends, so their video, starting
             // right after, grows out of it instead of the pill leaving and a box coming.
             var theirVoiceHeld by remember(user) { mutableStateOf<VoiceSide?>(null) }
@@ -466,6 +468,7 @@ private fun ConversationScreenIn(
                     theirSince = if (theirKind == LiveKind.None) 0L else theirVoiceNow?.since ?: theirSinceNow,
                     mySince = if (myKind == LiveKind.None) 0L else myVoice?.since ?: mySinceNow,
                     bothLive = bothShown,
+                    myUrgent = myUrgent,
                 )
                 LaunchedEffect(now) { liveRow(now) }
                 androidx.compose.runtime.DisposableEffect(user) { onDispose { liveRow(LiveNow()) } }
@@ -474,7 +477,7 @@ private fun ConversationScreenIn(
                 val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
                 val pretendMembers by LivePretend.members.collectAsState()
                 val pretendMine by LivePretend.mine.collectAsState()
-                val me = stringResource(R.string.talk_panel_you)
+                val me = youLabel(myUrgent)
                 val others = talk.talking[user].orEmpty().filter { it.clip != talk.own?.clip }.map { t ->
                     val id = "${t.user}.${t.device}"
                     GroupTalker(id, t.user, t.user, allMessages.firstOrNull { it.id == t.clip }?.clip?.video == true || arriving[id] != null, t.since)
@@ -485,7 +488,7 @@ private fun ConversationScreenIn(
                     pretendMine == LiveKind.Voice -> GroupTalker(com.chencohen.ptt.ui.live.LiveLayout.MINE, "", me, false, mySinceNow, mine = true)
                     else -> null
                 }
-                GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), null)
+                GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), null, myUrgent = myUrgent)
             } else {
                 LivePanel(
                     theirVideo, if (group != null) (theirs?.from ?: talker?.user) else null, theirSinceNow,
@@ -496,8 +499,22 @@ private fun ConversationScreenIn(
                     theirName = theirName,
                     behindMs = theirs?.behindMs,
                     voices = voicesNow,
+                    myUrgent = myUrgent,
                 )
                 BothLiveChip(bothShown && actions.callInChat != null) { makeCallNow[0]() }
+            }
+            if (liveRow == null) {
+                // Who can hear me while I push (2026-11-25, hen): under my pill, from what they told of this push, else
+                // their presence.
+                val ownNow = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
+                val hearOf = com.chencohen.ptt.ui.talk.LocalHear.current
+                val told = ownNow?.let { talk.heard[it.clip] }.orEmpty()
+                val listeners = if (group == null) {
+                    listOf(com.chencohen.ptt.ui.talk.PushListener(user, contact?.name ?: user, hearOf(user), told[user] ?: 0))
+                } else {
+                    group.members.map { m -> com.chencohen.ptt.ui.talk.PushListener(m, m, hearOf(m), told[m] ?: 0) }
+                }
+                com.chencohen.ptt.ui.talk.PushHearChip(ownNow?.clip, listeners, group != null)
             }
         } }
         if (contact?.changedKey != null) {
@@ -1276,7 +1293,7 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
             Modifier.weight(1f).fillMaxHeight().clickable(role = Role.Button, onClick = actions.openContact),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(HEADER_FACE + 8.dp).faceRing(ring), contentAlignment = Alignment.Center) { Avatar(user, HEADER_FACE) }
+            Box(Modifier.size(HEADER_FACE + 8.dp).faceRing(ring), contentAlignment = Alignment.Center) { com.chencohen.ptt.ui.talk.HearFace(user, HEADER_FACE) { Avatar(user, HEADER_FACE) } }
             Column(Modifier.padding(start = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(contact?.name ?: user, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
@@ -1288,6 +1305,14 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
                 // at its end, their face with a ring (ReaderCircle). Only typing is said here.
                 if (header.typing) {
                     Text(com.chencohen.ptt.genderedString(R.string.chat_typing, user), color = LibraryColors.Accent, style = LibraryType.Caption)
+                } else {
+                    // Can't hear now (2026-11-25, hen): "Do Not Disturb", "Silent · hears it later", "In a call".
+                    val hearNow = com.chencohen.ptt.ui.talk.hearLine(com.chencohen.ptt.ui.talk.LocalHear.current(user))
+                    androidx.compose.animation.AnimatedVisibility(hearNow != null, enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) + androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(220)), exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220)) + androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(220))) {
+                        val shown = remember { arrayOf("") }
+                        if (hearNow != null) shown[0] = hearNow
+                        Text(shown[0], color = LibraryColors.Muted, style = LibraryType.Caption, maxLines = 1)
+                    }
                 }
             }
         }
@@ -1312,7 +1337,12 @@ private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk:
             com.chencohen.ptt.ui.groups.GroupAvatar(group.name, group.picture, HEADER_FACE)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(group.name, color = LibraryColors.OnBackground, style = LibraryType.RowTitle, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                Text(group.line, color = LibraryColors.Muted, style = LibraryType.Caption, maxLines = 1)
+                // "2 of 4 can hear now" while someone can't (2026-11-25, hen), else the group's own line.
+                val hearOf = com.chencohen.ptt.ui.talk.LocalHear.current
+                val hears = group.members.map(hearOf)
+                val cant = hears.any { it == com.chencohen.ptt.talk.Hear.DND || it == com.chencohen.ptt.talk.Hear.SILENT || it == com.chencohen.ptt.talk.Hear.IN_CALL }
+                val (can, all) = com.chencohen.ptt.talk.CanHearRules.canHearCount(hears)
+                Text(if (cant) stringResource(R.string.hear_group_count, can, all) else group.line, color = LibraryColors.Muted, style = LibraryType.Caption, maxLines = 1)
             }
             MemberFaces(group.members, here, inRoom)
         }
@@ -1342,7 +1372,7 @@ private fun MemberFaces(members: List<String>, here: Set<String>, inRoom: Set<St
                 androidx.compose.runtime.key(member) {
                     val x by androidx.compose.animation.core.animateDpAsState(step * i, androidx.compose.animation.core.tween(300), label = "face $member")
                     Box(Modifier.offset(x = x).size(face + 4.dp).faceRing(if (member in here) 2 else if (member in inRoom) 1 else 0), contentAlignment = Alignment.Center) {
-                        Avatar(member, face - 2.dp)
+                        com.chencohen.ptt.ui.talk.HearFace(member, face - 2.dp) { Avatar(member, face - 2.dp) }
                     }
                 }
             }
@@ -1462,6 +1492,10 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                     modifier = Modifier.onGloballyPositioned { textPlace[1] = it }
                         .then(if (liveEdit?.text != null && liveEdit.selEnd >= 0) Modifier.liveCaret(textLayout, liveEdit.selStart, liveEdit.selEnd) else Modifier),
                 )
+            }
+            // What became of my push at each listener (2026-11-25, hen): "Saved: Do Not Disturb", "URGENT ✓ Heard…".
+            if (mine && !message.deleted) message.clip?.let { c ->
+                com.chencohen.ptt.ui.talk.HeardLabels(c, com.chencohen.ptt.messaging.Group.idOf(message.user) != null, { it }, onInverse = true)
             }
             val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
             // The time, and for mine how far it got: no "read" mark (their circle says it).

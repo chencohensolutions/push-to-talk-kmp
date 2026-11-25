@@ -879,4 +879,36 @@
     <string name="call_in_chat">Video call · %1$s</string>
     <string name="call_end">End</string>
     <string name="call_full_screen">Full screen</string>
+    <!-- Who can hear you, urgent pushes (2026-11-25, hen) -->
+    <string name="urgent_dnd_section">Urgent pushes</string>
+    <string name="urgent_dnd_title">Let urgent pushes through Do Not Disturb</string>
+    <string name="urgent_dnd_body">Their urgent pushes play out loud even when your phone is on Do Not Disturb or silent.</string>
+    <string name="urgent_dnd_no_access">Without Do Not Disturb access, urgent pushes still arrive, silently.</string>
+    <string name="urgent_dnd_ask_title">Allow Do Not Disturb access</string>
+    <string name="urgent_dnd_ask_body">To play an urgent push out loud, Talk opens Do Not Disturb while it plays and puts it back after. Turn Talk on in the next screen.</string>
+    <string name="urgent_dnd_ask_open">Open settings</string>
+    <string name="urgent_dnd_ask_later">Not now</string>
+    <string name="settings_hear_title">Show when I can’t hear</string>
+    <string name="settings_hear_on">Contacts see when you’re on Do Not Disturb, silent or in a call</string>
+    <string name="settings_hear_off">Hidden</string>
+    <string name="settings_hear_failed">Couldn’t change it. Try again.</string>
+    <string name="hear_dnd">Do Not Disturb</string>
+    <string name="hear_silent">Silent</string>
+    <string name="hear_silent_line">Silent · hears it later</string>
+    <string name="hear_in_call">In a call</string>
+    <string name="hear_group_count">%1$d of %2$d can hear now</string>
+    <string name="heard_saved_dnd">Saved: Do Not Disturb</string>
+    <string name="heard_saved_silent">Saved: silent</string>
+    <string name="heard_saved_call">Saved: in a call</string>
+    <string name="heard_saved_urgent">Saved: urgent not allowed</string>
+    <string name="heard_urgent">URGENT ✓ Heard</string>
+    <string name="heard_urgent_dnd">URGENT ✓ Heard through Do Not Disturb</string>
+    <string name="heard_urgent_silent">URGENT ✓ Heard through silent</string>
+    <string name="push_cant_hear">%1$s can’t hear now · %2$s · saved</string>
+    <string name="push_cant_hear_m">%1$s can’t hear now · %2$s · saved</string>
+    <string name="push_cant_hear_f">%1$s can’t hear now · %2$s · saved</string>
+    <string name="push_hearing">%1$s is hearing you</string>
+    <string name="push_hearing_m">%1$s is hearing you</string>
+    <string name="push_hearing_f">%1$s is hearing you</string>
+    <string name="push_group_hear">%1$d hearing · %2$d get it later</string>
 </resources>

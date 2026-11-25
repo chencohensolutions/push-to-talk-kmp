@@ -138,6 +138,8 @@ data class LiveNow(
     val theirSince: Long = 0L,
     val mySince: Long = 0L,
     val bothLive: Boolean = false,
+    /** My push is urgent (the red bell; 2026-11-25, hen): "You · Urgent" in red. */
+    val myUrgent: Boolean = false,
 )
 
 /** Test builds only (TestBubble): the other side shown live in the open chat without a real push. */
@@ -188,6 +190,8 @@ internal fun LivePanel(
     /** The other side, for its face while its box waits for a first picture. */
     theirUser: String = "",
     theirName: String = "",
+    /** My push now is urgent (the red bell; 2026-11-25, hen): "You · Urgent", in red. */
+    myUrgent: Boolean = false,
 ) {
     val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
     // Through the room while its frames come; else the clips' pictures (never both).
@@ -206,7 +210,8 @@ internal fun LivePanel(
     val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
     val theirVoice = voices.firstOrNull { !it.mine }
     val myVoice = voices.firstOrNull { it.mine }
-    val me = stringResource(R.string.talk_panel_you)
+    val me = youLabel(myUrgent)
+    val myRing = if (myUrgent) LibraryColors.Error else com.chencohen.ptt.ui.style.Pink
     // Each side's face and words as they last were, kept while it goes up, so it doesn't empty first.
     val last = remember { arrayOfNulls<VoiceSide>(2) }
     if (theirs || theirVoice != null) last[0] = theirVoice ?: VoiceSide(theirUser, who ?: theirName, false, theirSince)
@@ -250,10 +255,10 @@ internal fun LivePanel(
     LiveStage(
         sides,
         boxHeight = screen * LIVE_VIDEO_SHARE,
-        ring = { if (it.key == LiveLayout.MINE) com.chencohen.ptt.ui.style.Pink else teal },
+        ring = { if (it.key == LiveLayout.MINE) myRing else teal },
         pill = { side ->
             val voice = last[if (side.key == LiveLayout.MINE) 1 else 0]
-            if (voice != null) VoicePillRow(voice, if (voice.mine) com.chencohen.ptt.ui.style.Pink else LibraryColors.Accent)
+            if (voice != null) VoicePillRow(voice, if (voice.mine) myRing else LibraryColors.Accent)
         },
     ) { side, w, h, p ->
         val isMine = side.key == LiveLayout.MINE
@@ -289,11 +294,12 @@ internal fun LivePanel(
  * face (the clip path's one decoder can't show several). All of it moves as one (LiveStage, LiveMotion).
  */
 @Composable
-internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?) {
+internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?, myUrgent: Boolean = false) {
     val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
     val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsState()
     val localPicture by com.chencohen.ptt.talk.LiveTalkVideo.localPicture.collectAsState()
-    val me = stringResource(R.string.talk_panel_you)
+    val me = youLabel(myUrgent)
+    val myRing = if (myUrgent) LibraryColors.Error else com.chencohen.ptt.ui.style.Pink
     // Each one as they last were, kept while they go up, so a box doesn't empty first.
     val last = remember { HashMap<String, GroupTalker>() }
     talkers.forEach { last[it.key] = it }
@@ -321,7 +327,7 @@ internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?) {
     LiveStage(
         sides,
         boxHeight = screen * LIVE_VIDEO_SHARE,
-        ring = { if (it.key == LiveLayout.MINE) com.chencohen.ptt.ui.style.Pink else teal },
+        ring = { if (it.key == LiveLayout.MINE) myRing else teal },
         group = true,
         groupShape = myShape,
         chip = newest?.let { n ->
@@ -334,7 +340,7 @@ internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?) {
         },
         pill = { side ->
             val t = last[side.key]
-            if (t != null) VoicePillRow(VoiceSide(if (t.mine) "" else t.user, if (t.mine) me else t.name, t.mine, t.since), if (t.mine) com.chencohen.ptt.ui.style.Pink else LibraryColors.Accent)
+            if (t != null) VoicePillRow(VoiceSide(if (t.mine) "" else t.user, if (t.mine) me else t.name, t.mine, t.since), if (t.mine) myRing else LibraryColors.Accent)
         },
     ) { side, w, h, p ->
         val t = last[side.key] ?: return@LiveStage
@@ -672,6 +678,12 @@ internal fun TalkTrace(message: TextMessage, author: String, at: String? = null)
         color = LibraryColors.Muted, style = LibraryType.Tiny, textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     )
+    // Mine: what became of it at each listener (2026-11-25, hen), centred under the line.
+    if (message.outgoing && clip.heardBy.isNotEmpty()) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            com.chencohen.ptt.ui.talk.HeardLabels(clip, com.chencohen.ptt.messaging.Group.idOf(message.user) != null, { it }, onInverse = false)
+        }
+    }
 }
 
 /**
@@ -777,3 +789,8 @@ private fun layoutTextDirection(): androidx.compose.ui.text.style.TextDirection 
     if (androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl) androidx.compose.ui.text.style.TextDirection.Rtl
     else androidx.compose.ui.text.style.TextDirection.Ltr
 
+
+/** "You", or "You · Urgent" while my push is urgent (2026-11-25, hen). */
+@Composable
+internal fun youLabel(urgent: Boolean): String =
+    if (urgent) stringResource(R.string.talk_panel_you) + " · " + stringResource(R.string.talk_urgent) else stringResource(R.string.talk_panel_you)
