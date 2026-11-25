@@ -871,9 +871,16 @@ fun HomeApp(
                 val me = state.device?.user
                 val roomPicture = messagingState.talk.talkers.values.firstOrNull { it.user != me }
                     ?.let { t -> arriving["${t.user}.${t.device}"] } ?: arriving.values.firstOrNull { me == null || !it.identity.startsWith("$me.") }
+                // Kept while their burst goes on: a moment without pictures (the room moving to a sharper layer) takes
+                // their picture out of "arriving", and the screen went black for a second (2026-11-25, hen: "the
+                // screen blinks"); the same view stays and the pictures go on in it.
+                val heldPicture = remember { arrayOfNulls<com.chencohen.ptt.talk.LiveTalkVideo.Live>(1) }
+                if (roomPicture != null) heldPicture[0] = roomPicture
+                else if (messagingState.talk.talkers.values.none { it.user != me }) heldPicture[0] = null
+                val shownPicture = roomPicture?.let { r -> heldPicture[0]?.takeIf { it.track === r.track } ?: r } ?: heldPicture[0]
                 Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
                     when {
-                        roomPicture != null -> com.chencohen.ptt.ui.talk.RoomVideoView(roomPicture, Modifier.fillMaxSize())
+                        shownPicture != null -> com.chencohen.ptt.ui.talk.RoomVideoView(shownPicture, Modifier.fillMaxSize())
                         woken != null -> com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
                     }
                 }
