@@ -133,6 +133,7 @@ class LiveKitTalkTransport(
         capturing = false
         liveVideo = false
         ready = false
+        LiveTalkVideo.local.value = null
         LiveTalkVideo.gone(null)
         LiveTalkVideo.room = null
         events?.cancel()
@@ -274,7 +275,9 @@ class LiveKitTalkTransport(
     private suspend fun capture(track: io.livekit.android.room.track.LocalVideoTrack, on: Boolean) {
         if (on == capturing) return
         capturing = on
+        if (!on) LiveTalkVideo.local.value = null
         withContext(Dispatchers.IO) { runCatching { if (on) track.startCapture() else track.stopCapture() } }
+        if (on) LiveTalkVideo.local.value = track
     }
 
     override suspend fun readyVideo(on: Boolean) {

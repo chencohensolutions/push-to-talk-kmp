@@ -103,6 +103,12 @@ internal fun WarmCamera(chat: String, on: Boolean, warm: (String?) -> Unit) {
  */
 @Composable
 internal fun PushVideoPreview(modifier: Modifier = Modifier, alignment: Alignment = Alignment.Center, cover: Boolean = false) {
+    // While the talk room reads the camera, its track is the preview (the camera has no separate preview output then).
+    val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsStateWithLifecycle()
+    local?.let { track ->
+        LocalRoomVideo(track, modifier)
+        return
+    }
     val capture = com.chencohen.ptt.talkVideoCapture ?: return
     val display = androidx.compose.ui.platform.LocalView.current.display?.rotation ?: 0
     val screenTurn = display * 90
@@ -564,3 +570,25 @@ internal fun DelayReadout(room: com.chencohen.ptt.talk.LiveTalkVideo.Live?, sinc
         modifier = modifier.background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
     )
 }
+
+/** This phone's camera as the talk room's track reads it, mirrored like a mirror, filling the space given. */
+@Composable
+internal fun LocalRoomVideo(track: io.livekit.android.room.track.VideoTrack, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val renderer = androidx.compose.runtime.remember(track) {
+        io.livekit.android.renderer.TextureViewRenderer(context).also {
+            com.chencohen.ptt.talk.LiveTalkVideo.initRenderer(it)
+            it.setScalingType(livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+            it.setMirror(true)
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(track) {
+        track.addRenderer(renderer)
+        onDispose {
+            track.removeRenderer(renderer)
+            renderer.release()
+        }
+    }
+    AndroidView(factory = { renderer }, modifier = modifier)
+}
+

@@ -360,6 +360,12 @@ class AndroidTalkVideoCapture(
 
     private var sensorRead = false
 
+    /** The front camera's sensor orientation (clockwise degrees from the phone's natural orientation). */
+    fun sensorOrientation(): Int {
+        previewRotation()
+        return sensor
+    }
+
     /** Clockwise degrees to turn the front camera's frames upright as the phone is held now. */
     private fun rotation(): Int {
         val display = (app.getSystemService(android.hardware.display.DisplayManager::class.java).getDisplay(android.view.Display.DEFAULT_DISPLAY)?.rotation ?: 0) * 90
@@ -390,7 +396,10 @@ class AndroidTalkVideoCapture(
         }
         val live = liveTarget
         val faces = if (live != null) null else faceReader?.surface?.takeIf { faceReaderOk }
-        val targets = listOfNotNull(enc, preview, live ?: faces)
+        // Feeding the talk room: two outputs only, the clip's encoder and the room's (its track is the preview then,
+        // LiveTalkVideo.local). A third and a fourth output stalled the S25's front camera (2026-11-25, buffer errors,
+        // the own box black).
+        val targets = if (live != null) listOf(enc, live) else listOfNotNull(enc, preview, faces)
         try {
             val executor = Executor { r -> handler?.post(r) }
             device.createCaptureSession(

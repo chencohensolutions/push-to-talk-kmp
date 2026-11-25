@@ -56,6 +56,8 @@ object TalkBubble {
     /** The top box's height: this share of the screen's (hen). */
     private const val TOP_SHARE = 0.236f
     private const val HOLD_MS = 350L
+    /** The pill window's fixed width. */
+    private const val PILL_WINDOW_DP = 300
     /** Slid up this far while holding: hands-free. */
     private const val LOCK_DP = 56
     /** Hands-free is let go and taken again before the server's 60 s floor ends. */
@@ -152,6 +154,19 @@ object TalkBubble {
     /** The app came on screen, or the floating window isn't wanted any more. */
     fun dismiss() = main.post { if (!talking) dismissNow() }
 
+    /**
+     * The video box's height: 23.6% of the screen's height as the app's own screens count it (the chat's boxes use the
+     * same), so the two are the same size (2026-11-25, hen: the floating one looked taller).
+     */
+    private fun topHeight(context: Context): Int =
+        (context.resources.configuration.screenHeightDp * TOP_SHARE * context.resources.displayMetrics.density).toInt()
+
+    @SuppressLint("InternalInsetResource", "DiscouragedApi")
+    private fun statusBarHeight(context: Context): Int {
+        val id = context.resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) context.resources.getDimensionPixelSize(id) else dp(context, 24)
+    }
+
     private fun dp(context: Context, v: Int) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), context.resources.displayMetrics).toInt()
 
     // ---- The bottom pill ----------------------------------------------------------------------------------------
@@ -164,6 +179,13 @@ object TalkBubble {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            // One order whatever the language (2026-11-25, hen: mirrored in Hebrew it read wrong): Chat, Push, Close,
+            // as the chat's own button row; its changes (Push to Stop and back) animate, growing from the centre.
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            layoutTransition = android.animation.LayoutTransition().apply {
+                enableTransitionType(android.animation.LayoutTransition.CHANGING)
+                setDuration(200)
+            }
             setPadding(dp(8), dp(6), dp(8), dp(6))
             background = GradientDrawable().apply { cornerRadius = dp(40).toFloat(); setColor(0xF2191D1C.toInt()) }
             elevation = dp(8).toFloat()
@@ -220,6 +242,7 @@ object TalkBubble {
         val holder = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
             addView(lockHint, LinearLayout.LayoutParams(dp(42), dp(58)).apply { bottomMargin = dp(8) })
             addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -227,7 +250,9 @@ object TalkBubble {
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            // As wide as the pill gets (with Stop): the window doesn't change width, so the pill grows and shrinks
+            // about its centre instead of the window jumping to a new one.
+            dp(PILL_WINDOW_DP),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // The app beneath stays usable: touches outside the pill go to it, and nothing closes on them.
@@ -295,11 +320,44 @@ object TalkBubble {
         pickPreview()
     }
 
-    /** The camera draws into my box at the top while I send video. */
+    /**
+     * The camera draws into my box at the top while I send video; while the talk room reads the camera, my box shows
+     * the room's own track instead (the camera has no separate preview output then).
+     */
     private fun pickPreview() {
+        val local = com.chencohen.ptt.talk.LiveTalkVideo.local.value
+        val box = myBox
+        if (sendingVideo && local != null && box != null) {
+            if (myRoomTrack !== local) {
+                dropMyRoomVideo()
+                val r = io.livekit.android.renderer.TextureViewRenderer(box.context)
+                if (com.chencohen.ptt.talk.LiveTalkVideo.initRenderer(r)) {
+                    r.setScalingType(livekit.org.webrtc.RendererCommon.ScalingType.SCALE_ASPECT_FILL)
+                    r.setMirror(true)
+                    box.addView(r, 1, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+                    local.addRenderer(r)
+                    myRoomRenderer = r
+                    myRoomTrack = local
+                }
+            }
+        } else if (myRoomTrack != null) {
+            dropMyRoomVideo()
+        }
         val capture = com.chencohen.ptt.talkVideoCapture ?: return
         val mine = mySurface ?: return
         if (sendingVideo) capture.setPreview(mine) else capture.clearPreview(mine) {}
+    }
+
+    private var myRoomRenderer: io.livekit.android.renderer.TextureViewRenderer? = null
+    private var myRoomTrack: io.livekit.android.room.track.VideoTrack? = null
+
+    private fun dropMyRoomVideo() {
+        val r = myRoomRenderer ?: return
+        myRoomTrack?.removeRenderer(r)
+        (r.parent as? android.view.ViewGroup)?.removeView(r)
+        r.release()
+        myRoomRenderer = null
+        myRoomTrack = null
     }
 
     /** Asks Talk's service to keep the camera open for the window's preview ([on]) or let it go. */
@@ -555,7 +613,7 @@ object TalkBubble {
             pill.alpha = 1f
             pill.visibility = if ((theirPill?.view === pill && theirPill?.shown != null) || (myPill?.view === pill && myPill?.shown != null)) keep else View.GONE
         }.start()
-        val h = (context.resources.displayMetrics.heightPixels * TOP_SHARE)
+        val h = topHeight(context).toFloat()
         val w = (box.layoutParams?.width ?: pill.width).toFloat().coerceAtLeast(1f)
         box.pivotX = w / 2
         box.pivotY = 0f
@@ -591,7 +649,7 @@ object TalkBubble {
 
     /** The boxes' sizes: 23.6% of the screen's height, each as wide as its picture's shape. */
     private fun shapeTop(context: Context) {
-        val h = (context.resources.displayMetrics.heightPixels * TOP_SHARE).toInt()
+        val h = topHeight(context)
         theirBox?.takeIf { it.visibility == View.VISIBLE }?.let { box ->
             val shown = com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value ?: lastShown
             lastShown = shown
@@ -638,6 +696,7 @@ object TalkBubble {
             }
             theirTag?.text = "$title · ${clock(if (burstSince > 0) burstSince else System.currentTimeMillis())}"
             useRoomVideo(window.context)
+            pickPreview()
             myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(if (locked) lockSince else talkStarted)
             shapeTop(window.context)
             main.postDelayed(this, 250)
@@ -687,6 +746,9 @@ object TalkBubble {
         val wm = context.getSystemService(WindowManager::class.java)
         fun dp(v: Int) = dp(context, v)
         val bars = wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
+        // An overlay window may be told no insets (2026-11-25, hen: the box sat over the status bar): the status bar's
+        // own height then.
+        val statusTop = maxOf(bars.top, statusBarHeight(context))
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -780,7 +842,7 @@ object TalkBubble {
         // the notification bar"): the window starts at the edge, its content resting just under the status bar.
         val holder = FrameLayout(context).apply {
             clipChildren = false
-            setPadding(dp(8), bars.top + dp(2), dp(8), dp(8))
+            setPadding(dp(8), statusTop + dp(2), dp(8), dp(8))
             addView(card, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         }
         val params = WindowManager.LayoutParams(
@@ -810,7 +872,7 @@ object TalkBubble {
         myBox = mine
         topHiding = false
         // Slides down from the top edge of the screen.
-        card.translationY = -(bars.top + dp(2) + (context.resources.displayMetrics.heightPixels * TOP_SHARE).toInt() + dp(80)).toFloat()
+        card.translationY = -(statusTop + dp(2) + topHeight(context) + dp(80)).toFloat()
         card.animate().translationY(0f).setDuration(SLIDE_MS).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
     }
 
@@ -889,6 +951,7 @@ object TalkBubble {
         videoSurface?.let { com.chencohen.ptt.talk.AndroidTalkVideoOut.detach(it) }
         videoSurface = null
         dropRoomVideo()
+        dropMyRoomVideo()
         roomLive = null
         topCard = null
         theirBox = null

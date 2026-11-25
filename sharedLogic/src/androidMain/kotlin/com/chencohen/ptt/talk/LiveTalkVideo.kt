@@ -33,6 +33,12 @@ object LiveTalkVideo {
 
     @Volatile internal var room: Room? = null
 
+    /**
+     * This phone's own camera as the talk room's track reads it (while it does: warm for a press, or live): the own box
+     * shows it, since the camera then feeds only the clip's encoder and the room (no separate preview).
+     */
+    val local = MutableStateFlow<VideoTrack?>(null)
+
     /** Sets a renderer up for the room's video (its EGL context). False when there is no room. */
     fun initRenderer(renderer: io.livekit.android.renderer.TextureViewRenderer): Boolean {
         val r = room ?: return false
@@ -125,9 +131,14 @@ internal class TalkCameraCapturer(private val camera: () -> AndroidTalkVideoCapt
         val h = helper ?: return
         val cam = camera() ?: return
         h.setTextureSize(AndroidTalkVideoCapture.WIDTH, AndroidTalkVideoCapture.HEIGHT)
-        h.setFrameRotation(cam.previewRotation())
         val s = Surface(h.surfaceTexture)
         surface = s
+        // The camera's output to a SurfaceTexture already comes turned for the phone held upright (its transform
+        // matrix, which the renderers and the encoder apply), so the frame's own rotation is only the screen's turn.
+        // (Said as the sensor's angle too, the picture showed a quarter turn off; 2026-11-25, hen: "the video is
+        // rotated".)
+        val sensor = cam.sensorOrientation()
+        h.setFrameRotation(((cam.previewRotation() - sensor) % 360 + 360) % 360)
         h.startListening { frame -> observer?.onFrameCaptured(frame) }
         observer?.onCapturerStarted(true)
         cam.setLiveTarget(s)
