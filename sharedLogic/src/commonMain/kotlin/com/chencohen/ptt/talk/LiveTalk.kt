@@ -60,6 +60,12 @@ interface TalkTransport {
     /** [identity]'s audio is coming through the room now, and opens (its key works). */
     fun hears(identity: String): Boolean
 
+    /**
+     * The room was joined for another way of playing than the phone has now (Android: as call audio while the app had
+     * no right to play media from the background, and now it has): joined again when its chat comes on screen.
+     */
+    fun stale(): Boolean = false
+
     /** [identity]'s current live audio isn't played (its clip plays instead); its next burst is heard again. */
     fun silence(identity: String)
 
@@ -334,7 +340,8 @@ internal class LiveTalk(
     private suspend fun enter(chat: String) {
         val t = transport ?: return
         leaving?.cancel()
-        if (_state.value.room == chat || _state.value.joining) return
+        if (_state.value.joining) return
+        if (_state.value.room == chat && !t.stale()) return
         if (liveOn == null) liveOn = runCatching { available() }.getOrDefault(false)
         if (liveOn != true) return
         _state.update { it.copy(joining = true) }

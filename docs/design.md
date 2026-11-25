@@ -362,6 +362,13 @@ what was shown (the server sends HIGH only to phones that registered notificatio
     (`TalkReady`, through `AndroidTalkFocus`, shared with the room's dimming; none with Lower other audio while
     someone talks off) and plays as media: the loudspeaker (or the headset in use) at media volume. The focus goes back
     20 s after the last burst. Never started at boot (Android would mute it).
+    **Without media rights** (2026-11-25, hen: "i don't hear some times"): Talk is ready started by a push (after a
+    restart or an install, the app not opened since) has no while-in-use rights, so Android mutes its media ("AudioHardening
+    background playback muted") and refuses its focus. `TalkReadyService.withRights` says whether it was started (or
+    started again, from `MainActivity.onStart`) with the app on screen; without them a burst goes straight to the call
+    session, and the live room is joined with its audio as call audio (`TalkAudio.playAsCall`, LiveKit's
+    `CallAudioType`), since a call session mutes media too. When its chat comes on screen, a room joined that way is
+    joined again as media (`TalkTransport.stale`).
   - **The call session** when Talk is ready isn't running (after a restart until the app is opened, or stopped) or focus is refused: a Telecom talk session (Core-Telecom `CallsManager.addCall`, an incoming audio
     call the app answers itself, "Talk · Family", run by `TalkSessionService` as a phone-call service), in which the
     burst plays as the call's voice (`TalkAudio.inCallSession`: Android mutes media during a call) on the loudspeaker

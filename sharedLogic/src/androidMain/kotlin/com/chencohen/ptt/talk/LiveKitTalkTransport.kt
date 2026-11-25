@@ -85,6 +85,9 @@ class LiveKitTalkTransport(
                 discardFrameWhenCryptorNotReady = true,
             )
             provider.setKey(encode(ownKey), identity, ownIndex)
+            val asCall = TalkAudio.playAsCall()
+            joinedAsCall = asCall
+            if (asCall) Log.i(TAG, "joining with the room's audio as call audio (no background media rights)")
             pendingKeys.forEach { (who, k) -> provider.setKey(k.first, who, k.second) }
             val room = LiveKit.create(
                 appContext,
@@ -99,7 +102,8 @@ class LiveKitTalkTransport(
                 LiveKitOverrides(
                     okHttpClient = okHttp(),
                     audioOptions = AudioOptions(
-                        audioOutputType = AudioType.MediaAudioType(),
+                        // As media normally; as call audio while the app may not play media from the background.
+                        audioOutputType = if (asCall) AudioType.CallAudioType() else AudioType.MediaAudioType(),
                         audioHandler = NoAudioHandler(),
                         // Both talk at once (2026-11-25, hen: "my mic will not send the other person's voice from my
                         // speaker"): WebRTC's own echo canceller (AEC3) and noise suppression, which take what this
@@ -134,6 +138,11 @@ class LiveKitTalkTransport(
                 false
             }
         }
+
+    /** The room's audio plays as call audio (TalkAudio.playAsCall when it was joined). */
+    @Volatile private var joinedAsCall = false
+
+    override fun stale(): Boolean = room != null && joinedAsCall && !TalkAudio.playAsCall()
 
     override fun leave() {
         speakerphone.end()

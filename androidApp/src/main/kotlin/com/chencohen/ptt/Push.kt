@@ -43,6 +43,8 @@ class TalkApp : Application() {
         // LiteRT from Play services for the car's speech detector (Android Auto); Silero in Kotlin without it.
         com.chencohen.ptt.talk.LiteRtSpeechDetector.initialize(this)
         setCallHost(this, AndroidCallHost(this))
+        // The room heard from the background without media rights: as call audio (TalkAudio.playAsCall).
+        com.chencohen.ptt.talk.TalkAudio.playAsCall = { !TalkReadyService.appOnScreen() && !TalkReadyService.withRights }
         // The silent warm-up (2026-11-24, hen): someone opened a chat with this user; the room is joined quietly, the
         // process kept by Talk's quiet service (its notification is the least important and silent; nothing lights).
         setWarmHost(this, object : com.chencohen.ptt.messaging.WarmHost {

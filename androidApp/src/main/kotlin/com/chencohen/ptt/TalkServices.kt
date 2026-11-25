@@ -106,8 +106,9 @@ object TalkReady {
     fun play(app: TalkApp): Boolean {
         ending?.cancel()
         if (active) return true
-        if (!TalkReadyService.running) {
-            Log.i(TAG, "not running: the call session plays it")
+        if (!TalkReadyService.running || !TalkReadyService.withRights) {
+            // Started by a push (after a restart or an install): Android mutes its media, so the call session plays it.
+            Log.i(TAG, if (TalkReadyService.running) "no background media rights: the call session plays it" else "not running: the call session plays it")
             return false
         }
         val audio = app.getSystemService(android.media.AudioManager::class.java)
@@ -161,6 +162,7 @@ class TalkReadyService : Service() {
             ACTION_STOP -> {
                 TalkReady.done(this)
                 running = false
+                withRights = false
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -185,11 +187,14 @@ class TalkReadyService : Service() {
         try {
             startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
             running = true
-            Log.i(TalkReady.TAG, "Talk is ready")
+            // Started (or started again) with the app on screen: Android lets it play from the background.
+            withRights = appOnScreen()
+            Log.i(TalkReady.TAG, "Talk is ready${if (withRights) "" else " (started in the background: no media rights until the app opens)"}")
         } catch (e: Exception) {
             // Not started from the screen: Android says no; bursts play in the call session.
             Log.w(TalkReady.TAG, "can't run in the foreground", e)
             running = false
+            withRights = false
             stopSelf()
             return START_NOT_STICKY
         }
@@ -351,6 +356,7 @@ class TalkReadyService : Service() {
 
     override fun onDestroy() {
         running = false
+        withRights = false
         recording?.cancel()
         session?.release()
         session = null
@@ -378,10 +384,23 @@ class TalkReadyService : Service() {
         var running = false
             private set
 
+        /** It was started with the app on screen, so it may play from the background (Android 17's while-in-use). */
+        @Volatile
+        var withRights = false
+            private set
+
+        /** The app's process is in the foreground (its activity on screen). */
+        fun appOnScreen(): Boolean {
+            val info = android.app.ActivityManager.RunningAppProcessInfo()
+            android.app.ActivityManager.getMyMemoryState(info)
+            return info.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+        }
+
         /** From the screen (MainActivity.onStart, Settings): start it, or stop it when the setting is off. */
         fun set(context: Context, on: Boolean) {
             if (on) {
-                if (running) return
+                // Started from the background earlier: started again now, from the screen, for the rights.
+                if (running && withRights) return
                 runCatching { context.startForegroundService(Intent(context, TalkReadyService::class.java)) }
                     .onFailure { Log.w(TalkReady.TAG, "can't start", it) }
             } else {
