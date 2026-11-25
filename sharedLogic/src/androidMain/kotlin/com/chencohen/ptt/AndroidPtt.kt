@@ -304,6 +304,19 @@ fun setHere(context: Context, chat: String?) = hub(context).setHere(chat, com.ch
 /** The camera kept warm for push-to-video to [chat] from outside the screens (the reply bubble); null: let go. */
 fun warmTalkCamera(context: Context, chat: String?) = hub(context).warmCamera(chat)
 
+/**
+ * "Make it a call" from outside the app's screens (the floating window, the quick-reply window): the talk room with
+ * [chat] becomes the call, no ringing (2026-11-25, hen). [done] gets false when there is no shared room to turn (the
+ * caller then says so briefly instead of ringing).
+ */
+fun startRoomCall(context: Context, chat: String, video: Boolean, done: (Boolean) -> Unit = {}) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch {
+        val ok = runCatching { messaging.startRoomCall(chat, video) }.getOrDefault(false)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { done(ok) }
+    }
+}
+
 /** Typing to [chat] started or stopped, from outside the screens (the quick-reply window). */
 fun sendTyping(context: Context, chat: String, typing: Boolean) {
     val messaging = hub(context)
