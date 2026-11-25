@@ -64,7 +64,7 @@ object TalkBubble {
     private const val TOP_SHARE = 0.236f
     private const val HOLD_MS = 350L
     /** How long their item stays after a burst ends, in case the next (voice into video) follows at once. */
-    private const val BURST_HOLD_MS = 2_500L
+    private const val BURST_HOLD_MS = 1_000L
     /** The pill window's fixed width. */
     private const val PILL_WINDOW_DP = 300
     /** Slid up this far while holding: hands-free. */
@@ -816,9 +816,13 @@ object TalkBubble {
             if (topWindow == null) return
         } else if (!addTop(context)) return
         topHiding = false
-        // A box that goes keeps its last picture while it slides up, never black; one that comes back shows anew.
+        // Their box that goes: its last picture fades to black while it slides up, in the same move (2026-11-25, hen);
+        // one that comes back shows anew.
         theirCell?.let { cell ->
-            if (cell.on && cell.video && !theirOn) freeze(theirBox, roomRenderer ?: theirBox?.findViewWithTag<View>("video") as? android.view.TextureView, theirTag)
+            if (cell.on && cell.video && !theirOn) {
+                freeze(theirBox, roomRenderer ?: theirBox?.findViewWithTag<View>("video") as? android.view.TextureView, theirTag)
+                fadeToBlack(theirBox, theirTag)
+            }
             if (!cell.on && theirOn) thaw(theirBox)
             cell.on = theirOn
             cell.video = theirsVideo
@@ -1107,9 +1111,24 @@ object TalkBubble {
         if (myRoomTrack == null) freezeMine()
     }
 
+    /** [box]'s picture fades to black over the slide's length, under [above] (the tag); thaw takes it away. */
+    private fun fadeToBlack(box: FrameLayout?, above: View?) {
+        box ?: return
+        if (box.findViewWithTag<View>("fade") != null) return
+        val black = View(box.context).apply {
+            tag = "fade"
+            setBackgroundColor(android.graphics.Color.BLACK)
+            alpha = 0f
+        }
+        val at = above?.let { box.indexOfChild(it) }?.takeIf { it >= 0 } ?: box.childCount
+        box.addView(black, at, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        black.animate().alpha(1f).setDuration(300).start()
+    }
+
     /** [box] shows its live picture again. */
     private fun thaw(box: FrameLayout?) {
         box?.findViewWithTag<View>("frozen")?.let { box.removeView(it) }
+        box?.findViewWithTag<View>("fade")?.let { box.removeView(it) }
     }
 
     private fun dropRoomVideo() {

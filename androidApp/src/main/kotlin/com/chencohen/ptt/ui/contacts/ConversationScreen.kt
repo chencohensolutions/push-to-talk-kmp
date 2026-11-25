@@ -427,7 +427,9 @@ private fun ConversationScreenIn(
             LaunchedEffect(theirVoice) {
                 if (theirVoice != null) theirVoiceHeld = theirVoice
                 else {
-                    delay(2_500)
+                    // Only long enough for their video burst to follow a slide up (2026-11-25, hen: released, and
+                    // still shown live here for 3 s).
+                    delay(THEIR_HOLD_MS)
                     theirVoiceHeld = null
                 }
             }
@@ -1054,7 +1056,7 @@ private fun ConversationScreenIn(
                                             delay(100)
                                             waited += 100
                                         }
-                                        delay(300)
+                                        delay(100)
                                         val may = runs.may(run)
                                         say("after the lock: the video " + (if (handsFreeNow && !standby && may) "starts" else "doesn't start") + " (run $run of ${runs.now}, hands-free $handsFreeNow, standby $standby)")
                                         if (handsFreeNow && !standby && (may || !ENFORCE_RUNS)) actionsNow.startVoice()
@@ -1156,6 +1158,9 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat,
 )
 
+
+/** How long their pill stays after their burst ends, so a video right after grows out of it. */
+private const val THEIR_HOLD_MS = 1_000L
 
 /** The log's tag for what the chat's Push button does and what this phone then sends. */
 private const val CHAT_TALK = "ChatTalk"

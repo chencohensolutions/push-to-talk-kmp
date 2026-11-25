@@ -222,6 +222,8 @@ internal fun LivePanel(
     // track carries my camera's frames, LiveTalkVideo.localPicture), the face until then: never a black box
     // (2026-11-25: black while waiting for the floor, and once for theirs before its first picture).
     val localPicture by com.chencohen.ptt.talk.LiveTalkVideo.localPicture.collectAsState()
+    // Their video stops: their picture fades to black while the box goes up, in the same move (2026-11-25, hen).
+    val theirFade by androidx.compose.animation.core.animateFloatAsState(if (theirs) 0f else 1f, tween(300), label = "theirFade")
     val pictured = remember { booleanArrayOf(false, false) }
     if (theirs) pictured[0] = showRoom != null || shown != null
     if (mine) pictured[1] = if (local != null) localPicture else settled
@@ -256,6 +258,7 @@ internal fun LivePanel(
                 Box(box) {
                     if (showRoom != null) com.chencohen.ptt.ui.talk.RoomVideoView(showRoom, Modifier.fillMaxSize())
                     else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
+                    if (theirFade > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = theirFade)))
                     com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.TopEnd).padding(6.dp))
                 }
             }
