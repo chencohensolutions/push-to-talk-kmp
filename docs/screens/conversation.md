@@ -332,7 +332,8 @@ in a group it still does, as a group's header has no ring (2026-11-25, hen).
 
 ## A group's header: its members' faces (2026-11-25, hen chose "B")
 
-The other members' faces sit in a row at the header's end, the group's name at its start. Each has its ring: solid,
+The other members' faces (36 dp, about 6 dp apart; 2026-11-25, hen: a little bigger, a little room) sit in a row at the
+header's end, the group's name at its start. Each has its ring: solid,
 on this chat's screen; dashed, in its talk room; none, away. Those here come first, then those in the room, then the
 rest, each in a steady order; as many as fit, then "+N"; a tap opens the group's page with its members. When someone's
 state changes, the faces move to their new places together, in one move. The small read faces at the chat's end show
