@@ -245,9 +245,10 @@ internal fun LivePanel(
         val isMine = side.key == LiveLayout.MINE
         val voice = last[if (isMine) 1 else 0] ?: return@LiveStage
         val tag = when {
-            !isMine -> listOfNotNull(who, elapsedSince(voice.since)).joinToString(" · ")
+            // Who only, no time, at the box's top centre (2026-11-25, hen).
+            !isMine -> who ?: voice.name
             waitingFor != null -> stringResource(R.string.talk_waiting_for, waitingFor)
-            else -> listOf(me, elapsedSince(voice.since)).joinToString(" · ")
+            else -> me
         }
         LiveBoxInside(voice, tag, w, h, p, pictured = side.video && pictured[if (isMine) 1 else 0]) { box ->
             if (isMine) {
@@ -259,7 +260,7 @@ internal fun LivePanel(
                     if (showRoom != null) com.chencohen.ptt.ui.talk.RoomVideoView(showRoom, Modifier.fillMaxSize())
                     else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
                     if (theirFade > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = theirFade)))
-                    com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.TopEnd).padding(6.dp))
+                    com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.BottomCenter).padding(6.dp))
                 }
             }
         }
@@ -397,7 +398,7 @@ private fun androidx.compose.foundation.layout.BoxScope.LiveBoxInside(side: Voic
     if (shown < 1f) {
         Box(Modifier.graphicsLayer { alpha = p * (1f - shown) }) { BigFace(side) }
     }
-    LiveTag(tag, Modifier.align(Alignment.BottomStart).padding(8.dp).graphicsLayer { alpha = p })
+    LiveTag(tag, Modifier.align(Alignment.TopCenter).padding(8.dp).graphicsLayer { alpha = p })
 }
 
 /** The face, large, while the box waits for its first picture. */

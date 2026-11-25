@@ -874,11 +874,9 @@ object TalkBubble {
         // Only while both sides' items show (2026-11-25, hen: "it says that we both are transmitting and I see only
         // myself": the other was only waiting for the floor).
         if (theirCell?.on != true || myCell?.on != true) return false
-        if (outside?.bothLive == true) return true
-        val chat = chat ?: return false
-        if (!sendingVideo) return false
-        val waiting = (messagingState(context).value.liveWaiting[chat] ?: 0L) > System.currentTimeMillis()
-        return burstVideo || waiting
+        // Both items show, so both are live (one to one, both can talk at once since 2026-11-25): voice or video,
+        // the room can become the call.
+        return chat != null
     }
 
     /** Where the window's left and top edges are on the screen, without what a drag added. */
@@ -1028,17 +1026,14 @@ object TalkBubble {
         override fun run() {
             val window = topWindow ?: return
             if (topHiding) return
-            fun clock(since: Long): String {
-                val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
-                return "%d:%02d".format(s / 60, s % 60)
-            }
-            theirTag?.text = "${android.text.BidiFormatter.getInstance().unicodeWrap(rowTitle())} · ${clock(theirSince())}"
+            // Who only, at the box's top centre, no time (2026-11-25, hen).
+            theirTag?.text = android.text.BidiFormatter.getInstance().unicodeWrap(rowTitle())
             useRoomVideo(window.context)
             showTheirFace(window.context)
             // Their picture's shape came while their pill waited for it: now the pill grows into the box.
             if (theirVideoWanted() && theirCell?.let { it.on && !it.video } == true && theirPictureReady(window.context)) refreshTop(window.context)
             pickPreview()
-            myTag?.text = "● " + window.context.getString(R.string.talk_panel_you) + " · " + window.context.getString(R.string.talk_panel_live).uppercase() + " " + clock(mySince())
+            myTag?.text = "● " + window.context.getString(R.string.talk_panel_you)
             // A pill's words got wider, their picture's shape changed: everything to its place again.
             placeTop(window.context)
             main.postDelayed(this, 250)
@@ -1180,7 +1175,7 @@ object TalkBubble {
             setPadding(dp(8), dp(3), dp(8), dp(3))
             background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(0x80000000.toInt()) }
         }
-        fun tagAt() = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) }
+        fun tagAt() = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) }
         // Their video, drawn in step with the voice (AndroidTalkVideoOut); the same decoder moves to the chat on a tap.
         val theirs = FrameLayout(context).apply {
             layoutDirection = inside

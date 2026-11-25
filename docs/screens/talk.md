@@ -148,3 +148,10 @@ and the clip still records every burst (with the 300 ms before the press) for ph
 chat". Opening a chat quietly gets the other phone into the room (nothing on its screen), so the first words reach it
 at once. See [design.md](../design.md), "Voice back in the talk room, and the silent warm-up".
 
+
+## Video box labels (2026-11-25, hen)
+
+A live video box's label (who: their name, or "● You") sits at the box's top centre, with no timer; voice pills keep
+their time. Test builds' delay readout ("LiveKit · first …", off in Settings) sits at the box's bottom centre, so the two
+never overlap. Both live (one to one, voice or video) shows "Make it a call" in the chat, the floating window and the
+floating chat; it turns the room into the call, no ringing.

@@ -668,7 +668,10 @@ private fun ConversationScreenIn(
             if (waitingLive || saidWaiting) actions.sendLiveWaiting?.invoke(waitingLive)
             saidWaiting = waitingLive
         }
-        val bothLive = chatLive.call == null && (waitingLive || ((handsFree || talkingHere) && chatLive.liveWaiting.isNotEmpty()))
+        // Both talking at once (2026-11-25: one to one, both can): I'm live and so are they, so the room can become the
+        // call (hen: "how to make it a video call?").
+        val theyTalkToo = group == null && talk.talkers[user]?.let { t -> talk.own?.clip != t.clip } == true
+        val bothLive = chatLive.call == null && (waitingLive || ((handsFree || talkingHere) && (theyTalkToo || chatLive.liveWaiting.isNotEmpty())))
         val makeCall: () -> Unit = {
             runs.end()
             handsFree = false
