@@ -205,10 +205,12 @@ talker is told why, end to end (TalkHeardContent; HeardStatus).
   either direction; it comes and goes in one move (scale with fade).
 - **Header line**: "Do Not Disturb", "Silent · hears it later", "In a call" (typing… comes first). A group: "2 of 4 can
   hear now" while someone can't.
-- **While pushing**: a chip under my pill: a greyed face with its badge and "Sharon can't hear now · Do Not Disturb ·
-  saved", with one short buzz; or a teal glowing face and "Sharon is hearing you" only once their phone said it plays.
-  Nothing shows until there is something true to say; it changes in place in one move. A group: a row of members' faces,
-  lit or grey, and "2 hearing · 2 get it later" (offline ones get it later too).
+- **While pushing** (2026-11-26, hen: "show only when not hearing"): a grey chip under my pill for each one who can't
+  hear it now, "Sharon can't hear now · Do Not Disturb · saved" (a group: "testbot · Do Not Disturb · gets it later"),
+  with one short buzz when the first shows. Nothing while everyone hears; no "is hearing you". One who stops hearing
+  mid-push drops in, one who hears again leaves, each in one move. The labels on my bubbles stay as they are.
+- **Urgent lock** (2026-11-26, hen): let go on the bell and the push goes on hands-free, urgent voice, until Stop (a red
+  Stop with the bell), in the chat and the floating window; renewals stay urgent.
 
 ## Live for exactly as long as they transmit (2026-11-25, hen)
 
@@ -220,3 +222,11 @@ microphone muted or unpublished, or their leaving the room; or 3 s after their l
 again puts them back, in one move. Only bursts that beat are watched: an older app is left to its floor's end. After /ws
 comes back from a drop, floors with no beat in the last 3 s go, and an end of mine that couldn't be sent goes then. The
 server sends ENDED (DROPPED) to the listeners 3 s after a floor holder's connection closes, unless it connects again.
+
+## H.265 only when everyone can play it (2026-11-26, hen: "if one phone can't play H.265, fall back both phones to VP8")
+
+Settings › Calls › Video is "Prefer H.265". Each phone says, with everything it sends, whether it decodes H.265
+(ContentCodec caps: a decoder for video/hevc, and it never failed here). Push-to-video and calls go as H.265 only when
+the setting prefers it, this phone has an H.265 encoder, and every other phone in the chat said it decodes H.265;
+otherwise VP8 for everyone. When a phone's H.265 decoder fails for real (no decoder, or a non-transient decoder
+error), it stops saying so for good (remembered), so everyone sends it VP8 from their next push or call.

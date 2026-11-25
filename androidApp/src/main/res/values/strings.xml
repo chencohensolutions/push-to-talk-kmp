@@ -162,8 +162,8 @@
     <string name="calls_video_title">Video</string>
     <string name="calls_video_vp8">Standard (VP8)</string>
     <string name="calls_video_vp8_body">Works with every phone.</string>
-    <string name="calls_video_h265">H.265 (smaller, sharper)</string>
-    <string name="calls_video_h265_body">Sharper picture for the same data. Phones that can\'t show H.265 get the standard video from you too. Starts with your next call.</string>
+    <string name="calls_video_h265">Prefer H.265 (smaller, sharper)</string>
+    <string name="calls_video_h265_body">Sharper picture for the same data. Used only when every phone in the chat can show it; otherwise everyone gets the standard video. Starts with your next call.</string>
     <string name="calls_video_no_h265">This phone has no H.265 encoder, so calls use the standard video.</string>
     <string name="kept_as_seen">As seen</string>
     <string name="kept_whole">Whole</string>
@@ -911,4 +911,5 @@
     <string name="push_hearing_m">%1$s is hearing you</string>
     <string name="push_hearing_f">%1$s is hearing you</string>
     <string name="push_group_hear">%1$d hearing · %2$d get it later</string>
+    <string name="push_cant_hear_group">%1$s · %2$s · gets it later</string>
 </resources>

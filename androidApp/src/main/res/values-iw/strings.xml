@@ -161,8 +161,8 @@
     <string name="calls_video_title">וידאו</string>
     <string name="calls_video_vp8">רגיל (VP8)</string>
     <string name="calls_video_vp8_body">עובד בכל טלפון.</string>
-    <string name="calls_video_h265">H.265 (קטן וחד יותר)</string>
-    <string name="calls_video_h265_body">תמונה חדה יותר באותה כמות נתונים. טלפונים שלא מציגים H.265 מקבלים ממך גם את הווידאו הרגיל. מתחיל מהשיחה הבאה.</string>
+    <string name="calls_video_h265">עדיפות ל-H.265 (קטן וחד יותר)</string>
+    <string name="calls_video_h265_body">תמונה חדה יותר באותה כמות נתונים. רק כשכל הטלפונים בצ׳אט יכולים להציג אותו; אחרת כולם מקבלים את הווידאו הרגיל. מתחיל מהשיחה הבאה.</string>
     <string name="calls_video_no_h265">בטלפון הזה אין מקודד H.265, לכן שיחות משתמשות בווידאו הרגיל.</string>
     <string name="kept_as_seen">כפי שנראה</string>
     <string name="kept_whole">שלם</string>
@@ -914,4 +914,5 @@
     <string name="push_hearing_m">%1$s שומע אותך</string>
     <string name="push_hearing_f">%1$s שומעת אותך</string>
     <string name="push_group_hear">%1$d שומעים · %2$d יקבלו אחר כך</string>
+    <string name="push_cant_hear_group">%1$s · %2$s · יגיע אחר כך</string>
 </resources>

@@ -176,12 +176,23 @@ private fun hub(context: Context): Messaging {
                 }
             }
         }
+        // H.265 said only when a decoder is there and it never failed here (remembered: 2026-11-26, hen: one phone that
+        // can't play it makes everyone send it VP8).
+        val codecPrefs = context.getSharedPreferences("codec", Context.MODE_PRIVATE)
         com.chencohen.ptt.messaging.ContentCodec.myCaps = com.chencohen.ptt.messaging.ContentCodec.CAPS_SAID or
-            (if (hasDecoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC)) com.chencohen.ptt.messaging.ContentCodec.CAPS_H265 else 0)
+            (if (hasDecoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC) && !codecPrefs.getBoolean("h265_failed", false)) com.chencohen.ptt.messaging.ContentCodec.CAPS_H265 else 0)
+        com.chencohen.ptt.messaging.ContentCodec.onH265Failed = {
+            android.util.Log.w("TalkVideo", "H.265 failed to decode here: VP8 from everyone from now on")
+            codecPrefs.edit().putBoolean("h265_failed", true).apply()
+        }
         it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(
             context,
             // H.265 unless VP8 was chosen (the default since 2026-11-22, hen), where the phone has an encoder for it.
-            videoCodec = { if (settings.callVideo != com.chencohen.ptt.calls.CallVideo.VP8.name && com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder()) "h265" else "vp8" },
+            // And only when everyone else in the call said they decode it (2026-11-26, hen): otherwise VP8 for all.
+            videoCodec = {
+                val chat = it.calls.state.value?.chat
+                if (settings.callVideo != com.chencohen.ptt.calls.CallVideo.VP8.name && com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder() && it.videoH265For(chat)) "h265" else "vp8"
+            },
             want60 = { settings.video60 },
         ) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
         hub = it

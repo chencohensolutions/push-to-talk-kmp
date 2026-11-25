@@ -412,6 +412,19 @@ internal object ContentCodec {
         if (content.caps and CAPS_SAID != 0) heard[user] = content.caps
     }
 
+    /**
+     * This phone's H.265 decoder failed for real (2026-11-26, hen: "if one phone can't play H.265, fall back both
+     * phones to VP8"): it no longer says it decodes H.265, so everyone sends it VP8 from their next push or call (the
+     * caps go with everything it sends). [onH265Failed] keeps it so (the platform remembers it).
+     */
+    fun h265Failed() {
+        if (myCaps and CAPS_H265 == 0) return
+        myCaps = myCaps and CAPS_H265.inv()
+        onH265Failed?.invoke()
+    }
+
+    var onH265Failed: (() -> Unit)? = null
+
     /** Whether [user]'s phone said it decodes H.265 (unknown: no). */
     fun decodesH265(user: String): Boolean = (heard[user] ?: 0) and CAPS_H265 != 0
 

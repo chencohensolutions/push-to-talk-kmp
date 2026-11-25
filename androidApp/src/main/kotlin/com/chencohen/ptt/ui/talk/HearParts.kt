@@ -168,58 +168,43 @@ internal fun PushListener.hearing(): Boolean = HeardStatus.heard(status)
 private val SAVED_STATUSES = setOf(HeardStatus.SAVED_DND, HeardStatus.SAVED_SILENT, HeardStatus.SAVED_IN_CALL, HeardStatus.SAVED_URGENT_NOT_ALLOWED)
 
 /**
- * The chip under my pill while I push (2026-11-25, hen): a greyed face and "Sharon can't hear now · Do Not Disturb ·
- * saved" with one short buzz, or a teal glowing face and "Sharon is hearing you" only once their phone said it plays.
- * It changes in place, in one move; nothing shows until there is something true to say. In a group: a row of the
- * members' faces, lit or grey, and "2 hearing · 2 get it later".
+ * Under my pill while I push (2026-11-26, hen: "show only when not hearing"): a grey chip for each one who can't hear
+ * it now, "Sharon can't hear now · Do Not Disturb · saved" (in a group "testbot · Do Not Disturb · gets it later"), with
+ * one short buzz when the first one shows. Nothing while everyone hears. One who stops hearing mid-push drops in, one who
+ * hears again leaves, each in one move.
  */
 @Composable
 internal fun PushHearChip(pushing: String?, listeners: List<PushListener>, group: Boolean, modifier: Modifier = Modifier) {
     val view = LocalView.current
-    val anyCant = pushing != null && listeners.any { it.cantHear() }
-    val anyHearing = pushing != null && listeners.any { it.hearing() }
-    // One short buzz the first time this push meets someone who can't hear it.
-    LaunchedEffect(pushing, anyCant) {
-        if (pushing != null && anyCant) view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+    val cant = if (pushing == null) emptyList() else listeners.filter { it.cantHear() }
+    LaunchedEffect(pushing, cant.isNotEmpty()) {
+        if (pushing != null && cant.isNotEmpty()) view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
     }
-    val shown = pushing != null && (anyCant || anyHearing)
-    val last = remember { arrayOf(listeners) }
-    if (shown) last[0] = listeners
-    AnimatedVisibility(
-        shown, modifier.fillMaxWidth(),
-        enter = fadeIn(tween(250)) + expandVertically(tween(250)), exit = fadeOut(tween(250)) + shrinkVertically(tween(250)),
-    ) {
-        Box(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-            val people = last[0]
-            val shape = RoundedCornerShape(20.dp)
-            if (!group && people.size == 1) {
-                val p = people[0]
-                val cant = p.cantHear()
-                val tint by animateColorAsState(if (cant) LibraryColors.Muted else LibraryColors.Accent, tween(250), label = "chip tint")
-                Row(
-                    Modifier.shadow(4.dp, shape).background(LibraryColors.Raised, shape).border(1.dp, tint.copy(alpha = 0.6f), shape).padding(start = 4.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    // Each one as last shown, kept while their chip leaves.
+    val last = remember { LinkedHashMap<String, PushListener>() }
+    cant.forEach { last[it.user] = it }
+    androidx.compose.foundation.layout.Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        last.keys.toList().forEach { user ->
+            androidx.compose.runtime.key(user) {
+                val p = last.getValue(user)
+                AnimatedVisibility(
+                    cant.any { it.user == user },
+                    enter = fadeIn(tween(250)) + expandVertically(tween(250)), exit = fadeOut(tween(250)) + shrinkVertically(tween(250)),
                 ) {
-                    ChipFace(p, cant)
-                    val words = if (cant) {
-                        com.chencohen.ptt.genderedString(R.string.push_cant_hear, p.user, android.text.BidiFormatter.getInstance().unicodeWrap(p.name), hearReason(p.status, p.hear) ?: "")
-                    } else {
-                        com.chencohen.ptt.genderedString(R.string.push_hearing, p.user, android.text.BidiFormatter.getInstance().unicodeWrap(p.name))
+                    val shape = RoundedCornerShape(20.dp)
+                    Row(
+                        Modifier.padding(vertical = 3.dp).shadow(4.dp, shape).background(LibraryColors.Raised, shape)
+                            .border(1.dp, LibraryColors.Muted.copy(alpha = 0.4f), shape).padding(start = 4.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ChipFace(p, cant = true, small = group)
+                        val name = android.text.BidiFormatter.getInstance().unicodeWrap(p.name)
+                        val reason = hearReason(p.status, p.hear) ?: ""
+                        val words = if (group) stringResource(R.string.push_cant_hear_group, name, reason)
+                        else com.chencohen.ptt.genderedString(R.string.push_cant_hear, p.user, name, reason)
+                        Text(words, color = LibraryColors.Muted, style = LibraryType.Small, maxLines = 1)
                     }
-                    Text(words, color = if (cant) LibraryColors.Muted else LibraryColors.OnBackground, style = LibraryType.Small, maxLines = 1)
-                }
-            } else {
-                val hearing = people.count { it.hearing() }
-                // Offline ones get it later too.
-                val later = people.count { it.cantHear() || (it.status == 0 && it.hear == Hear.OFFLINE) }
-                Row(
-                    Modifier.shadow(4.dp, shape).background(LibraryColors.Raised, shape).padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    people.take(6).forEach { p -> ChipFace(p, p.cantHear(), small = true) }
-                    Text(stringResource(R.string.push_group_hear, hearing, later), color = LibraryColors.OnBackground, style = LibraryType.Small, maxLines = 1, modifier = Modifier.padding(start = 4.dp))
                 }
             }
         }
