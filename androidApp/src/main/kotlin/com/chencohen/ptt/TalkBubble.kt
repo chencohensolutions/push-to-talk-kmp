@@ -628,6 +628,12 @@ object TalkBubble {
         val myPillWas = myPill?.view?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }
         val theirWas = theirBox?.visibility == View.VISIBLE
         val myWas = myBox?.visibility == View.VISIBLE
+        // A pill turning into its box (or back) changes in place: not an item leaving and another coming, so the
+        // boxes' coming-and-going moves sit this one out.
+        val theirMorph = (theirsVideo && !theirWas && theirPillWas != null) || (theirWas && !theirsVideo)
+        val myMorph = (mine && !myWas && myPillWas != null) || (myWas && !mine)
+        val transition = topBoxes?.layoutTransition
+        if (theirMorph || myMorph) topBoxes?.layoutTransition = null
         refreshVoice(context)
         theirBox?.visibility = if (theirsVideo) View.VISIBLE else View.GONE
         myBox?.visibility = if (mine) View.VISIBLE else View.GONE
@@ -636,6 +642,10 @@ object TalkBubble {
         // Back: the box gives way to the pill growing out of it.
         if (theirWas && !theirsVideo) theirPill?.view?.takeIf { it.visibility == View.VISIBLE }?.let { unmorph(it) }
         if (myWas && !mine) myPill?.view?.takeIf { it.visibility == View.VISIBLE }?.let { unmorph(it) }
+        if ((theirMorph || myMorph) && transition != null) {
+            val boxes = topBoxes
+            main.postDelayed({ if (topBoxes === boxes && boxes?.layoutTransition == null) boxes?.layoutTransition = transition }, 350)
+        }
         bothChip?.visibility = if (bothLive(context)) View.VISIBLE else View.GONE
         shapeTop(context)
         pickPreview()
@@ -659,7 +669,6 @@ object TalkBubble {
         val lp = box.layoutParams
         val h = lp.height.takeIf { it > 0 } ?: topHeight(context)
         val w = lp.width.takeIf { it > 0 } ?: (h * 3 / 4)
-        wideWindow(context, true)
         pill.visibility = View.GONE
         morphing?.cancel()
         size(box, pw, ph)
@@ -673,7 +682,6 @@ object TalkBubble {
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     morphing = null
-                    wideWindow(context, false)
                 }
             })
             start()
@@ -681,19 +689,7 @@ object TalkBubble {
     }
 
     private var topParams: WindowManager.LayoutParams? = null
-
-    /**
-     * While the box grows (or shrinks), the top window is as wide as the screen with the content centred in it, so the
-     * window doesn't change width each frame and nudge the box sideways (2026-11-25, hen: "symmetrical, in one move").
-     */
-    private fun wideWindow(context: Context, on: Boolean) {
-        val window = topWindow ?: return
-        val params = topParams ?: return
-        val want = if (on) WindowManager.LayoutParams.MATCH_PARENT else WindowManager.LayoutParams.WRAP_CONTENT
-        if (params.width == want) return
-        params.width = want
-        runCatching { context.getSystemService(WindowManager::class.java).updateViewLayout(window, params) }
-    }
+    private var topBoxes: LinearLayout? = null
 
     /** The pill-to-box growth running now: the boxes' sizes wait for it. */
     private var morphing: android.animation.ValueAnimator? = null
@@ -870,11 +866,39 @@ object TalkBubble {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
+        // Laid out left to right always, the language's order made here (theirs at its start side), so nothing in the
+        // geometry is mirrored (2026-11-25, hen: in Hebrew the growth came in from the right). Items coming and going
+        // move the others in one eased move, and a new one drops in from the top.
+        val rtl = context.resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL
         val boxes = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             elevation = dp(8).toFloat()
+            layoutTransition = android.animation.LayoutTransition().apply {
+                setDuration(300)
+                setInterpolator(android.animation.LayoutTransition.CHANGE_APPEARING, android.view.animation.DecelerateInterpolator())
+                setInterpolator(android.animation.LayoutTransition.CHANGE_DISAPPEARING, android.view.animation.DecelerateInterpolator())
+                setAnimator(android.animation.LayoutTransition.APPEARING, android.animation.ObjectAnimator.ofPropertyValuesHolder(
+                    null as Any?,
+                    android.animation.PropertyValuesHolder.ofFloat(View.TRANSLATION_Y, -dp(160).toFloat(), 0f),
+                    android.animation.PropertyValuesHolder.ofFloat(View.ALPHA, 0f, 1f),
+                ))
+                setAnimator(android.animation.LayoutTransition.DISAPPEARING, android.animation.ObjectAnimator.ofPropertyValuesHolder(
+                    null as Any?,
+                    android.animation.PropertyValuesHolder.ofFloat(View.TRANSLATION_Y, 0f, -dp(160).toFloat()),
+                    android.animation.PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0f),
+                ))
+                disableTransitionType(android.animation.LayoutTransition.CHANGING)
+                // All at once: an item leaving and the others gliding back (or one coming and the others making room)
+                // is one move, not one after the other (2026-11-25, hen: "every combined animation in one move").
+                listOf(
+                    android.animation.LayoutTransition.APPEARING, android.animation.LayoutTransition.DISAPPEARING,
+                    android.animation.LayoutTransition.CHANGE_APPEARING, android.animation.LayoutTransition.CHANGE_DISAPPEARING,
+                ).forEach { setStartDelay(it, 0) }
+            }
         }
+        topBoxes = boxes
         fun outlined(box: FrameLayout, color: Int = TEAL) = box.apply {
             outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(v: View, outline: android.graphics.Outline) = outline.setRoundRect(0, 0, v.width, v.height, dp(18).toFloat())
@@ -936,10 +960,12 @@ object TalkBubble {
         // Side by side when both are live: a voice pill and a video box, or two boxes (2026-11-24, hen).
         val pillAt = { LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(3); marginEnd = dp(3) } }
         boxes.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        theirPill = VoicePill(context, mine = false).also { boxes.addView(it.view, pillAt()) }
-        boxes.addView(theirs, LinearLayout.LayoutParams(dp(120), dp(160)).apply { marginStart = dp(3); marginEnd = dp(3) })
-        myPill = VoicePill(context, mine = true).also { boxes.addView(it.view, pillAt()) }
-        boxes.addView(mine, LinearLayout.LayoutParams(dp(120), dp(160)).apply { marginStart = dp(3); marginEnd = dp(3) })
+        theirPill = VoicePill(context, mine = false)
+        myPill = VoicePill(context, mine = true)
+        val boxAt = { LinearLayout.LayoutParams(dp(120), dp(160)).apply { marginStart = dp(3); marginEnd = dp(3) } }
+        // Theirs at the language's start side: the right in Hebrew, the left in English.
+        val order = listOf(theirPill!!.view to pillAt(), theirs to boxAt(), myPill!!.view to pillAt(), mine to boxAt())
+        (if (rtl) order.reversed() else order).forEach { (v, lp) -> boxes.addView(v, lp) }
         card.addView(boxes)
         // Both live: "You're both live · Make it a call" under the boxes; a tap starts a video call.
         bothChip = TextView(context).apply {
@@ -965,10 +991,12 @@ object TalkBubble {
         val holder = FrameLayout(context).apply {
             clipChildren = false
             setPadding(dp(8), statusTop + dp(2), dp(8), dp(8))
-            addView(card, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+            addView(card, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         }
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            // As wide as the screen and never resized sideways: the items move and grow inside it about its centre
+            // (2026-11-25, hen: "symmetrical, in one move"; a window resizing each frame nudged them).
+            WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -1089,6 +1117,7 @@ object TalkBubble {
         roomLive = null
         topCard = null
         topParams = null
+        topBoxes = null
         theirBox = null
         theirTag = null
         theirFace = null
@@ -1276,6 +1305,8 @@ object TalkBubble {
         init {
             view.orientation = LinearLayout.HORIZONTAL
             view.gravity = Gravity.CENTER_VERTICAL
+            // Its inside in the language's direction (the row around it is laid out left to right).
+            view.layoutDirection = View.LAYOUT_DIRECTION_LOCALE
             view.visibility = View.GONE
             view.setPadding(dp(2), dp(2), dp(18), dp(2))
             view.background = GradientDrawable().apply { cornerRadius = dp(32).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), if (mine) PINK else TEAL) }

@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
@@ -184,7 +186,13 @@ internal fun LivePanel(
                 if (wide > maxWidth) h *= (maxWidth - gap * (shapes.size - 1)) / (h * shapes.sum())
             }
             Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.Top) {
-                if (videos.first || tv != null) {
+                // Each side comes and goes on its own: dropping in from the top while the other glides to make room
+                // (or back to the centre), in one eased move (2026-11-25, hen).
+                androidx.compose.animation.AnimatedVisibility(
+                    videos.first || tv != null,
+                    enter = expandHorizontally(tween(300), expandFrom = Alignment.CenterHorizontally) + slideInVertically(tween(300)) { -(it + liveTop) },
+                    exit = shrinkHorizontally(tween(300), shrinkTowards = Alignment.CenterHorizontally) + slideOutVertically(tween(300)) { -(it + liveTop) },
+                ) {
                     val side = tv ?: VoiceSide(theirUser, who ?: theirName, false, theirSince)
                     val ready = room != null || s != null || said != null
                     // The pill grows once its picture's shape is known (2026-11-25, hen): until the first picture it
@@ -197,7 +205,11 @@ internal fun LivePanel(
                         }
                     }
                 }
-                if (videos.second || mv != null) {
+                androidx.compose.animation.AnimatedVisibility(
+                    videos.second || mv != null,
+                    enter = expandHorizontally(tween(300), expandFrom = Alignment.CenterHorizontally) + slideInVertically(tween(300)) { -(it + liveTop) },
+                    exit = shrinkHorizontally(tween(300), shrinkTowards = Alignment.CenterHorizontally) + slideOutVertically(tween(300)) { -(it + liveTop) },
+                ) {
                     val me = stringResource(R.string.talk_panel_you)
                     val side = mv ?: VoiceSide("", me, true, mySince)
                     val words = if (waitingFor != null) stringResource(R.string.talk_waiting_for, waitingFor) else listOf(me, elapsedSince(mySince)).joinToString(" · ")

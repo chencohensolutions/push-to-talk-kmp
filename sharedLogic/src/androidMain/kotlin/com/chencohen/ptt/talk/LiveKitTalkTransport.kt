@@ -272,8 +272,11 @@ class LiveKitTalkTransport(
     private var liveVideo = false
     private var capturing = false
 
-    private suspend fun capture(track: io.livekit.android.room.track.LocalVideoTrack, on: Boolean) {
-        if (on == capturing) return
+    /** One start or stop of the camera's reading at a time: a quick stop and start again raced, and the box went black. */
+    private val capturingLock = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun capture(track: io.livekit.android.room.track.LocalVideoTrack, on: Boolean) = capturingLock.withLock {
+        if (on == capturing) return@withLock
         capturing = on
         if (!on) LiveTalkVideo.local.value = null
         withContext(Dispatchers.IO) { runCatching { if (on) track.startCapture() else track.stopCapture() } }

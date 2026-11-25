@@ -62,6 +62,20 @@ Named sizes in `LibraryType` (`LibraryStyle.kt`); no hand-typed sizes. A call ma
 
 Nothing is drawn below 11 sp. Text fields keep their own sizes.
 
+## Motion
+
+- **Combined changes move together, in one move** (2026-11-25, hen: "every combined animation in the app should be in
+  one move unless otherwise specified"). When several things change at once (an item's size, its position, others
+  making room, an item coming or leaving), they animate together over the same time, about 300 ms with an ease:
+  never in steps such as grow-then-recentre, snap-then-slide, or one leaving and then the others gliding back.
+- **One thing changes, it doesn't swap.** A voice pill becoming a video box is one element whose frame grows (centre
+  and top edge fixed), not a pill going and a box coming; an item that stays live across a short gap (voice into
+  video) never leaves and comes back.
+- **Geometry doesn't depend on the language's direction.** Positions are worked out left to right and the language's
+  order (theirs at its start side) is chosen explicitly, so Hebrew mirrors the order, never the motion.
+- **No size guessed and corrected.** A box grows straight to its final size (its picture's shape known before it
+  grows), so it never moves a second time.
+
 ## Shapes
 
 `LibraryShapes`: cards and sheets 16 dp (`Card`, `Sheet`), tiles inside a card 12 dp (`Tile`), controls a full pill
