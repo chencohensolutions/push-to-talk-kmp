@@ -246,8 +246,10 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   picture's own shape (no crop, no bars), rounded 18 dp, centred; it drops down (250 ms) when the first video starts
   and slides back up when the last ends. Both at once: two such boxes of the same height side by side, centred,
   theirs at the start side and mine at the end (following the chat's direction), shrunk together only if they'd be
-  wider than the screen. The tags sit inside each video on one line, a red dot with the name in a group (or "You") and the time. The chat is laid out below
-  the boxes (nothing drawn under them), and the oldest line in view fades at the list's top edge. While my camera
+  wider than the screen. The tags sit inside each video on one line, a red dot with the name in a group (or "You") and the time. The boxes and pills float
+  over the chat (2026-11-25, hen: "floating, not inside black box"): only their own rounded shape and a soft shadow,
+  nothing behind them; the chat keeps its full height under the header and scrolls on beneath. A side turning from
+  voice to video grows its box out of its pill's size and place (250 ms), and back. While my camera
   shows there, the small preview on the Talk button's corner is hidden (one preview at a time). A voice-only press
   shows the voice bar instead.
 - **Voice pills** (2026-11-24, hen: a voice push "isn't really showing"; then "B, a slim pill at the top" and "if we
