@@ -1584,7 +1584,16 @@ object TalkBubble {
         val box = FrameLayout(context).apply {
             layoutDirection = if (topRtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
             setBackgroundColor(Color.BLACK)
-            // Their face, large, until a picture comes through the room (never a black box).
+            // Their face, large, until a picture comes through the room (never a black box); their letter until the face
+            // is read, or if they have none.
+            addView(TextView(context).apply {
+                setTag("letter")
+                text = m.user.take(1).uppercase()
+                setTextColor(Color.WHITE)
+                textSize = 28f
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x33FFFFFF) }
+            }, FrameLayout.LayoutParams(dp(72), dp(72), Gravity.CENTER))
             addView(face, FrameLayout.LayoutParams(dp(96), dp(96), Gravity.CENTER))
             addView(tag, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { setMargins(dp(8), dp(8), dp(8), dp(8)) })
         }
@@ -1597,7 +1606,10 @@ object TalkBubble {
             app.scope.launch {
                 val id = kotlinx.coroutines.withTimeoutOrNull(1_000) { com.chencohen.ptt.ui.face.Faces.ids(app).first { it.containsKey(m.user) } }?.get(m.user) ?: "-"
                 val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, m.user, id) }.getOrNull() ?: return@launch
-                main.post { face.setImageBitmap(bitmap.asAndroidBitmap()) }
+                main.post {
+                    face.setImageBitmap(bitmap.asAndroidBitmap())
+                    box.findViewWithTag<View>("letter")?.visibility = View.GONE
+                }
             }
         }
         return g
@@ -1623,6 +1635,7 @@ object TalkBubble {
                 dropGroupVideo(g)
             }
             g.face.visibility = if (g.renderer != null) View.GONE else View.VISIBLE
+            g.cell.box.findViewWithTag<View>("letter")?.let { if (g.renderer != null || g.face.drawable != null) it.visibility = View.GONE else it.visibility = View.VISIBLE }
         }
     }
 
