@@ -987,7 +987,12 @@ internal class Talk(
                 delay(100)
                 waited += 100
             }
-            val key = burst.key ?: return@launch
+            val key = burst.key ?: run {
+                // Its key never came (2026-11-26: testbot, just restarted, waited for ever on hen's video push): nothing
+                // of it can be opened; it stops playing at its floor's end (END_STUCK_MS).
+                rebuilds.remove(id)
+                return@launch
+            }
             try {
                 reader.read(b.blobId, b.talker, b.codec, onAudio = { opus ->
                     scope.launch { rebuild.add(key, if (burst.video) TalkVideo.audio(opus) else opus, audio = true) }

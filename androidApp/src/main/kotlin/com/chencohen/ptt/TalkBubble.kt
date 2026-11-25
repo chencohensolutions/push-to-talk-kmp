@@ -614,8 +614,17 @@ object TalkBubble {
                     main.removeCallbacks(coolCamera)
                     main.postDelayed(coolCamera, 2_000)
                 }
+                // Let go on the bell: hands-free, urgent voice, until Stop (2026-11-26, hen), as in the chat.
+                if (talking && !locked && urgent) {
+                    locked = true
+                    lockSince = System.currentTimeMillis()
+                    showLocked(true)
+                    main.removeCallbacks(renew)
+                    main.postDelayed(renew, RENEW_MS)
+                    Log.i(TAG, "urgent lock: hands-free voice until Stop")
+                }
                 // Held: letting go sends. A short tap (or the lock) keeps talking until the next one.
-                if (talking && !locked && System.currentTimeMillis() - talkStarted >= HOLD_MS) endTalk(context, send = true)
+                else if (talking && !locked && System.currentTimeMillis() - talkStarted >= HOLD_MS) endTalk(context, send = true)
                 else if (talking && e.actionMasked == MotionEvent.ACTION_UP) v.performClick()
             }
         }
@@ -669,13 +678,15 @@ object TalkBubble {
             }
         }
         button?.contentDescription = if (waiting) context.getString(R.string.talk_waiting_for, title) else context.getString(if (talking) R.string.bubble_send else R.string.bubble_talk_hint)
-        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else PINK)
+        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else if (urgent) URGENT else PINK)
         updateStop()
     }
 
     /** Hands-free: the push button's place is "■ Stop · 0:42". */
     private fun showLocked(on: Boolean) {
         stopShown = on
+        // Locked on the bell: a red Stop (2026-11-26, hen).
+        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else if (urgent) URGENT else PINK)
         updateStop()
         morphPill()
     }
@@ -758,7 +769,7 @@ object TalkBubble {
         val s = ((System.currentTimeMillis() - lockSince) / 1000).coerceAtLeast(0)
         // Waiting for the floor says so, not a time that looks like sending.
         val words = if (waiting) stop.context.getString(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(title))
-        else "■  " + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
+        else (if (urgent) "🔔  " else "■  ") + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
         if (stop.text.toString() != words) stop.text = words
     }
 
@@ -779,7 +790,9 @@ object TalkBubble {
             endTalk(context, send = true, keepLock = true)
             main.postDelayed({
                 if (locked && !talking && pillWindow != null) {
-                    startTalk(context, video = true)
+                    // An urgent lock renews as urgent voice; the slide-up's as video.
+                    startTalk(context, video = !urgent)
+                    if (urgent) main.postDelayed({ if (talking) markUrgent(context) }, 600)
                     main.postDelayed(this, RENEW_MS)
                 }
             }, 900)

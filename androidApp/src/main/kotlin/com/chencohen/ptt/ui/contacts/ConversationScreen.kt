@@ -1282,6 +1282,29 @@ private const val CHAT_TALK = "ChatTalk"
 /** Stop is final (TalkRun). Off only to see, in the log, what would start without it. */
 private const val ENFORCE_RUNS = true
 
+/**
+ * A live draft growing a line (2026-11-26, hen: smooth, the bottom anchored): only its height eases (160 ms), the text
+ * laid out at once at its full width and kept at the bottom, its top revealed as the bubble's top rises. The width is
+ * never eased or clipped (easing it cut a Hebrew first letter as each new one came).
+ */
+@Composable
+private fun Modifier.smoothHeight(): Modifier {
+    val height = remember { androidx.compose.animation.core.Animatable(-1f) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var target by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
+    LaunchedEffect(target) {
+        if (target < 0f) return@LaunchedEffect
+        if (height.value < 0f) height.snapTo(target) else height.animateTo(target, androidx.compose.animation.core.tween(160, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+    }
+    return this.clipToBounds().layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+        val full = placeable.height.toFloat()
+        if (full != target) scope.launch { target = full }
+        val shown = (if (height.value < 0f) full else height.value).toInt().coerceIn(0, placeable.height)
+        layout(placeable.width, shown) { placeable.place(0, shown - placeable.height) }
+    }
+}
+
 /** How long a draft stays after its end, waiting for the message it became (it lands in the draft's place). */
 private const val DRAFT_HOLD_MS = 1_500L
 
@@ -1728,7 +1751,7 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                     if (caretNow == null) "$text\u258F" else text,
                     color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * s), style = LibraryType.Message,
                     onTextLayout = { layout = it },
-                    modifier = if (caretNow != null) Modifier.liveCaret(layout, caretNow.first, caretNow.second) else Modifier,
+                    modifier = Modifier.smoothHeight().then(if (caretNow != null) Modifier.liveCaret(layout, caretNow.first, caretNow.second) else Modifier),
                 )
             } else {
             val differs = message.body != (line as LiveLine.Message).lastDraft
