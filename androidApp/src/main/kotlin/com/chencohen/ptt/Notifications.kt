@@ -135,6 +135,8 @@ class Notifications(private val context: Context) : MessageNotifier {
 
     override fun read(user: String) {
         NotificationManagerCompat.from(context).cancel(TAG, idOf(user))
+        // A missed push's notification (TalkNotifications) goes with the chat's texts.
+        NotificationManagerCompat.from(context).cancel("talk", idOf(user))
     }
 
     companion object {

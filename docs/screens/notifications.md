@@ -30,9 +30,15 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   play loud; hiding the channel keeps the service working.
 - **Talk playing** (high importance, no sound of its own: the burst is the sound): while a woken burst plays, the
   sender (and the group), "Talking… 0:04", "Hold your headset button to reply", with **Talk back**, **Stop** (what plays
-  and what waits) and **Mute <name> 1 h** (their bursts show the talk notification instead of playing, for an hour).
-  A tap opens that conversation's Talk screen. When it ends, for a minute: "Talked just now" with **Talk back** and
-  **Play again**.
+  and what waits) and **Mute <name> 1 h** (their bursts show the missed-push notification instead of playing, for an
+  hour). A tap opens that conversation's Talk screen. When it ends it goes at once (2026-11-25, hen: "show
+  notification only if i missed the stream"): a push that was heard, played or live in the room, leaves nothing in
+  the shade.
+- **Missed push** (the Talk channel, high importance, its sound): only for a push the user didn't hear: Notify only,
+  muted for an hour, the phone couldn't play it, or it reached the phone too late to play (over 30 s old, the app
+  not on screen). "Missed push from Sharon" ("Missed video push from Sharon", "… in Family" in a group), "Tap to open
+  the chat"; a tap opens the chat, with **Play**, **Reply**, a typed reply and Mark as read. One per chat (the newest
+  replaces it), and it goes when the chat is read, here or on another phone of the user.
 - **Talk back** (2026-11-22, hen: the Talk screen, not a voice message): opens that conversation's Talk screen, the
   big hold-to-talk button with the microphone already open; over the lock screen Android asks to unlock first.
 - **Floating window** (2026-11-24, hen picked "A, a small pill at the bottom"; voice "c, but remove the wave, make

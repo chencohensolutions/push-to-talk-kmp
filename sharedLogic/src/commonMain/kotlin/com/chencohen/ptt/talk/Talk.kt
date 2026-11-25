@@ -143,8 +143,13 @@ interface TalkHost {
      */
     suspend fun prepareToPlay(chat: String, from: String): Boolean
 
-    /** Tell the user someone talked (Notify only, or the phone couldn't play): a notification with Play and Reply. */
-    fun talkNotify(chat: String, from: String, clip: String)
+    /**
+     * A push this phone didn't let the user hear (Notify only, muted, the phone couldn't play it, or it came too late to
+     * play): "Missed push from <name>" ([video]: a video push), opening the chat; it goes when the chat is read. A push
+     * that was heard (played, or live in the room) never comes here (2026-11-25, hen: "show notification only if i
+     * missed the stream").
+     */
+    fun talkNotify(chat: String, from: String, clip: String, video: Boolean)
 
     /** Nothing plays now; a talk session may end (20 s after, the plan says, so a reply can follow). */
     fun idle()
@@ -942,11 +947,15 @@ internal class Talk(
             live?.silence(burst.chat, identity)
         }
         when {
-            !fresh -> return drain(burst)
+            !fresh -> {
+                // Too late to play as it happens, nobody looking: missed.
+                if (!awake()) host?.talkNotify(burst.chat, burst.from, burst.id, burst.video)
+                return drain(burst)
+            }
             awake() -> burst.play = true
-            prefs.notifyOnly(burst.chat) -> host?.talkNotify(burst.chat, burst.from, burst.id)
+            prefs.notifyOnly(burst.chat) -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video)
             host?.prepareToPlay(burst.chat, burst.from) == true -> burst.play = true
-            else -> host?.talkNotify(burst.chat, burst.from, burst.id)
+            else -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video)
         }
         if (!burst.play) return drain(burst)
         if (burst.announced) sendFrame(TalkAckFrame(TalkAck(burst.id)))

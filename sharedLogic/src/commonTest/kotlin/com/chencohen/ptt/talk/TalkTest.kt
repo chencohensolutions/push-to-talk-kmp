@@ -123,7 +123,7 @@ private class FakeHost(var allow: Boolean) : TalkHost {
         return allow
     }
 
-    override fun talkNotify(chat: String, from: String, clip: String) {
+    override fun talkNotify(chat: String, from: String, clip: String, video: Boolean) {
         notified += clip
     }
 
@@ -131,6 +131,8 @@ private class FakeHost(var allow: Boolean) : TalkHost {
 }
 
 private class TalkPhone(val server: FakeServer, val user: String, scope: TestScope, seed: Int) {
+    /** The phone's clock (ms). */
+    var clock = 1_000_000L
     val settings = PttSettings(TalkPrefsStore()).apply {
         serverUrl = "https://203.0.113.7:56400/query"
         identityAlias = "ptt-device-$user-1"
@@ -143,7 +145,7 @@ private class TalkPhone(val server: FakeServer, val user: String, scope: TestSco
     val files = MemoryClipFiles()
     val messaging = Messaging(
         settings, FakeCryptoEngine(Random(seed)), MessagingStore(MemoryStore()), server.api(address), server.connector(address), work,
-        now = { 1_000_000L }, random = Random(seed), clipFiles = files, blobApi = server.blobs(address),
+        now = { clock }, random = Random(seed), clipFiles = files, blobApi = server.blobs(address),
     )
     val dispatcher = StandardTestDispatcher(scope.testScheduler)
     val controller = MessagingController(messaging, dispatcher, main = dispatcher)
@@ -551,6 +553,29 @@ class TalkTest {
         advanceUntilIdle()
         assertEquals(1, dana.host.prepared, "a talk session was asked for")
         assertEquals(30, dana.speaker.played.single().size)
+        assertTrue(dana.host.notified.isEmpty(), "heard: no missed-push notification")
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aPushThatCameTooLateToPlayIsAMissedPush() = runTest {
+        val (_, hen, dana) = paired()
+        dana.controller.stop()
+        advanceUntilIdle()
+        hen.work.launch { hen.talk.press("dana") }
+        advanceUntilIdle()
+        val id = hen.state.talk.own!!.clip
+        hen.mic.say(0, 10)
+        hen.work.launch { hen.talk.release() }
+        advanceUntilIdle()
+        // The phone was away for a minute: the push is old when it gets it.
+        dana.clock += 60_000
+        dana.work.launch { dana.messaging.wake() }
+        advanceUntilIdle()
+        assertEquals(listOf(id), dana.host.notified)
+        assertEquals(0, dana.host.prepared, "nothing played")
+        assertTrue(dana.speaker.played.isEmpty())
         hen.stop()
         dana.stop()
     }

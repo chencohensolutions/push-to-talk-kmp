@@ -596,6 +596,11 @@
     <string name="talk_notify">%1$s is talking</string>
     <string name="talk_notify_body">Tap Play to hear it</string>
     <string name="talk_notify_group">%1$s is talking in %2$s</string>
+    <string name="talk_missed">Missed push from %1$s</string>
+    <string name="talk_missed_video">Missed video push from %1$s</string>
+    <string name="talk_missed_group">Missed push from %1$s in %2$s</string>
+    <string name="talk_missed_video_group">Missed video push from %1$s in %2$s</string>
+    <string name="talk_missed_body">Tap to open the chat</string>
     <string name="talk_notify_play">Play</string>
     <string name="talk_notify_reply">Reply</string>
     <string name="talk_offline">Not connected: nothing was sent</string>

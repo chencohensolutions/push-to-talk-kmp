@@ -75,8 +75,8 @@ class AndroidTalkHost(private val app: TalkApp) : TalkHost {
         const val TAG = "TalkHost"
     }
 
-    override fun talkNotify(chat: String, from: String, clip: String) {
-        app.scope.launch { TalkNotifications.show(app, chat, from, clip) }
+    override fun talkNotify(chat: String, from: String, clip: String, video: Boolean) {
+        app.scope.launch { TalkNotifications.show(app, chat, from, clip, video) }
     }
 
     override fun idle() {
@@ -669,14 +669,18 @@ object TalkNotifications {
         )
     }
 
-    /** "Dana is talking" (in a group, "Dana is talking in Family"), with Play and Reply, which open the app. */
-    suspend fun show(context: Context, chat: String, from: String, clip: String) {
+    /**
+     * A push the user didn't hear (2026-11-25, hen: "show notification only if i missed the stream"): "Missed push from
+     * Sharon" ("Missed video push", "… in Family"), a tap opens the chat, with Play and Reply; it goes when the chat is
+     * read (Notifications.read).
+     */
+    suspend fun show(context: Context, chat: String, from: String, clip: String, video: Boolean) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val who = runCatching { chatName(context, from) }.getOrDefault(from)
         val title = if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) {
-            Gendered.string(context, R.string.talk_notify_group, from, who, runCatching { chatName(context, chat) }.getOrDefault(chat))
+            context.getString(if (video) R.string.talk_missed_video_group else R.string.talk_missed_group, who, runCatching { chatName(context, chat) }.getOrDefault(chat))
         } else {
-            Gendered.string(context, R.string.talk_notify, from, who)
+            context.getString(if (video) R.string.talk_missed_video else R.string.talk_missed, who)
         }
         val id = (chat.hashCode() and 0x3fffffff) * 2
         fun open(action: String, request: Int) = PendingIntent.getActivity(
@@ -688,14 +692,14 @@ object TalkNotifications {
         // A conversation's message, so Android Auto shows it with Reply and Mark as read.
         val sender = androidx.core.app.Person.Builder().setName(who).setKey(from).build()
         val style = NotificationCompat.MessagingStyle(androidx.core.app.Person.Builder().setName(context.getString(R.string.notify_you)).build())
-            .addMessage(context.getString(R.string.talk_notify_body), System.currentTimeMillis(), sender)
+            .addMessage(context.getString(R.string.talk_missed_body), System.currentTimeMillis(), sender)
         if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) style.setConversationTitle(title).setGroupConversation(true)
         val notification: Notification = NotificationCompat.Builder(context, TALK_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(context.getString(R.string.talk_notify_body))
+            .setContentText(context.getString(R.string.talk_missed_body))
             .setStyle(style)
-            .setContentIntent(open(ACTION_PLAY, id))
+            .setContentIntent(open(Notifications.ACTION_OPEN, id + 4))
             .addAction(0, context.getString(R.string.talk_notify_play), open(ACTION_PLAY, id))
             .addAction(0, context.getString(R.string.talk_notify_reply), open(ACTION_TALK, id + 1))
             .addAction(Notifications.replyAction(context, chat, id + 2))
