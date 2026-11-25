@@ -921,6 +921,17 @@ object TalkBubble {
         }
         topWindow = holder
         topCard = card
+        // Wherever the system put the window (the S25 drew it at the screen's very top, under the status bar, though
+        // the content is padded below it; 2026-11-25), the boxes end up just below the status bar.
+        holder.post {
+            if (topWindow !== holder) return@post
+            val at = IntArray(2).also { holder.getLocationOnScreen(it) }[1] + holder.paddingTop
+            Log.i(TAG, "top box: window at ${at - holder.paddingTop}, content at $at, status bar $statusTop")
+            if (at < statusTop) {
+                params.y += statusTop - at + dp(2)
+                runCatching { wm.updateViewLayout(holder, params) }
+            }
+        }
         theirBox = theirs
         myBox = mine
         topHiding = false
