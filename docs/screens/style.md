@@ -79,6 +79,13 @@ Nothing is drawn below 11 sp. Text fields keep their own sizes.
 - **No size guessed and corrected.** A box grows straight to its final size (its picture's shape known before it
   grows), so it never moves a second time.
 
+## Saying what is sent
+
+- **Only when the UI says it's transmitting, then transmit** (2026-11-25, hen: "when sending video or voice, only
+  when the UI says it's transmitting, then transmit"). A press that waits for the floor is shown as waiting and
+  sends nothing; offline is shown as not sending. The other way round too: nothing claims to be live ("You're both
+  live", a live pill or box) for a side whose voice or picture isn't actually going.
+
 ## Shapes
 
 `LibraryShapes`: cards and sheets 16 dp (`Card`, `Sheet`), tiles inside a card 12 dp (`Tile`), controls a full pill

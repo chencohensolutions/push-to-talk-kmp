@@ -111,6 +111,7 @@ object TalkBubble {
     private var myBox: FrameLayout? = null
     private var mySurface: android.view.Surface? = null
     private var myTag: TextView? = null
+    private var myFace: ImageView? = null
     private var bothChip: TextView? = null
     private var topHiding = false
 
@@ -189,6 +190,7 @@ object TalkBubble {
             // Their next burst: the top box comes back even if it was put away.
             if (burstSince == 0L) burstSince = System.currentTimeMillis()
             topPutAway = false
+            thaw(theirBox)
         }
         burstLive = live
         burstVideo = live && video
@@ -412,11 +414,17 @@ object TalkBubble {
                     local.addRenderer(r)
                     myRoomRenderer = r
                     myRoomTrack = local
+                    thaw(box)
                 }
             }
         } else if (myRoomTrack != null) {
+            // The room let my camera go: my box keeps its last picture while it is still there.
+            freezeMine()
             dropMyRoomVideo()
         }
+        // My face until my camera's picture really comes through the room (2026-11-25: a black box while waiting for
+        // the floor), as theirs has their face until their first picture.
+        myFace?.visibility = if (local != null && !com.chencohen.ptt.talk.LiveTalkVideo.localPicture.value && box?.findViewWithTag<View>("frozen") == null) View.VISIBLE else View.GONE
         val capture = com.chencohen.ptt.talkVideoCapture ?: return
         val mine = mySurface ?: return
         if (sendingVideo || outside?.mine == LiveKind.Video) capture.setPreview(mine) else capture.clearPreview(mine) {}
@@ -615,6 +623,8 @@ object TalkBubble {
 
     private fun endTalk(context: Context, send: Boolean, keepLock: Boolean = false) {
         if (!talking) return
+        // Stop: my box keeps its last picture and goes up at once; the camera closes after (never black first).
+        if (sendingVideo && !keepLock) freezeMine()
         talking = false
         if (!keepLock) {
             locked = false
@@ -667,20 +677,31 @@ object TalkBubble {
         val theirWasPill = theirCell?.let { it.on && !it.video } == true
         val theirOn = (burstLive || (out != null && out.theirs != LiveKind.None)) && !topPutAway
         val theirsVideo = theirOn && theirVideoWanted() && (theirPictureReady(context) || !theirWasPill)
-        val mine = sendingVideo || goingLive || out?.mine == LiveKind.Video
+        // Mine stays a box from the lock to Stop, through the moment between a hands-free floor and its renewal.
+        val mine = sendingVideo || goingLive || locked || out?.mine == LiveKind.Video
         val myVoice = !mine && !topPutAway && (talking || out?.mine == LiveKind.Voice)
-        if (!theirOn && !mine && !myVoice) {
-            // Nothing live for a moment (one push ending as the next starts): the row waits before it goes, so it
-            // isn't taken away and brought back (2026-11-25, hen: "move up out of screen and down again").
-            main.removeCallbacks(hideSoon)
-            main.postDelayed(hideSoon, 900)
-            return
-        }
         main.removeCallbacks(hideSoon)
-        if (!addTop(context)) return
+        if (!theirOn && !mine && !myVoice) {
+            // Nothing live: what shows goes up at once (2026-11-25, hen: "it should stop transmitting, slide up
+            // immediately and then close the camera"); only the emptied window waits a moment before it goes, so the
+            // next push doesn't have to bring it back.
+            main.postDelayed(hideSoon, 900)
+            if (topWindow == null) return
+        } else if (!addTop(context)) return
         topHiding = false
-        theirCell?.let { it.on = theirOn; it.video = theirsVideo }
-        myCell?.let { it.on = mine || myVoice; it.video = mine }
+        // A box that goes keeps its last picture while it slides up, never black; one that comes back shows anew.
+        theirCell?.let { cell ->
+            if (cell.on && cell.video && !theirOn) freeze(theirBox, roomRenderer ?: theirBox?.findViewWithTag<View>("video") as? android.view.TextureView, theirTag)
+            if (!cell.on && theirOn) thaw(theirBox)
+            cell.on = theirOn
+            cell.video = theirsVideo
+        }
+        myCell?.let { cell ->
+            if (cell.on && cell.video && !(mine || myVoice)) freezeMine()
+            if (!cell.on && (mine || myVoice)) thaw(myBox)
+            cell.on = mine || myVoice
+            cell.video = mine
+        }
         theirPill?.show(context, if (theirOn) rowFrom() else null, rowTitle())
         myPill?.show(context, if (mine || myVoice) "" else null, rowTitle())
         // Their words as they are now, before the pills are measured: a pill comes in at its real width.
@@ -706,6 +727,9 @@ object TalkBubble {
 
     /** Both live: I send while their video plays, or while they wait for my floor. */
     private fun bothLive(context: Context): Boolean {
+        // Only while both sides' items show (2026-11-25, hen: "it says that we both are transmitting and I see only
+        // myself": the other was only waiting for the floor).
+        if (theirCell?.on != true || myCell?.on != true) return false
         if (outside?.bothLive == true) return true
         val chat = chat ?: return false
         if (!sendingVideo) return false
@@ -836,8 +860,13 @@ object TalkBubble {
             val top = chip.top + chip.translationY.toInt()
             region.union(android.graphics.Rect(chip.left, top, chip.right, top + chip.height))
         }
+        // Only when it changed: setting it asks the window for a layout.
+        if (region == touchable) return
+        touchable = region
         window.rootSurfaceControl?.setTouchableRegion(region)
     }
+
+    private var touchable: android.graphics.Region? = null
 
     private var topParams: WindowManager.LayoutParams? = null
 
@@ -917,10 +946,38 @@ object TalkBubble {
             roomRenderer = r
             roomTrack = live.track
             box.findViewWithTag<View>("video")?.visibility = View.INVISIBLE
+            thaw(box)
         } else if (live == null && roomTrack != null) {
+            // Their track went (the burst ended): its last picture stays while their box is still there.
+            freeze(box, roomRenderer, theirTag)
             dropRoomVideo()
             box.findViewWithTag<View>("video")?.visibility = View.VISIBLE
         }
+    }
+
+    /**
+     * [box] keeps the picture [from] shows now, over whatever its video views turn to (2026-11-25, hen: "when stopping
+     * video the camera turns black and then slides up"): put just under [above], the box's tag.
+     */
+    private fun freeze(box: FrameLayout?, from: android.view.TextureView?, above: View?) {
+        box ?: return
+        if (box.findViewWithTag<View>("frozen") != null) return
+        val picture = runCatching { from?.takeIf { it.isAvailable && it.width > 0 && it.height > 0 }?.bitmap }.getOrNull() ?: return
+        val still = ImageView(box.context).apply {
+            tag = "frozen"
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setImageBitmap(picture)
+        }
+        val at = above?.let { box.indexOfChild(it) }?.takeIf { it >= 0 } ?: box.childCount
+        box.addView(still, at, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+    }
+
+    /** My box keeps its last picture: the room's while it read the camera, else the camera's own preview. */
+    private fun freezeMine() = freeze(myBox, myRoomRenderer ?: myBox?.getChildAt(0) as? android.view.TextureView, myFace ?: myTag)
+
+    /** [box] shows its live picture again. */
+    private fun thaw(box: FrameLayout?) {
+        box?.findViewWithTag<View>("frozen")?.let { box.removeView(it) }
     }
 
     private fun dropRoomVideo() {
@@ -993,6 +1050,9 @@ object TalkBubble {
         val mine = FrameLayout(context).apply {
             layoutDirection = inside
             addView(ownTexture(context) { s -> mySurface = s }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+            // My face, large, until my camera's picture comes (never a black box).
+            myFace = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER; visibility = View.GONE; setBackgroundColor(Color.BLACK) }
+            addView(myFace, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT).apply { setMargins(0, dp(40), 0, dp(40)) })
             myTag = tag()
             addView(myTag, tagAt())
         }
@@ -1084,6 +1144,14 @@ object TalkBubble {
         }
         main.removeCallbacks(topPulse)
         main.post(topPulse)
+        // My own face, for my box while it waits for my camera's picture.
+        (context.applicationContext as? TalkApp)?.let { app ->
+            app.scope.launch {
+                val id = kotlinx.coroutines.withTimeoutOrNull(1_000) { com.chencohen.ptt.ui.face.Faces.ids(app).first { it.containsKey("") } }?.get("") ?: "-"
+                val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, "", id) }.getOrNull() ?: return@launch
+                main.post { if (topWindow === holder) myFace?.setImageBitmap(bitmap.asAndroidBitmap()) }
+            }
+        }
         return true
     }
 
@@ -1155,6 +1223,7 @@ object TalkBubble {
         main.removeCallbacks(topTick)
         main.removeCallbacks(topPulse)
         topMotion.clear()
+        touchable = null
         topRoom.intValue = 0
         videoSurface?.let { com.chencohen.ptt.talk.AndroidTalkVideoOut.detach(it) }
         videoSurface = null
@@ -1171,6 +1240,7 @@ object TalkBubble {
         theirFaceOf = null
         myBox = null
         myTag = null
+        myFace = null
         theirPill = null
         myPill = null
         bothChip = null

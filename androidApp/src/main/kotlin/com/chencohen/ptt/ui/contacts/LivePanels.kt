@@ -200,7 +200,7 @@ internal fun LivePanel(
     // The pill grows once its picture's shape is known (2026-11-25, hen): until then it stays the pill, so the box
     // never grows to a guessed size and then changes again.
     val ready = room != null || s != null || said != null
-    // Mine is ready once the camera's picture is there (the room's track), or a moment after.
+    // Mine without the room (the camera's own preview) is ready a moment after it starts.
     val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsState()
     var settled by remember { androidx.compose.runtime.mutableStateOf(false) }
     LaunchedEffect(mine) {
@@ -210,6 +210,21 @@ internal fun LivePanel(
             settled = true
         }
     }
+    // A side that goes keeps its last picture while it slides up (2026-11-25, hen: "the camera turns black and then
+    // slides up"): its track, gone by then, stays in its box until the box is out, and so does whether it had a picture.
+    val heldRoom = remember { arrayOfNulls<com.chencohen.ptt.talk.LiveTalkVideo.Live>(1) }
+    if (room != null) heldRoom[0] = room else if (theirs) heldRoom[0] = null
+    val showRoom = room ?: heldRoom[0]
+    val heldLocal = remember { arrayOfNulls<io.livekit.android.room.track.VideoTrack>(1) }
+    if (local != null) heldLocal[0] = local else if (mine) heldLocal[0] = null
+    val showLocal = local ?: heldLocal[0]
+    // A box shows its picture only once pictures really come (theirs: through the room or the clip; mine: the room's
+    // track carries my camera's frames, LiveTalkVideo.localPicture), the face until then: never a black box
+    // (2026-11-25: black while waiting for the floor, and once for theirs before its first picture).
+    val localPicture by com.chencohen.ptt.talk.LiveTalkVideo.localPicture.collectAsState()
+    val pictured = remember { booleanArrayOf(false, false) }
+    if (theirs) pictured[0] = showRoom != null || shown != null
+    if (mine) pictured[1] = if (local != null) localPicture else settled
     val sides = buildList {
         if (theirs || theirVoice != null) add(LiveSide(LiveLayout.THEIRS, theirs && ready, theirShape))
         if (mine || myVoice != null) add(LiveSide(LiveLayout.MINE, mine, myShape))
@@ -232,12 +247,14 @@ internal fun LivePanel(
             waitingFor != null -> stringResource(R.string.talk_waiting_for, waitingFor)
             else -> listOf(me, elapsedSince(voice.since)).joinToString(" · ")
         }
-        LiveBoxInside(voice, tag, w, h, p, pictured = side.video && (if (isMine) local != null || settled else ready)) { box ->
+        LiveBoxInside(voice, tag, w, h, p, pictured = side.video && pictured[if (isMine) 1 else 0]) { box ->
             if (isMine) {
-                com.chencohen.ptt.ui.talk.PushVideoPreview(box, cover = true)
+                // The room's track while it reads the camera (and after, while the box goes), else the camera's own preview.
+                if (showLocal != null) com.chencohen.ptt.ui.talk.LocalRoomVideo(showLocal, box)
+                else com.chencohen.ptt.ui.talk.PushVideoPreview(box, cover = true)
             } else {
                 Box(box) {
-                    if (room != null) com.chencohen.ptt.ui.talk.RoomVideoView(room, Modifier.fillMaxSize())
+                    if (showRoom != null) com.chencohen.ptt.ui.talk.RoomVideoView(showRoom, Modifier.fillMaxSize())
                     else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true, inset = false)
                     com.chencohen.ptt.ui.talk.DelayReadout(room, theirSince, behindMs, Modifier.align(Alignment.TopEnd).padding(6.dp))
                 }

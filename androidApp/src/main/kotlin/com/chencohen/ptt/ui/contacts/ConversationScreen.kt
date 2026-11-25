@@ -432,6 +432,9 @@ private fun ConversationScreenIn(
             val mySinceNow = runSince.takeIf { it > 0 } ?: sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis()
             val theirUser = talk.talkers[user]?.user ?: theirs?.from ?: user
             val theirName = (talk.talkers[user]?.user ?: theirs?.from)?.let { u -> if (group != null) u else contact?.name ?: u } ?: contact?.name ?: user
+            // "You're both live" only while both sides' items really show here (2026-11-25, hen: "sometimes it says that
+            // we both are transmitting and I see only myself": the other was only waiting for the floor).
+            val bothShown = bothLiveNow && (theirVideo || theirVoiceNow != null) && (myPanel || myVoice != null)
             val liveRow = chatLive.liveRow
             if (liveRow != null) {
                 // The floating chat (2026-11-25, hen: "the video and pills should appear from the top of the screen,
@@ -443,7 +446,7 @@ private fun ConversationScreenIn(
                     theirUser = theirVoiceNow?.user ?: theirUser, theirName = theirVoiceNow?.name ?: theirName,
                     theirSince = if (theirKind == LiveKind.None) 0L else theirVoiceNow?.since ?: theirSinceNow,
                     mySince = if (myKind == LiveKind.None) 0L else myVoice?.since ?: mySinceNow,
-                    bothLive = bothLiveNow,
+                    bothLive = bothShown,
                 )
                 LaunchedEffect(now) { liveRow(now) }
                 androidx.compose.runtime.DisposableEffect(user) { onDispose { liveRow(LiveNow()) } }
@@ -458,7 +461,7 @@ private fun ConversationScreenIn(
                     behindMs = theirs?.behindMs,
                     voices = voicesNow,
                 )
-                BothLiveChip(bothLiveNow && actions.callInChat != null) { makeCallNow[0]() }
+                BothLiveChip(bothShown && actions.callInChat != null) { makeCallNow[0]() }
             }
         } }
         if (contact?.changedKey != null) {

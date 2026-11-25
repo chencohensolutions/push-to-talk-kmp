@@ -14,8 +14,9 @@ import com.chencohen.ptt.ui.contacts.LivePretend
  * second phone:
  * - `--ef shape 0.75`: their picture's shape as if they had said it (a video then grows out of their pill);
  * - `--es mine voice|video|none`: my side in the floating window's row as if I pushed (no camera, no sound);
- * - `--es where chat --es theirs voice|video|none`: the other side live in the chat open in the app, not in the
- *   floating window.
+ * - `--es where chat --es theirs voice|video|none`: the other side live in the chat on screen (the app's, or the
+ *   floating chat's), not in the floating window;
+ * - `--es where window`: the floating chat opens on [chat], as for a message from it.
  */
 class TestBubble : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -30,6 +31,10 @@ class TestBubble : BroadcastReceiver() {
             val shape = intent.getFloatExtra("shape", 0.75f)
             TalkBubble.pretendShape = shape
             com.chencohen.ptt.talk.LiveTalkVideo.shapes.value += (LivePretend.IDENTITY to (shape * 1000).toInt())
+        }
+        if (intent.getStringExtra("where") == "window") {
+            QuickReplyWindow.arrived(app, chat)
+            return
         }
         if (intent.getStringExtra("where") == "chat") {
             LivePretend.theirs.value = kind("theirs")

@@ -541,7 +541,8 @@ internal fun RoomVideoView(live: com.chencohen.ptt.talk.LiveTalkVideo.Live, modi
     androidx.compose.runtime.DisposableEffect(live.track) {
         live.track.addRenderer(renderer)
         onDispose {
-            live.track.removeRenderer(renderer)
+            // The track may be gone by now (a box keeps its last picture while it slides away).
+            runCatching { live.track.removeRenderer(renderer) }
             renderer.release()
         }
     }
@@ -585,7 +586,7 @@ internal fun LocalRoomVideo(track: io.livekit.android.room.track.VideoTrack, mod
     androidx.compose.runtime.DisposableEffect(track) {
         track.addRenderer(renderer)
         onDispose {
-            track.removeRenderer(renderer)
+            runCatching { track.removeRenderer(renderer) }
             renderer.release()
         }
     }

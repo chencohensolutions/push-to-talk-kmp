@@ -118,8 +118,10 @@ above it and scrolls behind nothing. On Send the message fills in at the end of 
 
 
 **The button row, on the screen itself** (2026-11-24, hen): laid out left to right the same in Hebrew and English, so
-the thumb finds it in one place: Voice message, Voice call, Video call, then the big push-to-talk button near the right
-edge and the upright Voice | video switch at the edge; my camera's thumbnail on the button's top-left corner.
+the thumb finds it in one place: Voice message, then the big push-to-talk button near the right edge, both under the
+right thumb. No call buttons in the chat (2026-11-25, hen: "in chat screen, remove the video and voice call buttons"),
+in the full chat and the floating chat alike: voice and video calls start from Talk mode's actions and from a call's
+row in the Calls tab ([calls.md](calls.md)).
 
 **The writing bubble** (2026-11-24, hen: "a bit wider"): the empty "Write a message" one is 38.2% of the row (1 − 0.618, the golden ratio); writing,
 it starts at that width (nothing shrinks as the first letter goes in) and grows with the text, at once, up to 85%,
@@ -256,7 +258,12 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   already there glides aside; a side that ends goes back up under the header while the other glides to the centre; a
   side turning from voice to video is ONE frame that grows from the pill into the box about its own centre, its top
   edge still (the pair staying centred when there are two), straight to the picture's known shape, and back. A side
-  never leaves and comes back for that. The places are worked out left to right from the screen's edge whatever the
+  never leaves and comes back for that. **Never a black box** (2026-11-25, hen: "the camera turns black and then
+  slides up"; a black box while waiting for the floor): a box shows its picture only once pictures really come
+  (theirs through the room or the clip, mine once the room's track carries my camera's frames) and the face, large,
+  until then; a side that ends goes up at once and keeps its last picture while it does (its track stays in the box
+  until the box is out), the camera closing after. "You're both live · Make it a call" shows only while both sides'
+  items show here (not for a side that is only waiting for the floor). The places are worked out left to right from the screen's edge whatever the
   language, which only picks the order (`LiveLayout`, `LiveMotion`, shared with the floating window; `LiveStage` in
   the chat). `adb shell setprop log.tag.LiveRow VERBOSE` logs each frame of a move. While my camera
   shows there, the small preview on the Talk button's corner is hidden (one preview at a time). A voice-only press

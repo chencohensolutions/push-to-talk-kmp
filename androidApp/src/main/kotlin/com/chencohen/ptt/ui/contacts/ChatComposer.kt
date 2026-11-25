@@ -298,8 +298,9 @@ internal fun RecordingStrip(discard: () -> Unit) {
 }
 
 /**
- * The buttons under the chat, icons only (hen: "no text labels"): Video call, Push-to-talk (hold), Voice call, Voice
- * message (a tap starts recording; while it records it is Send). [compact] with the keyboard up: small, in one row.
+ * The buttons under the chat, icons only (hen: "no text labels"): Voice message (a tap starts recording; while it
+ * records it is Send) and Push-to-talk (hold). No call buttons here (2026-11-25, hen: "in chat screen, remove the
+ * video and voice call buttons"). [compact] with the keyboard up: small, in one row.
  */
 @Composable
 internal fun ChatButtons(
@@ -328,21 +329,18 @@ internal fun ChatButtons(
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
     val big by animateDpAsState(if (compact) 48.dp else 84.dp, label = "talk button")
     // Laid out on the screen itself, the same in Hebrew and English (2026-11-24, hen: the thumb finds it in one
-    // place): from the left, voice message, voice call, video call, then the big button near the right edge and the
-    // voice | video switch, upright, at the edge.
+    // place): voice message, then the big button near the right edge, both under the right thumb.
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
         Row(
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 10.dp, top = if (compact) 6.dp else 12.dp, bottom = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (recording) {
                     RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
                 } else {
                     RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
                 }
-                RoundButton(LibraryIcons.Call, stringResource(R.string.call_voice), small) { actions.call(false) }
-                RoundButton(LibraryIcons.Video, stringResource(R.string.call_video), small) { actions.call(true) }
             }
             val talkLabel = stringResource(R.string.talk_button)
             // Hold: voice push-to-talk. Slide up while holding, to the camera-and-lock target above the button: it

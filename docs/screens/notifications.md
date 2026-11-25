@@ -75,7 +75,12 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     (`LiveMotion`; [style.md](style.md), "Motion"): a new item drops in from above the screen's top edge straight into
     its own place while the other glides aside; one that ends goes back up through the top edge while the other glides
     to the centre; a pill growing into a box keeps its centre and its top. A change in the middle of a move starts
-    from wherever everything is. The system's animation speed counts (Remove animations: at once).
+    from wherever everything is. The system's animation speed counts (Remove animations: at once). When the last
+    side ends, its item goes up at once (2026-11-25, hen: "stop transmitting, slide up immediately and then close the
+    camera") with its last picture still in it, never black; only the emptied window waits a moment before it goes.
+    My box keeps my face until my camera's picture really comes through the room, as theirs keeps their face until
+    their first picture; mine stays a box from the lock to Stop, through a hands-free renewal. The both-live chip
+    shows only while both items show.
     `adb shell setprop log.tag.TalkBubble VERBOSE` logs each frame of a move.
 - **From the floating video to the chat** (2026-11-24, hen: "open the chat with the video stay connected"): a tap on
   the top box, or on the pill's Chat, opens the chat; their video goes on in the chat's live
