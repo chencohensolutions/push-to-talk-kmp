@@ -595,7 +595,7 @@
     <string name="talk_notify_group">%1$s is talking in %2$s</string>
     <string name="talk_notify_play">Play</string>
     <string name="talk_notify_reply">Reply</string>
-    <string name="talk_offline">Not connected: it goes as a voice message</string>
+    <string name="talk_offline">Not connected: nothing was sent</string>
     <string name="talk_open">Talk</string>
     <string name="talk_other_phone">Talking on your other phone</string>
     <string name="talk_refused">Talk isn’t possible here</string>

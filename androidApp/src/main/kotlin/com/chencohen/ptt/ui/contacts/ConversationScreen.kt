@@ -583,10 +583,17 @@ private fun ConversationScreenIn(
         // (Or pretended to, in a test build: TestBubble.)
         val pretendTheirs by LivePretend.theirs.collectAsState()
         val theyHold = group == null && (talk.talkers[user] != null || pretendTheirs != LiveKind.None) && talk.own?.chat != user
+        // Stop is final (TalkRun): what a press set going may start a burst only while its run is the current one.
+        val runs = remember(user) { TalkRun() }
+        fun say(what: String) = android.util.Log.i(CHAT_TALK, what)
         val chainScope = androidx.compose.runtime.rememberCoroutineScope()
         val handsFreeNow by androidx.compose.runtime.rememberUpdatedState(handsFree)
         val ownHere = talk.own?.takeIf { it.chat == user }
         val ownNow by androidx.compose.runtime.rememberUpdatedState(ownHere)
+        // Each change of this phone's own burst here, in the log: what is sent, against what the buttons did.
+        LaunchedEffect(ownHere?.clip, ownHere?.phase) {
+            say("own: " + (ownHere?.let { "${it.phase} ${it.clip.takeLast(6)}" } ?: "none") + " (run ${runs.now}, hands-free $handsFree, standby $standby)")
+        }
         LaunchedEffect(handsFree, ownHere?.clip, ownHere?.phase) {
             if (!handsFree) return@LaunchedEffect
             val o = ownHere
@@ -594,13 +601,19 @@ private fun ConversationScreenIn(
             if (o == null) {
                 // Its floor went (refused, or this phone's own end): hands-free ends unless a new press took it.
                 delay(2_500)
-                if (ownNow == null) handsFree = false
+                if (ownNow == null) {
+                    say("hands-free ends: no floor for 2.5 s (run ${runs.now})")
+                    handsFree = false
+                    runs.end()
+                }
                 return@LaunchedEffect
             }
             if (o.phase == TalkPhase.TALKING) {
                 delay((o.startedAt + 55_000 - System.currentTimeMillis()).coerceAtLeast(0L))
                 // Outside this effect: letting go changes what it waits on, which would cancel the press that follows.
+                val run = runs.now
                 chainScope.launch {
+                    say("hands-free renewal: let go (run $run)")
                     actions.finishVoice(true)
                     // Taken again as soon as the last one is let go (a press while one is still going is ignored).
                     var waited = 0
@@ -610,7 +623,9 @@ private fun ConversationScreenIn(
                     }
                     // The camera needs a moment to be free again, or the next one goes as voice only.
                     delay(800)
-                    if (handsFreeNow) actionsNow.startVoice()
+                    val may = runs.may(run)
+                    say("hands-free renewal: " + (if (handsFreeNow && may) "starts" else "doesn't start") + " (run $run of ${runs.now}, hands-free $handsFreeNow)")
+                    if (handsFreeNow && (may || !ENFORCE_RUNS)) actionsNow.startVoice()
                 }
             }
         }
@@ -625,10 +640,13 @@ private fun ConversationScreenIn(
         // Their floor ended while I'm live in standby: mine starts.
         LaunchedEffect(standby, theyHold) {
             if (standby && !theyHold) {
+                val run = runs.now
                 delay(300)
                 if (standby && talk.talkers[user] == null) {
+                    val may = runs.may(run)
+                    say("standby: their floor ended, mine " + (if (may) "starts" else "doesn't start") + " (run $run of ${runs.now})")
                     standby = false
-                    actions.startVoice()
+                    if (may || !ENFORCE_RUNS) actions.startVoice()
                 }
             }
         }
@@ -641,6 +659,7 @@ private fun ConversationScreenIn(
         }
         val bothLive = chatLive.call == null && (waitingLive || ((handsFree || talkingHere) && chatLive.liveWaiting.isNotEmpty()))
         val makeCall: () -> Unit = {
+            runs.end()
             handsFree = false
             standby = false
             if (ownNow != null) actions.finishVoice(true)
@@ -654,6 +673,7 @@ private fun ConversationScreenIn(
         // started, or a hands-free renewal): not queued, standby instead (2026-11-24, hen, "a").
         LaunchedEffect(ownHere?.phase) {
             if (group == null && ownHere?.phase == TalkPhase.WAITING) {
+                say("queued behind their floor: standby instead (run ${runs.now})")
                 actions.finishVoice(false)
                 standby = true
                 standbySince = System.currentTimeMillis()
@@ -662,6 +682,7 @@ private fun ConversationScreenIn(
         // A call in this chat (the room's or the usual): hands-free and standby end, the call carries the media now.
         LaunchedEffect(chatLive.call != null) {
             if (chatLive.call != null) {
+                runs.end()
                 handsFree = false
                 standby = false
             }
@@ -1019,6 +1040,8 @@ private fun ConversationScreenIn(
                                 waitingFor = waitingFor,
                                 // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.
                                 lock = {
+                                    val run = runs.now
+                                    say("lock: hands-free video (run $run, standby $standby)")
                                     goingLiveAt = System.currentTimeMillis()
                                     goingLive = true
                                     actions.setPushVideo?.invoke(true)
@@ -1032,7 +1055,9 @@ private fun ConversationScreenIn(
                                             waited += 100
                                         }
                                         delay(300)
-                                        if (handsFreeNow && !standby) actionsNow.startVoice()
+                                        val may = runs.may(run)
+                                        say("after the lock: the video " + (if (handsFreeNow && !standby && may) "starts" else "doesn't start") + " (run $run of ${runs.now}, hands-free $handsFreeNow, standby $standby)")
+                                        if (handsFreeNow && !standby && (may || !ENFORCE_RUNS)) actionsNow.startVoice()
                                     }
                                 },
                                 sliding = { sliding = it },
@@ -1040,11 +1065,25 @@ private fun ConversationScreenIn(
                                 // One preview at a time: while the panel shows my camera, the button's corner doesn't.
                                 thumb = !myPanel,
                                 stopLive = {
+                                    say("Stop (run ${runs.now}, own ${ownNow?.phase})")
+                                    runs.end()
+                                    val stoppedRun = runs.now
                                     handsFree = false
                                     standby = false
-                                    if (ownNow != null) actions.finishVoice(true)
+                                    // Always: a burst whose start is still on its way shows no own yet, and was left
+                                    // running (2026-11-25: 20 s of voice after Stop).
+                                    actions.finishVoice(true)
+                                    chainScope.launch {
+                                        delay(700)
+                                        if (runs.may(stoppedRun) && ownNow != null) {
+                                            say("Stop: a burst still going after Stop, let go")
+                                            actions.finishVoice(true)
+                                        }
+                                    }
                                 },
                                 press = {
+                                    val run = runs.fingerDown()
+                                    say("finger down (run $run): " + (if (theyHold) "standby, they hold the floor" else "starts") + " (hands-free $handsFree, own ${ownNow?.phase})")
                                     if (theyHold) {
                                         standby = true
                                         standbySince = System.currentTimeMillis()
@@ -1053,10 +1092,17 @@ private fun ConversationScreenIn(
                                     }
                                 },
                                 release = { locked ->
+                                    say("finger up (run ${runs.now}, locked $locked, standby $standby, own ${ownNow?.phase})")
                                     when {
                                         locked -> handsFree = true
-                                        standby -> standby = false
-                                        else -> actions.finishVoice(true)
+                                        standby -> {
+                                            standby = false
+                                            runs.end()
+                                        }
+                                        else -> {
+                                            actions.finishVoice(true)
+                                            runs.end()
+                                        }
                                     }
                                 },
                             )
@@ -1110,6 +1156,12 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat,
 )
 
+
+/** The log's tag for what the chat's Push button does and what this phone then sends. */
+private const val CHAT_TALK = "ChatTalk"
+
+/** Stop is final (TalkRun). Off only to see, in the log, what would start without it. */
+private const val ENFORCE_RUNS = true
 
 /** The chat header's height under the status bar, and its face (2026-11-25, hen: slimmer; the live row rests below it). */
 private val HEADER_HEIGHT = 48.dp

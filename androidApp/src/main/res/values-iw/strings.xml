@@ -598,7 +598,7 @@
     <string name="talk_notify_group">%1$s מדבר/ת ב%2$s</string>
     <string name="talk_notify_play">השמעה</string>
     <string name="talk_notify_reply">תשובה</string>
-    <string name="talk_offline">אין חיבור: יישלח כהודעה קולית</string>
+    <string name="talk_offline">אין חיבור: לא נשלח</string>
     <string name="talk_open">דיבור</string>
     <string name="talk_other_phone">מדברים מהטלפון השני שלך</string>
     <string name="talk_refused">אי אפשר לדבר כאן</string>

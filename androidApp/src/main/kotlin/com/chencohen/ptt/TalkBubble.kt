@@ -743,8 +743,9 @@ object TalkBubble {
 
     private fun endTalk(context: Context, send: Boolean, keepLock: Boolean = false) {
         if (!talking) return
-        // Stop: my box keeps its last picture and goes up at once; the camera closes after (never black first).
-        if (sendingVideo && !keepLock) freezeMine()
+        // Stop: sending ends at once, and my box goes up showing my camera live: the room's track keeps reading it for
+        // its linger, after the box is gone (2026-11-25, hen). With no room track, its last picture instead.
+        if (sendingVideo && !keepLock) freezeMineUnlessLive()
         talking = false
         if (waiting) {
             waiting = false
@@ -823,7 +824,7 @@ object TalkBubble {
             cell.video = theirsVideo
         }
         myCell?.let { cell ->
-            if (cell.on && cell.video && !(mine || myVoice)) freezeMine()
+            if (cell.on && cell.video && !(mine || myVoice)) freezeMineUnlessLive()
             if (!cell.on && (mine || myVoice)) thaw(myBox)
             cell.on = mine || myVoice
             cell.video = mine
@@ -1100,6 +1101,11 @@ object TalkBubble {
 
     /** My box keeps its last picture: the room's while it read the camera, else the camera's own preview. */
     private fun freezeMine() = freeze(myBox, myRoomRenderer ?: myBox?.getChildAt(0) as? android.view.TextureView, myFace ?: myTag)
+
+    /** My box keeps its last picture only when nothing live feeds it (the room's track goes on reading the camera). */
+    private fun freezeMineUnlessLive() {
+        if (myRoomTrack == null) freezeMine()
+    }
 
     /** [box] shows its live picture again. */
     private fun thaw(box: FrameLayout?) {
