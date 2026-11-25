@@ -788,3 +788,12 @@ slide-up ends the voice burst and starts the video one 300 ms after the first le
 Since the burst was already heard live through the talk room, it should still be delivered, but as a burst (BURST kind,
 folded into the session's line on both phones), not as a kept voice message. To do: reproduce with a quick
 press, slide and Stop; log each message's kind and keep decision; add a test.
+
+## Who can hear you, urgent pushes, live as long as they transmit (2026-11-25, hen)
+
+Server: TalkStart/TalkState.urgent, HearState frame (15), Presence.hear, setHearVisible (server ux/dnd-hear). App: this
+phone's Hear (AndroidHear: call, Do Not Disturb, ringer, media volume) goes to the server as HearState; a push that
+comes while it can't hear is saved (CanHearRules), the talker told end to end (TalkHeardContent, HeardStatus); urgent
+pushes through Do Not Disturb with the contact's switch and Do Not Disturb access (AndroidDndGate). Screens:
+docs/screens/talk.md, "Who can hear you". The listener's live state follows the talker's room beats (TalkBeat,
+LiveSigns): docs/screens/talk.md, "Live for exactly as long as they transmit".

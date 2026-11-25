@@ -5,8 +5,8 @@ Signal's conversation in the library's look. How texts, receipts, typing and pre
 [design.md](../design.md), "Phase 3".
 
 - **Header:** slim (2026-11-25, hen: "shrink the header height"): 48 dp under the status bar, with a 32 dp face; back
-  and the name's row keep 48 dp touch targets. Back; the contact's letter circle, their name (the display name when they gave one) and a shield when
-  verified; under it "typing…" or "online" (teal), or "last seen <time>" (muted; a date before today), or nothing when
+  and the name's row keep 48 dp touch targets. Back; the contact's letter circle, their name (the display name when they gave one) and a shield (amber) only while
+  their safety number is not verified, a tap on it opening the safety number (2026-11-26, hen); under it "typing…" or "online" (teal), or "last seen <time>" (muted; a date before today), or nothing when
   it isn't known or hidden. A tap on the name opens the [contact's page](contacts.md) (safety number, block, remove).
   At the right, **Video call** and **Voice call** ([calls.md](calls.md)), then the **Talk button** (a walkie-talkie) opens [Talk mode](talk.md); it shows only where one can talk
   (paired and not blocked, or a member of the group). While someone talks there (or this phone does), a teal line
@@ -338,3 +338,10 @@ on this chat's screen; dashed, in its talk room; none, away. Those here come fir
 rest, each in a steady order; as many as fit, then "+N"; a tap opens the group's page with its members. When someone's
 state changes, the faces move to their new places together, in one move. The small read faces at the chat's end show
 no presence any more, in groups too (the header does).
+
+## Live typing lands in place (2026-11-26, hen: "it's supposed to stay in place and transition to a message")
+
+Their live draft and the message it becomes are one item (LiveKeys: the same key), so the draft fills into the message
+where it is: no remove and insert, no scroll. When their draft's end comes before the message, the draft stays where it is
+for up to 1.5 s, so the message lands in its place instead of the draft going and the message coming anew. Start and end
+are the language's (the bubble at the start side, the grow origin at its bottom start corner, right in Hebrew).

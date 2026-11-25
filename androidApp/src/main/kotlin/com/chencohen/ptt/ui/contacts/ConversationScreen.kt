@@ -539,10 +539,27 @@ private fun ConversationScreenIn(
         val newest = messages.lastOrNull()
         // Their live drafts and the messages they became share one item (one key), so a draft turns into its message
         // in place (2026-11-24, hen).
+        // A draft whose end comes before its message (2026-11-26, hen: "it's supposed to stay in place and transition
+        // to a message"): it stays where it is for a moment, so the message lands in its place, the same item, instead
+        // of the draft going and the message coming in anew.
+        val heldDrafts = remember(user) { androidx.compose.runtime.mutableStateMapOf<String?, String>() }
+        val lastDrafts = remember(user) { arrayOf<List<Pair<String?, String>>>(emptyList()) }
+        val vanished = lastDrafts[0].filter { (w, txt) -> txt.isNotBlank() && drafts.none { it.first == w } }
+        androidx.compose.runtime.SideEffect {
+            vanished.forEach { (w, txt) -> heldDrafts[w] = txt }
+            drafts.forEach { heldDrafts.remove(it.first) }
+            lastDrafts[0] = drafts
+        }
+        LaunchedEffect(heldDrafts.toMap()) {
+            if (heldDrafts.isEmpty()) return@LaunchedEffect
+            delay(DRAFT_HOLD_MS)
+            heldDrafts.clear()
+        }
+        val liveDrafts = drafts + (vanished + heldDrafts.toList()).distinctBy { it.first }.filter { (w, _) -> drafts.none { it.first == w } }
         val live = remember(user) { LiveKeys(newest?.id) }
-        live.observe(drafts, newest)
-        androidx.compose.runtime.SideEffect { live.seen(drafts) }
-        val shownDrafts = live.shown(drafts)
+        live.observe(liveDrafts, newest)
+        androidx.compose.runtime.SideEffect { live.seen(liveDrafts) }
+        val shownDrafts = live.shown(liveDrafts)
         LaunchedEffect(newest?.id) {
             if (newest == null) return@LaunchedEffect
             // A draft that became this message is in its place already: nothing scrolls.
@@ -1246,6 +1263,9 @@ private const val CHAT_TALK = "ChatTalk"
 
 /** Stop is final (TalkRun). Off only to see, in the log, what would start without it. */
 private const val ENFORCE_RUNS = true
+
+/** How long a draft stays after its end, waiting for the message it became (it lands in the draft's place). */
+private const val DRAFT_HOLD_MS = 1_500L
 
 /** The chat header's height under the status bar, and its face (2026-11-25, hen: slimmer; the live row rests below it). */
 private val HEADER_HEIGHT = 48.dp

@@ -16,6 +16,9 @@ and each time the connection's state changes.
 
 ## Privacy
 
+- **Show when I can't hear** (2026-11-25, hen; on by default): contacts see a badge when this phone is on Do Not
+  Disturb, silent or in a call, and a push to it is saved instead of played. Off: hidden.
+
 - **Live typing for new contacts** (2026-11-23, hen; off by default; each contact's and group's page has its own
   **Live typing to them** switch, off unless turned on there; turning this default on doesn't switch on the contacts
   there are, only new ones follow it): what you write in a chat (or the quick-reply window) goes to the

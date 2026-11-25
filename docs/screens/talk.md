@@ -181,3 +181,42 @@ the floating chat's row (TalkBubble, `placeGroup`) show them all:
   whatever the language. One-to-one chats keep their row as before (`LiveLayout.place`: the pictures in their own shapes).
 - Test builds: `adb shell am broadcast -a com.chencohen.ptt.TEST_BUBBLE -n com.chencohen.ptt/.TestBubble --es chat
   '#<group id>' --es members testbot2:video,testbot3:voice [--es where chat --es mine voice]` pretends members live at once.
+
+## Who can hear you, and urgent pushes (2026-11-25, hen: "yes, make it all")
+
+A push to someone who can't hear it now (Do Not Disturb, the phone on silent or vibrate, the media volume at 0 with Talk
+volume off, or in a phone call) isn't played: it is saved, a quiet "Missed push from X" notification shows, and the
+talker is told why, end to end (TalkHeardContent; HeardStatus).
+
+- **Urgent**: while holding Push, slide sideways onto the red bell (the chat's button, and the floating window's: the
+  bell shows up and to the right of Push, on the screen in either language). The button turns red with a bell, my pill
+  says "You · Urgent" in red (live row and floating window). A push made urgent while held is let through after all where
+  it was saved at first.
+- **Contact page › Urgent pushes › Let urgent pushes through Do Not Disturb**: off by default. Turned on the first time
+  without Do Not Disturb access, it asks for it (Android's Do Not Disturb access page). Without access, the note says
+  urgent pushes still arrive, silently. With it, an urgent push from them opens Do Not Disturb while it plays and puts it
+  back after; on silent it plays anyway.
+- **Settings › Privacy › Show when I can't hear**: on by default; off, contacts see nothing of it.
+- **Talker's bubble labels** (under my push): "Saved: Do Not Disturb", "Saved: silent", "Saved: in a call", "Saved:
+  urgent not allowed", "URGENT ✓ Heard", "URGENT ✓ Heard through Do Not Disturb", "URGENT ✓ Heard through silent"; red
+  for urgent. In a group, each with the member's name.
+- **Face badges** (chat header, Chats, a group header's faces): Do Not Disturb is Android's own sign, a red filled circle
+  with a white bar (never a moon); silent a crossed bell; in a call a phone. Bottom right of the face on the screen in
+  either direction; it comes and goes in one move (scale with fade).
+- **Header line**: "Do Not Disturb", "Silent · hears it later", "In a call" (typing… comes first). A group: "2 of 4 can
+  hear now" while someone can't.
+- **While pushing**: a chip under my pill: a greyed face with its badge and "Sharon can't hear now · Do Not Disturb ·
+  saved", with one short buzz; or a teal glowing face and "Sharon is hearing you" only once their phone said it plays.
+  Nothing shows until there is something true to say; it changes in place in one move. A group: a row of members' faces,
+  lit or grey, and "2 hearing · 2 get it later" (offline ones get it later too).
+
+## Live for exactly as long as they transmit (2026-11-25, hen)
+
+The listener shows a talker live for as long as the talker transmits, voice or video, held, hands-free or from the
+floating window. While transmitting through the talk room, the sender sends a tiny "still pushing" beat once a second
+over the room's data channel (TalkBeat, sealed with its own room key). Silence while held stays live: the beat isn't
+audio. The listener ends their live state at once on any end signal: the floor's end (TalkState ENDED), their room
+microphone muted or unpublished, or their leaving the room; or 3 s after their last beat. A beat (or a live segment)
+again puts them back, in one move. Only bursts that beat are watched: an older app is left to its floor's end. After /ws
+comes back from a drop, floors with no beat in the last 3 s go, and an end of mine that couldn't be sent goes then. The
+server sends ENDED (DROPPED) to the listeners 3 s after a floor holder's connection closes, unless it connects again.
