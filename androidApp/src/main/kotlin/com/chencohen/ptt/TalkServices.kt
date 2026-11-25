@@ -253,8 +253,9 @@ class TalkReadyService : Service() {
                 while (talkVideoCapture?.ready != true && System.currentTimeMillis() < until) delay(50)
                 Log.i(TalkReady.TAG, "talk back with video: camera ${if (talkVideoCapture?.ready == true) "ready" else "not ready, voice only"}")
             }
-            talkBack(app, chat, down = true)
-            Log.i(TalkReady.TAG, "talking back to $chat")
+            // The floating window's own choice (2026-11-25: its slide up went as voice only, the chat's setting being off).
+            talkBack(app, chat, down = true, video = video && talkVideoCapture?.ready == true)
+            Log.i(TalkReady.TAG, "talking back to $chat" + if (video) " with video" else "")
             val started = System.currentTimeMillis()
             while (true) {
                 val s = (System.currentTimeMillis() - started) / 1000

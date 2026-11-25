@@ -402,8 +402,18 @@ private fun ConversationScreenIn(
             val talker = talk.talkers[user]?.takeIf { t -> talk.own?.clip != t.clip && allMessages.firstOrNull { it.id == t.clip }?.clip?.video == true }
             val theirs = talk.playing?.takeIf { it.chat == user && it.video && it.live && fullVideo == null }
             val theirClip = theirs?.clip ?: talker?.clip
+            // Their run: voice, then the video right after a slide up, is one item with one time that keeps counting
+            // (2026-11-25, hen: the timer went back to 0:00 at the slide up). A burst within RUN_GAP_MS of their last
+            // keeps its start.
+            val theirRun = remember(user) { longArrayOf(0L, 0L) }
+            talk.talkers[user]?.takeIf { talk.own?.clip != it.clip }.let { t ->
+                if (t != null) {
+                    if (theirRun[0] == 0L || (theirRun[1] > 0L && t.since - theirRun[1] > RUN_GAP_MS)) theirRun[0] = t.since
+                    theirRun[1] = 0L
+                } else if (theirRun[0] != 0L && theirRun[1] == 0L) theirRun[1] = System.currentTimeMillis()
+            }
             var theirSince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
-            LaunchedEffect(theirClip) { if (theirClip != null) theirSince = talk.talkers[user]?.since ?: System.currentTimeMillis() }
+            LaunchedEffect(theirClip) { if (theirClip != null) theirSince = theirRun[0].takeIf { it > 0 } ?: talk.talkers[user]?.since ?: System.currentTimeMillis() }
             // Voice push-to-talk (2026-11-24, hen, mock A): a slim live bar, under the video panel when the other
             // side is on video.
             val playingHere = talk.playing?.takeIf { it.chat == user && it.live }
@@ -411,7 +421,7 @@ private fun ConversationScreenIn(
             val theirVoice = when {
                 playingHere != null && !playingHere.video -> VoiceSide(playingHere.from, if (group != null) playingHere.from else contact?.name ?: user, false, theirTalker?.since ?: theirSince.takeIf { it > 0 } ?: System.currentTimeMillis())
                 playingHere == null && theirTalker != null && allMessages.firstOrNull { it.id == theirTalker.clip }?.clip?.video != true ->
-                    VoiceSide(theirTalker.user, if (group != null) theirTalker.user else contact?.name ?: user, false, theirTalker.since)
+                    VoiceSide(theirTalker.user, if (group != null) theirTalker.user else contact?.name ?: user, false, theirRun[0].takeIf { it > 0 } ?: theirTalker.since)
                 else -> null
             }
             val myVoice = talk.own?.takeIf { it.chat == user && !pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
@@ -1161,6 +1171,9 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat,
 )
 
+
+/** Their next burst within this of their last is the same run: its time keeps counting. */
+private const val RUN_GAP_MS = 3_000L
 
 /** How long their pill stays after their burst ends, so a video right after grows out of it. */
 private const val THEIR_HOLD_MS = 1_000L

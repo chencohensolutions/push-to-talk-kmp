@@ -59,9 +59,8 @@ object MicGuard {
     fun takenFromIdle(): Boolean {
         val am = audio() ?: return false
         if (inCall()) return true
-        val configs = am.activeRecordingConfigurations
-        if (configs.any { it.isClientSilenced }) return true
-        val base = roomBaseline
-        return base >= 0 && configs.count { it.clientAudioSessionId !in ownSessions } > base
+        // Only a silenced recording says someone else took the microphone: counting recordings misfired (the phone's
+        // own short recordings, and ours opening, came and went; 2026-11-25, the S25 let its microphone go at once).
+        return am.activeRecordingConfigurations.any { it.isClientSilenced }
     }
 }

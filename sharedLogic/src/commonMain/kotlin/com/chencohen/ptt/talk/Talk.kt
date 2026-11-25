@@ -235,7 +235,8 @@ internal class Talk(
     private var outgoing: Outgoing? = null
 
     /** The Talk button went down in [chat] (a user, or a group's chat). */
-    fun press(chat: String) = begin(chat, voiceOnly = false)
+    /** [video]: this press's own choice (the floating window's slide up), over the chat's setting. */
+    fun press(chat: String, video: Boolean? = null) = begin(chat, voiceOnly = false, video = video)
 
     /** A Talk screen is on screen ([on]) or left: the microphone is kept open for an instant press, or closed. */
     fun warmMicrophone(on: Boolean) {
@@ -246,7 +247,7 @@ internal class Talk(
     /** The composer's microphone went down: a voice message, without the floor. */
     fun startVoice(chat: String) = begin(chat, voiceOnly = true)
 
-    private fun begin(chat: String, voiceOnly: Boolean) {
+    private fun begin(chat: String, voiceOnly: Boolean, video: Boolean? = null) {
         if (outgoing != null) return
         // Never taken from a call or another app (2026-11-25, hen: "don't hijack it"): refused, so nothing looks live.
         if (micBusy()) return refuse(chat, OwnTalk.MIC)
@@ -258,7 +259,7 @@ internal class Talk(
         // else playing (an older clip, a group's burst) stops.
         if (Group.idOf(chat) != null || _state.value.playing?.live != true) stopPlaying()
         // The camera first, so the voice's packets are tagged from the first one.
-        val camera = videoCapture?.takeIf { !voiceOnly && sendVideo(chat) }
+        val camera = videoCapture?.takeIf { !voiceOnly && (video ?: sendVideo(chat)) }
         if (camera != null) {
             out.video = camera.start { frame ->
                 out.videoBytes += frame.data.size

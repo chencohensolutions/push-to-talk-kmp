@@ -267,12 +267,12 @@ suspend fun talkButton(context: Context, down: Boolean): Boolean {
 }
 
 /** Talk back from a notification: start talking in [chat], or end it ([send] false drops it). */
-suspend fun talkBack(context: Context, chat: String?, down: Boolean, send: Boolean = true) {
+suspend fun talkBack(context: Context, chat: String?, down: Boolean, send: Boolean = true, video: Boolean? = null) {
     val messaging = hub(context)
     // Connected for the burst (the wake-up's own /ws may have closed), without waiting for it here.
     if (down) kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.wake() }
     withContext(messagingWork) {
-        if (down) chat?.let { messaging.talk.press(it) } else messaging.talk.release(send)
+        if (down) chat?.let { messaging.talk.press(it, video) } else messaging.talk.release(send)
     }
 }
 

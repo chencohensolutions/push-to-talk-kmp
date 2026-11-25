@@ -65,6 +65,7 @@ object TalkBubble {
     private const val HOLD_MS = 350L
     /** How long their item stays after a burst ends, in case the next (voice into video) follows at once. */
     private const val BURST_HOLD_MS = 1_000L
+    private const val RUN_GAP_MS = 3_000L
     /** The pill window's fixed width. */
     private const val PILL_WINDOW_DP = 300
     /** Slid up this far while holding: hands-free. */
@@ -130,6 +131,9 @@ object TalkBubble {
     private var burstLive = false
     private var burstVideo = false
     private var burstSince = 0L
+    private var burstEndedAt = 0L
+    /** When my last burst from here ended: a slide up's video right after keeps my time counting. */
+    private var talkEndedAt = 0L
     /** Swiped up: the top box stays away until their next burst. */
     private var topPutAway = false
     private var talking = false
@@ -196,13 +200,14 @@ object TalkBubble {
         }
         if (live && !burstLive) {
             // Their next burst: the top box comes back even if it was put away.
-            if (burstSince == 0L) burstSince = System.currentTimeMillis()
+            // The same run if their last burst ended moments ago (a slide up to video): its time keeps counting.
+            if (burstSince == 0L || System.currentTimeMillis() - burstEndedAt > RUN_GAP_MS) burstSince = System.currentTimeMillis()
             topPutAway = false
             thaw(theirBox)
         }
         burstLive = live
         burstVideo = live && video
-        if (!live) burstSince = 0L
+        if (!live) burstEndedAt = System.currentTimeMillis()
         refreshTop(app)
         showMode(app)
     }
@@ -214,7 +219,7 @@ object TalkBubble {
         val app = burstOverApp ?: return@Runnable
         burstLive = false
         burstVideo = false
-        burstSince = 0L
+        burstEndedAt = System.currentTimeMillis()
         refreshTop(app)
         showMode(app)
     }
@@ -725,7 +730,8 @@ object TalkBubble {
         sendingVideo = wantVideo && !callOn
         if (sendingVideo) goingLive = false
         talking = true
-        talkStarted = System.currentTimeMillis()
+        // One run with the burst just before it (voice, then video at the slide up): the time keeps counting.
+        if (talkStarted == 0L || System.currentTimeMillis() - talkEndedAt > RUN_GAP_MS) talkStarted = System.currentTimeMillis()
         // Glows while held.
         (button?.background as? GradientDrawable)?.apply { setColor(PINK); setStroke(dp(context, 4), 0x80FFB3A8.toInt()) }
         button?.setImageResource(R.drawable.ic_bubble_send)
@@ -751,6 +757,9 @@ object TalkBubble {
         // its linger, after the box is gone (2026-11-25, hen). With no room track, its last picture instead.
         if (sendingVideo && !keepLock) freezeMineUnlessLive()
         talking = false
+        // Kept only for the lock's video right after; a real end starts the next press anew.
+        talkEndedAt = if (keepLock) System.currentTimeMillis() else 0L
+        if (!keepLock) talkStarted = 0L
         if (waiting) {
             waiting = false
             showWaiting(context)
