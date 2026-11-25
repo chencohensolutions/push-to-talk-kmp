@@ -608,6 +608,7 @@ internal class Messaging(
         now = now, random = random,
         audio = LIVE_TALK_AUDIO,
         busy = { talk.busy },
+        cameraShape = { talk.videoCapture?.uprightShape ?: 0 },
     )
 
     val calls: com.chencohen.ptt.calls.Calls = com.chencohen.ptt.calls.Calls(

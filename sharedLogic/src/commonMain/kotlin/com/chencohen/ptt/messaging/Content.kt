@@ -251,8 +251,13 @@ internal data class ClipContent(
 internal data class TalkKeyContent(
     @ProtoNumber(1) val key: ByteArray = ByteArray(0),
     @ProtoNumber(2) val index: Int = 0,
+    /**
+     * The sender's camera picture as shown upright, width per 1000 of height (750: 3:4 portrait); 0 unknown or older
+     * apps (2026-11-25, hen: the other phone grows its box straight to it when the video starts).
+     */
+    @ProtoNumber(3) val cameraShape: Int = 0,
 ) {
-    override fun equals(other: Any?): Boolean = other is TalkKeyContent && key.contentEquals(other.key) && index == other.index
+    override fun equals(other: Any?): Boolean = other is TalkKeyContent && key.contentEquals(other.key) && index == other.index && cameraShape == other.cameraShape
 
     override fun hashCode(): Int = index
 }

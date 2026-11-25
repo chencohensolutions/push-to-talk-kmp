@@ -150,7 +150,10 @@ internal fun LivePanel(
     var lastShown by remember { androidx.compose.runtime.mutableStateOf(shown) }
     if (shown != null) lastShown = shown
     val s = shown ?: lastShown
-    val theirShape = if (room != null) room.aspect else if (s != null && s.width > 0 && s.height > 0) {
+    val shapes by com.chencohen.ptt.talk.LiveTalkVideo.shapes.collectAsState()
+    // Their camera's shape as they said it with their key (2026-11-25): known before the first picture.
+    val said = theirIdentity?.let { shapes[it] }?.let { it / 1000f }
+    val theirShape = if (room != null) room.aspect else if (said != null) said else if (s != null && s.width > 0 && s.height > 0) {
         val a = s.width.toFloat() / s.height
         if (s.rotation % 180 != 0) 1f / a else a
     } else 3f / 4f
@@ -183,7 +186,7 @@ internal fun LivePanel(
             Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.Top) {
                 if (videos.first || tv != null) {
                     val side = tv ?: VoiceSide(theirUser, who ?: theirName, false, theirSince)
-                    val ready = room != null || s != null
+                    val ready = room != null || s != null || said != null
                     // The pill grows once its picture's shape is known (2026-11-25, hen): until the first picture it
                     // stays the pill, so the box never grows to a guessed size and then changes again.
                     LiveSlot(videos.first && ready, ready, h * theirShape, h, side, listOfNotNull(who, elapsedSince(theirSince)).joinToString(" · ")) { box ->

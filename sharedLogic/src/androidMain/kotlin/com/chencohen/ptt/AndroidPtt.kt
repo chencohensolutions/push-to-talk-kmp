@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.withContext
 import kotlin.random.asKotlinRandom
@@ -134,6 +135,7 @@ private fun hub(context: Context): Messaging {
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
+        it.live.onShape = { identity, shape -> com.chencohen.ptt.talk.LiveTalkVideo.shapes.update { m -> m + (identity to shape) } }
         // Push-to-video: this phone's camera, and where bursts' video shows; and what it can play, said to the others.
         it.talk.videoCapture = com.chencohen.ptt.talk.AndroidTalkVideoCapture(
             context,

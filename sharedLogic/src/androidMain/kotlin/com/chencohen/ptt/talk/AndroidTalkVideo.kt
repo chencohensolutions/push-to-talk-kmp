@@ -364,6 +364,9 @@ class AndroidTalkVideoCapture(
 
     private var sensorRead = false
 
+    override val uprightShape: Int
+        get() = if (previewRotation() % 180 != 0) HEIGHT * 1000 / WIDTH else WIDTH * 1000 / HEIGHT
+
     /** The open camera's sensor orientation (clockwise degrees from the phone's natural orientation). */
     fun sensorOrientation(): Int = sensor
 

@@ -33,6 +33,9 @@ object LiveTalkVideo {
 
     @Volatile internal var room: Room? = null
 
+    /** Others' camera shapes as they said with their keys ("user.device" to width per 1000 of height): a box grows straight to it. */
+    val shapes = MutableStateFlow<Map<String, Int>>(emptyMap())
+
     /**
      * This phone's own camera as the talk room's track reads it (while it does: warm for a press, or live): the own box
      * shows it, since the camera then feeds only the clip's encoder and the room (no separate preview).

@@ -710,7 +710,8 @@ object TalkBubble {
     private fun theirPictureReady(context: Context): Boolean {
         val talker = chat?.let { messagingState(context).value.talk.talkers[it] }
         val room = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.arriving.value["${it.user}.${it.device}"] }
-        return room != null || com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value != null
+        val said = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.shapes.value["${it.user}.${it.device}"] }
+        return room != null || said != null || com.chencohen.ptt.talk.AndroidTalkVideoOut.shown.value != null
     }
 
     /** The top window goes once nothing has been live for a moment. */
@@ -742,7 +743,9 @@ object TalkBubble {
         val rotation = shown?.rotation ?: 0
         val aspect = if (shown != null && shown.width > 0 && shown.height > 0) shown.width.toFloat() / shown.height else 3f / 4f
         val turned = rotation % 180 != 0
-        val theirShape = roomLive?.aspect ?: if (turned) 1f / aspect else aspect
+        val talker = chat?.let { messagingState(context).value.talk.talkers[it] }
+        val said = talker?.let { com.chencohen.ptt.talk.LiveTalkVideo.shapes.value["${it.user}.${it.device}"] }?.let { it / 1000f }
+        val theirShape = roomLive?.aspect ?: said ?: if (turned) 1f / aspect else aspect
         val myShape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
         // 23.6% of the screen high, all shrunk together only if side by side they'd be wider than the screen
         // (2026-11-25, hen: testbot's box was cut at the edge).

@@ -111,7 +111,12 @@ internal class LiveTalk(
     val audio: Boolean = true,
     /** A burst is going on now (heard or said): the room isn't left under it. */
     private val busy: () -> Boolean = { false },
+    /** This phone's camera picture's shape, sent with its key (TalkKeyContent.cameraShape). */
+    private val cameraShape: () -> Int = { 0 },
 ) {
+    /** Another device's camera shape came with its key ("user.device", width per 1000 of height). */
+    var onShape: ((String, Int) -> Unit)? = null
+
     var transport: TalkTransport? = null
         set(value) {
             field = value
@@ -267,6 +272,7 @@ internal class LiveTalk(
 
     /** Another device's key came (Content.talkKey). */
     fun takeKey(identity: String, key: TalkKeyContent) {
+        if (key.cameraShape > 0) onShape?.invoke(identity, key.cameraShape)
         if (key.key.size != KEY_BYTES || key.index !in 0 until KEY_RING) return
         keys[identity] = key.key to key.index
         transport?.setKey(identity, key.key, key.index)
@@ -310,7 +316,7 @@ internal class LiveTalk(
         val key = ownKey ?: return
         try {
             // Stale by the time a sleeping phone wakes: it gets a new one when it joins.
-            sendContent(chat, Content(talkKey = TalkKeyContent(key, ownIndex)), PushKind.NONE)
+            sendContent(chat, Content(talkKey = TalkKeyContent(key, ownIndex, runCatching { cameraShape() }.getOrDefault(0))), PushKind.NONE)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
