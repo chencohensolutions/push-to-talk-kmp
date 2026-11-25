@@ -325,6 +325,17 @@ fun startRoomCall(context: Context, chat: String, video: Boolean, done: (Boolean
     }
 }
 
+/**
+ * Test builds (TestPair): pairs with the user whose pairing link or code [text] is, as a scan of it would, so
+ * emulators can be paired without a camera. True when it went out.
+ */
+suspend fun testPairWith(context: Context, text: String): Boolean {
+    val parsed = com.chencohen.ptt.messaging.PairCode.parse(com.chencohen.ptt.AppLinks.toApp(text))
+    android.util.Log.i("TestPair", "parsed ${parsed::class.simpleName} from ${text.length} characters: ${com.chencohen.ptt.AppLinks.toApp(text).substringBefore('&')}")
+    val code = (parsed as? com.chencohen.ptt.messaging.PairCodeParse.Code)?.code ?: return false
+    return withContext(messagingWork) { hub(context).pairWith(code, verified = true) }
+}
+
 /** The live path's state: this phone's room and who else is in it (the chat header's ring). */
 fun liveState(context: Context): kotlinx.coroutines.flow.StateFlow<com.chencohen.ptt.talk.LiveState> = hub(context).live.state
 
