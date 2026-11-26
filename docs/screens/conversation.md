@@ -316,11 +316,14 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
 
 The header (in the floating chat too) keeps the screen's own background, with one 1-px line under it in the palette's
 outline variant. The live row rests just below that line.
+Since 2026-11-26 the line shows only while messages are scrolled under the header (see "Solid behind the buttons, lines
+only while scrolled under" below).
 
 ## Bottom buttons (2026-11-25, hen)
 
 Push-to-talk sits in the middle of the screen, and the voice message button just to its left, the same in Hebrew and
 English (not mirrored). No call buttons in the chat. While a press waits, "Waiting for …" shows left of them.
+Since 2026-11-26 they are smaller and rest on a solid strip (below): Push 64 dp, Voice message 48 dp.
 
 ## Their face's ring in the header (2026-11-25, hen: "ring only, no new words")
 
@@ -453,3 +456,30 @@ floating window itself grows into the chat.
   the app, or when the window floated over this app, Back is the app's own.
 - `QuickReplyWindow` (expand, growFrom, shrinkFrom), `ChatHandover`, `MainActivity` (landSoon, leaveToWindow). Debug
   builds: `-a morph_hold --es chat x --ef at 0.4` stops the move part of the way, to look at it (`--ef at -1`: off).
+
+
+## Solid behind the buttons, lines only while scrolled under (2026-11-26, hen)
+
+hen: "in chat screen the transparent layout is disorienting when scrolling"; of the mocked ways hen picked "D · Strip for
+the buttons only", and "make the banner smaller, the red button smaller".
+
+- **The strip**: behind the button row only (Voice message and Push), a solid strip in the page's own colour, light and
+  dark, as tall as the row. Messages never show behind the buttons. With the keyboard up the row folds away and the
+  strip with it, in the same move. The notes that stand in the row's place (blocked, waiting to pair, a group's note)
+  rest on the same strip.
+- **Its line**: one 1-px line in the outline variant on the strip's top edge, only while messages are scrolled under
+  the strip (the newest message has passed the writing bubble on its way down); it fades in and out over 200 ms. At the
+  chat's end there is no line.
+- **The writing bubble** has a solid fill in the page's colour (it was 92%), and floats above the strip with my face,
+  as before; messages pass beside them, never readable through the bubble.
+- **The header's line** shows only while messages are scrolled under the header (the list isn't at its oldest end),
+  fading in and out over 200 ms; none at the chat's oldest end. The header itself is solid as it was, and the list
+  stops exactly at its bottom edge. The line is drawn at the top of the list, so it is the same under the header, the
+  selection bar and the floating chat's header.
+- **Smaller buttons**: Push 64 dp (it was 84), Voice message 48 dp (it was 52), 6 dp above and below them (it was 12),
+  so the strip is 76 dp tall above the system's navigation bar (the row was 108). Touch targets stay 48 dp or more. The
+  hands-free and video targets keep their places beside and above Push.
+- Still floating, as they were: the live pills and video boxes, the day pill, the faces in the gaps, the ⌄ button, the
+  Undo pill.
+- Geometry is the same in Hebrew and in English (full-width strip and lines; the buttons were already unmirrored).
+- `ConversationScreen` (HeaderHairline, `strip`, `underStrip`), `ChatComposer` (ChatButtons, the draft's fill).

@@ -64,6 +64,9 @@ Nothing is drawn below 11 sp. Text fields keep their own sizes.
 
 - **A header's edge** is a 1-px hairline in the outline variant, on the screen's own background (no tinted band;
   2026-11-25, hen chose A).
+- **In the chat, edges show only while something is under them** (2026-11-26, hen): the header's hairline, and the one
+  on the top edge of the solid strip behind the chat's buttons, fade in over 200 ms while messages are scrolled under
+  them and out when none are.
 
 ## Motion
 

@@ -132,7 +132,8 @@ internal fun ComposeBubble(
         Row(
             bubbleModifier.width(width)
                 .shadow(6.dp + 2.dp * open, LibraryShapes.Card)
-                .background(LibraryColors.Background.copy(alpha = 0.92f + 0.08f * open), LibraryShapes.Card)
+                // Solid (2026-11-26, hen): a message passing behind it doesn't show through.
+                .background(LibraryColors.Background, LibraryShapes.Card)
                 .drawBehind {
                     if (open < 1f) {
                         drawRoundRect(
@@ -341,8 +342,10 @@ internal fun ChatButtons(
     cantHear: Boolean = false,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
-    val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
-    val big by animateDpAsState(if (compact) 48.dp else 84.dp, label = "talk button")
+    // Smaller (2026-11-26, hen: "make the banner smaller, the red button smaller"): Push 64 dp (it was 84), Voice
+    // message 48 dp (it was 52), 6 dp above and below them (it was 12): the strip behind them is 76 dp tall (it was 108).
+    val small by animateDpAsState(if (compact) 40.dp else 48.dp, label = "small buttons")
+    val big by animateDpAsState(if (compact) 48.dp else 64.dp, label = "talk button")
     // The language's own direction, for words in the row (the row itself is laid out left to right).
     val reading = androidx.compose.ui.platform.LocalLayoutDirection.current
     // Laid out on the screen itself, the same in Hebrew and English: the big button in the middle of the screen and
@@ -350,7 +353,7 @@ internal fun ChatButtons(
     // its left").
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = if (compact) 6.dp else 12.dp, bottom = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 6.dp).navigationBarsPadding(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Held: -1 not held, else how far up the finger is.
