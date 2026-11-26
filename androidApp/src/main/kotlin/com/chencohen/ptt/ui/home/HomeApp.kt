@@ -175,6 +175,8 @@ fun HomeApp(
     onInviteTaken: () -> Unit = {},
     /** A conversation a notification opened (MainActivity), until home showed it. */
     openedChat: String? = null,
+    /** Back from this chat goes back to the floating chat it was opened from (MainActivity); false: Back as always. */
+    leaveToWindow: (String) -> Boolean = { false },
     onChatTaken: () -> Unit = {},
     /** A call asked from Android Contacts (the user, video). */
     openedCall: Pair<String, Boolean>? = null,
@@ -199,6 +201,9 @@ fun HomeApp(
         saved = (stack + page).joinToString("\n")
     }
     fun pop() {
+        // Back from a chat opened from the floating chat over another app: the floating chat again, there.
+        val only = stack.singleOrNull()
+        if (only != null && only.startsWith("chat/") && leaveToWindow(only.removePrefix("chat/"))) return
         saved = stack.dropLast(1).joinToString("\n")
     }
     fun home() {
@@ -622,6 +627,12 @@ fun HomeApp(
                 name.startsWith("chat/") && pageUser != null -> {
                     val user = pageUser
                     // On screen: what comes in is read at once; gone, notifications again.
+                    // On screen by the user's doing (opened, or the app brought back on it): the floating chat, if it was
+                    // dismissed for this conversation, may come again.
+                    androidx.lifecycle.compose.LifecycleResumeEffect(user) {
+                        com.chencohen.ptt.QuickReplyWindow.chatOpened(user)
+                        onPauseOrDispose { }
+                    }
                     DisposableEffect(user) {
                         messaging.openChat(user)
                         messaging.refreshPresence()

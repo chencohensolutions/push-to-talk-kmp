@@ -224,7 +224,11 @@ class NotificationActions : BroadcastReceiver() {
                 when (intent.action) {
                     Notifications.ACTION_REPLY -> {
                         val body = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(Notifications.KEY_REPLY)?.toString()?.trim()
-                        if (!body.isNullOrEmpty()) replyFromNotification(app, user, body)
+                        if (!body.isNullOrEmpty()) {
+                            // The floating chat was dismissed for it: my reply keeps the conversation going.
+                            QuickReplyWindow.sent(user)
+                            replyFromNotification(app, user, body)
+                        }
                     }
                     Notifications.ACTION_READ -> markReadFromNotification(app, user)
                 }

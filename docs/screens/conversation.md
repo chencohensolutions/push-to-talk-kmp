@@ -431,3 +431,25 @@ not a crossfade; also when transforming from dashed to solid border"): the ring 
 bubble's outline. None to dashed: the dashes grow out of nothing; dashed to whole: they grow until they meet; and back
 the same way (250 ms, one move). The contact's face in the chat header and the members' faces in a group's header.
 
+
+## From floating to the chat, one move (2026-11-26, hen: "should feel seamless, an expanding transformation")
+
+A tap on the floating chat's header (or on the floating bar's Chat button) doesn't close one thing and open another: the
+floating window itself grows into the chat.
+
+- **The floating chat**: its top edge rises to the top of the screen, its round corners flatten, and its header becomes
+  the chat's in the same move (it rises under the status bar; the grab bar and × go; Back comes in before the face; the
+  face and the name land where the chat has them). The draft and the buttons at the bottom don't move at all, the
+  messages stay where they are and the older ones show above them. 380 ms, eased. An open keyboard goes down in the same
+  move, and what was written stays in the draft.
+- **The floating bar**: a frame in the bar's exact place, shape and colour grows to the whole screen, its corners
+  flattening and its colour turning into the chat's, the chat (laid out for the whole screen, not moving) showing
+  through as it grows.
+- **Then the app**: only when the window covers the whole screen, showing the chat exactly as the app does, the app
+  opens under it, unseen. When the app's chat is drawn (at its end, the keyboard away, the same draft), the window goes
+  (120 ms). Nothing of Android's own way in is seen, and no empty frame.
+- **Back**, in a chat opened this way over another app: the same backwards. The window covers the screen, the app
+  leaves under it, and the window shrinks to the floating chat over the app that was in use. After going elsewhere in
+  the app, or when the window floated over this app, Back is the app's own.
+- `QuickReplyWindow` (expand, growFrom, shrinkFrom), `ChatHandover`, `MainActivity` (landSoon, leaveToWindow). Debug
+  builds: `-a morph_hold --es chat x --ef at 0.4` stops the move part of the way, to look at it (`--ef at -1`: off).

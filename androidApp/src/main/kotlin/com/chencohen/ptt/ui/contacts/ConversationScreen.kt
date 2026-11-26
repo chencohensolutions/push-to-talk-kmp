@@ -194,12 +194,14 @@ internal fun ConversationScreen(
     /** This chat's direction (ChatDirection). */
     direction: Int = com.chencohen.ptt.messaging.ChatDirection.FOLLOW,
     live: ChatLive = ChatLive(),
+    embeddedFull: Boolean = false,
+    embeddedCalm: Boolean = false,
 ) {
     val phone = androidx.compose.ui.platform.LocalLayoutDirection.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
     ) {
-        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live)
+        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm)
     }
 }
 
@@ -235,7 +237,16 @@ private fun ConversationScreenIn(
     /** Their texts being edited live (MessagingState.liveEdits). */
     liveEdits: Map<String, com.chencohen.ptt.messaging.LiveEdit> = emptyMap(),
     chatLive: ChatLive = ChatLive(),
+    /**
+     * The floating chat grown over the whole screen (2026-11-26, hen: "an expanding transformation"): this screen as
+     * the app shows it, its own header under the status bar, though [embeddedHeader] is given.
+     */
+    embeddedFull: Boolean = false,
+    /** The floating chat is growing or shrinking: the keyboard goes and the draft rests, as the app's chat will show it. */
+    embeddedCalm: Boolean = false,
 ) {
+    // In the floating window, as it floats: its header, no status bar room.
+    val embedded = embeddedHeader != null && !embeddedFull
     val keeps = chatLive.keeps
     // A video burst tapped in the chat plays full screen over it (2026-11-23, hen); Back or a tap closes it.
     var fullVideo by remember(user) { mutableStateOf<String?>(null) }
@@ -286,7 +297,7 @@ private fun ConversationScreenIn(
     Column(
         Modifier.fillMaxSize().background(LibraryColors.Background.copy(alpha = seeThrough))
             // The keyboard's room follows its animation frame by frame (2026-11-24, hen); the window grows with it.
-            .then(if (embeddedHeader != null) Modifier.navigationBarsPadding().imePadding() else Modifier.statusBarsPadding().navigationBarsPadding().imePadding()),
+            .then(if (embedded) Modifier.navigationBarsPadding().imePadding() else Modifier.statusBarsPadding().navigationBarsPadding().imePadding()),
     ) {
         val canTalk = if (group != null) group.note == null else contact?.paired == true && !contact.blocked
         androidx.compose.animation.AnimatedContent(
@@ -324,7 +335,7 @@ private fun ConversationScreenIn(
                 }
             } else {
                 when {
-                    embeddedHeader != null -> Box(Modifier.graphicsLayer { alpha = seeThrough }) { embeddedHeader() }
+                    embedded && embeddedHeader != null -> Box(Modifier.graphicsLayer { alpha = seeThrough }) { embeddedHeader() }
                     group != null -> GroupHeader(group, actions, canTalk, chat = user, here = viewing)
                     else -> Header(user, contact, header, actions, canTalk, here = viewing.isNotEmpty())
                 }
@@ -657,6 +668,39 @@ private fun ConversationScreenIn(
         val focus = remember { androidx.compose.ui.focus.FocusRequester() }
         val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
         val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+        // The floating chat growing into the app's chat, or shrinking back (ChatHandover; 2026-11-26, hen): both show
+        // the chat the same way at the moment one takes over from the other, so nothing moves then: at its end, the
+        // keyboard away, the draft resting with the same words.
+        LaunchedEffect(embeddedCalm) {
+            if (embeddedCalm) {
+                focusManager.clearFocus()
+                keyboard?.hide()
+                draft.editing = false
+            }
+        }
+        // In the floating chat the window takes the keys only at its first touch (the app under it keeps its keyboard
+        // until then), so the tap that starts writing comes before the window can show a keyboard: asked again as the
+        // keys arrive.
+        LaunchedEffect(draft.editing) {
+            if (embeddedHeader != null && draft.editing) {
+                repeat(3) {
+                    delay(200)
+                    if (draft.editing && !embeddedCalm) keyboard?.show()
+                }
+            }
+        }
+        val landing = if (embeddedHeader == null) ChatHandover.landing.value?.takeIf { it.chat == user } else null
+        LaunchedEffect(landing?.at) {
+            if (landing != null) {
+                ChatHandover.landing.value = null
+                if (System.currentTimeMillis() - landing.at > 15_000) return@LaunchedEffect
+                focusManager.clearFocus()
+                keyboard?.hide()
+                draft.editing = false
+                if (landing.draft.isNotBlank()) draft.text = landing.draft
+                list.scrollToItem(0)
+            }
+        }
         // The message sent from the draft: its slot is kept, unseen, while the draft flies into it.
         flight.claim(newest)
         val sentMorph = flight.id
