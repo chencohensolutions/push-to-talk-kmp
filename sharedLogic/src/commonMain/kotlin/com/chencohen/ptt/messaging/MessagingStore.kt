@@ -349,20 +349,54 @@ internal class MessagingStore(val store: SecureStore) {
         set(value) = if (value == null) store.remove(Spaces.LINKS, JOIN) else write(Spaces.LINKS, JOIN, LinkJoin.serializer(), value)
 
     /** Messages are keyed by time, so the space's sorted keys are the order they came in. */
-    fun putMessage(message: TextMessage) =
-        write(Spaces.MESSAGES, message.at.toString().padStart(15, '0') + "-" + message.id, TextMessage.serializer(), message)
+    // The messages, kept in memory as well, in the store's order (2026-11-26: every message(id) read and decoded the
+    // whole table, so storing one incoming message took 1-5 s and publish() as long again). Writes go to both.
+    private val messageLock = Any()
+    private var messageCache: MutableMap<String, TextMessage>? = null
+    private val keyById = mutableMapOf<String, String>()
 
-    fun messages(): List<TextMessage> = all(Spaces.MESSAGES, TextMessage.serializer())
+    private fun messageKey(message: TextMessage) = message.at.toString().padStart(15, '0') + "-" + message.id
 
-    fun messagesWith(user: String): List<TextMessage> = messages().filter { it.user == user }
+    private fun cache(): MutableMap<String, TextMessage> = messageCache ?: run {
+        val loaded = mutableMapOf<String, TextMessage>()
+        store.keys(Spaces.MESSAGES).forEach { key -> read(Spaces.MESSAGES, key, TextMessage.serializer())?.let { loaded[key] = it } }
+        keyById.clear()
+        loaded.forEach { (key, m) -> keyById[m.id] = key }
+        messageCache = loaded
+        loaded
+    }
 
-    fun message(id: String): TextMessage? = messages().firstOrNull { it.id == id }
+    fun putMessage(message: TextMessage) = synchronized(messageLock) {
+        val key = messageKey(message)
+        write(Spaces.MESSAGES, key, TextMessage.serializer(), message)
+        val c = cache()
+        // The same message under another time: the old row goes (it was kept twice before).
+        keyById[message.id]?.takeIf { it != key }?.let { old ->
+            c.remove(old)
+            store.remove(Spaces.MESSAGES, old)
+        }
+        c[key] = message
+        keyById[message.id] = key
+    }
 
-    fun removeMessage(message: TextMessage) = store.remove(Spaces.MESSAGES, message.at.toString().padStart(15, '0') + "-" + message.id)
+    fun messages(): List<TextMessage> = synchronized(messageLock) { cache().entries.sortedBy { it.key }.map { it.value } }
 
-    fun removeMessagesOf(user: String) {
-        store.keys(Spaces.MESSAGES).forEach { key ->
-            if (read(Spaces.MESSAGES, key, TextMessage.serializer())?.user == user) store.remove(Spaces.MESSAGES, key)
+    fun messagesWith(user: String): List<TextMessage> = synchronized(messageLock) { cache().entries.filter { it.value.user == user }.sortedBy { it.key }.map { it.value } }
+
+    fun message(id: String): TextMessage? = synchronized(messageLock) { val c = cache(); keyById[id]?.let { c[it] } }
+
+    fun removeMessage(message: TextMessage) = synchronized(messageLock) {
+        val key = keyById[message.id] ?: messageKey(message)
+        store.remove(Spaces.MESSAGES, key)
+        cache().remove(key)
+        keyById.remove(message.id)
+    }
+
+    fun removeMessagesOf(user: String) = synchronized(messageLock) {
+        val c = cache()
+        c.filterValues { it.user == user }.keys.toList().forEach { key ->
+            store.remove(Spaces.MESSAGES, key)
+            c.remove(key)?.let { keyById.remove(it.id) }
         }
     }
 
