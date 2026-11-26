@@ -101,8 +101,18 @@ object TalkBubble {
     private var lockHint: ImageView? = null
     /** The red bell beside Push while it is held: slid onto it, the push is urgent (2026-11-25, hen). */
     private var bellHint: ImageView? = null
+    /**
+     * The microphone in the bell's place while everyone can hear (2026-11-26, hen: "the urgent indicator should be only
+     * if the user didn't hear; until then it should be a microphone icon, and sliding to it turns into hands-free voice
+     * transmission"): slid onto it and let go, the push goes on hands-free, voice, until Stop.
+     */
+    private var micHint: ImageView? = null
+    /** The side target is the bell now (someone can't hear), not the microphone. */
+    private var sideBell = false
     /** This press is urgent. */
     private var urgent = false
+    /** Slid onto the microphone: this press goes on hands-free, voice, when let go (and until Stop). */
+    private var sideVoice = false
     private var downX = 0f
     // The live row at the top (its own window, as wide as the screen; what shows in it never moves or resizes it):
     // one cell for each side, a voice pill or a video box, placed by LiveLayout and moved by LiveMotion.
@@ -383,11 +393,20 @@ object TalkBubble {
             contentDescription = context.getString(R.string.talk_urgent)
             visibility = View.INVISIBLE
         }
-        // The lock and the bell share the room above the pill: the lock over Push, the bell up and to its right (on
-        // the screen, in either language), both in the window's own room so nothing moves when they show.
+        micHint = ImageView(context).apply {
+            setImageResource(R.drawable.ic_bubble_mic)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xF2191D1C.toInt()); setStroke(dp(2), PINK) }
+            contentDescription = context.getString(R.string.talk_hands_free)
+            visibility = View.INVISIBLE
+        }
+        // The lock and the side target share the room above the pill: the lock over Push, the microphone (or the bell)
+        // up and to its left on the screen, in either language (2026-11-26, hen: "it should be on the other side:
+        // right-handed thumbs hide the icon"), all in the window's own room so nothing moves when they show.
         val hints = FrameLayout(context).apply {
             clipChildren = false
             addView(lockHint, FrameLayout.LayoutParams(dp(42), dp(58), Gravity.CENTER))
+            addView(micHint, FrameLayout.LayoutParams(dp(42), dp(42), Gravity.CENTER or Gravity.BOTTOM))
             addView(bellHint, FrameLayout.LayoutParams(dp(42), dp(42), Gravity.CENTER or Gravity.BOTTOM))
         }
         val holder = LinearLayout(context).apply {
@@ -561,6 +580,7 @@ object TalkBubble {
                     downY = e.rawY
                     downX = e.rawX
                     urgent = false
+                    sideVoice = false
                     goingLive = false
                     startTalk(context, video = false)
                     runStarted = talkStarted
@@ -570,21 +590,29 @@ object TalkBubble {
             }
             MotionEvent.ACTION_MOVE -> {
                 val up = downY - e.rawY
-                // Slid right onto the bell (on the screen, in either language): this push is urgent from here.
-                if (talking && !locked && !urgent && e.rawX - downX > dp(context, URGENT_DP - 8)) {
-                    urgent = true
+                // Leftward on the screen, in either language: toward the side target.
+                val side = downX - e.rawX
+                // Slid left onto the side target. The bell (someone can't hear now): this push is urgent from here.
+                // The microphone (everyone hears): it goes on hands-free, voice, once let go.
+                if (talking && !locked && !urgent && !sideVoice && side > dp(context, URGENT_DP - 8)) {
                     v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
-                    markUrgent(context)
-                    showUrgent(context)
+                    if (sideBell) {
+                        urgent = true
+                        markUrgent(context)
+                        showUrgent(context)
+                    } else {
+                        sideVoice = true
+                        (micHint?.background as? GradientDrawable)?.setColor(PINK)
+                    }
                 }
                 // Starting to slide up: the camera opens now, so the video starts fast at the lock.
-                if (talking && !locked && !warming && !urgent && up > e.rawX - downX && up > dp(context, 16) && cameraAllowed(context)) {
+                if (talking && !locked && !warming && !urgent && !sideVoice && up > side && up > dp(context, 16) && cameraAllowed(context)) {
                     warming = true
                     showMode(context)
                 }
                 // At the lock: hands-free video until Stop. The voice so far goes as it is; the video burst follows.
-                // Not when heading for the bell, or urgent already: the same push goes on (2026-11-26, hen).
-                if (talking && !locked && !urgent && up > e.rawX - downX && up > dp(context, LOCK_DP)) {
+                // Not when heading for the side target, or on it already: the same push goes on (2026-11-26, hen).
+                if (talking && !locked && !urgent && !sideVoice && up > side && up > dp(context, LOCK_DP)) {
                     if (!cameraAllowed(context)) {
                         chat?.let { askCamera(context, it) }
                         return true
@@ -614,14 +642,15 @@ object TalkBubble {
                     main.removeCallbacks(coolCamera)
                     main.postDelayed(coolCamera, 2_000)
                 }
-                // Let go on the bell: hands-free, urgent voice, until Stop (2026-11-26, hen), as in the chat.
-                if (talking && !locked && urgent) {
+                // Let go on the side target: hands-free voice until Stop (2026-11-26, hen), urgent when it was the bell.
+                if (talking && !locked && (urgent || sideVoice)) {
                     locked = true
                     lockSince = System.currentTimeMillis()
                     showLocked(true)
                     main.removeCallbacks(renew)
                     main.postDelayed(renew, RENEW_MS)
-                    Log.i(TAG, "urgent lock: hands-free voice until Stop")
+                    refreshTop(context)
+                    Log.i(TAG, if (urgent) "urgent lock: hands-free voice until Stop" else "voice lock: hands-free voice until Stop")
                 }
                 // Held: letting go sends. A short tap (or the lock) keeps talking until the next one.
                 else if (talking && !locked && System.currentTimeMillis() - talkStarted >= HOLD_MS) endTalk(context, send = true)
@@ -651,15 +680,63 @@ object TalkBubble {
             lock.alpha = 0f
             lock.visibility = View.VISIBLE
             lock.animate().alpha(1f).setDuration(150).start()
-            bellHint?.let { bell ->
-                bell.translationX = (at - holder.width / 2 + dp(push.context, URGENT_DP)).toFloat()
-                bell.alpha = 0f
-                bell.visibility = View.VISIBLE
-                bell.animate().alpha(1f).setDuration(150).start()
+            // The side target, to the left of Push on the screen: the bell only while someone can't hear now.
+            sideBell = someoneCantHear(push.context)
+            (micHint?.background as? GradientDrawable)?.setColor(0xF2191D1C.toInt())
+            listOf(micHint to !sideBell, bellHint to sideBell).forEach { (hint, shown) ->
+                hint ?: return@forEach
+                hint.animate().cancel()
+                hint.translationX = (at - holder.width / 2 - dp(push.context, URGENT_DP)).toFloat()
+                hint.alpha = 0f
+                hint.visibility = View.VISIBLE
+                if (shown) hint.animate().alpha(1f).setDuration(150).start()
             }
+            main.removeCallbacks(sideWatch)
+            main.postDelayed(sideWatch, 300)
         } else if (lock.visibility == View.VISIBLE) {
             lock.visibility = View.INVISIBLE
             bellHint?.visibility = View.INVISIBLE
+            micHint?.visibility = View.INVISIBLE
+            main.removeCallbacks(sideWatch)
+        }
+    }
+
+    /**
+     * Someone in this chat can't hear a push now: their phone says Do Not Disturb, silent or in a call, or this push
+     * was saved there (TalkUiState.heard). Offline or unknown doesn't count: nothing urgent would get through.
+     */
+    private fun someoneCantHear(context: Context): Boolean {
+        val chat = chat ?: return false
+        val state = messagingState(context).value
+        val users = Group.idOf(chat)?.let { id ->
+            val me = com.chencohen.ptt.myUser(context)
+            state.groups.firstOrNull { it.id == id }?.readers?.map { it.user }?.filter { it != me }
+        } ?: listOf(chat)
+        val cant = setOf(com.chencohen.ptt.talk.Hear.DND, com.chencohen.ptt.talk.Hear.SILENT, com.chencohen.ptt.talk.Hear.IN_CALL)
+        if (users.any { u -> state.presence[u]?.let { com.chencohen.ptt.talk.Hear.of(it.online, it.hear) } in cant }) return true
+        val saved = setOf(
+            com.chencohen.ptt.talk.HeardStatus.SAVED_DND, com.chencohen.ptt.talk.HeardStatus.SAVED_SILENT,
+            com.chencohen.ptt.talk.HeardStatus.SAVED_IN_CALL, com.chencohen.ptt.talk.HeardStatus.SAVED_URGENT_NOT_ALLOWED,
+        )
+        val mine = state.talk.own?.takeIf { it.chat == chat }?.clip?.let { state.talk.heard[it] }.orEmpty()
+        return mine.values.any { it in saved }
+    }
+
+    /**
+     * While Push is held: the side target follows who can hear, the microphone and the bell changing places in one
+     * move (a cross-fade, 220 ms). Once slid onto it, it stays what it was.
+     */
+    private val sideWatch = object : Runnable {
+        override fun run() {
+            val lock = lockHint ?: return
+            if (lock.visibility != View.VISIBLE || pillWindow == null) return
+            val bell = someoneCantHear(lock.context)
+            if (bell != sideBell && !urgent && !sideVoice) {
+                sideBell = bell
+                micHint?.animate()?.alpha(if (bell) 0f else 1f)?.setDuration(220)?.start()
+                bellHint?.animate()?.alpha(if (bell) 1f else 0f)?.setDuration(220)?.start()
+            }
+            main.postDelayed(this, 300)
         }
     }
 
@@ -790,8 +867,8 @@ object TalkBubble {
             endTalk(context, send = true, keepLock = true)
             main.postDelayed({
                 if (locked && !talking && pillWindow != null) {
-                    // An urgent lock renews as urgent voice; the slide-up's as video.
-                    startTalk(context, video = !urgent)
+                    // A lock from the side target renews as voice (urgent when it was the bell); the slide-up's as video.
+                    startTalk(context, video = !urgent && !sideVoice)
                     if (urgent) main.postDelayed({ if (talking) markUrgent(context) }, 600)
                     main.postDelayed(this, RENEW_MS)
                 }
@@ -870,6 +947,10 @@ object TalkBubble {
             urgent = false
             (bellHint?.background as? GradientDrawable)?.setColor(0xF2191D1C.toInt())
         }
+        if (sideVoice && !keepLock) {
+            sideVoice = false
+            (micHint?.background as? GradientDrawable)?.setColor(0xF2191D1C.toInt())
+        }
         sendingVideo = false
         showMode(context)
         refreshTop(context)
@@ -935,8 +1016,10 @@ object TalkBubble {
         // Mine stays a box from the lock to Stop, through the moment between a hands-free floor and its renewal.
         // A press that waits for the floor sends nothing and shows nothing live (2026-11-25, hen: "only when the UI
         // says it's transmitting, then transmit"): no pill or box of mine until its turn comes.
-        val mine = ((sendingVideo || goingLive || locked) && !waiting) || out?.mine == LiveKind.Video
-        val myVoice = !mine && !topPutAway && ((talking && !waiting) || out?.mine == LiveKind.Voice)
+        // A lock from the side target is voice: my pill, staying through its renewals, never a box.
+        val voiceLock = locked && (urgent || sideVoice)
+        val mine = ((sendingVideo || goingLive || (locked && !voiceLock)) && !waiting) || out?.mine == LiveKind.Video
+        val myVoice = !mine && !topPutAway && (((talking || voiceLock) && !waiting) || out?.mine == LiveKind.Voice)
         main.removeCallbacks(hideSoon)
         val groupOn = members.isNotEmpty() || groupCells.values.any { it.cell.on }
         if (!theirOn && !mine && !myVoice && !groupOn) {
@@ -1951,19 +2034,41 @@ object TalkBubble {
      * moves there), and the top box grows a little and fades into it (200 ms) instead of sliding away.
      */
     private fun intoChat(context: Context, chat: String) {
-        openChat(context, chat)
-        if (outside != null) {
-            // The floating chat's row: the chat opens in the app, the floating one closes, and the row goes with it.
-            QuickReplyWindow.close(context)
-        } else {
-            topCard?.let { card ->
-                // About the row's own middle.
-                card.pivotX = card.width / 2f
-                card.pivotY = restTop + (topMotion.rects.values.maxOfOrNull { it.bottom } ?: 0f) / 2
-                card.animate().scaleX(1.1f).scaleY(1.1f).alpha(0f).setDuration(200).start()
-            }
+        // My push from here ends first (sent): the microphone is on only while a red Push shows.
+        if (talking) {
+            locked = false
+            endTalk(context, send = true)
         }
-        pill?.animate()?.alpha(0f)?.setDuration(200)?.withEndAction { remove() }?.start() ?: remove()
+        val row = pill
+        if (outside != null) {
+            // The floating chat's row: the floating chat grows into the app's chat (or, showing another, closes and
+            // the chat opens the plain way), and the row goes with it.
+            if (!QuickReplyWindow.intoChat(context, chat)) {
+                openChat(context, chat)
+                QuickReplyWindow.close(context)
+            }
+            row?.animate()?.alpha(0f)?.setDuration(200)?.withEndAction { remove() }?.start() ?: remove()
+            return
+        }
+        // The pill itself grows into the chat (2026-11-26, hen: "an expanding transformation"): a window in its exact
+        // place, shape and colour takes over and grows to the whole screen, the chat showing through; the pill's
+        // buttons go in its first moments.
+        val at = IntArray(2)
+        val grows = row != null && row.isLaidOut && run {
+            row.getLocationOnScreen(at)
+            QuickReplyWindow.growFrom(
+                context, chat, at[0], at[1] + row.translationY.toInt().coerceAtMost(0), at[0] + row.width, at[1] + row.height,
+                radius = row.height / 2f, color = 0xF2191D1C.toInt(),
+            )
+        }
+        if (!grows) openChat(context, chat)
+        topCard?.let { card ->
+            // About the row's own middle.
+            card.pivotX = card.width / 2f
+            card.pivotY = restTop + (topMotion.rects.values.maxOfOrNull { it.bottom } ?: 0f) / 2
+            card.animate().scaleX(1.1f).scaleY(1.1f).alpha(0f).setDuration(200).start()
+        }
+        row?.animate()?.alpha(0f)?.setStartDelay(if (grows) 80 else 0)?.setDuration(if (grows) 120 else 200)?.withEndAction { remove() }?.start() ?: remove()
     }
 
     private fun openChat(context: Context, chat: String) = runCatching {
@@ -2018,6 +2123,10 @@ object TalkBubble {
         stopPill = null
         lockHint = null
         bellHint = null
+        micHint = null
+        sideVoice = false
+        urgent = false
+        main.removeCallbacks(sideWatch)
         pillMorph?.cancel()
         pillMorph = null
         stopShown = false

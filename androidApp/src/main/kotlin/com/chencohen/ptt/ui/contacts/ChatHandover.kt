@@ -1,0 +1,26 @@
+package com.chencohen.ptt.ui.contacts
+
+import androidx.compose.runtime.mutableStateOf
+
+/**
+ * The floating chat growing into the app's chat, and back (2026-11-26, hen: "the navigation from floating to chat
+ * screen should feel seamless, an expanding transformation"). The floating window grows over the whole screen showing
+ * the chat as the app does; the app opens under it, unseen, and says here when its chat is drawn; only then the window
+ * goes. What the two must agree on, so nothing moves at that moment, goes through here.
+ */
+internal object ChatHandover {
+    /** [chat] is handed to the app with [draft] written in the window; [token] tells one handing from the next. */
+    data class Landing(val chat: String, val draft: String, val token: Long)
+
+    /**
+     * The chat the floating window hands to the app now: the app's chat comes up as the window shows it (at its end,
+     * the keyboard away, the same words in the draft).
+     */
+    val landing = mutableStateOf<Landing?>(null)
+
+    /** The app's chat is on the screen, drawn (MainActivity): the floating window may go. */
+    var onLanded: ((String) -> Unit)? = null
+
+    /** The app left the screen (MainActivity.onStop): the window covering it may shrink back to floating. */
+    var onLeft: (() -> Unit)? = null
+}

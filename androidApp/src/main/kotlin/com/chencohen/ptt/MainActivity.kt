@@ -56,6 +56,83 @@ class MainActivity : ComponentActivity() {
     private var wokenChat: String? = null
     private var touched = false
 
+    /**
+     * Opened from the floating chat, which covers the screen until this chat is drawn (QuickReplyWindow, ChatHandover;
+     * 2026-11-26, hen: "an expanding transformation"): the chat to say "drawn" for, once the app is in front and its
+     * way in is over.
+     */
+    private var landing: String? = null
+    private var enterDone = true
+    private var started = false
+    private var resumed = false
+    /** The chat opened from the floating chat over another app: Back from it goes back to floating there. */
+    private var fromWindow: String? = null
+
+    /** The app is in front and the chat composed: two frames on, it is drawn, and the floating window is told. */
+    private fun landSoon() {
+        val chat = landing ?: return
+        if (!resumed || !enterDone) return
+        landing = null
+        val view = window.decorView
+        var frames = 0
+        val choreographer = android.view.Choreographer.getInstance()
+        choreographer.postFrameCallback(object : android.view.Choreographer.FrameCallback {
+            override fun doFrame(nanos: Long) {
+                if (++frames < 3) {
+                    choreographer.postFrameCallback(this)
+                    return
+                }
+                var told = false
+                val tell = Runnable {
+                    if (!told) {
+                        told = true
+                        com.chencohen.ptt.ui.contacts.ChatHandover.onLanded?.invoke(chat)
+                    }
+                }
+                runCatching { view.viewTreeObserver.registerFrameCommitCallback { view.post(tell) } }
+                view.invalidate()
+                view.postDelayed(tell, 200)
+            }
+        })
+    }
+
+    override fun onEnterAnimationComplete() {
+        super.onEnterAnimationComplete()
+        enterDone = true
+        landSoon()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        resumed = true
+        if (landing != null) {
+            landSoon()
+            // Android never said the way in was over: on anyway.
+            window.decorView.postDelayed({
+                enterDone = true
+                landSoon()
+            }, 700)
+        }
+    }
+
+    override fun onPause() {
+        resumed = false
+        super.onPause()
+    }
+
+    /**
+     * Back from [chat], opened from the floating chat over another app: the floating chat again, there (it covers the
+     * screen, this app leaves under it, and it shrinks back). False: Back as always.
+     */
+    private fun leaveToWindow(chat: String): Boolean {
+        if (fromWindow != chat) return false
+        return QuickReplyWindow.shrinkFrom(this, chat) {
+            fromWindow = null
+            moveTaskToBack(true)
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        }
+    }
+
     /** A volume key held down for talk, not yet let go. */
     private var volumeTalk = false
     private var volumeDownAt = 0L
@@ -170,6 +247,7 @@ class MainActivity : ComponentActivity() {
                             StayConnectedService.set(this@MainActivity, new.stayConnected)
                         },
                         openedClip = openedClip,
+                        leaveToWindow = ::leaveToWindow,
                     )
                     if (afterTalk) {
                         // The black curtain: nothing but black; a tap goes to the lock screen.
@@ -188,6 +266,7 @@ class MainActivity : ComponentActivity() {
     // background is a setting in phase 5 (FCM wakes the phone in phase 3).
     override fun onStart() {
         super.onStart()
+        started = true
         // On screen: the reply bubble isn't needed.
         TalkBubble.dismiss()
         // A newer release of the app, as the server read it from GitHub (docs/design.md, "App updates").
@@ -344,6 +423,10 @@ class MainActivity : ComponentActivity() {
         viewModel.messaging.stop()
         viewModel.connection.stop()
         super.onStop()
+        started = false
+        fromWindow = null
+        // The floating chat covering this app (Back to floating) may shrink now: the app is off the screen.
+        com.chencohen.ptt.ui.contacts.ChatHandover.onLeft?.invoke()
         // Their live video goes on in the floating window.
         if (!afterTalk && !isChangingConfigurations) TalkPlaying.leftApp(application as TalkApp)
     }
@@ -381,7 +464,16 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (intent?.action == Notifications.ACTION_OPEN) {
-            openedChat = intent.getStringExtra(Notifications.EXTRA_USER)
+            val chat = intent.getStringExtra(Notifications.EXTRA_USER)
+            openedChat = chat
+            if (chat != null && intent.getBooleanExtra(EXTRA_FROM_WINDOW, false)) {
+                // The floating chat covers the screen until this one is drawn. Already on screen (the window floated
+                // over this app): no way in to wait for, and Back stays this app's.
+                landing = chat
+                enterDone = started
+                fromWindow = if (started) null else chat
+                landSoon()
+            }
             return
         }
         // A talk notification: Play plays the burst in its chat; Reply opens Talk mode there.
@@ -440,6 +532,8 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_WAKE = "wake"
         /** With ACTION_TALK: ask for the camera (the reply bubble's Video, 2026-11-23). */
         const val EXTRA_ASK_CAMERA = "ask_camera"
+        /** With Notifications.ACTION_OPEN: the floating chat grew into this chat and waits to be told it is drawn. */
+        const val EXTRA_FROM_WINDOW = "from_window"
 
         /** A call from the reply bubble: [EXTRA_VIDEO], to Notifications.EXTRA_USER. */
         const val ACTION_CALL = "com.chencohen.ptt.CALL_FROM_BUBBLE"
