@@ -196,12 +196,18 @@ internal fun ConversationScreen(
     live: ChatLive = ChatLive(),
     embeddedFull: Boolean = false,
     embeddedCalm: Boolean = false,
+    /**
+     * The Talk tab's stage (2026-11-26, hen: the Talk tab "in resemblance of the chat app"): drawn where the messages
+     * are, with [embeddedHeader] (its row of faces) in place of the header, and no writing bubble. The bottom strip,
+     * the live pills and video and the who-can't-hear chips are the chat's own.
+     */
+    stage: (@Composable () -> Unit)? = null,
 ) {
     val phone = androidx.compose.ui.platform.LocalLayoutDirection.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
     ) {
-        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm)
+        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage)
     }
 }
 
@@ -244,6 +250,7 @@ private fun ConversationScreenIn(
     embeddedFull: Boolean = false,
     /** The floating chat is growing or shrinking: the keyboard goes and the draft rests, as the app's chat will show it. */
     embeddedCalm: Boolean = false,
+    stage: (@Composable () -> Unit)? = null,
 ) {
     // In the floating window, as it floats: its header, no status bar room.
     val embedded = embeddedHeader != null && !embeddedFull
@@ -663,7 +670,7 @@ private fun ConversationScreenIn(
         val marksAcross = marksAcross((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 24).dp)
         val nameOfMark: (String) -> String = { who -> if (group == null) contact?.name ?: who else who }
         // Writing in the chat (2026-11-23, hen): the draft bubble at the end of the list.
-        val canWrite = if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
+        val canWrite = stage == null && if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
         val draft = remember(user) { ChatDraft() }
         val focus = remember { androidx.compose.ui.focus.FocusRequester() }
         val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -929,6 +936,8 @@ private fun ConversationScreenIn(
         }
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { autoplay.viewport = it.boundsInWindow() }) {
           androidx.compose.runtime.CompositionLocalProvider(LocalVideoAutoplay provides autoplay) {
+            // The Talk tab: its stage where the messages are, clear of the strip.
+            if (stage != null) Box(Modifier.fillMaxSize().padding(bottom = floatingRoom)) { stage() } else
             LazyColumn(
                 Modifier.fillMaxSize()
                     .pointerInput(Unit) {
@@ -1476,7 +1485,7 @@ private val HEADER_HEIGHT = 48.dp
  * close into the whole ring ([morphRing], the line my bubble's outline is drawn with).
  */
 @Composable
-private fun Modifier.faceRing(ring: Int): Modifier = morphRing(ring, LibraryColors.Accent)
+internal fun Modifier.faceRing(ring: Int): Modifier = morphRing(ring, LibraryColors.Accent)
 
 /**
  * The header's own edge (2026-11-25, hen chose "A · Hairline"; 2026-11-26, hen: only while messages are scrolled under
