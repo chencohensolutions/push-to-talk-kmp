@@ -303,10 +303,10 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   both sides' items are in the row. A tap turns the talk room into the call, with no ringing (2026-11-25, hen: "it's
   calling the recipient instead of opening the call seamlessly"), the same from the chat, the floating window and the
   floating chat (`startRoomCall`); when there is no shared room to turn, a short word ("Can't make this a call right
-  now"), never a ringing call. The call is shown inside
-  the chat; their phone takes it at once, also inside the chat. With "Both live becomes a call" on
+  now"), never a ringing call. Both phones go straight to the full call screen (2026-11-26, hen: "it should
+  navigate to the call screen"; docs/screens/calls.md, "A push turned into a call"); their phone takes it at once. With "Both live becomes a call" on
   for the chat (off by default) it happens after 10 s without the tap.
-- **A call inside the chat.** In the live panel's place and the same size: 3:4 boxes 23.6% of the screen high, side
+- **A call inside the chat** (no longer used since 2026-11-26: the call screen opens instead). In the live panel's place and the same size: 3:4 boxes 23.6% of the screen high, side
   by side and centred, theirs from the start side and mine at the end (in a group two of theirs at most, then "+N"). At the bottom only a teal bar
   "Video call · 3:20" with End, then mute, camera, flip and full screen. Messages stay visible
   between them. Full screen moves it to the usual call screen; leaving the chat shows the usual call screen too. When

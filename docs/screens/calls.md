@@ -144,6 +144,16 @@ The **Calls** tab (`CallsList`) lists every call, newest first: the letter circl
 button at the right that calls back. A tap on the row opens the chat. With no calls yet, its empty state stays: "No calls yet. Calls you make and get
 show here."
 
+## A push turned into a call (2026-11-26, hen)
+
+"You're both live · Make it a call" (or Both live becomes a call after 10 s) turns the talk room into the call, with
+no ringing, and both phones go straight to a full call screen (`RoomCallScreen`, "turn push to transmit into call
+... should navigate to the call screen"): their camera in the middle, whole, or their face while they show none; mine
+in a small rounded window at the top end while it's on; the chat's name and the time on top; Mute, Camera and Hang
+up at the bottom, as on any call. Back does nothing during it. Hang up ends it on both phones and they're back in the
+chat, where it is logged like any call. A video call taken at once because both were live also opens on the usual
+call screen. The call inside the chat (below) is no longer used.
+
 ## A call inside the chat (2026-11-24, hen)
 
 Started from "You're both live · Make it a call" (or by itself after 10 s with Both live becomes a call), the call

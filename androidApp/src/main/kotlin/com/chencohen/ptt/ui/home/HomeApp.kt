@@ -669,17 +669,8 @@ fun HomeApp(
                             liveWaiting = viewingIn(messagingState.liveWaiting, user, System.currentTimeMillis(), Group.idOf(user) != null),
                             autoCall = user in messagingState.talkSettings.bothLiveCall,
                             roomCallCamera = messagingState.roomCall?.takeIf { it.chat == user }?.camera == true,
-                            // Both live made it a call in the talk room itself (2026-11-25, hen): no new room.
-                            call = messagingState.roomCall?.takeIf { it.chat == user }?.let { rc ->
-                                com.chencohen.ptt.ui.contacts.InChatCall(
-                                    top = { com.chencohen.ptt.ui.contacts.RoomCallTop(rc, user, chatName(user), state.device?.user.orEmpty()) },
-                                    bottom = {
-                                        com.chencohen.ptt.ui.contacts.RoomCallBottom(rc, end = { messaging.endRoomCall() }) { mic, cam ->
-                                            messaging.setRoomCallMedia(mic, cam)
-                                        }
-                                    },
-                                )
-                            } ?: messagingState.call?.takeIf { it.chat == user && inChatCallFor == user && it.phase != com.chencohen.ptt.calls.CallPhase.ENDED && !inPip }?.let { c ->
+                            // A push turned into a call opens the call screen (2026-11-26, hen), not a call inside the chat.
+                            call = messagingState.call?.takeIf { it.chat == user && inChatCallFor == user && it.phase != com.chencohen.ptt.calls.CallPhase.ENDED && !inPip }?.let { c ->
                                 val transport = remember { runCatching { com.chencohen.ptt.callTransport(context) }.getOrNull() }
                                 com.chencohen.ptt.ui.contacts.InChatCall(
                                     top = { com.chencohen.ptt.ui.calls.ChatCallTop(c, chatName(user), transport) },
@@ -926,13 +917,22 @@ fun HomeApp(
             LaunchedEffect(callHere?.id, callHere?.phase) {
                 val c = callHere ?: return@LaunchedEffect
                 if (c.incoming && c.video && c.phase == com.chencohen.ptt.calls.CallPhase.RINGING && c.chat == bothLiveIn) {
-                    inChatCallFor = c.chat
+                    // Taken at once, on the call screen (2026-11-26, hen: a push turned into a call opens the call screen).
                     callPermissions(true) { messaging.acceptCall() }
                 }
                 if (c.phase == com.chencohen.ptt.calls.CallPhase.ENDED && inChatCallFor == c.chat) {
                     inChatCallFor = null
                     messaging.dismissEndedCall()
                 }
+            }
+            // A push turned into a call (the talk room's own), over everything like any call.
+            messagingState.roomCall?.let { rc ->
+                BackHandler { }
+                com.chencohen.ptt.ui.calls.RoomCallScreen(
+                    rc, chatName(rc.chat), state.device?.user.orEmpty(),
+                    end = { messaging.endRoomCall() },
+                    media = { mic, cam -> messaging.setRoomCallMedia(mic, cam) },
+                )
             }
             messagingState.call?.takeIf { !(it.chat == inChatCallFor && stack.lastOrNull() == "chat/" + it.chat && it.phase != com.chencohen.ptt.calls.CallPhase.ENDED && !inPip) }?.let { current ->
                 // During a call Back does nothing (the call goes on); once it has ended, Back closes "Call ended".

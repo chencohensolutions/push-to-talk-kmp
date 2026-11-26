@@ -1108,3 +1108,70 @@ private fun SmallCallButton(icon: ImageVector, label: String, onClick: () -> Uni
         contentAlignment = Alignment.Center,
     ) { Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(22.dp)) }
 }
+
+/**
+ * A push turned into a call (2026-11-26, hen: "turn push to transmit into call ... should navigate to the call
+ * screen"): the talk room's call, full screen like any call, over everything, the same room (no ringing). Their
+ * camera fills the middle (whole, as big as fits), or their face while they show none; mine in a small rounded
+ * window at the top end while it's on; the chat's name and the time on top; Mute, Camera and Hang up at the bottom.
+ */
+@Composable
+internal fun RoomCallScreen(
+    call: com.chencohen.ptt.messaging.RoomCall,
+    title: String,
+    me: String,
+    end: () -> Unit,
+    media: (microphone: Boolean, camera: Boolean) -> Unit,
+) {
+    val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsStateWithLifecycle()
+    val theirs = arriving.values.firstOrNull { it.identity.substringBeforeLast('.') != me }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(call.since) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    Box(Modifier.fillMaxSize().background(Color(0xFF0F1413)).pointerInput(Unit) { detectTapGestures { } }) {
+        if (theirs != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                com.chencohen.ptt.ui.talk.RoomVideoView(theirs, Modifier.fillMaxWidth().aspectRatio(1f / theirs.aspect.coerceIn(0.3f, 3f)))
+            }
+        }
+        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 24.dp, start = 24.dp, end = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (theirs == null) {
+                Spacer(Modifier.height(48.dp))
+                Avatar(call.chat, size = 96.dp, name = title)
+                Spacer(Modifier.height(12.dp))
+            }
+            Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
+            Text(clipLength((now - call.since).coerceAtLeast(0)), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
+        }
+        if (call.camera) {
+            val shape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+            val (w, h) = ownWindowDp(shape)
+            Box(
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 120.dp, end = 16.dp)
+                    .size(w.dp, h.dp).clip(RoundedCornerShape(12.dp)),
+            ) { com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true) }
+        }
+        Row(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f))))
+                .navigationBarsPadding().padding(24.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            RoundButton(
+                if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff,
+                stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute),
+                Color.White.copy(alpha = 0.18f),
+            ) { media(!call.microphone, call.camera) }
+            RoundButton(
+                if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff,
+                stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on),
+                Color.White.copy(alpha = 0.18f),
+            ) { media(call.microphone, !call.camera) }
+            RoundButton(LibraryIcons.Call, stringResource(R.string.call_hang_up), LibraryColors.Error, end)
+        }
+    }
+}
