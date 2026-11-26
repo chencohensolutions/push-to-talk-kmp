@@ -158,6 +158,8 @@ class HomeActions(
     val stopClip: () -> Unit = {},
     /** A text from the Talk tab's open row (it reads the chat too, as answering does). */
     val sendText: (chat: String, body: String) -> Unit = { _, _ -> },
+    /** The Talk tab's "+": a chat on it or off (Quick talk). */
+    val setQuickTalk: (chat: String, on: Boolean) -> Unit = { _, _ -> },
     val micDenied: () -> Unit = {},
     val warmMicrophone: (Boolean) -> Unit = {},
     /** The home card's Update (docs/design.md, "App updates"). */
@@ -298,7 +300,7 @@ fun HomeApp(
     val hearOf = remember(presence) { { u: String -> presence[u]?.let { com.chencohen.ptt.talk.Hear.of(it.online, it.hear) } ?: com.chencohen.ptt.talk.Hear.UNKNOWN } }
     // A chat's own screen: the chat page, and the Talk tab's stage (2026-11-26, hen) with its faces row as [header].
     @Composable
-    fun ChatScreenFor(user: String, header: (@Composable () -> Unit)? = null, stage: (@Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit)? = null, pushTo: String? = null) {
+    fun ChatScreenFor(user: String, header: (@Composable () -> Unit)? = null, stage: (@Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit)? = null, pushTo: String? = null, writeHint: String? = null, writeOpens: (() -> Unit)? = null) {
         // "typing…" ends by itself when its time is up.
         var now by remember { mutableStateOf(System.currentTimeMillis()) }
         val group = Group.idOf(user)?.let { id -> messagingState.groups.firstOrNull { it.id == id } }
@@ -316,6 +318,8 @@ fun HomeApp(
             embeddedHeader = header,
             stage = stage,
             pushTo = pushTo,
+            writeHint = writeHint,
+            writeOpens = writeOpens,
             contact = messagingState.contacts.firstOrNull { it.user == user },
             messages = messagingState.conversations[user].orEmpty(),
             header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
@@ -464,7 +468,14 @@ fun HomeApp(
                         },
                         micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                         warmMicrophone = messaging::warmMicrophone,
-                        talkChat = { c, h, s -> ChatScreenFor(c, h, s, chatName(c)) },
+                        talkChat = { c, h, s ->
+                            // The Talk tab: the chat's own bottom, its writing bubble naming the chat and opening it to write.
+                            ChatScreenFor(c, h, s, writeHint = resources.getString(R.string.talk_reply_to, chatName(c))) {
+                                com.chencohen.ptt.ui.contacts.ChatHandover.landing.value = com.chencohen.ptt.ui.contacts.ChatHandover.Landing(c, "", System.currentTimeMillis(), write = true)
+                                push("chat/$c")
+                            }
+                        },
+                        setQuickTalk = { chat, on -> setQuickTalk(chat, on) },
                         playClip = messaging::playClip,
                         stopClip = messaging::stopPlaying,
                         sendText = { chat, body ->
@@ -1009,21 +1020,29 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
             val unnamed = stringResource(R.string.group_unnamed)
             val contactNames = chats.contacts.filter { it.paired && !it.blocked }.associate { c -> c.user to c.name }
             val groups = chats.groups.filter { !it.gone && it.isReader(me) }.associateBy { it.chat }
-            // Everyone, people and groups (2026-11-26, hen: "contact very quickly coworkers, also with messages").
-            val hearNow = com.chencohen.ptt.ui.talk.LocalHear.current
-            fun hears(u: String) = hearNow(u) == com.chencohen.ptt.talk.Hear.OK
-            val talkingIn = chats.talk.talkers.filterValues { it.user != me }.keys
-            val items = contactNames.map { (u, name) ->
-                val c = chats.contacts.first { it.user == u }
+            // Only the Quick talk chats, in the order they were marked (2026-11-26, hen: "only chats marked as quick chat
+            // should appear there, its not many").
+            val quick = chats.talkSettings.quickTalk
+            val items = com.chencohen.ptt.talk.QuickTalk.pages(quick, contactNames.keys + groups.keys).map { chat ->
+                val g = groups[chat]
                 com.chencohen.ptt.ui.talk.TalkListItem(
-                    com.chencohen.ptt.talk.TalkList.Row(u, false, u in talkingIn, chats.lastMessages[u]?.at ?: 0L, c.addedAt, chats.unread[u] ?: 0, hears(u)),
-                    name, null, chats.lastMessages[u],
+                    chat = chat,
+                    name = g?.name?.ifBlank { unnamed } ?: contactNames.getValue(chat),
+                    group = g != null,
+                    groupPicture = g?.picture,
+                    last = chats.lastMessages[chat],
+                    unread = chats.unread[chat] ?: 0,
+                    members = g?.readers?.map { it.user }?.filter { it != me }.orEmpty(),
                 )
-            } + groups.values.map { g ->
-                com.chencohen.ptt.ui.talk.TalkListItem(
-                    com.chencohen.ptt.talk.TalkList.Row(g.chat, true, g.chat in talkingIn, chats.lastMessages[g.chat]?.at ?: 0L, g.createdAt, chats.unread[g.chat] ?: 0, g.readers.any { it.user != me && hears(it.user) }),
-                    g.name.ifBlank { unnamed }, g.picture, chats.lastMessages[g.chat],
-                )
+            }
+            val choices = (contactNames.map { (u, n) -> com.chencohen.ptt.ui.talk.TalkChoice(u, n, false, null, u in quick) } +
+                groups.values.map { g -> com.chencohen.ptt.ui.talk.TalkChoice(g.chat, g.name.ifBlank { unnamed }, true, g.picture, g.chat in quick) })
+                .sortedBy { it.name.lowercase() }
+            // "Empty" only once the chats have had time to come (it flashed at start).
+            var waited by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(2_000)
+                waited = true
             }
             // No top bar on Talk (2026-11-22, hen): the profile circle sits small in the corner instead.
             val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -1053,20 +1072,17 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 me = me,
                 talk = chats.talk,
                 nameOf = { u -> contactNames[u] ?: u },
-                recent = { c -> chats.conversations[c].orEmpty().filter { !it.deleted && it.call == null }.sortedBy { it.at }.takeLast(3) },
-                openChat = actions.openContact,
-                openChats = { selectTab(HomeTab.CHATS) },
+                write = { c -> actions.openContact(c) },
                 pageShown = actions.quickTalkShown,
-                send = actions.sendText,
+                choices = choices,
+                setOn = actions.setQuickTalk,
+                loaded = waited || contactNames.isNotEmpty() || groups.isNotEmpty(),
                 // The chat's own insets are the tab's here (it already keeps clear of the bars and the tabs).
                 modifier = Modifier.weight(1f).consumeWindowInsets(androidx.compose.foundation.layout.WindowInsets.Companion.systemBars),
                 warmMicrophone = actions.warmMicrophone,
                 setHere = actions.setHere,
                 viewing = { c -> viewingIn(chats.viewing, c, nowMs, Group.idOf(c) != null).isNotEmpty() },
-                playClip = actions.playClip,
-                press = actions.pressTalk,
-                release = actions.releaseTalk,
-                micDenied = actions.micDenied,
+                pushVideoFor = chats.talkSettings::pushVideoFor,
                 chat = actions.talkChat,
             )
             }

@@ -10,7 +10,7 @@ import androidx.compose.runtime.mutableStateOf
  */
 internal object ChatHandover {
     /** [chat] is handed to the app with [draft] written in the window, at [at] (which tells one handing from the next). */
-    data class Landing(val chat: String, val draft: String, val at: Long)
+    data class Landing(val chat: String, val draft: String, val at: Long, val write: Boolean = false)
 
     /**
      * The chat the floating window hands to the app now: the app's chat comes up as the window shows it (at its end,

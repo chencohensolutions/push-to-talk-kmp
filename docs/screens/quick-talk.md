@@ -3,27 +3,29 @@
 The app opens on **Talk**, the first home tab, before Chats and Calls (2026-11-22, hen: the main screen is push to
 talk). It is `ui/talk/QuickTalkHome.kt`; the list and its order are `talk/QuickTalk` in sharedLogic.
 
-- **The live list** (2026-11-26, hen: "the idea is to contact very quickly coworkers, also with messages"; concept 1
-  of `docs/screens/mocks/talk-home-mock.png`, in place of the faces row + stage tried the same day): every paired
-  contact and every group I can read, one row each (`talk/TalkList` in sharedLogic): its face with its presence ring
-  (solid: on that chat's screen; dashed: in its talk room; none: away) and can't-hear badge, its name, its last
-  message or push (while someone talks there, what the floor is doing, in the accent colour), and at the end its time
-  and unread count. Who is talking comes first, then the newest message, then the newest contact or group.
-- **Search and filters** on top, clear of my profile circle: Search first (a tap turns the row into a line for a
-  name, with Close; rows whose name holds it), then All, Hearing now (someone there can hear a push now), Unread (with
-  how many) and Groups. The chosen one is in ink. Neither moves the open row, so Push keeps going where it went.
-- **Hold a face** (a moment, so a scroll is never a push): a push to that row's chat until the finger lifts, the face a
-  little bigger with a pink ring meanwhile; then that row opens. Not while my push runs.
-- **One row is open**, in place, on a card: its last three messages (mine at the end side, a group's with who said
-  them; a tap on a push or voice message plays it), one-touch replies (Got it, On my way, 5 more minutes, One moment)
-  that send at once, a line to write ("Message to testbot") with Send, and **Full chat** at the row's end. A reply
-  reads the chat, as answering does. A tap on another row opens it (the card moves there in one calm move, 220 ms).
-- **The strip is the chat's own** (the open chat's screen is under the list): Push 64 dp with its slides (up for
-  hands-free video, left for hands-free voice or the urgent bell when someone can't hear), Stop while hands-free,
-  Voice message beside it, and "To testbot" beside them saying where Push goes. The live pills and video float at the
-  top, as in the chat.
-- **Whoever starts talking** opens (and Push answers them), unless my push runs; while it runs the open row stays.
-- **The row open last** is open next time (`TalkSettings.quickTalkPage`); else the first. Quick talk no longer limits which chats show.
+- **Made simple** (2026-11-26, hen: "its too complicated", "only chats marked as quick chat should appear there, its
+  not many", "the video and voice do not integrate nicely", "the chat ux and animation should resemble the chat
+  screen"; option A of `docs/screens/mocks/talk-live-list-review.png`, in place of the live list tried the same day).
+  Three rules: touch a name to choose it, hold Push to talk, touch the writing bubble to write.
+- **The header:** "Talk" beside my profile circle, and **+** at the other end: every contact and group with a switch;
+  on, it's a row here (the same Quick talk switch as on its page).
+- **The rows:** only the Quick talk chats, in the order they were marked, never re-sorted. Each: the face (56 dp) with
+  its presence ring (solid: on that chat's screen; dashed: in its talk room; none: away) and can't-hear badge, the
+  name (16 sp), one line (13 sp, its last message or push; in ink while unread) and the unread count. The chosen one
+  is a raised card (200 ms); touching it again opens its chat.
+- **The bottom is the chosen chat's own** (its screen is under the tab): its writing bubble, resting, reading "Message
+  to testbot", which is the only "to whom" sign; a touch opens that chat with the bubble already writing. Under it
+  the strip as in the chat: Push 64 dp and its slides, Voice message beside it, Stop while hands-free.
+- **Live in the rows, not over them:** someone talking: their face's ring is whole and glows, their name and line turn
+  teal ("testbot2 is talking"); nothing moves. Their video grows out of their face inside their row, top edge still,
+  the rows under it moving down (one move, 300 ms), and the row scrolls whole into view; it shrinks back the same
+  way. My push in the chosen row: my pill "You · 0:03" at its end; my hands-free video's box at its end (one time
+  for the whole run, kept over a renewal's gap); who can't hear me under the name. The floating window doesn't show
+  for the chosen chat while the tab is in front. "Make it a call" and the chat's other chips stay at the bottom.
+- **Whoever starts talking** is chosen (Push answers them), unless my push runs.
+- **None marked yet:** one line ("No one here yet. Add the people and groups you talk with most.") and **Add**, which
+  opens the same list as +. No Push and no writing bubble. Nothing is said before the chats have come (2 s at most).
+- **The chat chosen last** is chosen next time (`TalkSettings.quickTalkPage`); else the first.
 - **None yet:** "No quick talk chats yet. Turn on Quick talk on a contact’s or group’s page." with **Open Chats**.
 - **Quick talk switch:** on a [contact's page](contacts.md) and a [group's page](groups.md), above When I’m away:
   "Quick talk", "A page on the Talk tab: swipe to it and hold to talk." Turning it on adds the chat as the last page;

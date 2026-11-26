@@ -492,7 +492,8 @@ internal class Messaging(
     }
 
     /** The conversation open on the app's screen while the app is in front; null otherwise (QuickReply). */
-    val chatInFront: String? get() = openChat?.takeIf { foreground }
+    // The Talk tab's chosen chat counts too (2026-11-26: its row shows them live, so the floating window doesn't).
+    val chatInFront: String? get() = (openChat ?: hereFrom[HERE_SCREEN])?.takeIf { foreground }
     private val _state = MutableStateFlow(MessagingState())
     val state: StateFlow<MessagingState> = _state.asStateFlow()
 

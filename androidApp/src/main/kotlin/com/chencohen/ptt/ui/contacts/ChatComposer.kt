@@ -105,6 +105,10 @@ internal fun ComposeBubble(
     focused: () -> Unit = {},
     /** The text and where the caret is in it, at every change, the caret moving too (live typing shows it). */
     caret: (String, androidx.compose.ui.text.TextRange) -> Unit = { _, _ -> },
+    /** Its resting words, in place of "Write a message…". */
+    hint: String? = null,
+    /** A tap opens the chat (the Talk tab): the field takes no focus here. */
+    opens: Boolean = false,
 ) {
     // The field's own value, composition included, kept as the keyboard gives it (2026-11-24, hen: suggestions and
     // autocorrect didn't take when it was rebuilt from the text each time): set from outside only when the text
@@ -121,7 +125,7 @@ internal fun ComposeBubble(
     )
     val style = LibraryType.Message.copy(color = LibraryColors.OnBackground)
     val label = stringResource(R.string.chat_send)
-    val hint = stringResource(R.string.chat_write_hint)
+    @Suppress("NAME_SHADOWING") val hint = hint ?: stringResource(R.string.chat_write_hint)
     // From 38.2% of the row (1 − 0.618, the golden ratio) growing with the text, at once, up to 85%, then wrapping;
     // past 6 lines it scrolls inside with the caret in view.
     // Never narrower than its resting words (2026-11-24: "Write a message…" was cut to "Write a" in English).
@@ -147,7 +151,7 @@ internal fun ComposeBubble(
                 .background(coral.copy(alpha = 0.08f * open), LibraryShapes.Card)
                 // Resting, a tap anywhere on it starts writing, not only on its words (2026-11-24, hen).
                 .then(
-                    if (!editing) Modifier.clickable(
+                    if (!editing || opens) Modifier.clickable(
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         indication = null, role = Role.Button, onClickLabel = hint,
                     ) { startEditing() } else Modifier,
@@ -168,6 +172,7 @@ internal fun ComposeBubble(
                 // The caret fades in with the morph.
                 cursorBrush = SolidColor(coral.copy(alpha = open)),
                 maxLines = 6,
+                enabled = !opens,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
                 decorationBox = { field ->
                     Box(contentAlignment = Alignment.CenterStart) {

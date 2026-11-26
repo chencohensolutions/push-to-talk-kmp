@@ -204,12 +204,15 @@ internal fun ConversationScreen(
     stage: (@Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit)? = null,
     /** Who Push goes to, said beside it (the Talk tab's list: "To testbot"). */
     pushTo: String? = null,
+    /** The Talk tab (2026-11-26): the writing bubble says "Message to testbot" and a tap on it opens the chat. */
+    writeHint: String? = null,
+    writeOpens: (() -> Unit)? = null,
 ) {
     val phone = androidx.compose.ui.platform.LocalLayoutDirection.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
     ) {
-        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage, pushTo)
+        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage, pushTo, writeHint, writeOpens)
     }
 }
 
@@ -255,6 +258,9 @@ private fun ConversationScreenIn(
     stage: (@Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit)? = null,
     /** Who Push goes to, said beside it (the Talk tab's list: "To testbot"). */
     pushTo: String? = null,
+    /** The Talk tab (2026-11-26): the writing bubble says "Message to testbot" and a tap on it opens the chat. */
+    writeHint: String? = null,
+    writeOpens: (() -> Unit)? = null,
 ) {
     // In the floating window, as it floats: its header, no status bar room.
     val embedded = embeddedHeader != null && !embeddedFull
@@ -518,9 +524,9 @@ private fun ConversationScreenIn(
                     pretendMine == LiveKind.Voice -> GroupTalker(com.chencohen.ptt.ui.live.LiveLayout.MINE, "", me, false, mySinceNow, mine = true)
                     else -> null
                 }
-                GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), null, myUrgent = myUrgent)
+                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), null, myUrgent = myUrgent)
             } else {
-                LivePanel(
+                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) LivePanel(
                     theirVideo, if (group != null) (theirs?.from ?: talker?.user) else null, theirSinceNow,
                     myPanel, mySinceNow,
                     null, handsFree,
@@ -674,7 +680,7 @@ private fun ConversationScreenIn(
         val marksAcross = marksAcross((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 24).dp)
         val nameOfMark: (String) -> String = { who -> if (group == null) contact?.name ?: who else who }
         // Writing in the chat (2026-11-23, hen): the draft bubble at the end of the list.
-        val canWrite = stage == null && if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
+        val canWrite = if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
         val draft = remember(user) { ChatDraft() }
         val focus = remember { androidx.compose.ui.focus.FocusRequester() }
         val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -709,6 +715,8 @@ private fun ConversationScreenIn(
                 keyboard?.hide()
                 draft.editing = false
                 if (landing.draft.isNotBlank()) draft.text = landing.draft
+                // From the Talk tab's writing bubble: writing at once.
+                if (landing.write) draft.editing = true
                 list.scrollToItem(0)
             }
         }
@@ -774,6 +782,9 @@ private fun ConversationScreenIn(
                     say("hands-free ends: no floor for 2.5 s (run ${runs.now})")
                     handsFree = false
                     runs.end()
+                    // A press already on its way (the video after the lock, asked late on a slow network) would get
+                    // the floor after this and go on with no Stop (2026-11-26, seen on testbot): it is let go too.
+                    actionsNow.finishVoice(true)
                 }
                 return@LaunchedEffect
             }
@@ -1222,7 +1233,7 @@ private fun ConversationScreenIn(
                             transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
                             label = "draft or recording",
                         ) { recording ->
-                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions, writing = { edits.abort() }) { body, from -> flight.start(body, from, newest?.id) }
+                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions, writing = { edits.abort() }, hint = writeHint, opens = writeOpens) { body, from -> flight.start(body, from, newest?.id) }
                         }
                     }
                 }
@@ -2473,6 +2484,8 @@ private fun PinnedDraft(
     actions: ConversationActions,
     /** The writing bubble was tapped or took the focus: an edit in progress ends unchanged. */
     writing: () -> Unit = {},
+    hint: String? = null,
+    opens: (() -> Unit)? = null,
     sent: (String, androidx.compose.ui.geometry.Rect?) -> Unit,
 ) {
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
@@ -2527,9 +2540,13 @@ private fun PinnedDraft(
     Box(Modifier.weight(1f)) {
     ComposeBubble(
         draft.text, draft.editing, focus, {
-            writing()
-            draft.editing = true
+            if (opens != null) opens() else {
+                writing()
+                draft.editing = true
+            }
         },
+        hint = hint,
+        opens = opens != null,
         focused = writing,
         modifier = Modifier.graphicsLayer {
             alpha = appear.value

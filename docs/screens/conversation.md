@@ -324,6 +324,8 @@ only while scrolled under" below).
 Push-to-talk sits in the middle of the screen, and the voice message button just to its left, the same in Hebrew and
 English (not mirrored). No call buttons in the chat. While a press waits, "Waiting for …" shows left of them.
 Since 2026-11-26 they are smaller and rest on a solid strip (below): Push 64 dp, Voice message 48 dp.
+When hands-free gets no floor for 2.5 s it ends, and a press still on its way is let go too, so a late floor
+never goes on with no Stop (2026-11-26).
 While a hands-free voice or video push runs (until Stop), the voice message button shrinks and fades away in its
 place, and comes back the same way when the push stops; nothing else moves (2026-11-26, hen).
 
