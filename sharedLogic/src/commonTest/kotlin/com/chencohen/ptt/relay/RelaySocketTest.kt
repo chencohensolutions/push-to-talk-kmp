@@ -39,7 +39,7 @@ private class Scripted : FrameConnection {
     override suspend fun closeCode(): Int? = code
 }
 
-private class Harness(test: TestScope, val stored: (Envelope) -> Boolean = { true }) {
+private class Harness(test: TestScope, val stored: suspend (Envelope) -> Boolean = { true }) {
     val scope = CoroutineScope(test.coroutineContext + SupervisorJob())
     val connections = mutableListOf<Scripted>()
     var revoked = 0
@@ -58,6 +58,32 @@ private class Harness(test: TestScope, val stored: (Envelope) -> Boolean = { tru
 }
 
 class RelaySocketTest {
+    @Test
+    fun aSlowEnvelopeDoesntHoldUpTheAnswerToMySend() = runTest {
+        // An incoming message still being stored (2026-11-26: ~5 s on a phone) while this phone sends a receipt.
+        val storing = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val h = Harness(this) { storing.await(); true }
+        h.socket.start()
+        runCurrent()
+        val c = h.connections.single()
+        c.queueEmpty()
+        runCurrent()
+        c.envelope("slow")
+        runCurrent()
+        val sent = async { h.socket.send(Send(envelopes = emptyList())) }
+        runCurrent()
+        val clientId = assertIs<SendFrame>(c.fromPhone.last().kind).send.clientId
+        c.toPhone.trySend(Frames.encode(Frame(SendResultFrame(SendResult(clientId = clientId, status = SendStatus.ACCEPTED)))))
+        runCurrent()
+        assertEquals(true, sent.isCompleted, "answered while the envelope is still being stored")
+        assertEquals(SendStatus.ACCEPTED, sent.await().status)
+        storing.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("slow"), c.fromPhone.mapNotNull { (it.kind as? AckFrame)?.ack?.ids }.flatten(), "acknowledged once stored")
+        h.socket.stop()
+        h.scope.cancel()
+    }
+
     @Test
     fun acknowledgesWhatWasStoredAndGoesLiveAfterTheQueue() = runTest {
         val h = Harness(this) { it.id != "bad" }
