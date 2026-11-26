@@ -913,6 +913,8 @@ private fun ConversationScreenIn(
         var floatingHeight by remember { androidx.compose.runtime.mutableIntStateOf(0) }
         // As measured, every frame (no animation of its own: it moves with the keyboard and the row).
         val floatingRoom = with(density) { floatingHeight.toDp() }
+        // The solid strip behind the buttons (2026-11-26, hen), as it is now (it folds away with the keyboard).
+        var stripHeight by remember { androidx.compose.runtime.mutableIntStateOf(0) }
         val autoplay = remember(user) { VideoAutoplay() }
         // A video playing here with sound stops (muted autoplay takes over) when another is the most visible one, or
         // it leaves the screen (2026-11-24, hen).
@@ -1100,6 +1102,15 @@ private fun ConversationScreenIn(
                     }
                 }
             }
+            // Messages scrolled under the header (the list is not at its oldest end), and under the buttons' strip
+            // (the newest has passed the writing bubble on its way down).
+            val under by remember { androidx.compose.runtime.derivedStateOf { list.canScrollForward } }
+            val gapPx = with(density) { 16.dp.roundToPx() }
+            val underStrip by remember {
+                androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > floatingHeight - stripHeight + gapPx }
+            }
+            // The header's line (2026-11-26, hen): at the very top of the list, only while messages are beneath it.
+            Box(Modifier.align(Alignment.TopCenter)) { HeaderHairline(under) }
             val shownDay = topDay?.takeIf { it != dayOf(System.currentTimeMillis()) }
             androidx.compose.animation.AnimatedVisibility(
                 shownDay != null,
@@ -1152,6 +1163,8 @@ private fun ConversationScreenIn(
             }
             // The live pills and boxes, floating over the chat under the header.
             // (2026-11-25, hen: "just below the header"; they come out from under its edge.)
+            // The live pills and boxes, floating over the chat under the header.
+            // (2026-11-25, hen: "just below the header"; they come out from under its edge.)
             Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) { liveOverlay() }
             // Floating at the bottom: this phone's draft (or a voice message's recording), then the buttons.
             // How far the keyboard is open, 0 to 1, as it animates: the button row folds away by the same amount.
@@ -1201,19 +1214,30 @@ private fun ConversationScreenIn(
                 }
                 // With the keyboard up only the chat and the draft (hen: "don't show the bottom row at all"); Back puts
                 // the keyboard away (Android's own), and the row is back.
+                // Behind the buttons only, a solid strip in the page's colour (2026-11-26, hen picked "D · Strip for
+                // the buttons only"): as tall as the row, with a 1-px line on its top edge only while messages are
+                // scrolled under it (200 ms). The writing bubble and my face float above it; messages pass beside them.
+                val page = LibraryColors.Background
+                val stripLine = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant
+                val stripLineShown by androidx.compose.animation.core.animateFloatAsState(if (underStrip) 1f else 0f, androidx.compose.animation.core.tween(200), label = "strip line")
+                val strip = Modifier.fillMaxWidth().drawBehind {
+                    drawRect(page)
+                    drawRect(stripLine.copy(alpha = stripLine.alpha * stripLineShown), size = androidx.compose.ui.geometry.Size(size.width, 1f))
+                }
+                Box(Modifier.zIndex(1f).onSizeChanged { stripHeight = it.height }) {
                 when {
-                    group != null && group.note != null -> Note(group.note)
-                    group == null && contact == null -> Note(stringResource(R.string.contact_gone))
-                    group == null && contact!!.blocked -> Note(stringResource(R.string.chat_blocked, contact.user))
-                    group == null && !contact!!.paired -> Note(stringResource(R.string.contact_waiting))
+                    group != null && group.note != null -> Box(strip) { Note(group.note) }
+                    group == null && contact == null -> Box(strip) { Note(stringResource(R.string.contact_gone)) }
+                    group == null && contact!!.blocked -> Box(strip) { Note(stringResource(R.string.chat_blocked, contact.user)) }
+                    group == null && !contact!!.paired -> Box(strip) { Note(stringResource(R.string.contact_waiting)) }
                     else -> Box(
                         // Clipped only while folding away for the keyboard: otherwise the slide-up target above the Talk
-                        // button shows whole, over the draft.
-                        Modifier.then(if (rowShown < 1f) Modifier.clipToBounds() else Modifier).zIndex(1f).layout { measurable, constraints ->
+                        // button shows whole, over the draft. The strip folds and fades with the row.
+                        Modifier.then(if (rowShown < 1f) Modifier.clipToBounds() else Modifier).layout { measurable, constraints ->
                             val row = measurable.measure(constraints)
                             val height = (row.height * rowShown).toInt()
                             layout(row.width, height) { row.placeWithLayer(0, 0) { alpha = rowShown } }
-                        },
+                        }.then(if (chatLive.call == null) strip else Modifier),
                     ) {
                         if (chatLive.call == null) {
                             // Someone here can't hear a push now (as the grey chip under my pill says it): Push's side
@@ -1310,6 +1334,7 @@ private fun ConversationScreenIn(
                             )
                         }
                     }
+                }
                 }
             }
         }
@@ -1454,14 +1479,17 @@ private val HEADER_HEIGHT = 48.dp
 private fun Modifier.faceRing(ring: Int): Modifier = morphRing(ring, LibraryColors.Accent)
 
 /**
- * The header's own edge (2026-11-25, hen chose "A · Hairline"): the screen's background, and one 1-px line under it in
- * the palette's outline variant, so the live row below reads as apart from it.
+ * The header's own edge (2026-11-25, hen chose "A · Hairline"; 2026-11-26, hen: only while messages are scrolled under
+ * it): one 1-px line in the palette's outline variant at the top of the list, under the header, fading in and out over
+ * 200 ms. At the chat's oldest end there is no line.
  */
 @Composable
-private fun Modifier.headerHairline(): Modifier {
+private fun HeaderHairline(shown: Boolean) {
     val line = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant
-    return drawBehind { drawLine(line, androidx.compose.ui.geometry.Offset(0f, size.height - 0.5f), androidx.compose.ui.geometry.Offset(size.width, size.height - 0.5f), strokeWidth = 1f) }
+    val a by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else 0f, androidx.compose.animation.core.tween(200), label = "header hairline")
+    Box(Modifier.fillMaxWidth().height(with(androidx.compose.ui.platform.LocalDensity.current) { 1.toDp() }).drawBehind { drawRect(line.copy(alpha = line.alpha * a)) })
 }
+
 private val HEADER_FACE = 32.dp
 
 @Composable
@@ -1477,7 +1505,7 @@ private fun Header(user: String, contact: Contact?, header: ConversationHeader, 
         else -> 0
     }
     // Slim (2026-11-25, hen: "shrink the header height"): 48 dp under the status bar, the touch targets still 48 dp.
-    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).headerHairline().padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back),
             contentAlignment = Alignment.Center,
@@ -1525,7 +1553,7 @@ private fun GroupHeader(group: GroupChat, actions: ConversationActions, canTalk:
     val context = androidx.compose.ui.platform.LocalContext.current
     val live by remember { com.chencohen.ptt.liveState(context) }.collectAsState()
     val inRoom = if (live.room == chat) live.present else emptySet()
-    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).headerHairline().padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(HEADER_HEIGHT).padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(48.dp).clickable(role = Role.Button, onClick = actions.back), contentAlignment = Alignment.Center) {
             Icon(LibraryIcons.Back, stringResource(R.string.library_back), tint = LibraryColors.OnBackground)
         }
