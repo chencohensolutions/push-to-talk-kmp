@@ -20,6 +20,8 @@ class DebugTriggers : BroadcastReceiver() {
             "quick_reply_more" -> QuickReplyWindow.arrived(context, chat, fresh = false)
             "wake" -> TalkPlaying.debugWake(context.applicationContext as TalkApp, chat)
             // The floating window's pill, as after a push from <user> (`--ez live true`: while it goes on).
+            // Growing into the chat stops at `--ef at 0.5` of the way, to be looked at (`--ef at -1`: as always again).
+            "morph_hold" -> QuickReplyWindow.debugHold = intent.getFloatExtra("at", -1f).takeIf { it >= 0f }
             "bubble" -> TalkBubble.show(context.applicationContext, chat, chat, live = intent.getBooleanExtra("live", false), who = chat)
         }
     }

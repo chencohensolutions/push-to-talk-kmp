@@ -651,9 +651,22 @@ private fun ConversationScreenIn(
                 draft.editing = false
             }
         }
+        // In the floating chat the window takes the keys only at its first touch (the app under it keeps its keyboard
+        // until then), so the tap that starts writing comes before the window can show a keyboard: asked again as the
+        // keys arrive.
+        LaunchedEffect(draft.editing) {
+            if (embeddedHeader != null && draft.editing) {
+                repeat(3) {
+                    delay(200)
+                    if (draft.editing && !embeddedCalm) keyboard?.show()
+                }
+            }
+        }
         val landing = if (embeddedHeader == null) ChatHandover.landing.value?.takeIf { it.chat == user } else null
-        LaunchedEffect(landing?.token) {
+        LaunchedEffect(landing?.at) {
             if (landing != null) {
+                ChatHandover.landing.value = null
+                if (System.currentTimeMillis() - landing.at > 15_000) return@LaunchedEffect
                 focusManager.clearFocus()
                 keyboard?.hide()
                 draft.editing = false

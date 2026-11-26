@@ -267,6 +267,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         started = true
+        onScreen = true
         // On screen: the reply bubble isn't needed.
         TalkBubble.dismiss()
         // A newer release of the app, as the server read it from GitHub (docs/design.md, "App updates").
@@ -424,6 +425,7 @@ class MainActivity : ComponentActivity() {
         viewModel.connection.stop()
         super.onStop()
         started = false
+        onScreen = false
         fromWindow = null
         // The floating chat covering this app (Back to floating) may shrink now: the app is off the screen.
         com.chencohen.ptt.ui.contacts.ChatHandover.onLeft?.invoke()
@@ -469,9 +471,10 @@ class MainActivity : ComponentActivity() {
             if (chat != null && intent.getBooleanExtra(EXTRA_FROM_WINDOW, false)) {
                 // The floating chat covers the screen until this one is drawn. Already on screen (the window floated
                 // over this app): no way in to wait for, and Back stays this app's.
+                val overAnother = intent.getBooleanExtra(EXTRA_OVER_ANOTHER, false)
                 landing = chat
-                enterDone = started
-                fromWindow = if (started) null else chat
+                enterDone = !overAnother
+                fromWindow = if (overAnother) chat else null
                 landSoon()
             }
             return
@@ -534,6 +537,12 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_ASK_CAMERA = "ask_camera"
         /** With Notifications.ACTION_OPEN: the floating chat grew into this chat and waits to be told it is drawn. */
         const val EXTRA_FROM_WINDOW = "from_window"
+        /** With [EXTRA_FROM_WINDOW]: the window floated over another app (this one was off the screen). */
+        const val EXTRA_OVER_ANOTHER = "over_another"
+
+        /** This app's screen is showing (between onStart and onStop). */
+        @Volatile var onScreen = false
+            private set
 
         /** A call from the reply bubble: [EXTRA_VIDEO], to Notifications.EXTRA_USER. */
         const val ACTION_CALL = "com.chencohen.ptt.CALL_FROM_BUBBLE"

@@ -86,6 +86,17 @@ object TalkBubble {
     /** The pill's frame now: how far its middle is Stop (0: Push) and how far the Chat button is there (0: not). */
     private var pillStop = 0f
     private var pillChat = 1f
+    /** How far Decline is there (1 while a call rings, else 0: the bar has no ✕, it is swiped down; 2026-11-26, hen). */
+    private var pillDecline = 0f
+    /** The bar's own face (solid, with its light rim): the voice's ring is drawn on it. */
+    private var barFace: GradientDrawable? = null
+    /** Under the Chat button's place while Push is held: what sliding onto it does ("Hands-free", "Urgent"). */
+    private var sideLabel: TextView? = null
+    /** The bar follows a finger swiping it down: where the swipe is, and how fast it last moved (pixels a millisecond). */
+    private var barDrag = false
+    private var dragLastY = 0f
+    private var dragLastAt = 0L
+    private var dragSpeed = 0f
     private var pillMorph: android.animation.ValueAnimator? = null
     /** "■ Stop · 00:00" at its widest: the Stop pill's width, the same whatever the time says. */
     private var stopWidth = 0
@@ -315,13 +326,69 @@ object TalkBubble {
         fun dp(v: Int) = dp(context, v)
         val bars = wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.navigationBars())
         // One frame that grows and shrinks about its centre in one move ([shapePill]; 2026-11-25, hen: "the bottom pill
-        // transition is juggling when morphing"): Chat at its left end, Push or Stop in its middle, Close at its right,
-        // each put by its left edge, the same in Hebrew and English. No LinearLayout and LayoutTransition any more.
-        val row = FrameLayout(context).apply {
+        // transition is juggling when morphing"): Chat at its left end, Push or Stop after it, each put by its left
+        // edge, the same in Hebrew and English. No LinearLayout and LayoutTransition any more.
+        //
+        // The bar hen chose (2026-11-26, the floating-bar mock: "option A + button layout 1"): fully solid, a light rim
+        // inside a dark hairline and a deep shadow, so one of its edges shows over any app, light or dark; two buttons
+        // only, Chat (48 dp) and Push (60 dp), 12 dp apart, Push right of the middle for a right thumb; no ✕: the bar
+        // is swiped down to send it away ([dragBar], a small grab line hints at it). While Push is held the Chat
+        // button's place is the slide target (hands-free voice, or the urgent bell).
+        val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+        val row = object : FrameLayout(context) {
+            private var downX = 0f
+            private var downY = 0f
+            private var mine = false
+
+            /** A finger going down the bar, wherever it started on it (Push has its own: [touch]). */
+            private fun swipes(e: MotionEvent): Boolean {
+                val dy = e.rawY - downY
+                return !talking && ringing == null && dy > slop && dy > kotlin.math.abs(e.rawX - downX)
+            }
+
+            override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = e.rawX
+                        downY = e.rawY
+                        mine = false
+                        dragSample(e.rawY, e.eventTime, first = true)
+                    }
+                    MotionEvent.ACTION_MOVE -> if (!barDrag && swipes(e)) {
+                        mine = true
+                        return true
+                    }
+                }
+                return false
+            }
+
+            @SuppressLint("ClickableViewAccessibility")
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_MOVE -> {
+                        if (!mine && swipes(e)) mine = true
+                        if (mine) {
+                            dragSample(e.rawY, e.eventTime, first = false)
+                            dragBar(e.rawY - downY - slop)
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (mine) {
+                        mine = false
+                        dropBar(context, e.rawY - downY - slop, e.actionMasked == MotionEvent.ACTION_CANCEL)
+                    }
+                }
+                return true
+            }
+        }.apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
-            background = GradientDrawable().apply { cornerRadius = dp(40).toFloat(); setColor(0xF2191D1C.toInt()) }
-            elevation = dp(8).toFloat()
+            val face = GradientDrawable().apply { cornerRadius = dp(44).toFloat(); setColor(BAR); setStroke(rimPx(context), RIM) }
+            barFace = face
+            // The dark hairline outside the light rim.
+            background = android.graphics.drawable.LayerDrawable(
+                arrayOf(GradientDrawable().apply { cornerRadius = dp(44).toFloat(); setColor(0xA6000000.toInt()) }, face),
+            ).apply { setLayerInset(1, dp(1), dp(1), dp(1), dp(1)) }
+            elevation = dp(12).toFloat()
         }
         fun round(icon: Int, label: Int, size: Int, color: Int, onClick: () -> Unit) = ImageView(context).apply {
             setImageResource(icon)
@@ -331,18 +398,19 @@ object TalkBubble {
             contentDescription = context.getString(label)
             setOnClickListener { onClick() }
         }
-        chatButton = round(R.drawable.ic_bubble_chat, R.string.talk_action_chat, dp(34), 0x33FFFFFF) { chat?.let { intoChat(context, it) } }
-        // The push button: hold for voice, slide up to the lock for hands-free video.
+        chatButton = round(R.drawable.ic_bubble_chat, R.string.talk_action_chat, dp(48), 0x33FFFFFF) { chat?.let { intoChat(context, it) } }
+        // The push button: hold for voice, slide up to the lock for hands-free video, left onto Chat's place for
+        // hands-free voice.
         val push = FrameLayout(context).apply { clipChildren = false; clipToPadding = false }
         button = ImageView(context).apply {
             setImageResource(R.drawable.ic_bubble_mic)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(11), dp(11), dp(11), dp(11))
+            setPadding(dp(15), dp(15), dp(15), dp(15))
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(PINK) }
             contentDescription = context.getString(R.string.bubble_talk_hint)
             setOnTouchListener { v, e -> touch(context, v, e) }
         }
-        push.addView(button, FrameLayout.LayoutParams(dp(46), dp(46), Gravity.CENTER))
+        push.addView(button, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER))
         pushBox = push
         // Hands-free: the push button's place shows a coral "■ Stop · 0:42"; a tap stops.
         stopPill = TextView(context).apply {
@@ -357,12 +425,12 @@ object TalkBubble {
             fontFeatureSettings = "tnum"
             setPadding(dp(16), 0, dp(16), 0)
             stopWidth = ((paint.measureText("■  " + context.getString(R.string.talk_stop) + " · 00:00") + dp(32)).toInt() / 2 + 1) * 2
-            background = GradientDrawable().apply { cornerRadius = dp(23).toFloat(); setColor(PINK) }
+            background = GradientDrawable().apply { cornerRadius = dp(30).toFloat(); setColor(PINK) }
             // Shown through a round frame that widens from the Push button's own circle to the whole pill.
             outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(v: View, outline: android.graphics.Outline) {
-                    val shown = dp(46) + (v.width - dp(46)) * pillStop
-                    outline.setRoundRect(((v.width - shown) / 2).toInt(), 0, ((v.width + shown) / 2).toInt(), v.height, dp(23).toFloat())
+                    val shown = dp(60) + (v.width - dp(60)) * pillStop
+                    outline.setRoundRect(((v.width - shown) / 2).toInt(), 0, ((v.width + shown) / 2).toInt(), v.height, dp(30).toFloat())
                 }
             }
             clipToOutline = true
@@ -372,42 +440,53 @@ object TalkBubble {
                 endTalk(context, send = true)
             }
         }
-        closeButton = round(R.drawable.ic_bubble_close, R.string.bubble_close, dp(34), 0x33FFFFFF) { closeOrDecline(context) }
+        // Decline, only while a call rings (the bar itself has no ✕).
+        closeButton = round(R.drawable.ic_bubble_close, R.string.call_decline, dp(48), Color.RED) { closeOrDecline(context) }.apply { visibility = View.INVISIBLE }
+        // The slide target, in the Chat button's own place while Push is held (2026-11-26, hen: no new target popping
+        // up beside the bar): a teal microphone, "Hands-free" (voice until Stop), or, only while someone in the chat
+        // can't hear now, the red bell, "Urgent". On the left of Push on the screen in either language: a right thumb
+        // doesn't hide it.
+        fun target(icon: Int, color: Int, ring: Int, label: Int) = ImageView(context).apply {
+            setImageResource(icon)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color); setStroke(dp(2), ring) }
+            contentDescription = context.getString(label)
+            visibility = View.INVISIBLE
+        }
+        micHint = target(R.drawable.ic_bubble_mic, 0xFF1F8A75.toInt(), 0xFF7FE6D0.toInt(), R.string.talk_hands_free)
+        bellHint = target(R.drawable.ic_bubble_bell, URGENT, 0xFFFFB3A8.toInt(), R.string.talk_urgent)
+        sideLabel = TextView(context).apply {
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            maxLines = 1
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(7), dp(1), dp(7), dp(1))
+            background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(0xC0000000.toInt()) }
+            visibility = View.INVISIBLE
+        }
+        // The grab line: the bar can be swiped down.
+        val grab = View(context).apply { background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(0x66FFFFFF) } }
         val left = Gravity.LEFT or Gravity.CENTER_VERTICAL
-        row.addView(chatButton, FrameLayout.LayoutParams(dp(34), dp(34), left))
-        row.addView(push, FrameLayout.LayoutParams(dp(56), dp(56), left))
-        row.addView(stopPill, FrameLayout.LayoutParams(stopWidth, dp(46), left))
-        row.addView(closeButton, FrameLayout.LayoutParams(dp(34), dp(34), left))
+        row.addView(grab, FrameLayout.LayoutParams(dp(26), dp(3), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(5) })
+        row.addView(chatButton, FrameLayout.LayoutParams(dp(48), dp(48), left))
+        row.addView(micHint, FrameLayout.LayoutParams(dp(48), dp(48), left))
+        row.addView(bellHint, FrameLayout.LayoutParams(dp(48), dp(48), left))
+        row.addView(push, FrameLayout.LayoutParams(dp(60), dp(60), left))
+        row.addView(stopPill, FrameLayout.LayoutParams(stopWidth, dp(60), left))
+        row.addView(closeButton, FrameLayout.LayoutParams(dp(48), dp(48), left))
+        // Under the target, over the bar's bottom edge (the window's own room below the bar).
+        row.addView(sideLabel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.LEFT or Gravity.TOP))
         // The lock, above the push button while it is held. Its room is always there (unseen), so the window never
         // changes size and the pill never moves when it shows.
         lockHint = ImageView(context).apply {
             setImageResource(R.drawable.ic_bubble_lock)
             setPadding(dp(9), dp(9), dp(9), dp(9))
-            background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(0xF2191D1C.toInt()) }
+            background = GradientDrawable().apply { cornerRadius = dp(21).toFloat(); setColor(BAR); setStroke(rimPx(context), RIM) }
             visibility = View.INVISIBLE
         }
-        bellHint = ImageView(context).apply {
-            setImageResource(R.drawable.ic_bubble_bell)
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xF2191D1C.toInt()); setStroke(dp(2), URGENT) }
-            contentDescription = context.getString(R.string.talk_urgent)
-            visibility = View.INVISIBLE
-        }
-        micHint = ImageView(context).apply {
-            setImageResource(R.drawable.ic_bubble_mic)
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xF2191D1C.toInt()); setStroke(dp(2), PINK) }
-            contentDescription = context.getString(R.string.talk_hands_free)
-            visibility = View.INVISIBLE
-        }
-        // The lock and the side target share the room above the pill: the lock over Push, the microphone (or the bell)
-        // up and to its left on the screen, in either language (2026-11-26, hen: "it should be on the other side:
-        // right-handed thumbs hide the icon"), all in the window's own room so nothing moves when they show.
         val hints = FrameLayout(context).apply {
             clipChildren = false
             addView(lockHint, FrameLayout.LayoutParams(dp(42), dp(58), Gravity.CENTER))
-            addView(micHint, FrameLayout.LayoutParams(dp(42), dp(42), Gravity.CENTER or Gravity.BOTTOM))
-            addView(bellHint, FrameLayout.LayoutParams(dp(42), dp(42), Gravity.CENTER or Gravity.BOTTOM))
         }
         val holder = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -415,7 +494,7 @@ object TalkBubble {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
             addView(hints, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)).apply { bottomMargin = dp(8) })
-            addView(row, LinearLayout.LayoutParams(dp(PILL_WINDOW_DP), dp(68)))
+            addView(row, LinearLayout.LayoutParams(dp(PILL_WINDOW_DP), dp(BAR_DP)))
             // Room for the shadow; below, down to the screen's own bottom edge over the navigation bar, so the pill
             // comes in from the very bottom and leaves there, never cut at the bar (2026-11-25, hen).
             clipToPadding = false
@@ -444,6 +523,8 @@ object TalkBubble {
             pill = row
             pillStop = 0f
             pillChat = 1f
+            pillDecline = 0f
+            barDrag = false
             waiting = false
             shapePill()
             // Only the pill takes touches: the room kept for the lock above it is the app's beneath.
@@ -568,6 +649,8 @@ object TalkBubble {
         }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                barDrag = false
+                dragSample(e.rawY, e.eventTime, first = true)
                 if (talking) {
                     // A tap (or the lock) started it; this one sends.
                     locked = false
@@ -592,6 +675,20 @@ object TalkBubble {
                 val up = downY - e.rawY
                 // Leftward on the screen, in either language: toward the side target.
                 val side = downX - e.rawX
+                // Down: the bar is being swiped away, though the finger started on Push. What was said so far goes
+                // (a press shorter than a hold is nothing said); the microphone is off from here.
+                val down = e.rawY - downY
+                if (!barDrag && talking && !locked && !urgent && !sideVoice && down > dp(context, 16) && down > kotlin.math.abs(side)) {
+                    barDrag = true
+                    v.isPressed = false
+                    showLockHint(false)
+                    endTalk(context, send = System.currentTimeMillis() - talkStarted >= HOLD_MS)
+                }
+                if (barDrag) {
+                    dragSample(e.rawY, e.eventTime, first = false)
+                    dragBar(down - dp(context, 16))
+                    return true
+                }
                 // Slid left onto the side target. The bell (someone can't hear now): this push is urgent from here.
                 // The microphone (everyone hears): it goes on hands-free, voice, once let go.
                 if (talking && !locked && !urgent && !sideVoice && side > dp(context, URGENT_DP - 8)) {
@@ -600,10 +697,9 @@ object TalkBubble {
                         urgent = true
                         markUrgent(context)
                         showUrgent(context)
-                    } else {
-                        sideVoice = true
-                        (micHint?.background as? GradientDrawable)?.setColor(PINK)
-                    }
+                    } else sideVoice = true
+                    // Taken: the target swells a little.
+                    (if (sideBell) bellHint else micHint)?.animate()?.scaleX(1.15f)?.scaleY(1.15f)?.setDuration(120)?.start()
                 }
                 // Starting to slide up: the camera opens now, so the video starts fast at the lock.
                 if (talking && !locked && !warming && !urgent && !sideVoice && up > side && up > dp(context, 16) && cameraAllowed(context)) {
@@ -635,6 +731,11 @@ object TalkBubble {
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (barDrag) {
+                    barDrag = false
+                    dropBar(context, e.rawY - downY - dp(context, 16), e.actionMasked == MotionEvent.ACTION_CANCEL)
+                    return true
+                }
                 v.isPressed = false
                 showLockHint(false)
                 // Let go 2 s after the finger lifts without the slide up: a quick press again reuses it.
@@ -664,7 +765,6 @@ object TalkBubble {
     private fun showUrgent(context: Context) {
         (button?.background as? GradientDrawable)?.setColor(if (urgent) URGENT else PINK)
         if (urgent) button?.setImageResource(R.drawable.ic_bubble_bell)
-        (bellHint?.background as? GradientDrawable)?.setColor(if (urgent) URGENT else 0xF2191D1C.toInt())
         refreshTop(context)
     }
 
@@ -680,23 +780,41 @@ object TalkBubble {
             lock.alpha = 0f
             lock.visibility = View.VISIBLE
             lock.animate().alpha(1f).setDuration(150).start()
-            // The side target, to the left of Push on the screen: the bell only while someone can't hear now.
+            // The slide target, in Chat's place: the bell only while someone can't hear now. Chat gives way to it in the
+            // same 150 ms.
             sideBell = someoneCantHear(push.context)
-            (micHint?.background as? GradientDrawable)?.setColor(0xF2191D1C.toInt())
+            val chatAt = chatButton?.translationX ?: 0f
             listOf(micHint to !sideBell, bellHint to sideBell).forEach { (hint, shown) ->
                 hint ?: return@forEach
                 hint.animate().cancel()
-                hint.translationX = (at - holder.width / 2 - dp(push.context, URGENT_DP)).toFloat()
+                hint.translationX = chatAt
+                hint.scaleX = 1f
+                hint.scaleY = 1f
                 hint.alpha = 0f
                 hint.visibility = View.VISIBLE
                 if (shown) hint.animate().alpha(1f).setDuration(150).start()
+            }
+            chatButton?.animate()?.alpha(0f)?.setDuration(150)?.start()
+            sideLabel?.let { label ->
+                label.setText(if (sideBell) R.string.talk_urgent else R.string.talk_hands_free)
+                label.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+                // Centred under the target, 9 dp below it.
+                label.translationX = chatAt + dp(push.context, 24) - label.measuredWidth / 2f
+                label.translationY = (dp(push.context, BAR_DP) + dp(push.context, 48)) / 2f + dp(push.context, 9)
+                label.alpha = 0f
+                label.visibility = View.VISIBLE
+                label.animate().alpha(1f).setDuration(150).start()
             }
             main.removeCallbacks(sideWatch)
             main.postDelayed(sideWatch, 300)
         } else if (lock.visibility == View.VISIBLE) {
             lock.visibility = View.INVISIBLE
-            bellHint?.visibility = View.INVISIBLE
-            micHint?.visibility = View.INVISIBLE
+            listOf(micHint, bellHint, sideLabel).forEach {
+                it?.animate()?.cancel()
+                it?.visibility = View.INVISIBLE
+            }
+            chatButton?.animate()?.cancel()
+            chatButton?.alpha = pillChat
             main.removeCallbacks(sideWatch)
         }
     }
@@ -735,6 +853,12 @@ object TalkBubble {
                 sideBell = bell
                 micHint?.animate()?.alpha(if (bell) 0f else 1f)?.setDuration(220)?.start()
                 bellHint?.animate()?.alpha(if (bell) 1f else 0f)?.setDuration(220)?.start()
+                sideLabel?.let { label ->
+                    val middle = label.translationX + label.width / 2f
+                    label.setText(if (bell) R.string.talk_urgent else R.string.talk_hands_free)
+                    label.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+                    label.translationX = middle - label.measuredWidth / 2f
+                }
             }
             main.postDelayed(this, 300)
         }
@@ -779,11 +903,12 @@ object TalkBubble {
         val row = pill ?: return
         val context = row.context
         val pad = dp(context, 8)
-        val gap = dp(context, 10)
-        val side = dp(context, 34)
-        val middle = dp(context, 56) + (stopWidth - dp(context, 56)) * pillStop
+        val gap = dp(context, 12)
+        val side = dp(context, 48)
+        val middle = dp(context, 60) + (stopWidth - dp(context, 60)) * pillStop
         val chat = (side + gap) * pillChat
-        val width = ((pad + chat + middle + gap + side + pad) / 2).toInt() * 2
+        val decline = (gap + side) * pillDecline
+        val width = ((pad + chat + middle + decline + pad) / 2).toInt() * 2
         val lp = row.layoutParams
         if (lp.width != width) {
             lp.width = width
@@ -792,13 +917,14 @@ object TalkBubble {
         val centre = pad + chat + middle / 2
         chatButton?.let {
             it.translationX = pad.toFloat()
-            it.alpha = pillChat
+            // While Push is held the slide target has its place ([showLockHint]).
+            if (lockHint?.visibility != View.VISIBLE) it.alpha = pillChat
             it.visibility = if (pillChat > 0f) View.VISIBLE else View.INVISIBLE
         }
         // Stop is there in the first third of the move, over the button it grows out of.
         val stop = (pillStop * 3).coerceAtMost(1f)
         pushBox?.let {
-            it.translationX = centre - dp(context, 28)
+            it.translationX = centre - dp(context, 30)
             it.alpha = 1f - stop
             it.visibility = if (stop < 1f) View.VISIBLE else View.INVISIBLE
         }
@@ -808,18 +934,86 @@ object TalkBubble {
             it.visibility = if (pillStop > 0f) View.VISIBLE else View.INVISIBLE
             it.invalidateOutline()
         }
-        closeButton?.translationX = (width - pad - side).toFloat()
+        closeButton?.let {
+            it.translationX = (width - pad - side).toFloat()
+            it.alpha = pillDecline
+            it.visibility = if (pillDecline > 0f) View.VISIBLE else View.INVISIBLE
+        }
+    }
+
+    /** Where the swipe is now ([y] on the screen at [at]) and how fast it moves; [first]: it starts here. */
+    private fun dragSample(y: Float, at: Long, first: Boolean) {
+        if (!first && at > dragLastAt) dragSpeed = (y - dragLastY) / (at - dragLastAt)
+        if (first) dragSpeed = 0f
+        dragLastY = y
+        dragLastAt = at
+    }
+
+    /**
+     * The bar follows a finger [dy] pixels down, fading a little; the live row at the top goes up by as much of its
+     * own way, the two leaving together (2026-11-26, hen's pick: "swipe the bar down").
+     */
+    private fun dragBar(dy: Float) {
+        val row = pill ?: return
+        val d = dy.coerceAtLeast(0f)
+        val far = (d / row.height).coerceIn(0f, 1f)
+        row.animate().cancel()
+        row.translationY = d
+        row.alpha = 1f - 0.45f * far
+        if (outside == null) topCard?.let {
+            it.animate().cancel()
+            it.translationY = -d * 0.6f
+            it.alpha = 1f - 0.5f * far
+        }
+    }
+
+    /**
+     * The finger let go [dy] pixels down: past a third of the bar's height, or flung down, the bar is sent away
+     * ([swipedAway]); else (or [cancelled]) it settles back, 200 ms.
+     */
+    private fun dropBar(context: Context, dy: Float, cancelled: Boolean) {
+        val row = pill ?: return
+        val flung = dragSpeed > 0.8f * context.resources.displayMetrics.density && dy > dp(context, 8)
+        if (!cancelled && (dy > row.height / 3f || flung)) {
+            swipedAway(context)
+            return
+        }
+        val ease = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
+        row.animate().translationY(0f).alpha(1f).setDuration(200).setInterpolator(ease).start()
+        if (outside == null) topCard?.animate()?.translationY(0f)?.alpha(1f)?.setDuration(200)?.setInterpolator(ease)?.start()
+    }
+
+    /**
+     * Swiped away: the bar goes on down off the screen and the live row up, both fading, one move of 200 ms; what was
+     * being said is sent first. From here that chat's texts are notifications until it goes quiet (QuickReplyQuiet).
+     */
+    private fun swipedAway(context: Context) {
+        val row = pill ?: return remove()
+        if (talking) endTalk(context, send = true)
+        chat?.let { QuickReplyWindow.dismissed(it) }
+        val ease = android.view.animation.AccelerateInterpolator()
+        val below = (pillWindow?.paddingBottom ?: 0) + row.height + dp(context, 16)
+        row.animate().translationY(below.toFloat()).alpha(0f).setDuration(200).setInterpolator(ease)
+            .withEndAction { if (pill === row) remove() }.start()
+        if (outside == null) topCard?.let { card ->
+            val up = restTop + (topMotion.rects.values.maxOfOrNull { it.bottom } ?: 0f) + dp(context, 12)
+            card.animate().translationY(-up).alpha(0f).setDuration(200).setInterpolator(ease).start()
+        }
+        Log.i(TAG, "swiped away")
     }
 
     /** The pill to what it should be now (Push or Stop, with or without Chat), in one eased move. */
     private fun morphPill() {
         val toStop = if (stopShown) 1f else 0f
+        // A call rings: Answer (the push button) and Decline, no Chat.
         val toChat = if (ringing == null) 1f else 0f
+        val toDecline = 1f - toChat
         pillMorph?.cancel()
         pillMorph = null
-        if (pill == null || (pillStop == toStop && pillChat == toChat)) return
+        if (pill == null || (pillStop == toStop && pillChat == toChat && pillDecline == toDecline)) return
         val fromStop = pillStop
         val fromChat = pillChat
+        val fromDecline = pillDecline
         pillMorph = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 300
             interpolator = android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)
@@ -827,6 +1021,7 @@ object TalkBubble {
                 val f = it.animatedValue as Float
                 pillStop = fromStop + (toStop - fromStop) * f
                 pillChat = fromChat + (toChat - fromChat) * f
+                pillDecline = fromDecline + (toDecline - fromDecline) * f
                 shapePill()
             }
             start()
@@ -943,14 +1138,8 @@ object TalkBubble {
             context.startService(Intent(context, TalkReadyService::class.java).setAction(if (send) TalkReadyService.ACTION_SEND else TalkReadyService.ACTION_CANCEL_TALK))
         }
         (button?.background as? GradientDrawable)?.apply { setColor(PINK); setStroke(0, Color.TRANSPARENT) }
-        if (urgent && !keepLock) {
-            urgent = false
-            (bellHint?.background as? GradientDrawable)?.setColor(0xF2191D1C.toInt())
-        }
-        if (sideVoice && !keepLock) {
-            sideVoice = false
-            (micHint?.background as? GradientDrawable)?.setColor(0xF2191D1C.toInt())
-        }
+        if (urgent && !keepLock) urgent = false
+        if (sideVoice && !keepLock) sideVoice = false
         sendingVideo = false
         showMode(context)
         refreshTop(context)
@@ -1976,10 +2165,9 @@ object TalkBubble {
             }.coerceIn(0f, 1f)
             val density = context.resources.displayMetrics.density
             val active = talking || theirs != null || ringing != null
-            (row.background as? GradientDrawable)?.setStroke(
-                if (active) (density * (1.5f + 4 * level)).toInt().coerceAtLeast((1.5f * density).toInt()) else 0,
-                if (ringing != null) HERE else TEAL,
-            )
+            // The voice's ring on the bar's face; at rest, its light rim.
+            if (active) barFace?.setStroke((density * (1.5f + 4 * level)).toInt().coerceAtLeast(rimPx(context)), if (ringing != null) HERE else TEAL)
+            else barFace?.setStroke(rimPx(context), RIM)
             val scale = 1f + 0.15f * (if (talking && !waiting) level else 0f)
             button?.scaleX = scale
             button?.scaleY = scale
@@ -2003,8 +2191,6 @@ object TalkBubble {
         (button?.background as? GradientDrawable)?.setColor(HERE)
         button?.setImageResource(if (call.video) R.drawable.ic_bubble_video else R.drawable.ic_bubble_call)
         button?.contentDescription = context.getString(R.string.call_answer)
-        (closeButton?.background as? GradientDrawable)?.setColor(Color.RED)
-        closeButton?.contentDescription = context.getString(R.string.call_decline)
         morphPill()
         showMode(context)
     }
@@ -2014,8 +2200,6 @@ object TalkBubble {
         if (ringing == null) return@post
         ringing = null
         (button?.background as? GradientDrawable)?.setColor(PINK)
-        (closeButton?.background as? GradientDrawable)?.setColor(0x33FFFFFF)
-        closeButton?.contentDescription = context.getString(R.string.bubble_close)
         morphPill()
         showMode(context)
     }
@@ -2058,7 +2242,7 @@ object TalkBubble {
             row.getLocationOnScreen(at)
             QuickReplyWindow.growFrom(
                 context, chat, at[0], at[1] + row.translationY.toInt().coerceAtMost(0), at[0] + row.width, at[1] + row.height,
-                radius = row.height / 2f, color = 0xF2191D1C.toInt(),
+                radius = row.height / 2f, color = BAR,
             )
         }
         if (!grows) openChat(context, chat)
@@ -2124,6 +2308,9 @@ object TalkBubble {
         lockHint = null
         bellHint = null
         micHint = null
+        sideLabel = null
+        barFace = null
+        barDrag = false
         sideVoice = false
         urgent = false
         main.removeCallbacks(sideWatch)
@@ -2298,6 +2485,11 @@ object TalkBubble {
     }
 
     private const val PINK = 0xFFE9504F.toInt()
+    /** The bar: solid, whatever is behind it; a light rim inside a dark hairline (2026-11-26, hen's pick from the mock). */
+    private const val BAR = 0xFF191D1C.toInt()
+    private const val RIM = 0x59FFFFFF
+    private const val BAR_DP = 76
+    private fun rimPx(context: Context) = (1.5f * context.resources.displayMetrics.density).toInt().coerceAtLeast(2)
     /** An urgent push's red (2026-11-25, hen). */
     private const val URGENT = 0xFFD93025.toInt()
     /** How far sideways from Push the bell is, and the slide that reaches it. */

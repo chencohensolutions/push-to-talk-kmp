@@ -230,3 +230,28 @@ Settings › Calls › Video is "Prefer H.265". Each phone says, with everything
 the setting prefers it, this phone has an H.265 encoder, and every other phone in the chat said it decodes H.265;
 otherwise VP8 for everyone. When a phone's H.265 decoder fails for real (no decoder, or a non-transient decoder
 error), it stops saying so for good (remembered), so everyone sends it VP8 from their next push or call.
+
+## The floating bar (2026-11-26, hen: the floating-bar mock, "option A + button layout 1")
+
+The floating window's bottom pill is a bar that stands out over any app, and is swiped away.
+
+- **Surface**: fully solid (#191D1C), a light rim inside a dark hairline, a deep shadow: one of its edges shows over a
+  light app, a dark one and a keyboard alike. The voice's teal ring is drawn on its face, in the rim's place.
+- **Two buttons**: Chat (48 dp) at the left and Push (60 dp) at the right, 12 dp apart, in a bar 76 dp tall; Push sits
+  right of the bar's middle, under a right thumb. No ✕. The same places in Hebrew and English.
+- **While Push is held**, the Chat button's own place is the slide target (nothing new pops up beside the bar): a teal
+  microphone, "Hands-free": slid onto it and let go, the push goes on as hands-free **voice** until Stop (a normal
+  "■ Stop · 0:42", renewed as voice). Only while someone in the chat can't hear now (their phone says Do Not Disturb,
+  silent or in a call, or this push was saved there) it is the red bell, "Urgent", and the lock is the urgent one, as
+  before. The two change places in one cross-fade (220 ms) if that changes while Push is held; once slid onto, it stays
+  what it was. The lock for hands-free video is above Push as before; sliding left never opens the camera.
+- **Swipe the bar down** to send it away, from anywhere on it (a small grab line at its top hints at it). It follows the
+  finger, fading a little, and the live row at the top goes up with it. Let go past a third of the bar's height, or
+  fling it down: the bar and the row leave together, one move of 200 ms. Let go earlier: both settle back. Started on
+  Push, the swipe ends the push first (what was said is sent; a press shorter than a hold says nothing), and the
+  microphone is off from there. While a call rings the bar shows Answer and Decline and can't be swiped.
+- **After it**: that chat's text messages are notifications until the chat goes quiet
+  ([notifications.md](notifications.md), "Dismissed until quiet"). Pushes play and show as always.
+- **Chat grows into the chat**: a tap on Chat grows the bar itself, from its place, shape and colour, over the whole
+  screen into the conversation ([conversation.md](conversation.md), "From floating to the chat, one move").
+- Debug builds: `adb shell am broadcast -n com.chencohen.ptt/.DebugTriggers -a bubble --es chat <user>` shows the bar.

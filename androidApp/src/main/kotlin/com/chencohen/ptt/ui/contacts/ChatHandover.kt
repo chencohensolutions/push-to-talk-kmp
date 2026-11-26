@@ -9,12 +9,13 @@ import androidx.compose.runtime.mutableStateOf
  * goes. What the two must agree on, so nothing moves at that moment, goes through here.
  */
 internal object ChatHandover {
-    /** [chat] is handed to the app with [draft] written in the window; [token] tells one handing from the next. */
-    data class Landing(val chat: String, val draft: String, val token: Long)
+    /** [chat] is handed to the app with [draft] written in the window, at [at] (which tells one handing from the next). */
+    data class Landing(val chat: String, val draft: String, val at: Long)
 
     /**
      * The chat the floating window hands to the app now: the app's chat comes up as the window shows it (at its end,
-     * the keyboard away, the same words in the draft).
+     * the keyboard away, the same words in the draft). The app's chat takes it once (and only while it is fresh: a
+     * handing that never arrived isn't taken by a chat opened later).
      */
     val landing = mutableStateOf<Landing?>(null)
 

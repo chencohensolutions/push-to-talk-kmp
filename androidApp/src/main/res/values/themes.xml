@@ -1,4 +1,10 @@
 <resources>
     <!-- Only the window behind Compose (launch, before the first frame); follows the system theme. -->
     <style name="Theme.Talk" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- The floating chat moves by itself (it slides in, grows into the chat): none of Android's own fade for a window
+         that comes or goes, which showed as a second move over it. -->
+    <style name="NoWindowAnimation">
+        <item name="android:windowEnterAnimation">@null</item>
+        <item name="android:windowExitAnimation">@null</item>
+    </style>
 </resources>

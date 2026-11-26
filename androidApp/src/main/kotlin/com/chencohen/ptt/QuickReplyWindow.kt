@@ -115,6 +115,9 @@ object QuickReplyWindow {
     /** The user opened [chat] in the app themselves: the window may come for it again. */
     fun chatOpened(chat: String) = synchronized(quiet) { quiet.opened(chat) }
 
+    /** The floating window's bar was swiped away for [chat]: as this window dismissed. */
+    fun dismissed(chat: String) = synchronized(quiet) { quiet.dismissed(chat, System.currentTimeMillis()) }
+
     /** A message of mine went out in [chat] from outside the window (a notification's Reply): the conversation goes on. */
     fun sent(chat: String) {
         synchronized(quiet) { quiet.message(chat, System.currentTimeMillis()) }
@@ -146,7 +149,8 @@ object QuickReplyWindow {
     private class Origin(val left: Int, val top: Int, val right: Int, val bottom: Int, val radius: Float, val color: Int)
     private val origin = mutableStateOf<Origin?>(null)
     private var morph: android.animation.ValueAnimator? = null
-    private var handing = 0L
+    /** Debug builds only: growing stops at this share of the way and stays (null: as always). */
+    internal var debugHold: Float? = null
     private const val MORPH_MS = 380L
 
     /** Where unanswered messages go back to (a silent notification) and answered ones are dropped. */
@@ -265,7 +269,9 @@ object QuickReplyWindow {
             // It doesn't take the keys as it comes (2026-11-26, hen's recording at 9.0 s: it arrived while he was
             // typing in another app, took the focus, and that app's keyboard closed under his fingers): the app in use
             // keeps its keyboard, and the window sits above it. A touch on the window gives it the keys ([takeKeys]).
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            // With "alt focusable" it still counts as a window that uses the keyboard: it stays under the keyboard and
+            // is told its height (without it, a window that takes no keys is put over the keyboard, covering it).
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or NO_KEYS,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.BOTTOM
@@ -281,6 +287,8 @@ object QuickReplyWindow {
             // whose place changed (a "move animation"), though what is drawn in it is already at the new size: the
             // chat showed some way off and slid into place (2026-11-26, hen's recording at 19.5 s and 25.7 s). Never.
             setCanPlayMoveAnimation(false)
+            // Nor Android's own fade as a window comes and goes: the window slides, grows and hands over by itself.
+            windowAnimations = R.style.NoWindowAnimation
             title = "Talk quick reply"
         }
         layout = params
@@ -303,7 +311,7 @@ object QuickReplyWindow {
         val v = view ?: return
         val p = layout ?: return
         if (phase != Phase.Floating || p.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE == 0) return
-        p.flags = p.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+        p.flags = p.flags and NO_KEYS.inv()
         runCatching { context.getSystemService(WindowManager::class.java).updateViewLayout(v, p) }
     }
 
@@ -374,6 +382,8 @@ object QuickReplyWindow {
     }
 
     private const val SLIDE_MS = 250L
+    /** The window takes no keys, yet keeps its place under the keyboard. */
+    private const val NO_KEYS = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM
     /**
      * The floating chat's share of the screen's height (2026-11-26, hen: "a little higher"; it was 0.4): room for two
      * or three more messages, the app behind still showing over half the screen.
@@ -411,6 +421,11 @@ object QuickReplyWindow {
     private fun morphTo(from: Float, to: Float, done: () -> Unit) {
         morph?.cancel()
         grow.floatValue = from
+        // Debug builds (DebugTriggers "morph_hold"): the move stops part of the way, to be looked at.
+        debugHold?.let { held ->
+            grow.floatValue = held
+            return
+        }
         morph = android.animation.ValueAnimator.ofFloat(from, to).apply {
             duration = MORPH_MS
             interpolator = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
@@ -464,8 +479,7 @@ object QuickReplyWindow {
         seeThrough.floatValue = 1f
         origin.value = null
         morphing.value = true
-        handing++
-        com.chencohen.ptt.ui.contacts.ChatHandover.landing.value = com.chencohen.ptt.ui.contacts.ChatHandover.Landing(which, typed.value, handing)
+        com.chencohen.ptt.ui.contacts.ChatHandover.landing.value = com.chencohen.ptt.ui.contacts.ChatHandover.Landing(which, typed.value, System.currentTimeMillis())
         // The whole screen is the window's from here, in one change; what it shows doesn't move by it (placed from the
         // bottom, [Window]).
         val wm = app.getSystemService(WindowManager::class.java)
@@ -511,8 +525,7 @@ object QuickReplyWindow {
             return false
         }
         notifications?.answered(which)
-        handing++
-        com.chencohen.ptt.ui.contacts.ChatHandover.landing.value = com.chencohen.ptt.ui.contacts.ChatHandover.Landing(which, "", handing)
+        com.chencohen.ptt.ui.contacts.ChatHandover.landing.value = com.chencohen.ptt.ui.contacts.ChatHandover.Landing(which, "", System.currentTimeMillis())
         Log.i(TAG, "the pill grows into the chat $which")
         // Its first frame is the pill's own shape over the pill: then it grows.
         afterDrawn(v) {
@@ -537,6 +550,8 @@ object QuickReplyWindow {
             app.startActivity(
                 Intent(app, MainActivity::class.java).setAction(Notifications.ACTION_OPEN).putExtra(Notifications.EXTRA_USER, which)
                     .putExtra(MainActivity.EXTRA_FROM_WINDOW, true)
+                    // Over another app: the app has a way in to wait out, and Back from the chat comes back here.
+                    .putExtra(MainActivity.EXTRA_OVER_ANOTHER, !MainActivity.onScreen)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION),
                 android.app.ActivityOptions.makeCustomAnimation(app, 0, 0).toBundle(),
             )
@@ -559,10 +574,7 @@ object QuickReplyWindow {
         com.chencohen.ptt.ui.contacts.ChatHandover.onLanded = null
         setWindowChat(app, null)
         Log.i(TAG, "the app's chat took over")
-        v.animate().alpha(0f).setDuration(120).withEndAction {
-            com.chencohen.ptt.ui.contacts.ChatHandover.landing.value = null
-            gone(app, v)
-        }.start()
+        v.animate().alpha(0f).setDuration(120).withEndAction { gone(app, v) }.start()
     }
 
     /**
