@@ -393,7 +393,7 @@ fill does):
 | Not sent | The dashed outline, the time in red; a tap sends it again |
 
 - Dashed to whole is the line itself moving, not a crossfade: every dash grows from its middle until the dashes meet
-  (250 ms). Then the green fades in over the whole bubble at once (300 ms; 2026-11-26, hen: "fade into green, not
+  (250 ms). Then the green fades in over the whole bubble at once (250 ms; 2026-11-26, hen: "fade into green, not
   filled into green"), and the text turns from the page's colour to the bubble's with it. The two steps never run at once, so each is seen even
   when both receipts come together. A bubble that comes on screen is simply as it is; only a change moves.
 - Send's flying copy lands as the dashed outline (its coral outline turns green as it opens into dashes); what came

@@ -145,7 +145,7 @@ internal fun rememberBubbleLook(reach: ReadMarks.Reach): BubbleLook {
         val fill = BubbleLook.fillOf(reach)
         if (fill < look.fill.value) look.fill.animateTo(fill, lineMove())
         if (line != look.line.value) look.line.animateTo(line, lineMove())
-        if (fill != look.fill.value) look.fill.animateTo(fill, tween(LINE_MS + 50, easing = FastOutSlowInEasing))
+        if (fill != look.fill.value) look.fill.animateTo(fill, tween(LINE_MS, easing = FastOutSlowInEasing))
     }
     return look
 }
