@@ -101,6 +101,8 @@ data class TextMessage(
     val editedAt: Long? = null,
     /** When it reached their phone (this phone's clock as the receipt came; mine, one-to-one). */
     val deliveredAt: Long? = null,
+    /** In a group: whose phone has it (mine only), and when (this phone's clock as each receipt came; 2026-11-26, hen). */
+    val deliveredTo: Map<String, Long> = emptyMap(),
     /** Deleted by its author (2026-11-24, hen): only "Message deleted" is left of it here. */
     val deleted: Boolean = false,
     /** One of the author's faces instead of words (Expression code + 1; 2026-11-24, hen); 0: a text. */

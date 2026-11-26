@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.draw.shadow
-import com.chencohen.ptt.messaging.ReadMarks.Tick
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
@@ -514,68 +513,6 @@ private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 }
 
 /**
- * How far a message of mine got (2026-11-23, hen picked option A, "filling circle"): a ~12 dp circle beside the time,
- * in its colour. Sending: a dashed ring, slowly turning; Sent (the server has it): an empty ring; Delivered (on their
- * phone): a solid dot; Read: nothing (it fades as their circle glides to it). Each change eases in ~200 ms: the ring
- * closes, then fills. The one place to swap the set. (2026-11-24: envelopes instead, below.)
- */
-@Composable
-internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifier: Modifier = Modifier) {
-    val ink = LibraryColors.OnMineMuted
-    val warn = LibraryColors.Warning
-    val label = when (tick) {
-        Tick.SENDING -> stringResource(R.string.chat_status_pending)
-        Tick.SENT -> stringResource(R.string.chat_status_sent)
-        Tick.DELIVERED -> stringResource(R.string.chat_status_delivered)
-        Tick.FAILED -> stringResource(R.string.chat_status_failed)
-        Tick.NONE -> stringResource(R.string.chat_status_read)
-    }
-    // Envelopes (2026-11-24, hen's pick "E2 · Flying, sent, sealed"): Sending flies (shifted ahead, two speed lines
-    // trailing, drifting); Sent rests; Delivered gets a round seal on its flap (popping in); Read: no mark. Drawn on a
-    // 16-unit square; in Hebrew mirrored so the lines trail behind.
-    val ease = tween<Float>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-    val flying by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.SENDING) 1f else 0f, ease, label = "flying")
-    val sealed by androidx.compose.animation.core.animateFloatAsState(
-        if (tick == Tick.DELIVERED) 1f else 0f,
-        androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f), label = "seal",
-    )
-    val shown by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.NONE) 0f else 1f, tween(250), label = "mark fades")
-    val drifting = androidx.compose.animation.core.rememberInfiniteTransition(label = "sending")
-    val drift by drifting.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(900, easing = androidx.compose.animation.core.LinearEasing)), label = "drift")
-    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-    if (shown <= 0f) return
-    androidx.compose.foundation.Canvas(modifier.size(16.dp).semantics { contentDescription = label }) {
-        val u = size.minDimension / 16f
-        val color = (if (tick == Tick.FAILED) warn else ink).copy(alpha = 0.75f * shown)
-        fun l(a: Float, b: Float) = a + (b - a) * flying
-        val stroke = Stroke(width = 1.35f * u, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
-        withTransform({ if (rtl) scale(-1f, 1f, pivot = center) }) {
-            // The envelope: resting (x2 y3.8 12x8.6) or flying (x4 y4.6 10.5x7.6).
-            val x = l(2f, 4f)
-            val y = l(3.8f, 4.6f)
-            val w = l(12f, 10.5f)
-            val h = l(8.6f, 7.6f)
-            drawRoundRect(color, androidx.compose.ui.geometry.Offset(x * u, y * u), androidx.compose.ui.geometry.Size(w * u, h * u), androidx.compose.ui.geometry.CornerRadius(l(1.6f, 1.4f) * u), style = stroke)
-            val flap = androidx.compose.ui.graphics.Path().apply {
-                moveTo(l(2.6f, 4.5f) * u, l(4.6f, 5.3f) * u)
-                lineTo(l(8f, 9.25f) * u, l(8.8f, 9f) * u)
-                lineTo(l(13.4f, 14f) * u, l(4.6f, 5.3f) * u)
-            }
-            drawPath(flap, color, style = stroke)
-            // The speed lines, trailing and drifting back while it flies.
-            if (flying > 0f) {
-                val back = drift * 0.8f
-                val lines = color.copy(alpha = color.alpha * flying * (1f - 0.5f * drift))
-                drawLine(lines, androidx.compose.ui.geometry.Offset((0.8f - back) * u, 7f * u), androidx.compose.ui.geometry.Offset((2.8f - back) * u, 7f * u), 1.35f * u, androidx.compose.ui.graphics.StrokeCap.Round)
-                drawLine(lines, androidx.compose.ui.geometry.Offset((1.4f - back) * u, 9.6f * u), androidx.compose.ui.geometry.Offset((3f - back) * u, 9.6f * u), 1.35f * u, androidx.compose.ui.graphics.StrokeCap.Round)
-            }
-            // The seal on the flap, popping in.
-            if (sealed > 0.01f) drawCircle(color, 2.3f * u * sealed.coerceAtLeast(0f), androidx.compose.ui.geometry.Offset(8f * u, 9.4f * u))
-        }
-    }
-}
-
-/**
  * A video burst in the chat (2026-11-23, hen: "every video a person sends will be in the chat"): its first picture,
  * its length, and a play mark; a tap plays it full screen, a long press saves it as a file. Live: a "live" mark until
  * it is whole.
@@ -715,36 +652,6 @@ internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = t
     }
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Box(Modifier.border(1.5.dp, coral, LibraryShapes.Card).background(coral.copy(alpha = 0.08f), LibraryShapes.Card).padding(6.dp)) { video() }
-    }
-}
-
-/**
- * In a group, the members who read up to here (2026-11-23, hen): their letter circles, at most 3 then "+N"; a tap
- * lists who read and when.
- */
-@Composable
-internal fun GroupReaders(readers: List<Pair<String, Long>>, here: Set<String> = emptySet()) {
-    var open by remember { androidx.compose.runtime.mutableStateOf(false) }
-    val label = stringResource(R.string.chat_read_by, readers.joinToString(", ") { it.first })
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        Column(horizontalAlignment = Alignment.End) {
-            Row(
-                Modifier.clickable(role = Role.Button, onClickLabel = label) { open = !open }.semantics { contentDescription = label },
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Those in the chat now first, each with their ring (2026-11-24, hen: "so it could work on groups").
-                readers.sortedByDescending { it.first in here }.take(3).forEach { (who, _) -> HereFace(who, who in here, Modifier) }
-                if (readers.size > 3) Text("+${readers.size - 3}", color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(start = 2.dp))
-            }
-            androidx.compose.animation.AnimatedVisibility(open) {
-                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(top = 4.dp)) {
-                    readers.forEach { (who, at) ->
-                        Text("$who · " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(at)), color = LibraryColors.Muted, style = LibraryType.Tiny)
-                    }
-                }
-            }
-        }
     }
 }
 

@@ -539,12 +539,14 @@ internal class Messaging(
             store.putMessage(message.copy(read = read))
             _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty()), drafts = it.drafts - typingKey(group.chat, message.author.orEmpty())) }
             if (!read) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
+            if (!message.outgoing) scope.launch { sendGroupDelivered(group, message.id) }
         },
         onClip = { group, author, clip, at ->
             val mine = author == device()?.user
             val fresh = store.message(clip.id) == null
             talk.receiveClip(group.chat, author, clip, at, outgoingCopy = mine)
             if (fresh && !mine) {
+                scope.launch { sendGroupDelivered(group, clip.id) }
                 if (readsAtOnce(group.chat)) store.message(clip.id)?.let { store.putMessage(it.copy(read = true)) }
                 else if (clip.kind == ClipContent.VOICE) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
             }
@@ -558,6 +560,16 @@ internal class Messaging(
             for (id in ids) {
                 val m = store.message(id)?.takeIf { it.outgoing && it.user == group.chat && author !in it.readBy } ?: continue
                 store.putMessage(m.copy(readBy = m.readBy + (author to at)))
+                changed = true
+            }
+            if (changed) publish()
+        },
+        onDelivered = { group, author, ids ->
+            var changed = false
+            val at = now()
+            for (id in ids) {
+                val m = store.message(id)?.takeIf { it.outgoing && it.user == group.chat && author !in it.deliveredTo } ?: continue
+                store.putMessage(m.copy(deliveredTo = m.deliveredTo + (author to at)))
                 changed = true
             }
             if (changed) publish()
@@ -1779,6 +1791,19 @@ internal class Messaging(
             return
         }
         sendReceipt(user, read = true, unread.map { it.id })
+    }
+
+    /**
+     * This phone has a group's message: told to the group, end to end, no push (2026-11-26, hen: the author's bubble
+     * fills once every member's phone has it). Not sent again when it fails: their reading it says as much.
+     */
+    private suspend fun sendGroupDelivered(group: Group, id: String) {
+        try {
+            groups.send(group.id, Content(receipt = ReceiptContent(false, listOf(id))), PushKind.NONE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
     }
 
     /** Read receipts that couldn't go yet (not connected), by user; sent once connected. */

@@ -69,6 +69,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -618,12 +620,36 @@ private fun ConversationScreenIn(
                 }
             }
         }
-        val reader = remember(readerMessages, header.presence, group != null) { if (group == null && ReadMarks.showsReader(header.presence)) ReadMarks.lastRead(readerMessages) else null }
-        // Their face is not an item of the list (2026-11-26, hen: "the little avatar is misplacing often and makes
-        // problems"): it sits beside that message's bubble and takes no room of its own, so reading on, a new message or a
-        // draft never moves the chat because of it.
-        // In a group: each member's circle under the last message of mine they read (2026-11-23, hen).
-        val groupReaders = remember(readerMessages, presences, group != null) { if (group != null) ReadMarks.groupReaders(readerMessages, presences.filterValues { !ReadMarks.showsReader(it) }.keys) else emptyMap() }
+        // How far each of mine got (2026-11-26, hen): its bubble is a dashed outline until the server has it, a whole
+        // outline on the server, and fills green once every participant's phone has it. (From what really came, not
+        // from what is taken as read while they watch.)
+        val reaches = remember(messages, group?.members) { ReadMarks.reaches(messages, group?.members) }
+        // Their faces in the gaps under my messages (2026-11-26, hen): a dashed circle under the last one their phone
+        // has, a ringed face after the last one they read (not when they hide their presence). Not rows of the list
+        // (rows coming and going made the chat jump): each gap is part of its message's own item, with no room at all
+        // without faces, and a face that moves on glides from its gap to the next while one closes and the other opens.
+        val places = remember(readerMessages, presences, header.presence, group?.members, keeps) {
+            val hidden = if (group != null) presences.filterValues { !ReadMarks.showsReader(it) }.keys else if (ReadMarks.showsReader(header.presence)) emptySet() else setOf(user)
+            ReadMarks.places(readerMessages, group?.members, hidden) { it.clip == null || it.deleted || keeps(it) }
+        }
+        val placesNow = androidx.compose.runtime.rememberUpdatedState(places)
+        val homes = remember(user) { MarkHomes() }
+        val marks by remember(user) { androidx.compose.runtime.derivedStateOf { homes.shown(placesNow.value) } }
+        // While gaps open and close, the bubbles follow them in the same frame (no glide of their own trailing).
+        val gapsNow = marks.filterValues { faces -> faces.any { !it.under } }.keys
+        val gapsWere = remember(user) { arrayOf(gapsNow) }
+        var gapsMoving by remember(user) { mutableStateOf(false) }
+        val gapsChanged = gapsWere[0] != gapsNow
+        if (gapsChanged) androidx.compose.runtime.SideEffect {
+            gapsWere[0] = gapsNow
+            gapsMoving = true
+        }
+        LaunchedEffect(gapsNow) {
+            delay(LINE_MS + 150L)
+            gapsMoving = false
+        }
+        val marksAcross = marksAcross((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 24).dp)
+        val nameOfMark: (String) -> String = { who -> if (group == null) contact?.name ?: who else who }
         // Writing in the chat (2026-11-23, hen): the draft bubble at the end of the list.
         val canWrite = if (group != null) group.note == null else contact != null && !contact.blocked && contact.paired
         val draft = remember(user) { ChatDraft() }
@@ -836,8 +862,6 @@ private fun ConversationScreenIn(
             shownAt to hidden
         }
         val openSessions = remember(user) { androidx.compose.runtime.mutableStateListOf<String>() }
-        // (From the same list as their face: a message taken as read while they watch shows no envelope either.)
-        val ticks = remember(readerMessages, group != null) { if (group != null) readerMessages.associate { it.id to ReadMarks.groupTick(readerMessages, it) } else ReadMarks.ticks(readerMessages) }
         // The draft and the buttons float over the chat (2026-11-23, hen: no band behind them): the list scrolls
         // under them to the bottom of the screen, with room at its end so its last message clears them.
         val density = androidx.compose.ui.platform.LocalDensity.current
@@ -882,7 +906,7 @@ private fun ConversationScreenIn(
                 // it in the same frame: no placement animation of their own trailing it (2026-11-24, hen: "don't make
                 // the surrounding objects move with delay"). Otherwise (one added or gone) they glide.
                 // (Send's flight is not one: its slot is kept unseen, so the others make room for it in one glide.)
-                val morphing = editing != null || edits.closing.isNotEmpty() || shownDrafts.isNotEmpty() || liveEdits.isNotEmpty()
+                val morphing = editing != null || edits.closing.isNotEmpty() || shownDrafts.isNotEmpty() || liveEdits.isNotEmpty() || gapsChanged || gapsMoving
                 val move = if (morphing) null else androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                 // Both kept pushing at once: a video call may suit them (2026-11-23, hen).
                 if (talk.suggestCall == user) {
@@ -928,14 +952,16 @@ private fun ConversationScreenIn(
                     val earlier = pairs[message.id]?.let { byId[it] }
                     if (earlier != null) {
                         item(key = "pair@" + earlier.id) {
-                            Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { VideoPair(earlier, message) { m -> Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, tick = ticks[m.id] ?: ReadMarks.Tick.NONE, compact = true) } }
+                            val mineOf = if (earlier.outgoing) earlier else message
+                            val faces = marks[mineOf.id].orEmpty()
+                            Column(Modifier.animateItem(ease, move, ease).zIndex(if (faces.isEmpty()) 0f else 1f)) {
+                                Box(Modifier.graphicsLayer { alpha = seeThrough }) { VideoPair(earlier, message) { m -> Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, reach = reaches[m.id], compact = true) } }
+                                if (mineOf.outgoing) MarkGap(mineOf.id, faces, homes, marksAcross, nameOfMark)
+                            }
                         }
                         return@forEach
                     }
                     if (message.id in pairedEarlier) return@forEach
-                    groupReaders[message.id]?.let { readers ->
-                        item(key = "readers@" + message.id) { Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) { GroupReaders(readers, emptySet()) } }
-                    }
                     // A burst the chat doesn't keep: nothing while it is live (the panels show it), then a muted line.
                     if (message.clip != null && !message.deleted && !keeps(message)) {
                         // Still being recorded (waiting for the floor) or live: nothing yet.
@@ -969,7 +995,13 @@ private fun ConversationScreenIn(
                         // flight's time, so the messages above rise with the flight. (With no draft the list glides instead.)
                         val slot = message.id == sentMorph
                         val grows = remember(slot) { slot && shownDrafts.isNotEmpty() }
-                        Box(Modifier.animateItem(ease, move, ease).then(if (grows) Modifier.growIn(true, FLIGHT_MS) else Modifier)) {
+                        val faces = if (message.outgoing) marks[message.id].orEmpty() else emptyList()
+                        // Mine doesn't fade in as a whole item (a fading item is cut at its own edges, and a face gliding
+                        // into its gap starts outside them): only its bubble does, when it is new.
+                        val fresh = remember { message.outgoing && !slot && System.currentTimeMillis() - message.at < 2_000 }
+                        // (Above the other items while it has faces: one gliding in passes over the bubbles between.)
+                        Column(Modifier.animateItem(if (message.outgoing) null else ease, move, ease).zIndex(if (faces.isEmpty()) 0f else 1f)) {
+                          Box((if (grows) Modifier.growIn(true, FLIGHT_MS) else Modifier).then(if (fresh) Modifier.fadeIn() else Modifier)) {
                             val edit = edits.of(message.id)
                             if (edit != null) {
                                 EditBubble(
@@ -982,6 +1014,7 @@ private fun ConversationScreenIn(
                                         if (save) actions.edit(message.id, edit.value.text) else actions.editLive(message.id, null, -1, -1)
                                     },
                                     gone = { edits.gone(edit) },
+                                    filled = reaches[message.id] == ReadMarks.Reach.RECEIVED,
                                 )
                             } else {
                                 // Live video in the bubble: mine while I send it, theirs while it plays (not under the
@@ -990,12 +1023,11 @@ private fun ConversationScreenIn(
                                 val liveVideo = false
                                 // A playing video stays solid while the window arrives (never drawn see-through).
                                 Bubble(
-                                    message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, tick = ticks[message.id] ?: ReadMarks.Tick.NONE, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
+                                    message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, reach = reaches[message.id], held = slot, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
                                     // Send's slot: kept unseen while the draft flies into it; where it lies, whole (not as
                                     // clipped while it grows in).
                                     bubbleModifier = if (slot) Modifier.onGloballyPositioned { flight.to = androidx.compose.ui.geometry.Rect(it.positionInWindow(), androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat())) }.graphicsLayer { alpha = 0f }
                                     else Modifier.graphicsLayer { alpha = seeThrough },
-                                    beside = if (reader != null) { { ReaderFace(user, reader.readAt, message.id == reader.id) } } else null,
                                     liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
                                     startEdit = if (!slot && message.outgoing && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
                                     doubleTap = if (message.clip?.video == true && selected.isEmpty()) { { actions.playClip(message.id) } } else null,
@@ -1004,6 +1036,8 @@ private fun ConversationScreenIn(
                                     selecting = selected.isNotEmpty(),
                                 )
                             }
+                          }
+                          if (message.outgoing) MarkGap(message.id, faces, homes, marksAcross, nameOfMark)
                         }
                     }
                 }
@@ -1341,24 +1375,27 @@ private fun Modifier.growIn(grow: Boolean = true, ms: Int = 200): Modifier {
     }
 }
 
+/** Fades in once, as it comes (a new bubble of mine: its item doesn't fade as a whole, see the list). */
+@Composable
+private fun Modifier.fadeIn(): Modifier {
+    val shown = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { shown.animateTo(1f, androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    return graphicsLayer { alpha = shown.value }
+}
+
 /** How long a draft stays after its end, waiting for the message it became (it lands in the draft's place). */
 private const val DRAFT_HOLD_MS = 1_500L
 
 /** The chat header's height under the status bar, and its face (2026-11-25, hen: slimmer; the live row rests below it). */
 private val HEADER_HEIGHT = 48.dp
 
-/** [ring]: 2 a solid teal ring (on this chat's screen), 1 a dashed one (in its talk room), 0 none. */
+/**
+ * [ring]: 2 a whole teal ring (on this chat's screen), 1 a dashed one (in its talk room), 0 none. From one to another
+ * the ring itself moves (2026-11-26, hen: "a continuous animation, not a crossfade"): dashes grow out of nothing, and
+ * close into the whole ring ([morphRing], the line my bubble's outline is drawn with).
+ */
 @Composable
-private fun Modifier.faceRing(ring: Int): Modifier {
-    if (ring == 0) return this
-    val teal = LibraryColors.Accent
-    return drawBehind {
-        val w = 2.dp.toPx()
-        val style = if (ring == 2) androidx.compose.ui.graphics.drawscope.Stroke(w)
-        else androidx.compose.ui.graphics.drawscope.Stroke(w, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())))
-        drawCircle(teal, radius = size.minDimension / 2 - w / 2, style = style)
-    }
-}
+private fun Modifier.faceRing(ring: Int): Modifier = morphRing(ring, LibraryColors.Accent)
 
 /**
  * The header's own edge (2026-11-25, hen chose "A · Hairline"): the screen's background, and one 1-px line under it in
@@ -1499,7 +1536,7 @@ private fun lastSeen(at: Long): String {
 }
 
 @Composable
-private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, tick: ReadMarks.Tick = ReadMarks.Tick.NONE, liveVideo: Boolean = false, liveSince: Long? = null, compact: Boolean = false, bubbleModifier: Modifier = Modifier,
+private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, reach: ReadMarks.Reach? = null, liveVideo: Boolean = false, liveSince: Long? = null, compact: Boolean = false, bubbleModifier: Modifier = Modifier,
     /** Their text being edited live: its text as it stands (null: hidden), shown in place with a soft mark. */
     liveEdit: com.chencohen.ptt.messaging.LiveEdit? = null,
     /** Mine: a double tap edits it, the caret at the tapped character ([Int] the bubble's width now, in pixels). */
@@ -1510,8 +1547,8 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     selected: Boolean = false,
     select: (() -> Unit)? = null,
     selecting: Boolean = false,
-    /** Beside the bubble, toward the middle of the chat, at its bottom (their face, where they read up to); it takes no height. */
-    beside: (@Composable () -> Unit)? = null,
+    /** Mine, in Send's slot while the draft flies into it: shown as still on its way, so what came meanwhile is seen once it lands. */
+    held: Boolean = false,
 ) {
     var bubbleWidth by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     // Where the text lies in the bubble and its layout: a double tap anywhere on the bubble finds its character.
@@ -1523,13 +1560,23 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     val isFace = message.face > 0 && !message.deleted && message.clip == null && message.call == null
     @Suppress("NAME_SHADOWING") val startEdit = startEdit?.takeIf { !isFace }
     val highlight by androidx.compose.animation.animateColorAsState(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent, androidx.compose.animation.core.tween(180), label = "selected")
+    // Mine: how far it got is the bubble itself (2026-11-26, hen), no mark beside the time. A dashed outline until the
+    // server has it (and when it failed, with the time in red), a whole outline on the server, whole green once every
+    // participant's phone has it; the text is the page's on an outline and the bubble's on the green.
+    val shownReach = if (mine) (if (held) ReadMarks.Reach.SENDING else reach ?: ReadMarks.Reach.RECEIVED) else null
+    val look = shownReach?.let { rememberBubbleLook(it) }
+    val reachLabel = when (shownReach) {
+        ReadMarks.Reach.SENDING -> stringResource(R.string.chat_status_pending)
+        ReadMarks.Reach.ON_SERVER -> stringResource(R.string.chat_status_sent)
+        ReadMarks.Reach.RECEIVED -> stringResource(R.string.chat_status_delivered)
+        ReadMarks.Reach.FAILED -> stringResource(R.string.chat_status_failed)
+        null -> null
+    }
     Box(
         Modifier.fillMaxWidth().background(highlight, RoundedCornerShape(10.dp))
             .then(if (selecting && select != null) Modifier.clickable(role = Role.Checkbox, onClick = select) else Modifier),
         contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-      Row(verticalAlignment = Alignment.Bottom) {
-        if (mine) beside?.invoke()
         Column(
             bubbleModifier
                 .widthIn(max = bubbleMaxWidth())
@@ -1559,10 +1606,12 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 )
                 .animateContentSize(androidx.compose.animation.core.tween(MORPH_MS))
                 .then(if (liveEdit != null) Modifier.border(1.dp, LibraryColors.Accent.copy(alpha = 0.6f), LibraryShapes.Card) else Modifier)
-                .background(if (isFace) Color.Transparent else if (mine) LibraryColors.Mine else LibraryColors.Raised, LibraryShapes.Card)
+                .then(if (isFace) Modifier else if (look != null) Modifier.myBubble(look) else Modifier.background(LibraryColors.Raised, LibraryShapes.Card))
+                .then(if (reachLabel != null) Modifier.semantics { stateDescription = reachLabel } else Modifier)
                 .then(if (message.status == MessageStatus.FAILED) Modifier.clickable(role = Role.Button) { retry(message.id) } else Modifier)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
+          com.chencohen.ptt.ui.style.MineInk(if (look != null && !isFace) look.ink() else LibraryColors.OnMine) {
             if (showAuthor && !mine && message.author != null) {
                 Text(message.author!!, color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
             }
@@ -1622,13 +1671,12 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                     },
                     style = LibraryType.Tiny,
                 )
-                if (mine) StatusMark(tick, Modifier.padding(start = 4.dp))
             }
             if (message.reactions.isNotEmpty() && !message.deleted) {
                 com.chencohen.ptt.ui.face.Reactions(message.reactions, Modifier.align(if (mine) Alignment.Start else Alignment.End).padding(top = 2.dp))
             }
+          }
         }
-      }
     }
 }
 
@@ -1724,43 +1772,6 @@ internal class LiveKeys(private var lastNewest: String?) {
 internal sealed interface LiveLine {
     data class Draft(val who: String?, val text: String, val caret: Pair<Int, Int>? = null) : LiveLine
     data class Message(val message: TextMessage, val who: String?, val lastDraft: String?) : LiveLine
-}
-
-/**
- * Their face beside the last message of mine they read (2026-11-26, hen): it fades in here as it fades out beside the
- * message before, in the same 200 ms, and takes no room in the list. A tap shows when they read it.
- */
-@Composable
-private fun ReaderFace(user: String, readAt: Long?, here: Boolean) {
-    val shown = remember { androidx.compose.animation.core.MutableTransitionState(false) }
-    shown.targetState = here
-    val ease = androidx.compose.animation.core.tween<Float>(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-    androidx.compose.animation.AnimatedVisibility(
-        shown,
-        enter = androidx.compose.animation.fadeIn(ease) + androidx.compose.animation.scaleIn(ease, initialScale = 0.6f),
-        exit = androidx.compose.animation.fadeOut(ease) + androidx.compose.animation.scaleOut(ease, targetScale = 0.6f),
-    ) {
-        var showTime by remember { mutableStateOf(false) }
-        val label = com.chencohen.ptt.genderedString(R.string.chat_read_up_to_here, user, user)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // When they read it: beside the face, toward the middle, over the chat (no width of its own, so the bubble
-            // beside it never gets narrower); placed relative, so it is on the right side in Hebrew too.
-            androidx.compose.animation.AnimatedVisibility(
-                showTime && readAt != null,
-                enter = androidx.compose.animation.fadeIn(ease), exit = androidx.compose.animation.fadeOut(ease),
-                modifier = Modifier.layout { measurable, constraints ->
-                    val placeable = measurable.measure(constraints.copy(minWidth = 0, maxWidth = androidx.compose.ui.unit.Constraints.Infinity))
-                    layout(0, placeable.height) { placeable.placeRelative(-placeable.width, 0) }
-                },
-            ) {
-                Text(
-                    stringResource(R.string.chat_read_at, DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(readAt ?: 0L))),
-                    color = LibraryColors.Muted, style = LibraryType.Tiny, maxLines = 1, softWrap = false, modifier = Modifier.padding(end = 6.dp),
-                )
-            }
-            HereFace(user, false, Modifier.clickable(role = Role.Button, onClickLabel = label) { showTime = !showTime })
-        }
-    }
 }
 
 /** A draft written live, filling into the message it becomes: outline to fill, label out, time in, size eased. */
@@ -2057,6 +2068,7 @@ private fun ChatSheetView(sheet: ChatSheet?, messages: List<TextMessage>, group:
                             line(stringResource(if (m.outgoing) R.string.chat_info_sent else R.string.chat_info_received), m.at)
                             if (m.outgoing) {
                                 if (group) {
+                                    m.deliveredTo.entries.sortedBy { it.value }.forEach { (who, at) -> line(stringResource(R.string.chat_info_delivered) + " · " + who, at) }
                                     m.readBy.entries.sortedBy { it.value }.forEach { (who, at) -> line(stringResource(R.string.chat_info_read) + " · " + who, at) }
                                 } else {
                                     line(stringResource(R.string.chat_info_delivered), m.deliveredAt)
@@ -2137,7 +2149,7 @@ internal class Editing(val id: String, val original: String, caret: Int, val wid
  * ✓ saves; Back or a tap outside turn it back unchanged (no ✕). 220 ms each way, eased.
  */
 @Composable
-private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit) {
+private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit, /** The bubble it opens from is whole green (every phone has it), not an outline. */ filled: Boolean = true) {
     val open = remember(edit.id) { androidx.compose.animation.core.Animatable(0f) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
     var saving by remember(edit.id) { mutableStateOf<Boolean?>(null) }
@@ -2175,7 +2187,7 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
         Column(
             Modifier.width(boxWidth)
                 .border(1.5.dp, coral.copy(alpha = p), LibraryShapes.Card)
-                .background(androidx.compose.ui.graphics.lerp(LibraryColors.Mine, LibraryColors.Background, p), LibraryShapes.Card)
+                .background(androidx.compose.ui.graphics.lerp(if (filled) LibraryColors.Mine else LibraryColors.Background, LibraryColors.Background, p), LibraryShapes.Card)
                 .background(coral.copy(alpha = 0.08f * p), LibraryShapes.Card)
                 .padding(start = pad, end = pad, top = 8.dp, bottom = 6.dp),
         ) {
@@ -2186,7 +2198,7 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
                     if (v.text != edit.value.text) edit.changed = true
                     change(v.copy(text = v.text.take(4_000)))
                 },
-                textStyle = LibraryType.Message.copy(color = androidx.compose.ui.graphics.lerp(LibraryColors.OnMine, LibraryColors.OnBackground, p)),
+                textStyle = LibraryType.Message.copy(color = androidx.compose.ui.graphics.lerp(if (filled) LibraryColors.OnMine else LibraryColors.OnBackground, LibraryColors.OnBackground, p)),
                 cursorBrush = androidx.compose.ui.graphics.SolidColor(coral),
                 maxLines = 6,
                 modifier = Modifier.fillMaxWidth().focusRequester(focus),
@@ -2256,12 +2268,15 @@ internal class SendFlight {
     var origin = androidx.compose.ui.geometry.Offset.Zero
     /** Touches on the chat, counted (the camera's idle release). */
     var touches by androidx.compose.runtime.mutableIntStateOf(0)
-    val progress = androidx.compose.animation.core.Animatable(0f)
+    /** A new one for each flight: the copy waits where the draft was, never as the last flight ended. */
+    var progress by mutableStateOf(androidx.compose.animation.core.Animatable(0f))
+        private set
 
     /** What was newest in the chat as Send was pressed: the sent message comes after it (never matched by text). */
     private var before: String? = null
 
     fun start(text: String, bounds: androidx.compose.ui.geometry.Rect?, newestNow: String?) {
+        progress = androidx.compose.animation.core.Animatable(0f)
         to = null
         id = null
         from = bounds
@@ -2323,19 +2338,30 @@ private fun SendFlightOverlay(flight: SendFlight) {
                 val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
                 layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(flightOffset(box, flight.origin)) }
             }
-            .background(LibraryColors.Background.copy(alpha = 1f - p), LibraryShapes.Card)
+            // It lands as a message on its way (2026-11-26, hen): the draft's whole outline turns green as it opens
+            // into dashes (the line itself moves, [drawMorphLine]); no fill.
+            .background(LibraryColors.Background, LibraryShapes.Card)
             .background(coral.copy(alpha = 0.08f * (1f - p)), LibraryShapes.Card)
-            .background(LibraryColors.Mine.copy(alpha = p), LibraryShapes.Card)
-            .border(1.5.dp, coral.copy(alpha = 1f - p), LibraryShapes.Card)
+            .then(
+                run {
+                    val line = androidx.compose.ui.graphics.lerp(coral, LibraryColors.MineLine, p)
+                    Modifier.drawBehind {
+                        val w = 1.5.dp.toPx()
+                        val r = 16.dp.toPx()
+                        val path = androidx.compose.ui.graphics.Path().apply { addRoundRect(androidx.compose.ui.geometry.RoundRect(w / 2f, w / 2f, size.width - w / 2f, size.height - w / 2f, androidx.compose.ui.geometry.CornerRadius(r - w / 2f))) }
+                        val length = androidx.compose.ui.graphics.PathMeasure().apply { setPath(path, true) }.length
+                        drawMorphLine(path, length, line, w, androidx.compose.ui.util.lerp(1f, LINE_DASHED, p), 9.dp.toPx())
+                    }
+                },
+            )
             .padding(start = start, end = end, top = 8.dp, bottom = 8.dp),
     ) {
         // The label folds away above the text, which keeps its size and moves with the box.
         Column {
-            Text(text, color = androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.OnMine, p), style = LibraryType.Message)
+            Text(text, color = LibraryColors.OnBackground, style = LibraryType.Message)
         }
         Row(Modifier.align(Alignment.BottomEnd).graphicsLayer { alpha = p }, verticalAlignment = Alignment.CenterVertically) {
-            Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(System.currentTimeMillis())), color = LibraryColors.OnMineMuted, style = LibraryType.Tiny)
-            StatusMark(ReadMarks.Tick.SENDING, Modifier.padding(start = 4.dp))
+            Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(System.currentTimeMillis())), color = LibraryColors.OnBackground.copy(alpha = 0.6f), style = LibraryType.Tiny)
         }
     }
 }

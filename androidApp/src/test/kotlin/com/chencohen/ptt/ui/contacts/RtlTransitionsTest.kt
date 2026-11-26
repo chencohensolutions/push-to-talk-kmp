@@ -56,4 +56,31 @@ class RtlTransitionsTest {
         val slotOnTheLeft = Rect(24f, 900f, 400f, 980f)
         assertEquals(IntOffset(24, 700), flightOffset(slotOnTheLeft, chat))
     }
+
+    @Test
+    fun aFaceGlidesBetweenPlacesTowardTheMiddleFromMySide() {
+        // Places in a gap are counted from my side inward. In Hebrew my side is the left, so place 2 is to the right
+        // of place 0: a face that was at place 2 and now stands at place 0 starts two steps to the right (+).
+        assertEquals(52f, slotShift(from = 2f, to = 0f, step = 26f, rtl = true))
+        // In English my side is the right: the same face starts two steps to the left.
+        assertEquals(-52f, slotShift(from = 2f, to = 0f, step = 26f, rtl = false))
+        assertEquals(0f, slotShift(from = 1f, to = 1f, step = 26f, rtl = true))
+    }
+
+    @Test
+    fun facesStandSideBySideAcrossTheRow() {
+        // 22 dp faces 4 dp apart: 13 fit in 336 dp, and "+N" comes only past that.
+        assertEquals(13, marksAcross(androidx.compose.ui.unit.Dp(336f)))
+        assertEquals(2, marksAcross(androidx.compose.ui.unit.Dp(10f)))
+    }
+
+    @Test
+    fun aBubbleOfMineIsDashedThenWholeThenFilled() {
+        assertEquals(LINE_DASHED, BubbleLook.lineOf(com.chencohen.ptt.messaging.ReadMarks.Reach.SENDING))
+        assertEquals(LINE_DASHED, BubbleLook.lineOf(com.chencohen.ptt.messaging.ReadMarks.Reach.FAILED))
+        assertEquals(1f, BubbleLook.lineOf(com.chencohen.ptt.messaging.ReadMarks.Reach.ON_SERVER))
+        assertEquals(0f, BubbleLook.fillOf(com.chencohen.ptt.messaging.ReadMarks.Reach.ON_SERVER))
+        assertEquals(1f, BubbleLook.fillOf(com.chencohen.ptt.messaging.ReadMarks.Reach.RECEIVED))
+        assertEquals(0f, BubbleLook.fillOf(com.chencohen.ptt.messaging.ReadMarks.Reach.FAILED))
+    }
 }

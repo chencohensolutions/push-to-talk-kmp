@@ -371,3 +371,63 @@ In a group the members' faces are still a row of their own under the message (un
 - When I send while their draft is at the chat's end, my message's place opens over the flight's 300 ms, so the messages
   above rise with the flight instead of jumping up at its start.
 - Only a draft grows in; the message it became, scrolled away and back, comes whole.
+
+## My bubble says how far it got; their faces in the gaps (2026-11-26, hen)
+
+hen: "Message should be dashed border until it arrives to server; when arrived to server it should be solid green
+border, with smart transition not a crossfade; when message arrives to all participants it should be whole green. The
+avatar bubbles look good but between the messages it should be less spacing. Only when there are avatars between
+messages the space is bigger to make room for the avatars. Don't stack avatars on top of each other; they should be with
+a little spacing between them." (The mock: `mocks/read-avatars-mock.png`.)
+
+This replaces the envelope marks beside the time, the read face beside the bubble and the group's row of reader circles.
+
+**My bubble** (green `#23774a`; its outline is the same green, brighter on the dark page so the thin line reads as the
+fill does):
+
+| Where it is | The bubble |
+|---|---|
+| On its way, not on the server yet | A dashed green outline, no fill |
+| On the server, not on every participant's phone yet | A whole green outline, no fill |
+| On every participant's phone (one to one: theirs; a group: every other member's) | Whole green |
+| Not sent | The dashed outline, the time in red; a tap sends it again |
+
+- Dashed to whole is the line itself moving, not a crossfade: every dash grows from its middle until the dashes meet
+  (250 ms). Then the green grows in from the outline toward the middle, all around at once (300 ms), and the text turns
+  from the page's colour to the bubble's as the green reaches it. The two steps never run at once, so each is seen even
+  when both receipts come together. A bubble that comes on screen is simply as it is; only a change moves.
+- Send's flying copy lands as the dashed outline (its coral outline turns green as it opens into dashes); what came
+  while it flew shows once it has landed.
+- What was read was received, and whoever has a later message has the ones before it (so an old message whose receipt
+  never came fills when a newer one arrives).
+- In a group each member's phone now tells the group, end to end and with no push, that it has a message (a delivered
+  receipt, as one to one); the author keeps who and when (`TextMessage.deliveredTo`), and Message info lists them. A
+  member on an older app sends none: for them the bubble fills when they read it.
+- A screen reader hears the same as the bubble's state ("Waiting to send", "Sent", "Delivered", "Not sent · tap to try
+  again").
+
+**Their faces** (22 dp), in the gap under a message of mine, on my side (the bubbles' own edge; the left in Hebrew):
+
+- A face in a whole green ring after the last message of mine they read (not when they hide their presence); a faint
+  face in a dashed circle under the last one their phone has. In the same gap only the ringed face shows.
+- The gap between two messages is the chat's usual 6 dp. Only a gap with faces is taller (26 dp more), the faces in its
+  middle. The gap is part of its message's own list item, not a row of its own, so nothing is added to or taken from the
+  list as faces come and go.
+- When someone reads or receives further, their face glides from its gap to the new one (250 ms), over the bubbles
+  between, while the gap it leaves closes and the one it comes to opens, all in one move; the bubbles follow in the same
+  frame and the chat stays anchored at its end. A face whose new gap is not on screen yet (a message just sent, still
+  coming in) stays where it is until it is, then glides.
+- Several people in one gap stand side by side, 4 dp apart, from my side inward, never over one another: ringed faces
+  first, then dashed circles, each by name (so nothing shuffles as others move on). "+N" only when the row is full (13
+  faces on a 360 dp wide phone).
+- A tap on the faces opens a small card under them: each person, and "read 01:53" or "received 01:54".
+- Sent while they have the chat in view, a message is still taken as read at once (their ringed face goes to it from
+  the start); the bubble itself shows only what really came.
+- Places are counted from my side inward and positions come from the layout (start and end), so it is the same in
+  Hebrew and in English, mirrored.
+
+**Rings around faces in the header** (hen: "should emerge from no border to dashed border with a continuous animation,
+not a crossfade; also when transforming from dashed to solid border"): the ring is drawn with the same line as my
+bubble's outline. None to dashed: the dashes grow out of nothing; dashed to whole: they grow until they meet; and back
+the same way (250 ms, one move). The contact's face in the chat header and the members' faces in a group's header.
+

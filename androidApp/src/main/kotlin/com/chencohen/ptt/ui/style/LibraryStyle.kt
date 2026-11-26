@@ -42,10 +42,18 @@ internal class LibraryPalette(
     val OnInverseMuted: Color,
     val Warning: Color,
     val Error: Color,
-    /** This phone's own chat bubbles (2026-11-23, hen: option C, deep teal), their text, and their time and ticks. */
-    val Mine: Color = Color(0xFF163A36),
-    val OnMine: Color = Color(0xFFDFF3EF),
+    /**
+     * This phone's own chat bubbles, their text and their time (2026-11-26, hen: green; the mock's "B"): the fill of
+     * one every participant's phone has. [MineLine]: its outline before that, and the ring of a face that read; the
+     * same green, brighter on the dark page so a thin line reads as the fill does.
+     */
+    val Mine: Color = Color(0xFF23774A),
+    val OnMine: Color = Color(0xFFF2FBF5),
+    val MineLine: Color = Color(0xFF32A066),
 ) {
+    /** The same palette with [ink] as the text on my bubbles (an outline bubble's text is the page's). */
+    fun withOnMine(ink: Color) = LibraryPalette(Background, Raised, OnBackground, Muted, Accent, Inverse, OnInverse, OnInverseMuted, Warning, Error, Mine, ink, MineLine)
+
     val OnMineMuted: Color get() = OnMine.copy(alpha = 0.6f)
     val BadgeScrim = Color(0x990F1413)
     val PillScrim = Color(0xB30F1413)
@@ -94,11 +102,18 @@ internal val LightLibraryPalette = LibraryPalette(
     OnInverseMuted = Color(0xFFFFD1E8),
     Warning = Color(0xFFB45309),
     Error = Color(0xFFC2410C),
-    Mine = Color(0xFFD3EEE9),
-    OnMine = Color(0xFF0E2B28),
+    MineLine = Color(0xFF23774A),
 )
 
 private val LocalLibraryPalette = staticCompositionLocalOf { DarkLibraryPalette }
+
+/** [content] with [ink] as the text on my bubbles: what a bubble of mine holds reads on its outline and on its fill. */
+@Composable
+internal fun MineInk(ink: Color, content: @Composable () -> Unit) {
+    val base = LocalLibraryPalette.current
+    val palette = androidx.compose.runtime.remember(base, ink) { if (ink == base.OnMine) base else base.withOnMine(ink) }
+    CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
+}
 
 internal val LibraryColors: LibraryPalette
     @Composable @ReadOnlyComposable get() = LocalLibraryPalette.current

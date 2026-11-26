@@ -127,14 +127,21 @@ class GroupsTest {
         hen.messaging.sendText(Group.chatOf(id), "Hello trip")
         advanceUntilIdle()
         assertEquals(MessageStatus.SENT, hen.chat(id).single().status)
+        // Each member's phone says it has it (2026-11-26, hen: my bubble fills once everyone's phone has it); nobody read it yet.
+        assertEquals(setOf("dana", "noa"), hen.chat(id).single().deliveredTo.keys, "the members' delivered receipts in the group")
+        assertTrue(hen.chat(id).single().readBy.isEmpty())
+        assertEquals(ReadMarks.Reach.RECEIVED, ReadMarks.reaches(hen.chat(id), listOf("dana", "noa"))[hen.chat(id).single().id])
+        assertTrue(dana.chat(id).single().deliveredTo.isEmpty(), "only the author keeps who has it")
         for (phone in listOf(dana, noa)) {
             val m = phone.chat(id).single()
             assertEquals("Hello trip", m.body)
             assertEquals("hen", m.author)
             assertFalse(m.outgoing)
         }
-        assertEquals(1, server.groupSends.size, "encrypted once, one group Send (after STALE_DEVICES)")
-        assertEquals(1, server.groupSends.single().envelopes.size)
+        // (And each member's delivered receipt: one group Send each.)
+        assertEquals(1, server.groupSends.count { it.pushKind != PushKind.NONE }, "encrypted once, one group Send (after STALE_DEVICES)")
+        assertEquals(3, server.groupSends.size)
+        assertTrue(server.groupSends.all { it.envelopes.size == 1 })
 
         noa.messaging.sendText(Group.chatOf(id), "Hi from Noa")
         advanceUntilIdle()
