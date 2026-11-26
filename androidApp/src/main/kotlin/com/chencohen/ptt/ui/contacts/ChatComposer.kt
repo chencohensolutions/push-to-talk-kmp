@@ -360,7 +360,9 @@ internal fun ChatButtons(
             var lifting by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
             // While Push is held, the side target stands where Voice message is (left of Push): Voice message steps
             // aside for it, and comes back when the finger lifts.
-            val aside by androidx.compose.animation.core.animateFloatAsState(if (lifting >= 0f && !handsFree) 1f else 0f, tween(180), label = "voice message aside")
+            // Hands-free (voice or video, until Stop; 2026-11-26, hen): Voice message is hidden the same way, and comes
+            // back when the push stops.
+            val aside by androidx.compose.animation.core.animateFloatAsState(if (lifting >= 0f || handsFree) 1f else 0f, tween(180), label = "voice message aside")
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (waitingFor != null) {
                     Text(
@@ -375,8 +377,11 @@ internal fun ChatButtons(
                 Box(Modifier.graphicsLayer { alpha = 1f - aside; scaleX = 1f - 0.2f * aside; scaleY = 1f - 0.2f * aside }) {
                     if (recording) {
                         RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
-                    } else {
+                    } else if (aside < 0.99f) {
                         RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
+                    } else {
+                        // Hidden: its place kept (nothing moves), nothing to tap.
+                        Spacer(Modifier.size(small))
                     }
                 }
             }
