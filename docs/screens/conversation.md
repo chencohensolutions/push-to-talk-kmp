@@ -345,3 +345,29 @@ Their live draft and the message it becomes are one item (LiveKeys: the same key
 where it is: no remove and insert, no scroll. When their draft's end comes before the message, the draft stays where it is
 for up to 1.5 s, so the message lands in its place instead of the draft going and the message coming anew. Start and end
 are the language's (the bubble at the start side, the grow origin at its bottom start corner, right in Hebrew).
+
+## Their read face beside the bubble (2026-11-26, hen: "the little avatar is misplacing often and makes problems")
+
+One to one, their small face is no longer an item of the list. It sits beside the last message of mine they read: on
+the bubble's inner side (toward the middle of the chat), at its bottom, and takes no room of its own. When they read on,
+it fades out there and in beside the newer message in the same 200 ms; nothing else in the chat moves. A tap still shows
+when they read it, written over the chat beside the face (it takes no width, so the bubble never gets narrower).
+Before, the face was a list item that changed places (in the middle, or at the very end sharing the draft's key), so each
+change pushed the chat up or down by its height, and when it left the end the list followed it and showed older messages
+under the writing bubble until their next draft.
+
+Sent while they have the chat in view, a message is taken as read from the frame it comes in, and stays so for as long
+as they keep the chat in view (at least 3 s, half a minute at most without their receipt); it shows no envelope either.
+Before, it was held for 3 s only, so a receipt that came later made the face go back a message and forward again.
+
+In a group the members' faces are still a row of their own under the message (unchanged).
+
+## A live draft, calmer (2026-11-26, hen)
+
+- A new line: the lines already there stay in view and ride up with the bubble's top (160 ms) while the new line shows
+  under them. (They were hidden for three frames at every wrap, only the new line showing.) A line fewer: the same, back.
+- Their caret is always drawn over the text, at its end when their phone doesn't say where (or the draft ended and waits
+  for its message); it is never a character of the text, so it can't push a word onto a new line as the message lands.
+- When I send while their draft is at the chat's end, my message's place opens over the flight's 300 ms, so the messages
+  above rise with the flight instead of jumping up at its start.
+- Only a draft grows in; the message it became, scrolled away and back, comes whole.

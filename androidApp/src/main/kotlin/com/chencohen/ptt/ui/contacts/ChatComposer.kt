@@ -576,29 +576,6 @@ internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifi
 }
 
 /**
- * Their small letter circle, right after the last message of mine they read (2026-11-23, hen, from the mockups); a
- * tap shows when they read it.
- */
-@Composable
-internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean, here: Boolean = false) {
-    var showTime by remember { androidx.compose.runtime.mutableStateOf(false) }
-    val label = com.chencohen.ptt.genderedString(R.string.chat_read_up_to_here, user, user)
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            androidx.compose.animation.AnimatedVisibility(showTime && readAt != null) {
-                Text(
-                    stringResource(R.string.chat_read_at, DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(readAt ?: 0L))),
-                    color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(end = 6.dp),
-                )
-            }
-            val tap = Modifier.clickable(role = Role.Button, onClickLabel = label) { showTime = !showTime }.semantics { contentDescription = label }
-            HereFace(user, here, tap)
-        }
-    }
-    @Suppress("UNUSED_EXPRESSION") end
-}
-
-/**
  * A video burst in the chat (2026-11-23, hen: "every video a person sends will be in the chat"): its first picture,
  * its length, and a play mark; a tap plays it full screen, a long press saves it as a file. Live: a "live" mark until
  * it is whole.
