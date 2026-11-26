@@ -153,8 +153,8 @@ internal fun rememberBubbleLook(reach: ReadMarks.Reach): BubbleLook {
 /** The text on a bubble of mine: the page's while it is an outline, the bubble's own once the green is under it. */
 @Composable
 internal fun BubbleLook.ink(): Color {
-    // The green reaches the text a little after it starts in from the outline.
-    val t = ((fill.value - 0.3f) / 0.6f).coerceIn(0f, 1f)
+    // The text turns with the green as it fades in.
+    val t = fill.value.coerceIn(0f, 1f)
     return androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.OnMine, t * t * (3f - 2f * t))
 }
 
@@ -168,7 +168,6 @@ internal fun Modifier.myBubble(look: BubbleLook, radius: Dp = 16.dp): Modifier {
         val r = radius.toPx()
         val line = Path().apply { addRoundRect(RoundRect(w / 2f, w / 2f, size.width - w / 2f, size.height - w / 2f, CornerRadius((r - w / 2f).coerceAtLeast(0f)))) }
         val length = PathMeasure().apply { setPath(line, true) }.length
-        val half = size.minDimension / 2f
         onDrawBehind {
             val f = look.fill.value
             if (f >= 1f) {
@@ -176,10 +175,8 @@ internal fun Modifier.myBubble(look: BubbleLook, radius: Dp = 16.dp): Modifier {
                 return@onDrawBehind
             }
             if (f > 0f) {
-                // The green grows from the outline inward, all around at once, until it closes in the middle.
-                val t = half * f
-                val hole = Path().apply { addRoundRect(RoundRect(t, t, size.width - t, size.height - t, CornerRadius((r - t).coerceAtLeast(0f)))) }
-                clipPath(hole, ClipOp.Difference) { drawRoundRect(fillColor, cornerRadius = CornerRadius(r)) }
+                // The green fades in over the whole bubble at once (2026-11-26, hen: "fade into green, not filled").
+                drawRoundRect(fillColor.copy(alpha = fillColor.alpha * f), cornerRadius = CornerRadius(r))
             }
             drawMorphLine(line, length, androidx.compose.ui.graphics.lerp(lineColor, fillColor, f), w, look.line.value, 9.dp.toPx())
         }
