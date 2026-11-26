@@ -212,6 +212,24 @@ talker is told why, end to end (TalkHeardContent; HeardStatus).
 - **Urgent lock** (2026-11-26, hen): let go on the bell and the push goes on hands-free, urgent voice, until Stop (a red
   Stop with the bell), in the chat and the floating window; renewals stay urgent.
 
+- **The side target is hands-free; the bell only when someone can't hear** (2026-11-26, hen: "the urgent indicator
+  should be only if the user didn't hear; until then it should be a microphone icon, and sliding to it turns into
+  hands-free voice transmission. And it should be on the other side: most people are right-handed and the thumb hides
+  the icon"). In the chat (the floating window is handled apart):
+  - While Push is held, the target shows on its **left on the screen, in Hebrew and in English**, where Voice message
+    is; Voice message steps aside while the finger is down and comes back when it lifts. Slide left onto it (72 dp; one
+    buzz on reaching it).
+  - By default it is a **microphone, "Hands-free"**: let go on it and the voice push goes on, hands-free, until Stop (the
+    usual Stop, not red; renewed every 55 s as any hands-free push). Not urgent.
+  - Only when someone in the chat can't hear now (their presence says Do Not Disturb, silent or in a call, or they
+    already told that this push was saved: the same rule as the grey chip) it is the **red bell, "Urgent"**: on it the
+    push turns urgent (red button with a bell, "You · Urgent"), and let go there it goes on hands-free and urgent until
+    Stop (red Stop with the bell; renewals urgent), as before.
+  - It changes while held: when someone stops hearing mid-push the microphone turns into the bell in one move (250 ms:
+    one shrinks away as the other grows in, the pill's colour turning with them); with the thumb already on it, the
+    push turns urgent at its next move or as it lifts.
+  - Sliding up is still hands-free video; a thumb heading more sideways than up never reaches the video lock.
+
 ## Live for exactly as long as they transmit (2026-11-25, hen)
 
 The listener shows a talker live for as long as the talker transmits, voice or video, held, hands-free or from the

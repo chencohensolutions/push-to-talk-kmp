@@ -296,6 +296,9 @@ internal fun RecordingStrip(discard: () -> Unit) {
     }
 }
 
+/** How a push goes on after the finger lifts on the side target: not at all, hands-free voice, or hands-free urgent voice. */
+internal enum class PushLock { NONE, VOICE, URGENT }
+
 /**
  * The buttons under the chat, icons only (hen: "no text labels"): Voice message (a tap starts recording; while it
  * records it is Send) and Push-to-talk (hold). No call buttons here (2026-11-25, hen: "in chat screen, remove the
@@ -318,9 +321,9 @@ internal fun ChatButtons(
     /** The finger went down on Push ([true]) or lifted. */
     pressed: (Boolean) -> Unit = {},
     stopLive: () -> Unit = {},
-    /** Pressed and let go (locked: slid up to the lock), in place of starting and ending a burst directly. */
+    /** Pressed and let go (on the side target: the push goes on hands-free, see [PushLock]), in place of starting and ending a burst directly. */
     press: (() -> Unit)? = null,
-    release: ((locked: Boolean) -> Unit)? = null,
+    release: ((lock: PushLock) -> Unit)? = null,
     /** My camera, small, on the button's corner. */
     thumb: Boolean = true,
     /**
@@ -330,6 +333,12 @@ internal fun ChatButtons(
     waitingFor: String? = null,
     /** My push now is urgent (the red bell; 2026-11-25, hen): the button red with a bell. */
     urgent: Boolean = false,
+    /**
+     * Someone in the chat can't hear a push now (their presence, or what they told of this one): the side target is
+     * then the red Urgent bell instead of the hands-free microphone (2026-11-26, hen: "the urgent indicator should be
+     * only if the user didn't hear").
+     */
+    cantHear: Boolean = false,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
@@ -344,6 +353,11 @@ internal fun ChatButtons(
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = if (compact) 6.dp else 12.dp, bottom = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Held: -1 not held, else how far up the finger is.
+            var lifting by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
+            // While Push is held, the side target stands where Voice message is (left of Push): Voice message steps
+            // aside for it, and comes back when the finger lifts.
+            val aside by androidx.compose.animation.core.animateFloatAsState(if (lifting >= 0f && !handsFree) 1f else 0f, tween(180), label = "voice message aside")
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (waitingFor != null) {
                     Text(
@@ -355,26 +369,31 @@ internal fun ChatButtons(
                         modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     )
                 }
-                if (recording) {
-                    RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
-                } else {
-                    RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
+                Box(Modifier.graphicsLayer { alpha = 1f - aside; scaleX = 1f - 0.2f * aside; scaleY = 1f - 0.2f * aside }) {
+                    if (recording) {
+                        RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
+                    } else {
+                        RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
+                    }
                 }
             }
             val talkLabel = stringResource(R.string.talk_button)
             // Hold: voice push-to-talk. Slide up while holding, to the camera-and-lock target above the button: it
             // turns into hands-free video until Stop (2026-11-24, hen: "holding the button transmitting audio, sliding
             // the button up open hands free video"). The camera warms as the finger starts to slide.
-            var lifting by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
             var lockedNow by remember { androidx.compose.runtime.mutableStateOf(false) }
             var slidingNow by remember { androidx.compose.runtime.mutableStateOf(false) }
-            // Sideways, away from the voice message button (its right, in Hebrew too: the row is laid out on the
-            // screen): the red bell, Urgent (2026-11-25, hen). Released on it, or kept there: an urgent push.
+            // Sideways, to the left on the screen in either language (2026-11-26, hen: a right thumb hides what is on
+            // the right): the hands-free target. A microphone, "Hands-free": let go on it and the voice push goes on
+            // until Stop. Only when someone can't hear now it is the red bell, Urgent: on it the push is urgent, and
+            // let go there it goes on hands-free, urgent.
             var side by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+            var onTarget by remember { androidx.compose.runtime.mutableStateOf(false) }
             var urgentNow by remember { androidx.compose.runtime.mutableStateOf(false) }
+            val cantHearNow by androidx.compose.runtime.rememberUpdatedState(cantHear)
             val density = androidx.compose.ui.platform.LocalDensity.current
             val lockAt = with(density) { 72.dp.toPx() }
-            val urgentAt = with(density) { 72.dp.toPx() }
+            val sideAt = with(density) { 72.dp.toPx() }
             val onUrgent by androidx.compose.runtime.rememberUpdatedState(actions.markUrgent)
             val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
             val warmFrom = with(density) { 16.dp.toPx() }
@@ -410,21 +429,25 @@ internal fun ChatButtons(
                         .semantics { contentDescription = talkLabel }
                         .holdOrLock(
                             lockAt = lockAt,
-                            onPress = { lifting = 0f; side = 0f; urgentNow = false; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
-                            onSide = { right ->
-                                side = right
-                                if (right >= urgentAt && !urgentNow && !lockedNow) {
-                                    urgentNow = true
+                            onPress = { lifting = 0f; side = 0f; onTarget = false; urgentNow = false; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
+                            onSide = { left ->
+                                side = left
+                                if (left >= sideAt && !onTarget && !lockedNow) {
+                                    onTarget = true
                                     haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                }
+                                // On the bell (reached as the bell, or it turned into one under the thumb): urgent now.
+                                if (onTarget && cantHearNow && !urgentNow && !lockedNow) {
+                                    urgentNow = true
                                     onUrgent()
                                 }
                             },
                             onLift = { up ->
                                 lifting = up
-                                // Heading for the bell (more sideways than up), or already urgent: the same push goes on,
-                                // never the lock's video (2026-11-26, hen: "when swiping to urgent stay the
-                                // transmission on until pushing stop"; a thumb's arc to the bell reached the lock).
-                                val towardsBell = urgentNow || side > up
+                                // Heading for the side target (more sideways than up), or already on it: the same push goes
+                                // on, never the lock's video (2026-11-26, hen: "when swiping to urgent stay the
+                                // transmission on until pushing stop"; a thumb's arc to the target reached the lock).
+                                val towardsBell = onTarget || side > up
                                 val slide = up > warmFrom && !lockedNow && !towardsBell
                                 if (slide != slidingNow) {
                                     slidingNow = slide
@@ -442,9 +465,14 @@ internal fun ChatButtons(
                             onRelease = { locked ->
                                 lifting = -1f
                                 side = 0f
-                                // Let go on the urgent bell's push: it locks, hands-free, until Stop (2026-11-26, hen:
-                                // "when swiping to urgent it continues to transmit voice until I push stop").
-                                val urgentLock = urgentNow
+                                // Let go on the side target: the push goes on hands-free until Stop (2026-11-26, hen):
+                                // voice on the microphone, urgent voice on the bell (as the target is at that moment).
+                                val lock = when {
+                                    !onTarget -> PushLock.NONE
+                                    urgentNow || cantHearNow -> PushLock.URGENT
+                                    else -> PushLock.VOICE
+                                }
+                                onTarget = false
                                 urgentNow = false
                                 onPressed(false)
                                 if (slidingNow) {
@@ -454,7 +482,7 @@ internal fun ChatButtons(
                                 // Already switched to hands-free video at the lock.
                                 if (lockedNow) return@holdOrLock
                                 val r = onRelease
-                                if (r != null) r(urgentLock) else if (!urgentLock) actions.finishVoice(true)
+                                if (r != null) r(lock) else if (lock == PushLock.NONE) actions.finishVoice(true)
                                 @Suppress("UNUSED_EXPRESSION") locked
                             },
                         ),
@@ -462,21 +490,30 @@ internal fun ChatButtons(
                 ) {
                     Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
                 }
-                // The red bell, sideways while it is held: it fills red as the thumb nears it.
+                // The side target, left of Push while it is held: it fills as the thumb nears it. The microphone
+                // turns into the bell (and back) in one move when someone stops hearing while it is held.
                 if (lifting >= 0f && !handsFree) {
-                    val near = if (urgentNow) 1f else (side / urgentAt).coerceIn(0f, 1f)
-                    val urgentLabel = stringResource(R.string.talk_urgent)
-                    androidx.compose.foundation.layout.Column(
-                        Modifier.align(Alignment.CenterEnd).offset(x = 72.dp + 12.dp * near).size(64.dp, 44.dp)
+                    val near = if (onTarget) 1f else (side / sideAt).coerceIn(0f, 1f)
+                    val bell by androidx.compose.animation.core.animateFloatAsState(if (cantHear || urgentNow) 1f else 0f, tween(250), label = "side target")
+                    val targetLabel = stringResource(if (cantHear || urgentNow) R.string.talk_urgent else R.string.talk_hands_free)
+                    val full = androidx.compose.ui.graphics.lerp(com.chencohen.ptt.ui.style.Pink, LibraryColors.Error, bell)
+                    val ink = if (near > 0.5f) Color.White else androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.Error, bell)
+                    Box(
+                        Modifier.align(Alignment.CenterStart).offset(x = -(80.dp + 12.dp * near)).size(72.dp, 44.dp)
                             .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
-                            .background(androidx.compose.ui.graphics.lerp(LibraryColors.Background, LibraryColors.Error, near), androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
-                            .semantics { contentDescription = urgentLabel },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
+                            .background(androidx.compose.ui.graphics.lerp(LibraryColors.Background, full, near), androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                            .semantics { contentDescription = targetLabel },
+                        contentAlignment = Alignment.Center,
                     ) {
-                        val ink = if (near > 0.5f) Color.White else LibraryColors.Error
-                        Icon(LibraryIcons.Bell, null, tint = ink, modifier = Modifier.size(18.dp))
-                        Text(urgentLabel, color = ink, style = LibraryType.Tiny)
+                        // Both laid out in the same place: one shrinks away as the other grows in.
+                        androidx.compose.foundation.layout.Column(Modifier.graphicsLayer { alpha = 1f - bell; scaleX = 1f - 0.4f * bell; scaleY = 1f - 0.4f * bell }, horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(LibraryIcons.Mic, null, tint = ink, modifier = Modifier.size(18.dp))
+                            Text(stringResource(R.string.talk_hands_free), color = ink, style = LibraryType.Tiny, maxLines = 1, softWrap = false)
+                        }
+                        androidx.compose.foundation.layout.Column(Modifier.graphicsLayer { alpha = bell; scaleX = 0.6f + 0.4f * bell; scaleY = 0.6f + 0.4f * bell }, horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(LibraryIcons.Bell, null, tint = ink, modifier = Modifier.size(18.dp))
+                            Text(stringResource(R.string.talk_urgent), color = ink, style = LibraryType.Tiny, maxLines = 1, softWrap = false)
+                        }
                     }
                 }
                 // The target, over the button while it is held: a camera over a lock; it fills as the thumb nears it.

@@ -85,6 +85,7 @@ import com.chencohen.ptt.talk.NowPlaying
 import com.chencohen.ptt.talk.TalkUiState
 import com.chencohen.ptt.ui.TalkTheme
 import com.chencohen.ptt.ui.talk.ClipContent
+import com.chencohen.ptt.ui.talk.cantHear
 import com.chencohen.ptt.ui.talk.VoiceButton
 import com.chencohen.ptt.ui.style.HomeCard
 import com.chencohen.ptt.ui.style.LibraryColors
@@ -1171,10 +1172,18 @@ private fun ConversationScreenIn(
                         },
                     ) {
                         if (chatLive.call == null) {
+                            // Someone here can't hear a push now (as the grey chip under my pill says it): Push's side
+                            // target is then the Urgent bell instead of the hands-free microphone.
+                            val hearNow = com.chencohen.ptt.ui.talk.LocalHear.current
+                            val toldNow = talk.own?.takeIf { it.chat == user }?.let { talk.heard[it.clip] }.orEmpty()
+                            val someoneCantHear = (if (group == null) listOf(user) else group.members).any { who ->
+                                com.chencohen.ptt.ui.talk.PushListener(who, who, hearNow(who), toldNow[who] ?: 0).cantHear()
+                            }
                             ChatButtons(
                                 false, talkingHere, recordingVoice, actions, video = false, handsFree = handsFree,
                                 waitingFor = waitingFor,
                                 urgent = talk.own?.let { it.chat == user && it.urgent } == true,
+                                cantHear = someoneCantHear,
                                 // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.
                                 lock = {
                                     val run = runs.now
@@ -1233,13 +1242,16 @@ private fun ConversationScreenIn(
                                         actions.startVoice()
                                     }
                                 },
-                                release = { locked ->
-                                    say("finger up (run ${runs.now}, locked $locked, standby $standby, own ${ownNow?.phase})")
+                                release = { lock ->
+                                    say("finger up (run ${runs.now}, lock $lock, standby $standby, own ${ownNow?.phase})")
                                     when {
-                                        locked -> {
-                                            say("urgent lock: hands-free voice until Stop (run ${runs.now})")
+                                        // Let go on the side target (2026-11-26, hen): the voice push goes on until Stop;
+                                        // on the bell (someone can't hear now) it is urgent, and so are its renewals.
+                                        lock != PushLock.NONE -> {
+                                            say("side lock: hands-free ${if (lock == PushLock.URGENT) "urgent " else ""}voice until Stop (run ${runs.now})")
                                             handsFree = true
-                                            urgentHandsFree = true
+                                            urgentHandsFree = lock == PushLock.URGENT
+                                            if (lock == PushLock.URGENT) actions.markUrgent()
                                         }
                                         standby -> {
                                             standby = false

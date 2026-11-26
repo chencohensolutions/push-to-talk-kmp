@@ -606,6 +606,7 @@
     <string name="talk_missed_urgent">דיבור דחוף שלא נשמע מאת %1$s</string>
     <string name="talk_missed_urgent_group">דיבור דחוף שלא נשמע מאת %1$s ב%2$s</string>
     <string name="talk_urgent">דחוף</string>
+    <string name="talk_hands_free">ללא ידיים</string>
     <string name="talk_missed_body">להקיש כדי לפתוח את השיחה</string>
     <string name="talk_notify_play">השמעה</string>
     <string name="talk_notify_reply">תשובה</string>
