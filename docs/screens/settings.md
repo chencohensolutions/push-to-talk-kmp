@@ -16,6 +16,9 @@ and each time the connection's state changes.
 
 ## Privacy
 
+- **Show when I can't hear** (2026-11-25, hen; on by default): contacts see a badge when this phone is on Do Not
+  Disturb, silent or in a call, and a push to it is saved instead of played. Off: hidden.
+
 - **Live typing for new contacts** (2026-11-23, hen; off by default; each contact's and group's page has its own
   **Live typing to them** switch, off unless turned on there; turning this default on doesn't switch on the contacts
   there are, only new ones follow it): what you write in a chat (or the quick-reply window) goes to the
@@ -88,10 +91,20 @@ A row, "Talk · Catch up to live, Stay connected, hardware buttons", opens Setti
   apps?", Allow or Not now) and then only shows that row.
 - **In the background › Quick reply window** (on by default; 2026-11-23, hen): a message shows its chat at the bottom
   of the screen over other apps, to reply or hold and talk ([notifications.md](notifications.md), "Quick reply window").
-- **In the background › Unmute for incoming talk** (on by default; 2026-11-22, hen): a burst that starts while the
-  media volume is 0 turns it up to 60% (`TalkUnmute`), with Android's volume bar showing, for as long as bursts play
-  (the queued ones and the catch-up too), then back to 0; a volume the user changed meanwhile stays. Nothing changes in
-  Do Not Disturb, on a fixed-volume phone or in a call, and the ringer is never touched.
+- **In the background › Talk volume** (on by default; 2026-11-25, hen: "turn up the volume when incoming voice", the
+  switch that was Unmute for incoming talk): while someone else's push is heard (played, or live in the room), the media
+  volume is set to the level of the slider under it ("80% of the media volume" by default, 10% to 100%;
+  `TalkLoudness`), with Android's volume bar showing, and the volume from before comes back 2 s after the last push
+  (with the dimming of other apps). The volume keys during a push change the media volume; the level found at the
+  end becomes the new Talk volume. Android has no per-app volume in its mixer, so this is the app's own. Nothing
+  changes in Do Not Disturb, on a fixed-volume phone or in a call, and the ringer is never touched.
+- **In the background › Boost voice** (off by default; 2026-11-25, hen): incoming talk made up to twice as loud in the
+  app (`VoiceBoost`), without touching the system volume. Played clips go through a soft limiter (plain gain below 70%
+  of full scale, the peaks bent smoothly under it, never clipped); the live room's voice through WebRTC's own gain.
+- **In the background › Lower other audio while someone talks** (on by default; 2026-11-25, hen): while someone
+  else's push is heard, music and videos in other apps go quieter (transient audio focus, "may duck"; `TalkDuck`) and
+  come back 2 s after the last one ends. Off: no audio focus is taken for talk, other apps play at full volume. Some
+  music apps pause instead of dimming.
 - **In the background › Stay connected** (a switch, off by default): a foreground service keeps the connection, so
   talk plays at once and buttons work with the screen off; a note says it uses a little more battery and that, off,
   the server wakes the phone when someone talks. After a restart it resumes when the app is opened (Android starts

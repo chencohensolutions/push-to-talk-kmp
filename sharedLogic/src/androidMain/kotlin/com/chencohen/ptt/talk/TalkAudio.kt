@@ -10,6 +10,19 @@ object TalkAudio {
     @Volatile
     var inCallSession: Boolean = false
 
+    /**
+     * The room's audio must play as call audio (2026-11-25, hen: "i don't hear some times"): the app isn't on screen and
+     * Talk is ready has no right to play from the background (started by a push after a restart or an install), so
+     * Android mutes media ("AudioHardening background playback muted") and a Telecom talk session plays it instead,
+     * which mutes media too. Set by the app.
+     */
+    @Volatile
+    var playAsCall: () -> Boolean = { false }
+
+    /** Settings › Talk › Boost voice (VoiceBoost): incoming talk's own gain. Set by the app. */
+    @Volatile
+    var boost: () -> Boolean = { false }
+
     /** The voice playing now and the microphone's, 0 to 1 (VoiceLevel.fromRms), for the talk button; 0 when quiet. */
     @Volatile
     var playLevel: Float = 0f

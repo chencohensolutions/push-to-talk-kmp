@@ -15,40 +15,60 @@ interface TalkVolume {
 }
 
 /**
- * Settings › Talk › Unmute for incoming talk (2026-11-22, hen; on by default): a burst that starts playing while the
- * media volume is at 0 raises it to [UNMUTED_SHARE] of the most for as long as bursts play, the queued ones and the
- * catch-up too, then puts it back to 0. A volume the user changed meanwhile is theirs and stays. Nothing changes under
- * Do Not Disturb, and never the ringer: only the stream talk plays on.
+ * Settings › Talk › Talk volume (2026-11-25, hen: "turn up the volume when incoming voice"; on by default, the switch
+ * that was Unmute for incoming talk): while someone else's push is heard (played, or live in the room), the media
+ * stream is set to the Talk volume, [share] of the most (80% unless changed), and the volume from before comes back
+ * when it is over (TalkDuck: 2 s after the last push). The volume keys meanwhile change the media stream, so the level
+ * found at the end, if it isn't the one set, is the new Talk volume ([save]). Nothing changes under Do Not Disturb, on
+ * a fixed-volume phone or in a call, and never the ringer: only the stream talk plays on.
  */
-class TalkUnmute(private val volume: () -> TalkVolume?, private val enabled: () -> Boolean) {
+class TalkLoudness(
+    private val volume: () -> TalkVolume?,
+    private val enabled: () -> Boolean,
+    private val share: () -> Double,
+    private val save: (Double) -> Unit,
+) {
     private var held = false
-    private var raisedTo: Int? = null
+    private var before: Int? = null
+    private var setTo: Int? = null
 
-    /** A burst starts playing. */
+    /** Someone's push starts being heard. */
     fun begin() {
         if (held) return
         held = true
         if (!enabled()) return
         val v = volume() ?: return
         runCatching {
-            if (!v.changeable() || v.level() > 0) return
-            val to = maxOf(1, (v.max() * UNMUTED_SHARE).toInt())
-            v.set(to)
-            raisedTo = to
+            if (!v.changeable()) return
+            val max = v.max()
+            val to = levelFor(share(), max)
+            before = v.level()
+            setTo = to
+            if (v.level() != to) v.set(to)
         }
     }
 
-    /** Nothing more plays (the last queued burst ended, or playing was stopped). */
+    /** Nothing is heard any more: the volume from before comes back; a level changed meanwhile is the Talk volume. */
     fun end() {
         if (!held) return
         held = false
-        val to = raisedTo ?: return
-        raisedTo = null
+        val from = before ?: return
+        val to = setTo
+        before = null
+        setTo = null
         val v = volume() ?: return
-        runCatching { if (v.changeable() && v.level() == to) v.set(0) }
+        runCatching {
+            if (!v.changeable()) return
+            val now = v.level()
+            if (to != null && now != to && v.max() > 0) save(now.toDouble() / v.max())
+            if (now != from) v.set(from)
+        }
     }
 
     companion object {
-        const val UNMUTED_SHARE = 0.6
+        const val DEFAULT_SHARE = 0.8
+
+        /** The stream level for [share] of [max]: never 0 (talk is meant to be heard). */
+        fun levelFor(share: Double, max: Int): Int = (kotlin.math.round(max * share.coerceIn(0.0, 1.0))).toInt().coerceIn(1, maxOf(1, max))
     }
 }

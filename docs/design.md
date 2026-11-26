@@ -359,8 +359,16 @@ what was shown (the server sends HIGH only to phones that registered notificatio
     screen, so it has while-in-use rights. It holds no connection, wake lock or timer, with a silent notification on
     its own least-important channel ("Talk is ready", Stop until the next app open; the channel can be turned off in
     Android's settings and the service keeps working). A woken burst takes transient audio focus through it
-    (`TalkReady`) and plays as media: the loudspeaker (or the headset in use) at media volume. The focus goes back
+    (`TalkReady`, through `AndroidTalkFocus`, shared with the room's dimming; none with Lower other audio while
+    someone talks off) and plays as media: the loudspeaker (or the headset in use) at media volume. The focus goes back
     20 s after the last burst. Never started at boot (Android would mute it).
+    **Without media rights** (2026-11-25, hen: "i don't hear some times"): Talk is ready started by a push (after a
+    restart or an install, the app not opened since) has no while-in-use rights, so Android mutes its media ("AudioHardening
+    background playback muted") and refuses its focus. `TalkReadyService.withRights` says whether it was started (or
+    started again, from `MainActivity.onStart`) with the app on screen; without them a burst goes straight to the call
+    session, and the live room is joined with its audio as call audio (`TalkAudio.playAsCall`, LiveKit's
+    `CallAudioType`), since a call session mutes media too. When its chat comes on screen, a room joined that way is
+    joined again as media (`TalkTransport.stale`).
   - **The call session** when Talk is ready isn't running (after a restart until the app is opened, or stopped) or focus is refused: a Telecom talk session (Core-Telecom `CallsManager.addCall`, an incoming audio
     call the app answers itself, "Talk · Family", run by `TalkSessionService` as a phone-call service), in which the
     burst plays as the call's voice (`TalkAudio.inCallSession`: Android mutes media during a call) on the loudspeaker
@@ -406,6 +414,15 @@ through ptt-server's `/rtc` (mTLS, like `/ws`), and `serverInfo.liveTalk` says w
   **`talk/LiveKitTalkTransport.kt`**: LiveKit 2.30 with the same mTLS OkHttp client (pinned key and the server's CA),
   frame encryption per sender (`BaseKeyProvider`, no shared key, frames dropped while a cryptor isn't ready), no
   audio handler (the room takes no audio focus and doesn't change the audio mode while it only listens).
+- **Other apps dimmed** (2026-11-25, hen: "Sharon now listen to audio on other app and barely hear me"; Settings ›
+  Talk › Lower other audio while someone talks, on by default): while someone else's push is heard in the room (chat
+  open, the floating window, or in the background), `TalkDuck` (sharedLogic) holds transient audio focus, "others may
+  duck" (`AndroidTalkFocus`: usage media, content speech), so music and videos in other apps go quieter. The first
+  heard burst takes it; it goes back 2 s (`RELEASE_AFTER_MS`) after the last heard burst ends (its floor's end, all its
+  segments in, or the stale-floor limit), so a push right after keeps the music down. Refused: talk plays anyway.
+  Own pushes never take it. `AndroidTalkFocus` is the one focus holder for the room and Talk is ready (`TalkReady`),
+  so they don't fight: asked when the first takes it, given back when the last lets go. Off: neither takes focus,
+  other apps play on at full volume. Some music apps pause rather than dim (their own choice).
 - **The microphone** is published only for a burst and unpublished (stopped) after it, so the microphone indicator
   shows only while talking (R3). While in the room the clip records from that same microphone (the track's sink,
   encoded to Opus by `SampleCapture`), so it isn't opened twice. The talker's phone publishes at the press, without
@@ -771,3 +788,12 @@ slide-up ends the voice burst and starts the video one 300 ms after the first le
 Since the burst was already heard live through the talk room, it should still be delivered, but as a burst (BURST kind,
 folded into the session's line on both phones), not as a kept voice message. To do: reproduce with a quick
 press, slide and Stop; log each message's kind and keep decision; add a test.
+
+## Who can hear you, urgent pushes, live as long as they transmit (2026-11-25, hen)
+
+Server: TalkStart/TalkState.urgent, HearState frame (15), Presence.hear, setHearVisible (server ux/dnd-hear). App: this
+phone's Hear (AndroidHear: call, Do Not Disturb, ringer, media volume) goes to the server as HearState; a push that
+comes while it can't hear is saved (CanHearRules), the talker told end to end (TalkHeardContent, HeardStatus); urgent
+pushes through Do Not Disturb with the contact's switch and Do Not Disturb access (AndroidDndGate). Screens:
+docs/screens/talk.md, "Who can hear you". The listener's live state follows the talker's room beats (TalkBeat,
+LiveSigns): docs/screens/talk.md, "Live for exactly as long as they transmit".

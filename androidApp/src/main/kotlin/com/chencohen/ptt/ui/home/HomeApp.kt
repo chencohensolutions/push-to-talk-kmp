@@ -121,6 +121,8 @@ class HomeActions(
     val newChat: () -> Unit = {},
     val reviewRequest: (String) -> Unit = {},
     val openContact: (String) -> Unit = {},
+    /** A Chats row's shield (not verified): their safety number. */
+    val openSafety: (String) -> Unit = {},
     /** A group invitation's card: the group's page, to accept or decline. */
     val openGroup: (String) -> Unit = {},
     val replaceIdentityKey: () -> Unit = {},
@@ -173,6 +175,8 @@ fun HomeApp(
     onInviteTaken: () -> Unit = {},
     /** A conversation a notification opened (MainActivity), until home showed it. */
     openedChat: String? = null,
+    /** Back from this chat goes back to the floating chat it was opened from (MainActivity); false: Back as always. */
+    leaveToWindow: (String) -> Boolean = { false },
     onChatTaken: () -> Unit = {},
     /** A call asked from Android Contacts (the user, video). */
     openedCall: Pair<String, Boolean>? = null,
@@ -197,6 +201,9 @@ fun HomeApp(
         saved = (stack + page).joinToString("\n")
     }
     fun pop() {
+        // Back from a chat opened from the floating chat over another app: the floating chat again, there.
+        val only = stack.singleOrNull()
+        if (only != null && only.startsWith("chat/") && leaveToWindow(only.removePrefix("chat/"))) return
         saved = stack.dropLast(1).joinToString("\n")
     }
     fun home() {
@@ -278,7 +285,10 @@ fun HomeApp(
         onCallTaken()
         call(user, video)
     }
-    CompositionLocalProvider(LocalMessages provides messages) {
+    // Who can hear now (2026-11-25, hen): each contact's Do Not Disturb, silent or call, from their presence.
+    val presence = messagingState.presence
+    val hearOf = remember(presence) { { u: String -> presence[u]?.let { com.chencohen.ptt.talk.Hear.of(it.online, it.hear) } ?: com.chencohen.ptt.talk.Hear.UNKNOWN } }
+    CompositionLocalProvider(LocalMessages provides messages, com.chencohen.ptt.ui.talk.LocalHear provides hearOf) {
         Box(Modifier.fillMaxSize()) {
             val page = stack.lastOrNull()
             val name = page.orEmpty()
@@ -294,6 +304,7 @@ fun HomeApp(
                         newChat = { push("new") },
                         reviewRequest = { push("review/$it") },
                         openContact = { push("chat/$it") },
+                        openSafety = { push("safety/$it") },
                         openGroup = { push("group/$it") },
                         replaceIdentityKey = {
                             messaging.replaceIdentityKey { result ->
@@ -327,6 +338,7 @@ fun HomeApp(
                 )
                 name == "settings" -> {
                     var presenceVisible by remember { mutableStateOf<Boolean?>(messaging.presenceVisible) }
+                    var hearVisible by remember { mutableStateOf<Boolean?>(messaging.hearVisible) }
                     val settingsState by settings.state.collectAsStateWithLifecycle()
                     SettingsScreen(
                         state = settingsState,
@@ -354,6 +366,14 @@ fun HomeApp(
                         softMessage = messagingState.talkSettings.softMessage,
                         setSoftMessage = { soft -> onTalkSettings(messagingState.talkSettings.copy(softMessage = soft)) },
                         presenceVisible = presenceVisible,
+                        hearVisible = hearVisible,
+                        setHearVisible = { visible ->
+                            hearVisible = null
+                            messaging.setHearVisible(visible) { shown ->
+                                hearVisible = shown ?: messaging.hearVisible
+                                if (shown == null) messages.post(resources.getString(R.string.settings_hear_failed))
+                            }
+                        },
                         liveTyping = messagingState.talkSettings.liveTyping,
                         setLiveTyping = { on -> onTalkSettings(messagingState.talkSettings.copy(liveTyping = on)) },
                         setPresenceVisible = { visible ->
@@ -607,6 +627,12 @@ fun HomeApp(
                 name.startsWith("chat/") && pageUser != null -> {
                     val user = pageUser
                     // On screen: what comes in is read at once; gone, notifications again.
+                    // On screen by the user's doing (opened, or the app brought back on it): the floating chat, if it was
+                    // dismissed for this conversation, may come again.
+                    androidx.lifecycle.compose.LifecycleResumeEffect(user) {
+                        com.chencohen.ptt.QuickReplyWindow.chatOpened(user)
+                        onPauseOrDispose { }
+                    }
                     DisposableEffect(user) {
                         messaging.openChat(user)
                         messaging.refreshPresence()
@@ -698,6 +724,7 @@ fun HomeApp(
                         actions = ConversationActions(
                             back = ::pop,
                             openContact = { Group.idOf(user)?.let { push("group/$it") } ?: push("contact/$user") },
+                            openSafetyNumber = { push("safety/$user") },
                             sendFace = { code, fallback -> com.chencohen.ptt.sendFace(context, user, code, fallback) },
                             react = { id, code -> com.chencohen.ptt.react(context, id, code) },
                             send = { body ->
@@ -714,6 +741,7 @@ fun HomeApp(
                             // The chat's microphone is push-to-talk (2026-11-22, hen), not a voice message.
                             startVoice = { pressOrUnlock(user) },
                             startVoiceMessage = { messaging.startVoice(user) },
+                            markUrgent = { messaging.markUrgent() },
                             finishVoice = { messaging.releaseTalk(it) },
                             micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                             call = { video -> call(user, video) },
@@ -773,11 +801,16 @@ fun HomeApp(
                                 }
                             },
                             setNotifyOnly = { on -> setNotifyOnly(user, on) },
+                            setUrgentThroughDnd = { on ->
+                                val talk = messagingState.talkSettings
+                                messaging.setTalkSettings(talk.copy(urgentThroughDnd = if (on) talk.urgentThroughDnd + user else talk.urgentThroughDnd - user))
+                            },
                             setQuickTalk = { on -> setQuickTalk(user, on) },
                             setLiveTyping = { on -> setLiveTyping(user, on) },
                             setDirection = { d -> onTalkSettings(messagingState.talkSettings.withDirection(user, d)) },
                         ),
                         notifyOnly = user in messagingState.talkSettings.notifyOnly,
+                        urgentThroughDnd = user in messagingState.talkSettings.urgentThroughDnd,
                         inChat = { com.chencohen.ptt.ui.talk.KeepInChatCard(user, messagingState.talkSettings, onTalkSettings) },
                         quickTalk = user in messagingState.talkSettings.quickTalk,
                         liveTyping = messagingState.talkSettings.liveTypingTo(user),
@@ -1073,7 +1106,7 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                                 GroupRow(group, chats.lastMessages[key], chats.unread[key] ?: 0) { actions.openContact(key) }
                             } else {
                                 chats.contacts.firstOrNull { it.user == key }?.let { contact ->
-                                    ContactRow(contact, chats.lastMessages[key], chats.unread[key] ?: 0) { actions.openContact(key) }
+                                    ContactRow(contact, chats.lastMessages[key], chats.unread[key] ?: 0, openSafety = { actions.openSafety(contact.user) }) { actions.openContact(key) }
                                 }
                             }
                         }

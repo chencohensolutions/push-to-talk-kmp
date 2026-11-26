@@ -75,8 +75,8 @@ class AndroidTalkHost(private val app: TalkApp) : TalkHost {
         const val TAG = "TalkHost"
     }
 
-    override fun talkNotify(chat: String, from: String, clip: String) {
-        app.scope.launch { TalkNotifications.show(app, chat, from, clip) }
+    override fun talkNotify(chat: String, from: String, clip: String, video: Boolean, status: Int) {
+        app.scope.launch { TalkNotifications.show(app, chat, from, clip, video, status) }
     }
 
     override fun idle() {
@@ -99,35 +99,30 @@ object TalkReady {
         private set
 
     private var ending: Job? = null
-    private var focus: android.media.AudioFocusRequest? = null
+    /** It holds AndroidTalkFocus (shared with the live room's TalkDuck). */
+    private var focused = false
 
     /** Ready to play a woken burst as media: the service runs and audio focus is granted. */
     fun play(app: TalkApp): Boolean {
         ending?.cancel()
         if (active) return true
-        if (!TalkReadyService.running) {
-            Log.i(TAG, "not running: the call session plays it")
+        if (!TalkReadyService.running || !TalkReadyService.withRights) {
+            // Started by a push (after a restart or an install): Android mutes its media, so the call session plays it.
+            Log.i(TAG, if (TalkReadyService.running) "no background media rights: the call session plays it" else "not running: the call session plays it")
             return false
         }
         val audio = app.getSystemService(android.media.AudioManager::class.java)
-        val request = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-            .setAudioAttributes(
-                android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            )
-            .setOnAudioFocusChangeListener { }
-            .build()
-        val result = audio.requestAudioFocus(request)
-        if (result != android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            // Android 17 refuses focus to an app without while-in-use rights, or a phone call is on.
-            Log.w(TAG, "audio focus refused ($result): the call session plays it")
-            return false
+        // Lower other audio while someone talks off (2026-11-25, hen): no focus, the others play on at full volume.
+        if (messagingState(app).value.talkSettings.lowerOthersForTalk) {
+            if (!com.chencohen.ptt.talk.AndroidTalkFocus.take(app, "ready")) {
+                // Android 17 refuses focus to an app without while-in-use rights, or a phone call is on.
+                Log.w(TAG, "audio focus refused: the call session plays it")
+                return false
+            }
+            focused = true
         }
-        focus = request
         active = true
-        Log.i(TAG, "audio focus granted; media ${audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)}/${audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)}")
+        Log.i(TAG, "ready to play; media ${audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)}/${audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)}")
         return true
     }
 
@@ -144,8 +139,8 @@ object TalkReady {
     fun done(context: Context) {
         ending?.cancel()
         ending = null
-        focus?.let { context.getSystemService(android.media.AudioManager::class.java).abandonAudioFocusRequest(it) }
-        focus = null
+        if (focused) com.chencohen.ptt.talk.AndroidTalkFocus.release(context, "ready")
+        focused = false
         active = false
     }
 }
@@ -167,6 +162,7 @@ class TalkReadyService : Service() {
             ACTION_STOP -> {
                 TalkReady.done(this)
                 running = false
+                withRights = false
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -191,11 +187,14 @@ class TalkReadyService : Service() {
         try {
             startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
             running = true
-            Log.i(TalkReady.TAG, "Talk is ready")
+            // Started (or started again) with the app on screen: Android lets it play from the background.
+            withRights = appOnScreen()
+            Log.i(TalkReady.TAG, "Talk is ready${if (withRights) "" else " (started in the background: no media rights until the app opens)"}")
         } catch (e: Exception) {
             // Not started from the screen: Android says no; bursts play in the call session.
             Log.w(TalkReady.TAG, "can't run in the foreground", e)
             running = false
+            withRights = false
             stopSelf()
             return START_NOT_STICKY
         }
@@ -357,6 +356,7 @@ class TalkReadyService : Service() {
 
     override fun onDestroy() {
         running = false
+        withRights = false
         recording?.cancel()
         session?.release()
         session = null
@@ -384,10 +384,23 @@ class TalkReadyService : Service() {
         var running = false
             private set
 
+        /** It was started with the app on screen, so it may play from the background (Android 17's while-in-use). */
+        @Volatile
+        var withRights = false
+            private set
+
+        /** The app's process is in the foreground (its activity on screen). */
+        fun appOnScreen(): Boolean {
+            val info = android.app.ActivityManager.RunningAppProcessInfo()
+            android.app.ActivityManager.getMyMemoryState(info)
+            return info.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+        }
+
         /** From the screen (MainActivity.onStart, Settings): start it, or stop it when the setting is off. */
         fun set(context: Context, on: Boolean) {
             if (on) {
-                if (running) return
+                // Started from the background earlier: started again now, from the screen, for the rights.
+                if (running && withRights) return
                 runCatching { context.startForegroundService(Intent(context, TalkReadyService::class.java)) }
                     .onFailure { Log.w(TalkReady.TAG, "can't start", it) }
             } else {
@@ -675,14 +688,21 @@ object TalkNotifications {
         )
     }
 
-    /** "Dana is talking" (in a group, "Dana is talking in Family"), with Play and Reply, which open the app. */
-    suspend fun show(context: Context, chat: String, from: String, clip: String) {
+    /**
+     * A push the user didn't hear (2026-11-25, hen: "show notification only if i missed the stream"): "Missed push from
+     * Sharon" ("Missed video push", "… in Family"), a tap opens the chat, with Play and Reply; it goes when the chat is
+     * read (Notifications.read).
+     */
+    suspend fun show(context: Context, chat: String, from: String, clip: String, video: Boolean, status: Int = 0) {
+        // Saved because this phone couldn't hear it (Do Not Disturb, silent, a call): a quiet one (2026-11-25, hen).
+        val quiet = status != 0
+        val urgent = status == com.chencohen.ptt.talk.HeardStatus.SAVED_URGENT_NOT_ALLOWED
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val who = runCatching { chatName(context, from) }.getOrDefault(from)
         val title = if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) {
-            Gendered.string(context, R.string.talk_notify_group, from, who, runCatching { chatName(context, chat) }.getOrDefault(chat))
+            context.getString(if (urgent) R.string.talk_missed_urgent_group else if (video) R.string.talk_missed_video_group else R.string.talk_missed_group, who, runCatching { chatName(context, chat) }.getOrDefault(chat))
         } else {
-            Gendered.string(context, R.string.talk_notify, from, who)
+            context.getString(if (urgent) R.string.talk_missed_urgent else if (video) R.string.talk_missed_video else R.string.talk_missed, who)
         }
         val id = (chat.hashCode() and 0x3fffffff) * 2
         fun open(action: String, request: Int) = PendingIntent.getActivity(
@@ -694,18 +714,19 @@ object TalkNotifications {
         // A conversation's message, so Android Auto shows it with Reply and Mark as read.
         val sender = androidx.core.app.Person.Builder().setName(who).setKey(from).build()
         val style = NotificationCompat.MessagingStyle(androidx.core.app.Person.Builder().setName(context.getString(R.string.notify_you)).build())
-            .addMessage(context.getString(R.string.talk_notify_body), System.currentTimeMillis(), sender)
+            .addMessage(context.getString(R.string.talk_missed_body), System.currentTimeMillis(), sender)
         if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) style.setConversationTitle(title).setGroupConversation(true)
         val notification: Notification = NotificationCompat.Builder(context, TALK_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(context.getString(R.string.talk_notify_body))
+            .setContentText(context.getString(R.string.talk_missed_body))
             .setStyle(style)
-            .setContentIntent(open(ACTION_PLAY, id))
+            .setContentIntent(open(Notifications.ACTION_OPEN, id + 4))
             .addAction(0, context.getString(R.string.talk_notify_play), open(ACTION_PLAY, id))
             .addAction(0, context.getString(R.string.talk_notify_reply), open(ACTION_TALK, id + 1))
             .addAction(Notifications.replyAction(context, chat, id + 2))
             .addAction(Notifications.readAction(context, chat, id + 3))
+            .setSilent(quiet)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)

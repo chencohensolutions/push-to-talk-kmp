@@ -127,6 +127,16 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_AUTO_DL_CHARGING) == "true"
         set(value) = store.putString(KEY_AUTO_DL_CHARGING, value.toString())
 
+    /** The contacts whose urgent pushes play through Do Not Disturb (their page's switch; 2026-11-25, hen). */
+    var urgentThroughDndChats: Set<String>
+        get() = store.getString(KEY_URGENT_DND)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
+        set(value) = store.putString(KEY_URGENT_DND, json.encodeToString(value.sorted()))
+
+    /** This user shows contacts when they can't hear (setHearVisible), as last set from this phone; on by default. */
+    var hearVisible: Boolean
+        get() = store.getString(KEY_HEAR_VISIBLE) != "false"
+        set(value) = store.putString(KEY_HEAR_VISIBLE, value.toString())
+
     /** The chats set to When I'm away: Notify only (the rest play aloud). */
     var notifyOnlyChats: Set<String>
         get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
@@ -213,10 +223,25 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_BUBBLE_VIDEO) != "false"
         set(value) = store.putString(KEY_BUBBLE_VIDEO, value.toString())
 
-    /** Settings › Talk › Unmute for incoming talk: on unless turned off (2026-11-22, hen). */
+    /** Settings › Talk › Talk volume (was Unmute for incoming talk): on unless turned off (2026-11-22, hen). */
     var unmuteForTalk: Boolean
         get() = store.getString(KEY_UNMUTE_FOR_TALK) != "false"
         set(value) = store.putString(KEY_UNMUTE_FOR_TALK, value.toString())
+
+    /** Settings › Talk › Talk volume's level, a share of the media volume's most (2026-11-25, hen; TalkLoudness). */
+    var talkVolume: Double
+        get() = store.getString(KEY_TALK_VOLUME)?.toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: com.chencohen.ptt.talk.TalkLoudness.DEFAULT_SHARE
+        set(value) = store.putString(KEY_TALK_VOLUME, value.coerceIn(0.0, 1.0).toString())
+
+    /** Settings › Talk › Boost voice: off unless turned on (2026-11-25, hen; VoiceBoost). */
+    var boostVoice: Boolean
+        get() = store.getString(KEY_BOOST_VOICE) == "true"
+        set(value) = store.putString(KEY_BOOST_VOICE, value.toString())
+
+    /** Settings › Talk › Lower other audio while someone talks: on unless turned off (2026-11-25, hen; TalkDuck). */
+    var lowerOthersForTalk: Boolean
+        get() = store.getString(KEY_LOWER_OTHERS_FOR_TALK) != "false"
+        set(value) = store.putString(KEY_LOWER_OTHERS_FOR_TALK, value.toString())
 
     /** Settings › Calls › Ringtone: Talk's soft chime unless the phone's ringtone was chosen. */
     var softRing: Boolean
@@ -308,6 +333,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_LIVE_TYPING_KNOWN = "live_typing_known"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
+        private const val KEY_LOWER_OTHERS_FOR_TALK = "lower_others_for_talk"
+        private const val KEY_TALK_VOLUME = "talk_volume"
+        private const val KEY_URGENT_DND = "urgent_through_dnd"
+        private const val KEY_HEAR_VISIBLE = "hear_visible"
+        private const val KEY_BOOST_VOICE = "boost_voice"
         private const val KEY_SOFT_RING = "call_soft_ring"
         private const val KEY_SOFT_MESSAGE = "message_soft_sound"
         private const val KEY_VIDEO_60 = "video_60fps"

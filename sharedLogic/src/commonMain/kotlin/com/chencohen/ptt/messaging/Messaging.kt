@@ -51,6 +51,8 @@ data class MessagingState(
     val linkedDevice: Int? = null,
     /** Contacts online now, or when last seen, by user (presence; only contacts who show theirs). */
     val presence: Map<String, UserPresence> = emptyMap(),
+    /** Whether this phone's user can hear talk now (setHear; 2026-11-25, hen). */
+    val hearNow: com.chencohen.ptt.talk.Hear = com.chencohen.ptt.talk.Hear.OK,
     /** Contacts typing to this user now: until when, milliseconds since 1970. */
     val typing: Map<String, Long> = emptyMap(),
     /**
@@ -104,6 +106,8 @@ data class TalkSettings(
     val hardwareButtons: Boolean = false,
     /** Chats set to Notify only. */
     val notifyOnly: Set<String> = emptySet(),
+    /** Contacts whose urgent pushes play through Do Not Disturb (their page; off unless turned on). */
+    val urgentThroughDnd: Set<String> = emptySet(),
     /** Kept calls already downloaded from the server (by id): their Download button is gone. */
     val downloadedCalls: Set<String> = emptySet(),
     /** Settings › Calls › Save calls (phase 6). */
@@ -138,8 +142,14 @@ data class TalkSettings(
     val pushVideo: Boolean = false,
     /** The reply bubble shows a burst's video (on by default; its Video switch turns it off). */
     val bubbleVideo: Boolean = true,
-    /** Settings › Talk › Unmute for incoming talk (on by default; TalkUnmute). */
+    /** Settings › Talk › Talk volume, on (on by default; TalkLoudness). */
     val unmuteForTalk: Boolean = true,
+    /** Settings › Talk › Talk volume's level, a share of the media volume's most (TalkLoudness). */
+    val talkVolume: Double = com.chencohen.ptt.talk.TalkLoudness.DEFAULT_SHARE,
+    /** Settings › Talk › Boost voice (off by default; VoiceBoost). */
+    val boostVoice: Boolean = false,
+    /** Settings › Talk › Lower other audio while someone talks (on by default; TalkDuck). */
+    val lowerOthersForTalk: Boolean = true,
     /** Settings › Calls › Ringtone: Talk's soft chime (the default; 2026-11-22, hen), or the phone's own ringtone. */
     val softRing: Boolean = true,
     /** Settings › Notifications › Message sound: Talk's soft chime (the default; 2026-11-22, hen), or the phone's sound. */
@@ -496,9 +506,14 @@ internal class Messaging(
             }
         },
         onRevoked = onRevoked,
-        onPresence = { p -> updatePresence(UserPresence(p.user, p.online, p.lastSeen.takeIf { it > 0 })) },
+        onPresence = { p -> updatePresence(UserPresence(p.user, p.online, p.lastSeen.takeIf { it > 0 }, com.chencohen.ptt.talk.Hear.fromProto(p.hear))) },
         onTalk = { talk.onFrame(it) },
         onLive = {
+            // Whether this user can hear talk, again for this connection (the server forgets it with the last one).
+            hearSent = null
+            scope.launch { sendHear() }
+            // Floors whose end may have been missed while away, and an end of mine that didn't go out.
+            scope.launch { talk.reconnected() }
             scope.launch {
                 // The groups first: a message waiting for a group needs its devices and readers.
                 groups.refresh()
@@ -524,17 +539,20 @@ internal class Messaging(
             store.putMessage(message.copy(read = read))
             _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty()), drafts = it.drafts - typingKey(group.chat, message.author.orEmpty())) }
             if (!read) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
+            if (!message.outgoing) scope.launch { sendGroupDelivered(group, message.id) }
         },
         onClip = { group, author, clip, at ->
             val mine = author == device()?.user
             val fresh = store.message(clip.id) == null
             talk.receiveClip(group.chat, author, clip, at, outgoingCopy = mine)
             if (fresh && !mine) {
+                scope.launch { sendGroupDelivered(group, clip.id) }
                 if (readsAtOnce(group.chat)) store.message(clip.id)?.let { store.putMessage(it.copy(read = true)) }
                 else if (clip.kind == ClipContent.VOICE) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
             }
         },
         onTalkKey = { identity, key -> live.takeKey(identity, key) },
+        onTalkHeard = { author, heard -> talk.takeHeard(author, heard) },
         onCall = { group, author, call, at -> calls.receive(group.chat, author, call, at, ownCopy = author == device()?.user) },
         onRead = { group, author, ids ->
             var changed = false
@@ -542,6 +560,16 @@ internal class Messaging(
             for (id in ids) {
                 val m = store.message(id)?.takeIf { it.outgoing && it.user == group.chat && author !in it.readBy } ?: continue
                 store.putMessage(m.copy(readBy = m.readBy + (author to at)))
+                changed = true
+            }
+            if (changed) publish()
+        },
+        onDelivered = { group, author, ids ->
+            var changed = false
+            val at = now()
+            for (id in ids) {
+                val m = store.message(id)?.takeIf { it.outgoing && it.user == group.chat && author !in it.deliveredTo } ?: continue
+                store.putMessage(m.copy(deliveredTo = m.deliveredTo + (author to at)))
                 changed = true
             }
             if (changed) publish()
@@ -592,12 +620,19 @@ internal class Messaging(
                 get() = settings.catchUp?.let { name -> CatchUpMode.entries.firstOrNull { it.name == name } } ?: CatchUpMode.SHORTEN_PAUSES_AND_SPEED_UP
 
             override fun notifyOnly(chat: String): Boolean = chat in settings.notifyOnlyChats
+            override fun urgentThroughDnd(chat: String): Boolean = chat in settings.urgentThroughDndChats
 
             override val unmute: Boolean get() = settings.unmuteForTalk
+            override val talkVolume: Double get() = settings.talkVolume
+            override fun saveTalkVolume(share: Double) {
+                settings.talkVolume = share
+                _state.update { it.copy(talkSettings = it.talkSettings.copy(talkVolume = share)) }
+            }
+            override val lowerOthers: Boolean get() = settings.lowerOthersForTalk
         },
         publish = ::publish,
         awake = { foreground || stayConnected },
-    )
+    ).also { it.hearNow = { hearNow } }
 
     val live: com.chencohen.ptt.talk.LiveTalk = com.chencohen.ptt.talk.LiveTalk(
         scope = scope,
@@ -652,6 +687,9 @@ internal class Messaging(
 
     init {
         if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) talk.live = live
+        // Live for exactly as long as they transmit (2026-11-25, hen): their beats, and their microphone going quiet.
+        live.onBeat = { identity, burst -> talk.onBeat(identity, burst) }
+        live.onStopped = { identity -> talk.onStopped(identity) }
         talk.sendVideo = { chat -> talkSettings().pushVideoFor(chat) }
         talk.clipUpload = { _ -> talkSettings().clipUpload }
         talk.keepsPush = { chat, video -> talkSettings().let { if (video) chat in it.keepVideo else chat in it.keepVoice } }
@@ -758,6 +796,7 @@ internal class Messaging(
         defaultChat = settings.defaultTalkChat,
         hardwareButtons = settings.hardwareButtons,
         notifyOnly = settings.notifyOnlyChats,
+        urgentThroughDnd = settings.urgentThroughDndChats,
         downloadedCalls = settings.downloadedCalls,
         saveCalls = settings.saveCalls?.let { name -> com.chencohen.ptt.calls.SaveCalls.entries.firstOrNull { it.name == name } } ?: com.chencohen.ptt.calls.SaveCalls.OFF,
         autoDownloadCalls = settings.autoDownloadCalls,
@@ -773,6 +812,9 @@ internal class Messaging(
         pushVideo = settings.pushVideo,
         bubbleVideo = settings.bubbleVideo,
         unmuteForTalk = settings.unmuteForTalk,
+        lowerOthersForTalk = settings.lowerOthersForTalk,
+        talkVolume = settings.talkVolume,
+        boostVoice = settings.boostVoice,
         softRing = settings.softRing,
         softMessage = settings.softMessage,
         video60 = settings.video60,
@@ -795,6 +837,7 @@ internal class Messaging(
         settings.defaultTalkChat = talk.defaultChat
         settings.hardwareButtons = talk.hardwareButtons
         settings.notifyOnlyChats = talk.notifyOnly
+        settings.urgentThroughDndChats = talk.urgentThroughDnd
         settings.downloadedCalls = talk.downloadedCalls
         settings.saveCalls = talk.saveCalls.name
         settings.autoDownloadCalls = talk.autoDownloadCalls
@@ -812,6 +855,9 @@ internal class Messaging(
         settings.pushVideo = talk.pushVideo
         settings.bubbleVideo = talk.bubbleVideo
         settings.unmuteForTalk = talk.unmuteForTalk
+        settings.lowerOthersForTalk = talk.lowerOthersForTalk
+        settings.talkVolume = talk.talkVolume
+        settings.boostVoice = talk.boostVoice
         settings.softRing = talk.softRing
         settings.softMessage = talk.softMessage
         settings.video60 = talk.video60
@@ -951,6 +997,37 @@ internal class Messaging(
 
     private fun updatePresence(p: UserPresence) {
         _state.update { it.copy(presence = it.presence + (p.user to p)) }
+    }
+
+    // --- Who can hear you (2026-11-25, hen) -------------------------------------------------------------------
+
+    /** Whether this user can hear talk now, as the platform sees it (Android: ringer, Do Not Disturb, a call). */
+    private var hearNow: com.chencohen.ptt.talk.Hear = com.chencohen.ptt.talk.Hear.OK
+    private var hearSent: com.chencohen.ptt.talk.Hear? = null
+
+    /**
+     * The platform's word on whether this user can hear talk now: pushes that come while they can't are saved
+     * (Talk), and their contacts are told (HearState), when it changed.
+     */
+    fun setHear(hear: com.chencohen.ptt.talk.Hear) {
+        hearNow = hear
+        _state.update { it.copy(hearNow = hear) }
+        scope.launch { sendHear() }
+    }
+
+    private suspend fun sendHear() {
+        val h = hearNow
+        if (hearSent == h || socket.state.value !is SocketState.Live) return
+        if (socket.sendFrame(com.chencohen.ptt.relay.HearStateFrame(com.chencohen.ptt.relay.HearState(h.proto)))) hearSent = h
+    }
+
+    /** Whether this user shows contacts when they can't hear (Settings › Privacy › Show when I can't hear). */
+    val hearVisible: Boolean get() = settings.hearVisible
+
+    suspend fun setHearVisible(visible: Boolean): Boolean {
+        val shown = api.setHearVisible(visible)
+        settings.hearVisible = shown
+        return shown
     }
 
     // --- Push-to-video's camera --------------------------------------------------------------------------------
@@ -1716,6 +1793,19 @@ internal class Messaging(
         sendReceipt(user, read = true, unread.map { it.id })
     }
 
+    /**
+     * This phone has a group's message: told to the group, end to end, no push (2026-11-26, hen: the author's bubble
+     * fills once every member's phone has it). Not sent again when it fails: their reading it says as much.
+     */
+    private suspend fun sendGroupDelivered(group: Group, id: String) {
+        try {
+            groups.send(group.id, Content(receipt = ReceiptContent(false, listOf(id))), PushKind.NONE)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
     /** Read receipts that couldn't go yet (not connected), by user; sent once connected. */
     private val pendingReads = mutableMapOf<String, MutableSet<String>>()
 
@@ -2128,6 +2218,7 @@ internal class Messaging(
         content.edit?.let { takeEdit(contact.user, null, mine = false, it) }
         content.delete?.let { takeDelete(contact.user, null, mine = false, it) }
         content.talkKey?.let { live.takeKey("${contact.user}.${envelope.senderDevice}", it) }
+        content.talkHeard?.let { talk.takeHeard(contact.user, it) }
         content.call?.let { calls.receive(contact.user, contact.user, it, envelope.serverTimestamp, ownCopy = false) }
         content.clip?.let { clip ->
             val fresh = store.message(clip.id) == null

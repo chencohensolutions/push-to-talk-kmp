@@ -5,4 +5,5 @@
     <string name="talk_bar_you">אתה מדבר</string>
     <string name="talk_bar_both">%1$s ואתה מדברים</string>
     <string name="talk_panel_you">אתה</string>
+    <string name="settings_hear_title">להראות מתי אני לא שומע</string>
 </resources>

@@ -85,6 +85,9 @@ class LiveKitTalkTransport(
                 discardFrameWhenCryptorNotReady = true,
             )
             provider.setKey(encode(ownKey), identity, ownIndex)
+            val asCall = TalkAudio.playAsCall()
+            joinedAsCall = asCall
+            if (asCall) Log.i(TAG, "joining with the room's audio as call audio (no background media rights)")
             pendingKeys.forEach { (who, k) -> provider.setKey(k.first, who, k.second) }
             val room = LiveKit.create(
                 appContext,
@@ -99,7 +102,8 @@ class LiveKitTalkTransport(
                 LiveKitOverrides(
                     okHttpClient = okHttp(),
                     audioOptions = AudioOptions(
-                        audioOutputType = AudioType.MediaAudioType(),
+                        // As media normally; as call audio while the app may not play media from the background.
+                        audioOutputType = if (asCall) AudioType.CallAudioType() else AudioType.MediaAudioType(),
                         audioHandler = NoAudioHandler(),
                         // Both talk at once (2026-11-25, hen: "my mic will not send the other person's voice from my
                         // speaker"): WebRTC's own echo canceller (AEC3) and noise suppression, which take what this
@@ -134,6 +138,11 @@ class LiveKitTalkTransport(
                 false
             }
         }
+
+    /** The room's audio plays as call audio (TalkAudio.playAsCall when it was joined). */
+    @Volatile private var joinedAsCall = false
+
+    override fun stale(): Boolean = room != null && joinedAsCall && !TalkAudio.playAsCall()
 
     override fun leave() {
         speakerphone.end()
@@ -418,6 +427,11 @@ class LiveKitTalkTransport(
         return p.audioTrackPublications.any { (pub, _) -> !pub.muted }
     }
 
+    override suspend fun sendBeat(bytes: ByteArray) {
+        val room = room ?: return
+        room.localParticipant.publishData(bytes, io.livekit.android.room.track.DataPublishReliability.RELIABLE, TalkBeat.TOPIC)
+    }
+
     override fun silence(identity: String) {
         val room = room ?: return
         room.remoteParticipants.values.filter { it.identity?.value == identity }.forEach { p ->
@@ -452,6 +466,8 @@ class LiveKitTalkTransport(
             // Push-to-video through the room: their camera is watched for frames (LiveTalkVideo).
             is RoomEvent.TrackSubscribed -> {
                 val who = event.participant.identity?.value ?: return
+                // Boost voice: WebRTC's own gain for their voice (its mixer saturates, no soft limiter there).
+                (event.track as? RemoteAudioTrack)?.let { if (TalkAudio.boost()) it.setVolume(VoiceBoost.GAIN) }
                 (event.track as? io.livekit.android.room.track.VideoTrack)?.let {
                     // The full layer for the box on screen (2026-11-25, hen: "very blocky": the low one, 180×240, shown
                     // large); the server still drops to a lower one when the link can't carry it.
@@ -463,7 +479,19 @@ class LiveKitTalkTransport(
                 if (event.track.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else decrypting.remove(it)
             }
             is RoomEvent.TrackUnpublished -> event.participant.identity?.value?.let {
-                if (event.publication.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else decrypting.remove(it)
+                if (event.publication.kind == Track.Kind.VIDEO) LiveTalkVideo.gone(it) else {
+                    decrypting.remove(it)
+                    listener?.stopped(it)
+                }
+            }
+            // Their microphone muted (released, after its tail): they stopped transmitting (2026-11-25, hen).
+            is RoomEvent.TrackMuted -> {
+                val who = event.participant.identity?.value
+                if (who != null && event.participant != room?.localParticipant && event.publication.kind == Track.Kind.AUDIO) listener?.stopped(who)
+            }
+            // "Still pushing" (TalkBeat), sealed with their room key.
+            is RoomEvent.DataReceived -> if (event.topic == TalkBeat.TOPIC) {
+                event.participant?.identity?.value?.let { listener?.beat(it, event.data) }
             }
             is RoomEvent.ParticipantDisconnected -> event.participant.identity?.value?.let {
                 micHeard = false

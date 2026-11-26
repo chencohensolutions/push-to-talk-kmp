@@ -40,6 +40,12 @@ message Frame {
     TalkEnd talk_end = 12;
     // Device to server: this device got a STARTED and will play the burst, so it needs no wake-up for it.
     TalkAck talk_ack = 13;
+    // Server to device: a push this device's user wasn't in the talk room for, kept for them in a growing blob by the
+    // server's recorder (docs/messaging.md, "Talk buffer"). Queued like an envelope's news: live, and pushed.
+    BufferedTalk buffered_talk = 14;
+    // Device to server: whether this device's user can hear talk now (docs/messaging.md, "Can hear"). Sent when it
+    // changes; the server shows it to contacts in Presence (hear), unless the user hides it (setHearVisible).
+    HearState hear_state = 15;
   }
 }
 
@@ -121,7 +127,7 @@ message Send {
 }
 
 // The kinds of wake-up a Send asks for. The FCM data message carries only the kind's name ("message", "sync",
-// "talk", "call"), nothing else.
+// "talk", "call", "warm"), nothing else.
 enum PushKind {
   // Taken as PUSH_SYNC.
   PUSH_KIND_UNSPECIFIED = 0;
@@ -137,6 +143,10 @@ enum PushKind {
   PUSH_TALK = 4;
   // A ringing call (phase 5b): high priority (notifications on), kept 30 seconds.
   PUSH_CALL = 5;
+  // Someone opened a chat with this user (2026-11-24, hen): the phone joins the chat's talk room quietly, showing
+  // nothing, so a push that follows starts at once. High priority (notifications on), kept 60 seconds. Android may
+  // demote high-priority pushes that end in no notification.
+  PUSH_WARM = 6;
 }
 
 message SendResult {
@@ -202,6 +212,25 @@ message Presence {
   bool online = 2;
   // When offline: when the user was last connected, milliseconds since 1970 (UTC), rounded down to 5 minutes.
   int64 last_seen = 3;
+  // While online: whether they can hear talk now, as their phone last said (HEAR_UNSPECIFIED: not said, or hidden).
+  Hear hear = 4;
+}
+
+// Whether a user can hear a push now (2026-11-25, hen: "who can hear you").
+enum Hear {
+  HEAR_UNSPECIFIED = 0;
+  // Talk plays out loud.
+  HEAR_OK = 1;
+  // The ringer is silent or on vibrate, or the talk or media volume is at 0: pushes are saved for later.
+  HEAR_SILENT = 2;
+  // Do Not Disturb is on.
+  HEAR_DND = 3;
+  // In a phone call.
+  HEAR_IN_CALL = 4;
+}
+
+message HearState {
+  Hear hear = 1;
 }
 
 // A talker's phone takes the floor of one conversation: a contact (peer) or a group (group), one of the two.
@@ -210,6 +239,8 @@ message TalkStart {
   string burst_id = 1;
   string peer = 2;
   string group = 3;
+  // An urgent push (2026-11-25, hen): plays through Do Not Disturb where the listener allowed it for the talker.
+  bool urgent = 4;
 }
 
 message TalkEnd {
@@ -218,6 +249,26 @@ message TalkEnd {
 
 message TalkAck {
   string burst_id = 1;
+}
+
+// A push kept for a member who wasn't in the room: GET /blob/<blob_id> (track records, still encrypted end to end
+// with the talker's room key) as it grows, until it is complete.
+message BufferedTalk {
+  string blob_id = 1;
+  // The talker's LiveKit identity, "user.device".
+  string talker = 2;
+  // The conversation as the receiving device sees it: the talker for one to one, or the group.
+  string peer = 3;
+  string group = 4;
+  // "audio" or "video".
+  string media = 5;
+  // The track's codec (audio/red, audio/opus, video/vp8, video/h264, video/h265).
+  string codec = 6;
+  // When the push began, Unix milliseconds (the server's clock).
+  int64 started_at = 7;
+  // The talker's burst (its floor) this push belongs to, when one is held: the clip id its "clip start" message
+  // names, so the phone plays it as that burst.
+  string burst_id = 8;
 }
 
 message TalkState {
@@ -259,6 +310,8 @@ message TalkState {
   string detail = 9;
   // When the floor was granted, milliseconds since 1970 (UTC).
   int64 started_at = 10;
+  // With STARTED: the talker marked the push urgent (TalkStart.urgent).
+  bool urgent = 11;
 }
 
 // One piece of a clip: AES-256-GCM ciphertext made by the talker's phone with the clip key (its nonce is the index;

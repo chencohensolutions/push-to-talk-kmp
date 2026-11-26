@@ -38,8 +38,12 @@ mutation SetPresenceVisible($visible: Boolean!) {
   setPresenceVisible(visible: $visible)
 }
 
+mutation SetHearVisible($visible: Boolean!) {
+  setHearVisible(visible: $visible)
+}
+
 query Presence($users: [String!]!) {
-  presence(users: $users) { user online lastSeen }
+  presence(users: $users) { user online lastSeen hear }
 }
 
 mutation CreateLinkCode {

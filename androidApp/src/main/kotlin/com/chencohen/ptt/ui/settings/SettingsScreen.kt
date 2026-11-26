@@ -50,6 +50,9 @@ internal fun SettingsScreen(
     /** Show when I'm online: on, off, or null while it is being changed. */
     presenceVisible: Boolean? = true,
     setPresenceVisible: (Boolean) -> Unit = {},
+    /** Show when I can't hear (2026-11-25, hen; on by default): on, off, or null while it is being changed. */
+    hearVisible: Boolean? = true,
+    setHearVisible: (Boolean) -> Unit = {},
     /** Privacy › Live typing (off by default). */
     liveTyping: Boolean = false,
     setLiveTyping: (Boolean) -> Unit = {},
@@ -119,6 +122,13 @@ internal fun SettingsScreen(
                 ),
                 onClick = { presenceVisible?.let { setPresenceVisible(!it) } },
             )
+            com.chencohen.ptt.ui.style.RowDivider()
+            // Who can hear you (2026-11-25, hen): contacts see a badge when this phone is on Do Not Disturb, silent or in a call.
+            com.chencohen.ptt.ui.talk.SwitchRow(
+                stringResource(R.string.settings_hear_title),
+                stringResource(if (hearVisible == false) R.string.settings_hear_off else R.string.settings_hear_on),
+                hearVisible != false,
+            ) { on -> if (hearVisible != null) setHearVisible(on) }
             com.chencohen.ptt.ui.style.RowDivider()
             // Live typing (2026-11-23, hen): the contact sees every letter, even what is deleted.
             com.chencohen.ptt.ui.talk.SwitchRow(stringResource(R.string.settings_live_typing_default), stringResource(R.string.settings_live_typing_body) + "\n" + stringResource(R.string.settings_live_typing_per_contact), liveTyping, setLiveTyping)

@@ -117,20 +117,25 @@ private class FakePlayer : TalkPlayer {
 
 private class FakeHost(var allow: Boolean) : TalkHost {
     val notified = mutableListOf<String>()
+    /** Each notification's HeardStatus (0 for a plain missed push). */
+    val notifiedWhy = mutableListOf<Int>()
     var prepared = 0
     override suspend fun prepareToPlay(chat: String, from: String): Boolean {
         prepared++
         return allow
     }
 
-    override fun talkNotify(chat: String, from: String, clip: String) {
+    override fun talkNotify(chat: String, from: String, clip: String, video: Boolean, status: Int) {
         notified += clip
+        notifiedWhy += status
     }
 
     override fun idle() {}
 }
 
 private class TalkPhone(val server: FakeServer, val user: String, scope: TestScope, seed: Int) {
+    /** The phone's clock (ms). */
+    var clock = 1_000_000L
     val settings = PttSettings(TalkPrefsStore()).apply {
         serverUrl = "https://203.0.113.7:56400/query"
         identityAlias = "ptt-device-$user-1"
@@ -143,7 +148,7 @@ private class TalkPhone(val server: FakeServer, val user: String, scope: TestSco
     val files = MemoryClipFiles()
     val messaging = Messaging(
         settings, FakeCryptoEngine(Random(seed)), MessagingStore(MemoryStore()), server.api(address), server.connector(address), work,
-        now = { 1_000_000L }, random = Random(seed), clipFiles = files, blobApi = server.blobs(address),
+        now = { clock }, random = Random(seed), clipFiles = files, blobApi = server.blobs(address),
     )
     val dispatcher = StandardTestDispatcher(scope.testScheduler)
     val controller = MessagingController(messaging, dispatcher, main = dispatcher)
@@ -174,19 +179,139 @@ private class TalkPhone(val server: FakeServer, val user: String, scope: TestSco
 class TalkTest {
     private fun packets(from: Int, count: Int) = (from until from + count).map { byteArrayOf(7, (it and 0xff).toByte(), (it shr 8).toByte()) }
 
-    private suspend fun TestScope.paired(): Triple<FakeServer, TalkPhone, TalkPhone> {
+    private suspend fun TestScope.paired(other: String = "dana"): Triple<FakeServer, TalkPhone, TalkPhone> {
         val server = FakeServer()
         val hen = TalkPhone(server, "hen", this, 1)
-        val dana = TalkPhone(server, "dana", this, 2)
+        val dana = TalkPhone(server, other, this, 2)
         hen.controller.start()
         dana.controller.start()
         advanceUntilIdle()
         val (code, _) = hen.messaging.newPairCode()
         dana.messaging.pairWith(code, verified = true)
         advanceUntilIdle()
-        assertTrue(hen.messaging.accept("dana"))
+        assertTrue(hen.messaging.accept(other))
         advanceUntilIdle()
         return Triple(server, hen, dana)
+    }
+
+    /** hen pushes to testbot ([urgent]: the red bell, from the press), ten packets, and lets go. */
+    private suspend fun TestScope.push(hen: TalkPhone, urgent: Boolean = false): String {
+        hen.work.launch { hen.talk.press("testbot", urgent = urgent) }
+        advanceUntilIdle()
+        val id = hen.state.talk.own!!.clip
+        hen.mic.say(0, 10)
+        hen.work.launch { hen.talk.release() }
+        advanceUntilIdle()
+        return id
+    }
+
+    @Test
+    fun aPushHeardOutLoudTellsTheTalkerItIsHeard() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        val id = push(hen)
+        assertEquals(10, bot.speaker.played.single().size)
+        assertEquals(mapOf("testbot" to HeardStatus.HEARING), hen.state.talk.heard[id])
+        assertEquals(mapOf("testbot" to HeardStatus.HEARING), hen.chat("testbot").single().clip?.heardBy)
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun inDoNotDisturbAPushIsSavedSilentlyAndTheTalkerIsToldWhy() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        bot.messaging.setHear(Hear.DND)
+        advanceUntilIdle()
+        val id = push(hen)
+        assertTrue(bot.speaker.played.isEmpty(), "not out loud")
+        assertEquals(listOf(id), bot.host.notified)
+        assertEquals(listOf(HeardStatus.SAVED_DND), bot.host.notifiedWhy)
+        assertEquals(ClipKind.BURST, bot.chat("hen").single().clip?.kind)
+        assertEquals(false, bot.chat("hen").single().read, "kept unread: a missed push")
+        assertEquals(HeardStatus.SAVED_DND, hen.state.talk.heard[id]?.get("testbot"))
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun anUrgentPushGoesThroughDoNotDisturbOnlyWhereItIsLetThrough() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        val gate = object : DndGate {
+            var opened = 0
+            var closed = 0
+            override fun canOpen() = true
+            override fun open(): Boolean { opened++; return true }
+            override fun close() { closed++ }
+        }
+        bot.talk.dndGate = gate
+        bot.messaging.setHear(Hear.DND)
+        advanceUntilIdle()
+        // Not let through for hen: saved, and hen is told so.
+        val first = push(hen, urgent = true)
+        assertTrue(bot.speaker.played.isEmpty())
+        assertEquals(listOf(HeardStatus.SAVED_URGENT_NOT_ALLOWED), bot.host.notifiedWhy)
+        assertEquals(HeardStatus.SAVED_URGENT_NOT_ALLOWED, hen.state.talk.heard[first]?.get("testbot"))
+        assertEquals(true, hen.chat("testbot").first { it.id == first }.clip?.urgent)
+
+        // Let through on hen's page: it plays, Do Not Disturb opened for it and put back after.
+        bot.settings.urgentThroughDndChats = setOf("hen")
+        val second = push(hen, urgent = true)
+        assertEquals(10, bot.speaker.played.single().size)
+        assertEquals(HeardStatus.HEARD_URGENT_DND, hen.state.talk.heard[second]?.get("testbot"))
+        assertEquals(1, gate.opened)
+        assertEquals(1, gate.closed)
+
+        // A plain push in Do Not Disturb is still saved.
+        push(hen)
+        assertEquals(1, bot.speaker.played.size)
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun aPushMadeUrgentWhileHeldIsLetThroughAfterAll() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        bot.talk.dndGate = object : DndGate {
+            override fun canOpen() = true
+            override fun open() = true
+            override fun close() {}
+        }
+        bot.settings.urgentThroughDndChats = setOf("hen")
+        bot.messaging.setHear(Hear.DND)
+        advanceUntilIdle()
+        hen.work.launch { hen.talk.press("testbot") }
+        advanceUntilIdle()
+        val id = hen.state.talk.own!!.clip
+        hen.mic.say(0, 5)
+        advanceUntilIdle()
+        assertEquals(HeardStatus.SAVED_DND, hen.state.talk.heard[id]?.get("testbot"), "saved at first")
+        // Slid onto the red bell.
+        assertTrue(hen.talk.markUrgent())
+        advanceUntilIdle()
+        assertTrue(hen.state.talk.own!!.urgent)
+        hen.mic.say(5, 5)
+        hen.work.launch { hen.talk.release() }
+        advanceUntilIdle()
+        assertEquals(HeardStatus.HEARD_URGENT_DND, hen.state.talk.heard[id]?.get("testbot"))
+        assertTrue(bot.speaker.played.single().isNotEmpty(), "played after all (catch-up may shorten it)")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun thisPhonesHearStateGoesToTheServerAndContactsSeeIt() = runTest {
+        val (server, hen, bot) = paired("testbot")
+        bot.messaging.setHear(Hear.SILENT)
+        advanceUntilIdle()
+        hen.messaging.refreshPresence()
+        advanceUntilIdle()
+        assertEquals(Hear.SILENT, hen.state.presence["testbot"]?.hear)
+        bot.messaging.setHearVisible(false)
+        hen.messaging.refreshPresence()
+        advanceUntilIdle()
+        assertEquals(Hear.UNKNOWN, hen.state.presence["testbot"]?.hear)
+        assertEquals(false, bot.settings.hearVisible)
+        hen.stop()
+        bot.stop()
     }
 
     @Test
@@ -224,7 +349,7 @@ class TalkTest {
     }
 
     @Test
-    fun anIncomingBurstUnmutesTheMediaVolumeWhileItPlays() = runTest {
+    fun anIncomingBurstPlaysAtTheTalkVolumeThenTheOldOneComesBack() = runTest {
         val (_, hen, dana) = paired()
         val volume = FakeVolume()
         dana.talk.volume = volume
@@ -232,7 +357,7 @@ class TalkTest {
         advanceUntilIdle()
         hen.mic.say(0, 10)
         advanceUntilIdle()
-        assertEquals(9, volume.now, "turned up while hen talks (on by default)")
+        assertEquals(12, volume.now, "turned up while hen talks (on by default): ${volume.sets}")
         hen.work.launch { hen.talk.release() }
         advanceUntilIdle()
         assertEquals(0, volume.now, "back off once it played")
@@ -245,7 +370,7 @@ class TalkTest {
         advanceUntilIdle()
         hen.work.launch { hen.talk.release() }
         advanceUntilIdle()
-        assertEquals(listOf(9, 0), volume.sets)
+        assertEquals(listOf(12, 0), volume.sets)
         hen.stop()
         dana.stop()
     }
@@ -551,6 +676,29 @@ class TalkTest {
         advanceUntilIdle()
         assertEquals(1, dana.host.prepared, "a talk session was asked for")
         assertEquals(30, dana.speaker.played.single().size)
+        assertTrue(dana.host.notified.isEmpty(), "heard: no missed-push notification")
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aPushThatCameTooLateToPlayIsAMissedPush() = runTest {
+        val (_, hen, dana) = paired()
+        dana.controller.stop()
+        advanceUntilIdle()
+        hen.work.launch { hen.talk.press("dana") }
+        advanceUntilIdle()
+        val id = hen.state.talk.own!!.clip
+        hen.mic.say(0, 10)
+        hen.work.launch { hen.talk.release() }
+        advanceUntilIdle()
+        // The phone was away for a minute: the push is old when it gets it.
+        dana.clock += 60_000
+        dana.work.launch { dana.messaging.wake() }
+        advanceUntilIdle()
+        assertEquals(listOf(id), dana.host.notified)
+        assertEquals(0, dana.host.prepared, "nothing played")
+        assertTrue(dana.speaker.played.isEmpty())
         hen.stop()
         dana.stop()
     }
@@ -626,6 +774,153 @@ class TalkTest {
         hen.stop()
         dana.stop()
     }
+    // --- Live for exactly as long as they transmit (2026-11-25, hen: the receiver kept showing the sender live) ------
+
+    private val burstX = "ab".repeat(16)
+
+    /** testbot's floor starts on hen's phone, as the server tells it. */
+    private fun TestScope.theyStart(hen: TalkPhone, burst: String = burstX) {
+        hen.talk.onFrame(com.chencohen.ptt.relay.TalkStateFrame(com.chencohen.ptt.relay.TalkState(TalkEvent.STARTED, burst, "testbot", 1, peer = "testbot", startedAt = hen.clock)))
+        runCurrent()
+    }
+
+    /** [seconds] go by on hen's phone, testbot beating once a second when [beating]. */
+    private fun TestScope.seconds(hen: TalkPhone, seconds: Int, beating: Boolean, burst: String = burstX) = repeat(seconds) {
+        hen.clock += 1_000
+        if (beating) hen.talk.onBeat("testbot.1", burst)
+        advanceTimeBy(1_000)
+        runCurrent()
+    }
+
+    private fun TalkPhone.live(burst: String = burstX) = state.talk.talking["testbot"].orEmpty().any { it.clip == burst }
+
+    @Test
+    fun aSilentHoldStaysLiveWhileItsBeatsCome() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        // Twenty seconds held without a word: beats only (no audio, no segments).
+        seconds(hen, 20, beating = true)
+        assertTrue(hen.live(), "still live: they are still pushing")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun whenTheBeatsStopLiveEndsWithinThreeSeconds() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        seconds(hen, 3, beating = true)
+        assertTrue(hen.live())
+        seconds(hen, 2, beating = false)
+        assertTrue(hen.live(), "two seconds without a beat: still live")
+        seconds(hen, 2, beating = false)
+        assertFalse(hen.live(), "gone by about three seconds after the last beat")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun aLostEndFrameIsCaughtByTheWatchdogAndAResumedTalkerComesBack() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        seconds(hen, 2, beating = true)
+        // They let go; the ENDED frame never arrives.
+        seconds(hen, 4, beating = false)
+        assertFalse(hen.live(), "cleared by the watchdog")
+        assertTrue(hen.state.talk.talkers["testbot"] == null)
+        // A beat of the same burst again (it was only the network): live again.
+        seconds(hen, 1, beating = true)
+        assertTrue(hen.live(), "back on the live row")
+        // And its real end clears it at once, for good.
+        hen.talk.onFrame(com.chencohen.ptt.relay.TalkStateFrame(com.chencohen.ptt.relay.TalkState(TalkEvent.ENDED, burstX, "testbot", 1, peer = "testbot", endReason = com.chencohen.ptt.relay.TalkEndReason.RELEASED)))
+        runCurrent()
+        assertFalse(hen.live())
+        seconds(hen, 1, beating = true)
+        assertFalse(hen.live(), "a late beat after the end doesn't bring it back")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun theirMicrophoneGoingQuietInTheRoomEndsLiveAtOnce() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        seconds(hen, 1, beating = true)
+        hen.talk.onStopped("testbot.1")
+        runCurrent()
+        assertFalse(hen.live(), "muted, unpublished or left the room: not live")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun anOlderTalkerWithoutBeatsIsLeftToItsFloorsEnd() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        // No beat and no segment ever: the watchdog doesn't watch it (an older app heard only in the room).
+        seconds(hen, 10, beating = false)
+        assertTrue(hen.live())
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun afterAReconnectAFloorWithNoRecentSignIsDropped() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        theyStart(hen)
+        seconds(hen, 1, beating = true)
+        // /ws dropped for a while (the ENDED may have gone by), then came back.
+        hen.clock += 5_000
+        hen.talk.reconnected()
+        runCurrent()
+        assertFalse(hen.live(), "not kept as live from before the drop")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun beatsSealAndOpenOnlyWithTheTalkersKey() {
+        val key = ByteArray(32) { it.toByte() }
+        val sealed = TalkBeat.seal(key, burstX, Random(3))
+        assertEquals(burstX, TalkBeat.open(key, sealed))
+        assertNull(TalkBeat.open(ByteArray(32) { 9 }, sealed))
+        sealed[sealed.size - 1] = (sealed[sealed.size - 1].toInt() xor 1).toByte()
+        assertNull(TalkBeat.open(key, sealed))
+    }
+
+    @Test
+    fun aBufferedPushWhoseKeyIsLateStopsBeingLiveAndBecomesAMissedPushWhenTheKeyComes() = runTest {
+        val (_, hen, bot) = paired("testbot")
+        val id = "cd".repeat(16)
+        bot.talk.bufferReader = object : Talk.BufferReader {
+            override suspend fun read(blobId: String, talker: String, codec: String, onAudio: (ByteArray) -> Unit, onVideo: (TalkVideo.Frame) -> Unit) {
+                packets(0, 25).forEach(onAudio)
+            }
+        }
+        // hen's floor starts and ends; the server's buffered copy comes, but not the key's message.
+        bot.talk.onFrame(com.chencohen.ptt.relay.TalkStateFrame(com.chencohen.ptt.relay.TalkState(TalkEvent.STARTED, id, "hen", 1, peer = "hen", startedAt = bot.clock)))
+        runCurrent()
+        bot.talk.onFrame(com.chencohen.ptt.relay.BufferedTalkFrame(com.chencohen.ptt.relay.BufferedTalk(blobId = "b1", talker = "hen.1", peer = "hen", burstId = id)))
+        bot.talk.onFrame(com.chencohen.ptt.relay.TalkStateFrame(com.chencohen.ptt.relay.TalkState(TalkEvent.ENDED, id, "hen", 1, peer = "hen", endReason = com.chencohen.ptt.relay.TalkEndReason.RELEASED)))
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertNull(bot.state.talk.playing, "not shown live while its key is missing")
+        assertTrue(bot.state.talk.talkers.isEmpty())
+        // Held in the encrypted store (not memory): an app restart doesn't lose it.
+        assertNotNull(bot.messaging.store.lateKey(id))
+        // The key's message comes late: a missed push, whole, to play.
+        val key = ByteArray(com.chencohen.ptt.talk.ClipCrypto.KEY_BYTES) { 5 }
+        bot.talk.receiveClip("hen", "hen", com.chencohen.ptt.messaging.ClipContent(id, key, com.chencohen.ptt.messaging.ClipContent.BURST, bot.clock), bot.clock, outgoingCopy = false)
+        advanceUntilIdle()
+        val m = bot.chat("hen").single { it.id == id }
+        assertTrue(m.clip!!.kept, "kept from the held copy")
+        assertEquals(500L, m.clip!!.durationMs)
+        assertFalse(m.read)
+        assertTrue(id in bot.host.notified, "a missed-push notification")
+        assertNull(bot.messaging.store.lateKey(id), "gone from the store once it is the clip")
+        hen.stop()
+        bot.stop()
+    }
 }
 
 class ClipCryptoTest {
@@ -687,4 +982,5 @@ class CatchUpTest {
         assertTrue(Silence.isSilent(ShortArray(960)))
         assertTrue(!Silence.isSilent(ShortArray(960) { if (it % 2 == 0) 3000 else -3000 }))
     }
+
 }

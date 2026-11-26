@@ -135,6 +135,12 @@ private fun hub(context: Context): Messaging {
         com.chencohen.ptt.talk.TalkAudio.appContext = context.applicationContext
         it.talk.player = com.chencohen.ptt.talk.AndroidTalkPlayer()
         it.talk.volume = com.chencohen.ptt.talk.AndroidTalkVolume(context)
+        // Other apps dimmed while a push is heard in the live room (TalkDuck; the focus shared with TalkReady).
+        it.talk.duck = com.chencohen.ptt.talk.AndroidTalkFocus.roomDuck(context)
+        // Who can hear you (2026-11-25, hen): Do Not Disturb, silent, a call; and Do Not Disturb opened for urgent pushes.
+        it.talk.dndGate = com.chencohen.ptt.talk.AndroidDndGate(context)
+        val hearHub = it
+        runCatching { com.chencohen.ptt.talk.AndroidHear(context, { settings.unmuteForTalk }) { h -> hearHub.setHear(h) }.start() }
         // The live path (phase 5b): LiveKit over the server's /rtc, with the same mTLS client as the rest.
         val mtls = AndroidMtlsHttpClientFactory(context)
         it.live.transport = com.chencohen.ptt.talk.LiveKitTalkTransport(context) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
@@ -170,12 +176,23 @@ private fun hub(context: Context): Messaging {
                 }
             }
         }
+        // H.265 said only when a decoder is there and it never failed here (remembered: 2026-11-26, hen: one phone that
+        // can't play it makes everyone send it VP8).
+        val codecPrefs = context.getSharedPreferences("codec", Context.MODE_PRIVATE)
         com.chencohen.ptt.messaging.ContentCodec.myCaps = com.chencohen.ptt.messaging.ContentCodec.CAPS_SAID or
-            (if (hasDecoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC)) com.chencohen.ptt.messaging.ContentCodec.CAPS_H265 else 0)
+            (if (hasDecoder(android.media.MediaFormat.MIMETYPE_VIDEO_HEVC) && !codecPrefs.getBoolean("h265_failed", false)) com.chencohen.ptt.messaging.ContentCodec.CAPS_H265 else 0)
+        com.chencohen.ptt.messaging.ContentCodec.onH265Failed = {
+            android.util.Log.w("TalkVideo", "H.265 failed to decode here: VP8 from everyone from now on")
+            codecPrefs.edit().putBoolean("h265_failed", true).apply()
+        }
         it.calls.transport = com.chencohen.ptt.calls.LiveKitCallTransport(
             context,
             // H.265 unless VP8 was chosen (the default since 2026-11-22, hen), where the phone has an encoder for it.
-            videoCodec = { if (settings.callVideo != com.chencohen.ptt.calls.CallVideo.VP8.name && com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder()) "h265" else "vp8" },
+            // And only when everyone else in the call said they decode it (2026-11-26, hen): otherwise VP8 for all.
+            videoCodec = {
+                val chat = it.calls.state.value?.chat
+                if (settings.callVideo != com.chencohen.ptt.calls.CallVideo.VP8.name && com.chencohen.ptt.calls.LiveKitCallTransport.hasHevcEncoder() && it.videoH265For(chat)) "h265" else "vp8"
+            },
             want60 = { settings.video60 },
         ) { mtls.okHttpClient(settings.identityAlias, emptyList()) }
         hub = it
@@ -375,6 +392,12 @@ fun deleteMessages(context: Context, ids: List<String>, forEveryone: Boolean) {
 fun editLive(context: Context, id: String, text: String?, selStart: Int = -1, selEnd: Int = -1) {
     val messaging = hub(context)
     kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editLive(id, text, selStart, selEnd) }
+}
+
+/** The press going on now became urgent (the floating window's red bell; 2026-11-25, hen). */
+fun markUrgent(context: Context) {
+    val messaging = hub(context)
+    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.talk.markUrgent() }
 }
 
 /** Changes Talk's settings from outside the screens (the reply bubble's Video). */

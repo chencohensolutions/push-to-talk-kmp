@@ -225,26 +225,50 @@ internal class RelaySocket(
         job = null
     }
 
-    /** Reads frames until the connection closes; answers the close code. */
-    private suspend fun read(open: FrameConnection): Int? {
+    /**
+     * Reads frames until the connection closes; answers the close code. Envelopes (and the queue's end) are handled in
+     * order by their own worker, so a slow one never holds up the rest (2026-11-26: while an incoming message was being
+     * stored, the SendResults of this phone's own receipts and live drafts waited behind it, ~5 s on a phone, and they
+     * went out in a burst).
+     */
+    private suspend fun read(open: FrameConnection): Int? = kotlinx.coroutines.coroutineScope {
+        val inbox = kotlinx.coroutines.channels.Channel<FrameKind>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        val worker = launch {
+            for (kind in inbox) {
+                when (kind) {
+                    is EnvelopeFrame -> {
+                        val stored = try {
+                            onEnvelope(kind.envelope)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (stored) runCatching { sendMutex.withLock { open.send(Frames.encode(Frame(AckFrame(Ack(listOf(kind.envelope.id)))))) } }
+                            .onFailure { if (it is CancellationException) throw it }
+                    }
+                    is QueueEmptyFrame -> {
+                        _state.value = SocketState.Live
+                        runCatching { onLive() }.onFailure { if (it is CancellationException) throw it }
+                    }
+                    else -> Unit
+                }
+            }
+        }
+        try {
+            readFrames(open, inbox)
+        } finally {
+            inbox.close()
+            worker.cancel()
+        }
+    }
+
+    private suspend fun readFrames(open: FrameConnection, inbox: kotlinx.coroutines.channels.Channel<FrameKind>): Int? {
         while (true) {
             val bytes = open.receive() ?: return open.closeCode()
             when (val kind = Frames.decode(bytes)?.kind) {
-                is EnvelopeFrame -> {
-                    val stored = try {
-                        onEnvelope(kind.envelope)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        false
-                    }
-                    if (stored) sendMutex.withLock { open.send(Frames.encode(Frame(AckFrame(Ack(listOf(kind.envelope.id)))))) }
-                }
+                is EnvelopeFrame, is QueueEmptyFrame -> inbox.send(kind)
                 is SendResultFrame -> pending[kind.sendResult.clientId]?.complete(kind.sendResult)
-                is QueueEmptyFrame -> {
-                    _state.value = SocketState.Live
-                    runCatching { onLive() }.onFailure { if (it is CancellationException) throw it }
-                }
                 is PingFrame -> sendMutex.withLock { open.send(Frames.encode(Frame(PongFrame(Pong(kind.ping.id))))) }
                 is PresenceFrame -> onPresence(kind.presence)
                 is TalkStateFrame, is ClipSegmentFrame, is BufferedTalkFrame -> try {
@@ -253,7 +277,7 @@ internal class RelaySocket(
                     throw e
                 } catch (_: Exception) {
                 }
-                is PongFrame, is AckFrame, is SendFrame, is TalkStartFrame, is TalkEndFrame, is TalkAckFrame, null -> Unit
+                is PongFrame, is AckFrame, is SendFrame, is TalkStartFrame, is TalkEndFrame, is TalkAckFrame, is HearStateFrame, null -> Unit
             }
         }
     }

@@ -51,10 +51,14 @@ internal class Groups(
     private val onTyping: (Group, String, TypingContent) -> Unit,
     /** A member device's live talk key in the group's room. */
     private val onTalkKey: (identity: String, key: TalkKeyContent) -> Unit = { _, _ -> },
+    /** A member told what became of a push of this phone's (TalkHeardContent). */
+    private val onTalkHeard: (author: String, heard: TalkHeardContent) -> Unit = { _, _ -> },
     /** A call's signalling in the group, from [author]. */
     private val onCall: (group: Group, author: String, call: CallContent, at: Long) -> Unit = { _, _, _, _ -> },
     /** A member read messages in the group (2026-11-23, hen: read circles in groups). */
     private val onRead: (group: Group, author: String, ids: List<String>) -> Unit = { _, _, _ -> },
+    /** A member's phone got messages in the group (2026-11-26, hen: my bubble fills once every member's phone has it). */
+    private val onDelivered: (group: Group, author: String, ids: List<String>) -> Unit = { _, _, _ -> },
     /** An edit of a text in the group (its author's; EditContent). */
     private val onEdit: (group: Group, author: String, edit: EditContent) -> Unit = { _, _, _ -> },
     /** A message in the group deleted by its author (DeleteContent). */
@@ -439,9 +443,11 @@ internal class Groups(
         content.reaction?.let { onReaction(group, author, it) }
         content.liveWaiting?.let { onLiveWaiting(group, author, it.open) }
         content.warm?.let { onWarm(group, author, it.open) }
-        content.receipt?.takeIf { it.read && author != self.user }?.let { onRead(group, author, it.ids) }
+        // (An older app takes only the read ones: a delivered receipt is nothing to it.)
+        content.receipt?.takeIf { author != self.user }?.let { if (it.read) onRead(group, author, it.ids) else onDelivered(group, author, it.ids) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }
         content.talkKey?.let { onTalkKey("$author.${envelope.senderDevice}", it) }
+        content.talkHeard?.let { onTalkHeard(author, it) }
         content.call?.let { onCall(group, author, it, envelope.serverTimestamp) }
     }
 }

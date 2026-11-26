@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.draw.shadow
-import com.chencohen.ptt.messaging.ReadMarks.Tick
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
@@ -297,6 +296,9 @@ internal fun RecordingStrip(discard: () -> Unit) {
     }
 }
 
+/** How a push goes on after the finger lifts on the side target: not at all, hands-free voice, or hands-free urgent voice. */
+internal enum class PushLock { NONE, VOICE, URGENT }
+
 /**
  * The buttons under the chat, icons only (hen: "no text labels"): Voice message (a tap starts recording; while it
  * records it is Send) and Push-to-talk (hold). No call buttons here (2026-11-25, hen: "in chat screen, remove the
@@ -319,9 +321,9 @@ internal fun ChatButtons(
     /** The finger went down on Push ([true]) or lifted. */
     pressed: (Boolean) -> Unit = {},
     stopLive: () -> Unit = {},
-    /** Pressed and let go (locked: slid up to the lock), in place of starting and ending a burst directly. */
+    /** Pressed and let go (on the side target: the push goes on hands-free, see [PushLock]), in place of starting and ending a burst directly. */
     press: (() -> Unit)? = null,
-    release: ((locked: Boolean) -> Unit)? = null,
+    release: ((lock: PushLock) -> Unit)? = null,
     /** My camera, small, on the button's corner. */
     thumb: Boolean = true,
     /**
@@ -329,6 +331,14 @@ internal fun ChatButtons(
      * dimmed inside a dashed ring, and "Waiting for Sharon…" beside it.
      */
     waitingFor: String? = null,
+    /** My push now is urgent (the red bell; 2026-11-25, hen): the button red with a bell. */
+    urgent: Boolean = false,
+    /**
+     * Someone in the chat can't hear a push now (their presence, or what they told of this one): the side target is
+     * then the red Urgent bell instead of the hands-free microphone (2026-11-26, hen: "the urgent indicator should be
+     * only if the user didn't hear").
+     */
+    cantHear: Boolean = false,
 ) {
     val microphone = rememberMicrophone(actions.micDenied)
     val small by animateDpAsState(if (compact) 40.dp else 52.dp, label = "small buttons")
@@ -343,6 +353,11 @@ internal fun ChatButtons(
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = if (compact) 6.dp else 12.dp, bottom = if (compact) 6.dp else 12.dp).navigationBarsPadding(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Held: -1 not held, else how far up the finger is.
+            var lifting by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
+            // While Push is held, the side target stands where Voice message is (left of Push): Voice message steps
+            // aside for it, and comes back when the finger lifts.
+            val aside by androidx.compose.animation.core.animateFloatAsState(if (lifting >= 0f && !handsFree) 1f else 0f, tween(180), label = "voice message aside")
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (waitingFor != null) {
                     Text(
@@ -354,21 +369,33 @@ internal fun ChatButtons(
                         modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     )
                 }
-                if (recording) {
-                    RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
-                } else {
-                    RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
+                Box(Modifier.graphicsLayer { alpha = 1f - aside; scaleX = 1f - 0.2f * aside; scaleY = 1f - 0.2f * aside }) {
+                    if (recording) {
+                        RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
+                    } else {
+                        RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
+                    }
                 }
             }
             val talkLabel = stringResource(R.string.talk_button)
             // Hold: voice push-to-talk. Slide up while holding, to the camera-and-lock target above the button: it
             // turns into hands-free video until Stop (2026-11-24, hen: "holding the button transmitting audio, sliding
             // the button up open hands free video"). The camera warms as the finger starts to slide.
-            var lifting by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
             var lockedNow by remember { androidx.compose.runtime.mutableStateOf(false) }
             var slidingNow by remember { androidx.compose.runtime.mutableStateOf(false) }
+            // Sideways, to the left on the screen in either language (2026-11-26, hen: a right thumb hides what is on
+            // the right): the hands-free target. A microphone, "Hands-free": let go on it and the voice push goes on
+            // until Stop. Only when someone can't hear now it is the red bell, Urgent: on it the push is urgent, and
+            // let go there it goes on hands-free, urgent.
+            var side by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+            var onTarget by remember { androidx.compose.runtime.mutableStateOf(false) }
+            var urgentNow by remember { androidx.compose.runtime.mutableStateOf(false) }
+            val cantHearNow by androidx.compose.runtime.rememberUpdatedState(cantHear)
             val density = androidx.compose.ui.platform.LocalDensity.current
             val lockAt = with(density) { 72.dp.toPx() }
+            val sideAt = with(density) { 72.dp.toPx() }
+            val onUrgent by androidx.compose.runtime.rememberUpdatedState(actions.markUrgent)
+            val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
             val warmFrom = with(density) { 16.dp.toPx() }
             val context = androidx.compose.ui.platform.LocalContext.current
             val canAsk = androidx.activity.compose.LocalActivityResultRegistryOwner.current != null
@@ -394,23 +421,39 @@ internal fun ChatButtons(
                     .graphicsLayer { alpha = if (waitingFor != null) 0.45f else 1f },
             ) {
                 if (handsFree) {
-                    StopLive(big, stopLive)
+                    StopLive(big, stopLive, urgent)
                 } else Box(
                     Modifier.fillMaxSize()
                         .shadow(10.dp, CircleShape)
-                        .background(if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
+                        .background(if (urgent || urgentNow) LibraryColors.Error else if (talking) com.chencohen.ptt.ui.style.Pink else com.chencohen.ptt.ui.style.Pink.copy(alpha = 0.9f), CircleShape)
                         .semantics { contentDescription = talkLabel }
                         .holdOrLock(
                             lockAt = lockAt,
-                            onPress = { lifting = 0f; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
+                            onPress = { lifting = 0f; side = 0f; onTarget = false; urgentNow = false; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
+                            onSide = { left ->
+                                side = left
+                                if (left >= sideAt && !onTarget && !lockedNow) {
+                                    onTarget = true
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                }
+                                // On the bell (reached as the bell, or it turned into one under the thumb): urgent now.
+                                if (onTarget && cantHearNow && !urgentNow && !lockedNow) {
+                                    urgentNow = true
+                                    onUrgent()
+                                }
+                            },
                             onLift = { up ->
                                 lifting = up
-                                val slide = up > warmFrom && !lockedNow
+                                // Heading for the side target (more sideways than up), or already on it: the same push goes
+                                // on, never the lock's video (2026-11-26, hen: "when swiping to urgent stay the
+                                // transmission on until pushing stop"; a thumb's arc to the target reached the lock).
+                                val towardsBell = onTarget || side > up
+                                val slide = up > warmFrom && !lockedNow && !towardsBell
                                 if (slide != slidingNow) {
                                     slidingNow = slide
                                     onSliding(slide)
                                 }
-                                if (up >= lockAt && !lockedNow) {
+                                if (up >= lockAt && !lockedNow && !towardsBell) {
                                     if (cameraAllowed()) {
                                         lockedNow = true
                                         onLock()
@@ -421,6 +464,16 @@ internal fun ChatButtons(
                             },
                             onRelease = { locked ->
                                 lifting = -1f
+                                side = 0f
+                                // Let go on the side target: the push goes on hands-free until Stop (2026-11-26, hen):
+                                // voice on the microphone, urgent voice on the bell (as the target is at that moment).
+                                val lock = when {
+                                    !onTarget -> PushLock.NONE
+                                    urgentNow || cantHearNow -> PushLock.URGENT
+                                    else -> PushLock.VOICE
+                                }
+                                onTarget = false
+                                urgentNow = false
                                 onPressed(false)
                                 if (slidingNow) {
                                     slidingNow = false
@@ -429,13 +482,39 @@ internal fun ChatButtons(
                                 // Already switched to hands-free video at the lock.
                                 if (lockedNow) return@holdOrLock
                                 val r = onRelease
-                                if (r != null) r(false) else actions.finishVoice(true)
+                                if (r != null) r(lock) else if (lock == PushLock.NONE) actions.finishVoice(true)
                                 @Suppress("UNUSED_EXPRESSION") locked
                             },
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
+                    Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
+                }
+                // The side target, left of Push while it is held: it fills as the thumb nears it. The microphone
+                // turns into the bell (and back) in one move when someone stops hearing while it is held.
+                if (lifting >= 0f && !handsFree) {
+                    val near = if (onTarget) 1f else (side / sideAt).coerceIn(0f, 1f)
+                    val bell by androidx.compose.animation.core.animateFloatAsState(if (cantHear || urgentNow) 1f else 0f, tween(250), label = "side target")
+                    val targetLabel = stringResource(if (cantHear || urgentNow) R.string.talk_urgent else R.string.talk_hands_free)
+                    val full = androidx.compose.ui.graphics.lerp(com.chencohen.ptt.ui.style.Pink, LibraryColors.Error, bell)
+                    val ink = if (near > 0.5f) Color.White else androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.Error, bell)
+                    Box(
+                        Modifier.align(Alignment.CenterStart).offset(x = -(80.dp + 12.dp * near)).size(72.dp, 44.dp)
+                            .shadow(4.dp, androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                            .background(androidx.compose.ui.graphics.lerp(LibraryColors.Background, full, near), androidx.compose.foundation.shape.RoundedCornerShape(22.dp))
+                            .semantics { contentDescription = targetLabel },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        // Both laid out in the same place: one shrinks away as the other grows in.
+                        androidx.compose.foundation.layout.Column(Modifier.graphicsLayer { alpha = 1f - bell; scaleX = 1f - 0.4f * bell; scaleY = 1f - 0.4f * bell }, horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(LibraryIcons.Mic, null, tint = ink, modifier = Modifier.size(18.dp))
+                            Text(stringResource(R.string.talk_hands_free), color = ink, style = LibraryType.Tiny, maxLines = 1, softWrap = false)
+                        }
+                        androidx.compose.foundation.layout.Column(Modifier.graphicsLayer { alpha = bell; scaleX = 0.6f + 0.4f * bell; scaleY = 0.6f + 0.4f * bell }, horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(LibraryIcons.Bell, null, tint = ink, modifier = Modifier.size(18.dp))
+                            Text(stringResource(R.string.talk_urgent), color = ink, style = LibraryType.Tiny, maxLines = 1, softWrap = false)
+                        }
+                    }
                 }
                 // The target, over the button while it is held: a camera over a lock; it fills as the thumb nears it.
                 if (lifting >= 0f && !handsFree) {
@@ -468,91 +547,6 @@ private fun RoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
             .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, label, tint = if (filled) Color.White else LibraryColors.OnBackground, modifier = Modifier.size(size * 0.45f)) }
-}
-
-/**
- * How far a message of mine got (2026-11-23, hen picked option A, "filling circle"): a ~12 dp circle beside the time,
- * in its colour. Sending: a dashed ring, slowly turning; Sent (the server has it): an empty ring; Delivered (on their
- * phone): a solid dot; Read: nothing (it fades as their circle glides to it). Each change eases in ~200 ms: the ring
- * closes, then fills. The one place to swap the set. (2026-11-24: envelopes instead, below.)
- */
-@Composable
-internal fun StatusMark(tick: com.chencohen.ptt.messaging.ReadMarks.Tick, modifier: Modifier = Modifier) {
-    val ink = LibraryColors.OnMineMuted
-    val warn = LibraryColors.Warning
-    val label = when (tick) {
-        Tick.SENDING -> stringResource(R.string.chat_status_pending)
-        Tick.SENT -> stringResource(R.string.chat_status_sent)
-        Tick.DELIVERED -> stringResource(R.string.chat_status_delivered)
-        Tick.FAILED -> stringResource(R.string.chat_status_failed)
-        Tick.NONE -> stringResource(R.string.chat_status_read)
-    }
-    // Envelopes (2026-11-24, hen's pick "E2 · Flying, sent, sealed"): Sending flies (shifted ahead, two speed lines
-    // trailing, drifting); Sent rests; Delivered gets a round seal on its flap (popping in); Read: no mark. Drawn on a
-    // 16-unit square; in Hebrew mirrored so the lines trail behind.
-    val ease = tween<Float>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-    val flying by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.SENDING) 1f else 0f, ease, label = "flying")
-    val sealed by androidx.compose.animation.core.animateFloatAsState(
-        if (tick == Tick.DELIVERED) 1f else 0f,
-        androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f), label = "seal",
-    )
-    val shown by androidx.compose.animation.core.animateFloatAsState(if (tick == Tick.NONE) 0f else 1f, tween(250), label = "mark fades")
-    val drifting = androidx.compose.animation.core.rememberInfiniteTransition(label = "sending")
-    val drift by drifting.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(900, easing = androidx.compose.animation.core.LinearEasing)), label = "drift")
-    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-    if (shown <= 0f) return
-    androidx.compose.foundation.Canvas(modifier.size(16.dp).semantics { contentDescription = label }) {
-        val u = size.minDimension / 16f
-        val color = (if (tick == Tick.FAILED) warn else ink).copy(alpha = 0.75f * shown)
-        fun l(a: Float, b: Float) = a + (b - a) * flying
-        val stroke = Stroke(width = 1.35f * u, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
-        withTransform({ if (rtl) scale(-1f, 1f, pivot = center) }) {
-            // The envelope: resting (x2 y3.8 12x8.6) or flying (x4 y4.6 10.5x7.6).
-            val x = l(2f, 4f)
-            val y = l(3.8f, 4.6f)
-            val w = l(12f, 10.5f)
-            val h = l(8.6f, 7.6f)
-            drawRoundRect(color, androidx.compose.ui.geometry.Offset(x * u, y * u), androidx.compose.ui.geometry.Size(w * u, h * u), androidx.compose.ui.geometry.CornerRadius(l(1.6f, 1.4f) * u), style = stroke)
-            val flap = androidx.compose.ui.graphics.Path().apply {
-                moveTo(l(2.6f, 4.5f) * u, l(4.6f, 5.3f) * u)
-                lineTo(l(8f, 9.25f) * u, l(8.8f, 9f) * u)
-                lineTo(l(13.4f, 14f) * u, l(4.6f, 5.3f) * u)
-            }
-            drawPath(flap, color, style = stroke)
-            // The speed lines, trailing and drifting back while it flies.
-            if (flying > 0f) {
-                val back = drift * 0.8f
-                val lines = color.copy(alpha = color.alpha * flying * (1f - 0.5f * drift))
-                drawLine(lines, androidx.compose.ui.geometry.Offset((0.8f - back) * u, 7f * u), androidx.compose.ui.geometry.Offset((2.8f - back) * u, 7f * u), 1.35f * u, androidx.compose.ui.graphics.StrokeCap.Round)
-                drawLine(lines, androidx.compose.ui.geometry.Offset((1.4f - back) * u, 9.6f * u), androidx.compose.ui.geometry.Offset((3f - back) * u, 9.6f * u), 1.35f * u, androidx.compose.ui.graphics.StrokeCap.Round)
-            }
-            // The seal on the flap, popping in.
-            if (sealed > 0.01f) drawCircle(color, 2.3f * u * sealed.coerceAtLeast(0f), androidx.compose.ui.geometry.Offset(8f * u, 9.4f * u))
-        }
-    }
-}
-
-/**
- * Their small letter circle, right after the last message of mine they read (2026-11-23, hen, from the mockups); a
- * tap shows when they read it.
- */
-@Composable
-internal fun ReaderCircle(user: String, readAt: Long?, end: Boolean, here: Boolean = false) {
-    var showTime by remember { androidx.compose.runtime.mutableStateOf(false) }
-    val label = com.chencohen.ptt.genderedString(R.string.chat_read_up_to_here, user, user)
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            androidx.compose.animation.AnimatedVisibility(showTime && readAt != null) {
-                Text(
-                    stringResource(R.string.chat_read_at, DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(readAt ?: 0L))),
-                    color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(end = 6.dp),
-                )
-            }
-            val tap = Modifier.clickable(role = Role.Button, onClickLabel = label) { showTime = !showTime }.semantics { contentDescription = label }
-            HereFace(user, here, tap)
-        }
-    }
-    @Suppress("UNUSED_EXPRESSION") end
 }
 
 /**
@@ -695,36 +689,6 @@ internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = t
     }
     Box(Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
         Box(Modifier.border(1.5.dp, coral, LibraryShapes.Card).background(coral.copy(alpha = 0.08f), LibraryShapes.Card).padding(6.dp)) { video() }
-    }
-}
-
-/**
- * In a group, the members who read up to here (2026-11-23, hen): their letter circles, at most 3 then "+N"; a tap
- * lists who read and when.
- */
-@Composable
-internal fun GroupReaders(readers: List<Pair<String, Long>>, here: Set<String> = emptySet()) {
-    var open by remember { androidx.compose.runtime.mutableStateOf(false) }
-    val label = stringResource(R.string.chat_read_by, readers.joinToString(", ") { it.first })
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-        Column(horizontalAlignment = Alignment.End) {
-            Row(
-                Modifier.clickable(role = Role.Button, onClickLabel = label) { open = !open }.semantics { contentDescription = label },
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Those in the chat now first, each with their ring (2026-11-24, hen: "so it could work on groups").
-                readers.sortedByDescending { it.first in here }.take(3).forEach { (who, _) -> HereFace(who, who in here, Modifier) }
-                if (readers.size > 3) Text("+${readers.size - 3}", color = LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(start = 2.dp))
-            }
-            androidx.compose.animation.AnimatedVisibility(open) {
-                Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(top = 4.dp)) {
-                    readers.forEach { (who, at) ->
-                        Text("$who · " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(at)), color = LibraryColors.Muted, style = LibraryType.Tiny)
-                    }
-                }
-            }
-        }
     }
 }
 

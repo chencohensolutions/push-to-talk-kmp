@@ -64,6 +64,9 @@ internal class FakeServer {
     /** registerPush: each device's token and notifications flag. */
     val pushTokens = mutableMapOf<DeviceAddress, Pair<String?, Boolean>>()
     val presenceHidden = mutableSetOf<String>()
+    /** Who hides whether they can hear (setHearVisible), and what each user's phone last said (HearState). */
+    val hearHidden = mutableSetOf<String>()
+    val hears = mutableMapOf<String, com.chencohen.ptt.talk.Hear>()
     /** The push kind of each accepted Send, in order. */
     val pushKinds = mutableListOf<Int>()
     /** Whether each Send was ephemeral (live only). */
@@ -175,9 +178,15 @@ internal class FakeServer {
             return visible
         }
 
+        override suspend fun setHearVisible(visible: Boolean): Boolean {
+            if (visible) hearHidden -= device.user else hearHidden += device.user
+            return visible
+        }
+
         override suspend fun presence(users: List<String>): List<UserPresence> = users.filter { setOf(it, device.user) in pairs }.map { u ->
             val hidden = u in presenceHidden || device.user in presenceHidden
-            UserPresence(u, !hidden && connections.keys.any { it.user == u }, null)
+            val online = !hidden && connections.keys.any { it.user == u }
+            UserPresence(u, online, null, if (online && u !in hearHidden) hears[u] ?: com.chencohen.ptt.talk.Hear.UNKNOWN else com.chencohen.ptt.talk.Hear.UNKNOWN)
         }
 
         override suspend fun myDevices(): List<OwnDevice> = keys.keys.filter { it.user == device.user }.map {
@@ -406,7 +415,7 @@ internal class FakeServer {
     // --- Talk (the server's docs/messaging.md, "Talk"), one to one and in groups ------------------------------------
 
     /** A talker's floor: [peer] one to one, else [group]. */
-    class Floor(val id: String, val talker: DeviceAddress, val peer: String, val group: String = "")
+    class Floor(val id: String, val talker: DeviceAddress, val peer: String, val group: String = "", val urgent: Boolean = false)
 
     /**
      * The floors held now, by conversation and talker: each talker a floor of their own, so everyone may talk at once,
@@ -436,6 +445,7 @@ internal class FakeServer {
             event, floor.id, floor.talker.user, floor.talker.device,
             peer = if (floor.group.isNotEmpty()) "" else if (to.user == floor.talker.user) floor.peer else floor.talker.user,
             group = floor.group, endReason = if (event == TalkEvent.ENDED) reason else 0,
+            urgent = event == TalkEvent.STARTED && floor.urgent,
         )
 
     /** Each clip's records, as GET /blob answers them; and whether its last segment came. */
@@ -472,7 +482,7 @@ internal class FakeServer {
                 frame(from, TalkStateFrame(TalkState(TalkEvent.REFUSED, start.burstId, refusal = SendStatus.NOT_PAIRED)))
             held != null && held.id != start.burstId -> frame(from, TalkStateFrame(TalkState(TalkEvent.BUSY, start.burstId, held.talker.user, held.talker.device, peer = start.peer, group = start.group)))
             else -> {
-                val floor = Floor(start.burstId, from, start.peer, start.group)
+                val floor = Floor(start.burstId, from, start.peer, start.group, start.urgent)
                 floors[key] = floor
                 clips.getOrPut(start.burstId) { mutableListOf() }
                 frame(from, TalkStateFrame(TalkState(TalkEvent.GRANTED, start.burstId, from.user, from.device, peer = start.peer, group = start.group)))
@@ -560,6 +570,7 @@ internal class FakeServer {
                 is TalkStartFrame -> talkStart(device, kind.talkStart)
                 is ClipSegmentFrame -> clipSegment(device, kind.clipSegment)
                 is TalkAckFrame -> talkAcks += device to kind.talkAck.burstId
+                is com.chencohen.ptt.relay.HearStateFrame -> hears[device.user] = com.chencohen.ptt.talk.Hear.fromProto(kind.hearState.hear)
                 is TalkEndFrame -> floors.entries.firstOrNull { it.value.id == kind.talkEnd.burstId && it.value.talker == device }?.let { endFloor(it.key) }
                 else -> Unit
             }

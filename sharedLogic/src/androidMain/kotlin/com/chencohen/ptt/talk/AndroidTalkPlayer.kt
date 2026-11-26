@@ -172,6 +172,8 @@ private class TrackPlayback(
     }
 
     private fun writeToTrack(samples: ShortArray, count: Int) {
+        // Boost voice: louder in the app, the limiter keeping it from clipping.
+        if (TalkAudio.boost()) VoiceBoost.apply(samples, count)
         TalkAudio.playLevel = VoiceLevel.fromRms(VoiceLevel.rms(samples, count))
         var at = 0
         while (at < count && !stopped) {
