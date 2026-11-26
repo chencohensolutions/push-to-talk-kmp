@@ -332,6 +332,8 @@ internal fun ChatButtons(
      * dimmed inside a dashed ring, and "Waiting for Sharon…" beside it.
      */
     waitingFor: String? = null,
+    /** Who Push goes to, said beside it while nothing is waiting (the Talk tab's list). */
+    pushTo: String? = null,
     /** My push now is urgent (the red bell; 2026-11-25, hen): the button red with a bell. */
     urgent: Boolean = false,
     /**
@@ -364,10 +366,12 @@ internal fun ChatButtons(
             // back when the push stops.
             val aside by androidx.compose.animation.core.animateFloatAsState(if (lifting >= 0f || handsFree) 1f else 0f, tween(180), label = "voice message aside")
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                if (waitingFor != null) {
+                val sideLine = waitingFor?.let { stringResource(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(it)) }
+                    ?: pushTo?.takeIf { !handsFree && lifting < 0f }?.let { stringResource(R.string.talk_push_to, android.text.BidiFormatter.getInstance().unicodeWrap(it)) }
+                if (sideLine != null) {
                     Text(
                         // The line in the language's direction, the name wrapped: a Latin name doesn't turn a Hebrew line around.
-                        stringResource(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(waitingFor)), color = LibraryColors.Muted,
+                        sideLine, color = LibraryColors.Muted,
                         style = LibraryType.Caption.copy(textDirection = if (reading == androidx.compose.ui.unit.LayoutDirection.Rtl) androidx.compose.ui.text.style.TextDirection.Rtl else androidx.compose.ui.text.style.TextDirection.Ltr),
                         // Beside the buttons, which are at the right whatever the language.
                         maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Right,

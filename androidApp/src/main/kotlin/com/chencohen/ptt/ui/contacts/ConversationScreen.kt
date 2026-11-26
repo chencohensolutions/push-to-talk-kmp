@@ -201,13 +201,15 @@ internal fun ConversationScreen(
      * are, with [embeddedHeader] (its row of faces) in place of the header, and no writing bubble. The bottom strip,
      * the live pills and video and the who-can't-hear chips are the chat's own.
      */
-    stage: (@Composable () -> Unit)? = null,
+    stage: (@Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit)? = null,
+    /** Who Push goes to, said beside it (the Talk tab's list: "To testbot"). */
+    pushTo: String? = null,
 ) {
     val phone = androidx.compose.ui.platform.LocalLayoutDirection.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
     ) {
-        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage)
+        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage, pushTo)
     }
 }
 
@@ -250,7 +252,9 @@ private fun ConversationScreenIn(
     embeddedFull: Boolean = false,
     /** The floating chat is growing or shrinking: the keyboard goes and the draft rests, as the app's chat will show it. */
     embeddedCalm: Boolean = false,
-    stage: (@Composable () -> Unit)? = null,
+    stage: (@Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit)? = null,
+    /** Who Push goes to, said beside it (the Talk tab's list: "To testbot"). */
+    pushTo: String? = null,
 ) {
     // In the floating window, as it floats: its header, no status bar room.
     val embedded = embeddedHeader != null && !embeddedFull
@@ -937,7 +941,8 @@ private fun ConversationScreenIn(
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { autoplay.viewport = it.boundsInWindow() }) {
           androidx.compose.runtime.CompositionLocalProvider(LocalVideoAutoplay provides autoplay) {
             // The Talk tab: its stage where the messages are, clear of the strip.
-            if (stage != null) Box(Modifier.fillMaxSize().padding(bottom = floatingRoom)) { stage() } else
+            // Live video there fills the stage, and the pills and video are drawn in it, not over the top.
+            if (stage != null) Box(Modifier.fillMaxSize().padding(bottom = floatingRoom)) { stage(videoPanel || myPanel) { liveOverlay() } } else
             LazyColumn(
                 Modifier.fillMaxSize()
                     .pointerInput(Unit) {
@@ -1174,7 +1179,7 @@ private fun ConversationScreenIn(
             // (2026-11-25, hen: "just below the header"; they come out from under its edge.)
             // The live pills and boxes, floating over the chat under the header.
             // (2026-11-25, hen: "just below the header"; they come out from under its edge.)
-            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) { liveOverlay() }
+            if (stage == null) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) { liveOverlay() }
             // Floating at the bottom: this phone's draft (or a voice message's recording), then the buttons.
             // How far the keyboard is open, 0 to 1, as it animates: the button row folds away by the same amount.
             val imeNow = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
@@ -1259,6 +1264,7 @@ private fun ConversationScreenIn(
                             ChatButtons(
                                 false, talkingHere, recordingVoice, actions, video = false, handsFree = handsFree,
                                 waitingFor = waitingFor,
+                                pushTo = pushTo,
                                 urgent = talk.own?.let { it.chat == user && it.urgent } == true,
                                 cantHear = someoneCantHear,
                                 // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.

@@ -1,25 +1,35 @@
 package com.chencohen.ptt.ui.talk
 
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,113 +37,98 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.chencohen.ptt.R
-import com.chencohen.ptt.messaging.ClipKind
 import com.chencohen.ptt.messaging.Group
 import com.chencohen.ptt.messaging.TextMessage
+import com.chencohen.ptt.talk.TalkList
 import com.chencohen.ptt.talk.TalkPhase
 import com.chencohen.ptt.talk.TalkUiState
 import com.chencohen.ptt.ui.contacts.Avatar
 import com.chencohen.ptt.ui.contacts.morphRing
+import com.chencohen.ptt.ui.contacts.previewOf
 import com.chencohen.ptt.ui.groups.GroupAvatar
 import com.chencohen.ptt.ui.style.EmptyState
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryType
 
-/** One Quick talk chat on the Talk tab, with its name and picture. */
-internal data class QuickTalkPage(val chat: String, val name: String, val groupPicture: String? = null)
+/** One chat on the Talk tab's list: its row's facts, its name and picture, and its newest message. */
+internal data class TalkListItem(val row: TalkList.Row, val name: String, val groupPicture: String? = null, val last: TextMessage? = null)
 
 /**
- * The Talk tab (docs/screens/quick-talk.md; 2026-11-26, hen picked "faces row + stage"): a row of the Quick talk
- * chats' faces with their presence rings across the top, and under it the picked chat's stage (its face, what its
- * floor is doing, its last push to hear again, and Chat / Voice call / Video call), all inside the chat's own screen
- * ([chat]): the same bottom strip, Push and its slides, live pills and video, and who-can't-hear chips.
- *
- * The picked chat is kept for next time ([pageShown]); whoever starts talking in another Quick talk chat becomes the
- * picked one; while my push runs (held, waiting, or hands-free) it doesn't change.
+ * The Talk tab as a live list (docs/screens/quick-talk.md; 2026-11-26, hen: "the idea is to contact very quickly
+ * coworkers, also with messages"; concept 1 of docs/screens/mocks/talk-home-mock.png): every person and group as a
+ * row (its ring, its last message or push, its unread count), who is talking first, then the newest; filters on top
+ * (All / Hearing now / Unread / Groups). One row is open in place: its last messages, one-touch replies and a line to
+ * write, with Full chat. All of it inside the open chat's own screen ([chat]): its strip, Push and its slides, the
+ * live pills and video. Push goes to the open row ("To testbot" beside it); whoever starts talking opens, so Push
+ * answers them, never while my push runs.
  */
 @Composable
 internal fun QuickTalkHome(
-    pages: List<QuickTalkPage>,
-    startPage: Int,
+    items: List<TalkListItem>,
+    startChat: String?,
     me: String,
     talk: TalkUiState,
     nameOf: (String) -> String,
+    /** The open chat's newest messages, oldest first. */
+    recent: (String) -> List<TextMessage>,
     openChat: (String) -> Unit,
     openChats: () -> Unit,
     pageShown: (String) -> Unit,
+    send: (chat: String, body: String) -> Unit,
     modifier: Modifier = Modifier,
-    /** The microphone kept open while the Talk tab shows (MessagingController.warmMicrophone). */
     warmMicrophone: (Boolean) -> Unit = {},
-    /** A voice or video call in a chat. */
-    call: (chat: String, video: Boolean) -> Unit = { _, _ -> },
-    /** The picked chat tells its user ("here"). */
     setHere: (String?) -> Unit = {},
-    /** Someone has this chat on screen now (a solid ring). */
     viewing: (String) -> Boolean = { false },
-    /** The chat's newest push (a burst), to hear again. */
-    lastPush: (String) -> TextMessage? = { null },
     playClip: (String) -> Unit = {},
-    stopClip: () -> Unit = {},
-    /** The chat's own screen for [chat], with [header] in place of its header and [stage] where its messages are. */
-    chat: @Composable (chat: String, header: @Composable () -> Unit, stage: @Composable () -> Unit) -> Unit = { _, _, _ -> },
+    chat: @Composable (chat: String, header: @Composable () -> Unit, stage: @Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit) -> Unit = { _, _, _ -> },
 ) {
-    if (pages.isEmpty()) {
+    if (items.isEmpty()) {
         Column(modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-            EmptyState(stringResource(R.string.quick_talk_empty), actionLabel = stringResource(R.string.quick_talk_open_chats), onAction = openChats)
+            EmptyState(stringResource(R.string.chats_empty), actionLabel = stringResource(R.string.quick_talk_open_chats), onAction = openChats)
         }
         return
     }
     WarmMicrophone(warmMicrophone)
-    val chats = pages.map { it.chat }
-    var picked by rememberSaveable { mutableStateOf(chats[startPage.coerceIn(0, chats.size - 1)]) }
-    if (picked !in chats) picked = chats.first()
-    // Which way the stage came in: +1 from the end side, -1 from the start side, 0 not at all.
-    var from by remember { mutableIntStateOf(0) }
-    // My push runs here (held, asking, waiting, or between hands-free renewals): the picked chat stays.
+    var filter by rememberSaveable { mutableStateOf(TalkList.Filter.ALL) }
+    var asked by rememberSaveable { mutableStateOf(startChat) }
+    val ordered = TalkList.order(items.map { it.row })
+    val shown = TalkList.filter(ordered, filter)
+    val byChat = items.associateBy { it.row.chat }
+    // My push runs (held, asking, waiting, or between hands-free renewals): the open row stays.
     val busy = talk.own?.let { it.phase == TalkPhase.REQUESTING || it.phase == TalkPhase.TALKING || it.phase == TalkPhase.WAITING } == true
-    val busyNow by rememberUpdatedState(busy)
-    fun pick(next: String) {
-        if (busyNow || next == picked) return
-        from = if (chats.indexOf(next) > chats.indexOf(picked)) 1 else -1
-        picked = next
-    }
-    LaunchedEffect(picked) { pageShown(picked) }
-    // Whoever starts talking in another Quick talk chat becomes the picked one (not while mine runs).
+    // Whoever starts talking opens (Push answers them).
     var heardTalkers by remember { mutableStateOf(talk.talkers.keys) }
+    var started by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(talk.talkers.keys) {
-        val started = talk.talkers.filter { (c, t) -> c !in heardTalkers && t.user != me && c in chats }.keys
+        started = talk.talkers.filter { (c, t) -> c !in heardTalkers && t.user != me }.keys.firstOrNull()
         heardTalkers = talk.talkers.keys
-        started.firstOrNull()?.let { pick(it) }
     }
-    Here(picked, setHere)
+    val open = TalkList.open(asked, shown, started, busy) ?: TalkList.open(asked, ordered, started, busy) ?: return
+    LaunchedEffect(open) {
+        asked = open
+        started = null
+        pageShown(open)
+    }
+    Here(open, setHere)
     val context = LocalContext.current
     val live by remember { com.chencohen.ptt.liveState(context) }.collectAsState()
     fun ringOf(c: String): Int = when {
@@ -141,226 +136,213 @@ internal fun QuickTalkHome(
         live.room == c && (Group.idOf(c) != null && live.present.isNotEmpty() || c in live.present) -> 1
         else -> 0
     }
-    val page = pages.first { it.chat == picked }
+    val list = rememberLazyListState()
+    val unread = items.count { it.row.unread > 0 }
     Box(modifier.fillMaxSize()) {
-        key(picked) {
+        key(open) {
             chat(
-                picked,
-                {
-                    FacesRow(
-                        pages, picked, busy, talk, me,
-                        ring = ::ringOf,
-                        pick = ::pick,
-                        add = openChats,
-                    )
-                },
-                {
-                    Stage(
-                        page = page, from = from, ring = ringOf(picked), talk = talk, me = me, nameOf = nameOf,
-                        last = lastPush(picked), playClip = playClip, stopClip = stopClip,
-                        openChat = { openChat(picked) }, call = { v -> call(picked, v) },
-                        swipe = { step ->
-                            val i = chats.indexOf(picked) + step
-                            chats.getOrNull(i)?.let(::pick)
-                        },
-                    )
+                open,
+                { Filters(filter, unread) { filter = it } },
+                { _, overlay ->
+                    Box(Modifier.fillMaxSize()) {
+                        TalkRows(
+                            shown.mapNotNull { byChat[it.chat] }, open, busy, list, talk, me, nameOf, ::ringOf,
+                            recent = recent, playClip = playClip, openChat = openChat, send = send,
+                            pick = { c -> if (!busy) asked = c },
+                        )
+                        // Live pills and video float at the top, as in the chat.
+                        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) { overlay() }
+                    }
                 },
             )
         }
     }
 }
 
-/** A chat's face: a group's picture or letter, or the contact's, with their can't-hear badge. */
+/** The filters (All / Hearing now / Unread · 3 / Groups): the chosen one in ink. Clear of my profile circle. */
 @Composable
-private fun ChatFace(page: QuickTalkPage, size: Dp) {
-    if (Group.idOf(page.chat) != null) GroupAvatar(page.name, page.groupPicture, size)
-    else HearFace(page.chat, size) { Avatar(page.chat, size) }
-}
-
-/**
- * The Quick talk chats' faces in a row, each with its presence ring (solid: on this chat's screen; dashed: in its talk
- * room; none: away) and its name; the picked one's name bold with a short line under it. Someone talking there: their
- * name in the accent colour. At the row's end, Add (to Chats, where Quick talk is turned on).
- */
-@Composable
-private fun FacesRow(
-    pages: List<QuickTalkPage>,
-    picked: String,
-    busy: Boolean,
-    talk: TalkUiState,
-    me: String,
-    ring: (String) -> Int,
-    pick: (String) -> Unit,
-    add: () -> Unit,
-) {
+private fun Filters(filter: TalkList.Filter, unread: Int, choose: (TalkList.Filter) -> Unit) {
     Row(
-        // Clear of my profile circle in the top start corner (home's own).
-        Modifier.fillMaxWidth().padding(start = 60.dp).horizontalScroll(rememberScrollState()).padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        Modifier.fillMaxWidth().padding(start = 60.dp).horizontalScroll(rememberScrollState()).padding(end = 12.dp, top = 6.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        pages.forEach { p ->
-            val on = p.chat == picked
-            val talking = talk.talkers[p.chat]?.takeIf { it.user != me } != null
-            // While my push runs, the others can't be picked: they rest a little dimmed.
-            val dim by androidx.compose.animation.core.animateFloatAsState(if (busy && !on) 0.4f else 1f, tween(200), label = "face dim")
-            Column(
-                Modifier.width(72.dp).graphicsLayer { alpha = dim }
-                    .semantics { selected = on }
-                    .clickable(enabled = !busy, role = Role.Tab) { pick(p.chat) }
-                    .padding(vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(Modifier.size(56.dp).morphRing(ring(p.chat), LibraryColors.Accent), contentAlignment = Alignment.Center) { ChatFace(p, 48.dp) }
-                Text(
-                    p.name,
-                    color = if (talking) LibraryColors.Accent else if (on) LibraryColors.OnBackground else LibraryColors.Muted,
-                    style = LibraryType.Small.copy(fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                val line by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, tween(200), label = "picked line")
-                Box(
-                    Modifier.padding(top = 3.dp).size(16.dp, 3.dp)
-                        .graphicsLayer { alpha = line; scaleX = 0.4f + 0.6f * line }
-                        .background(com.chencohen.ptt.ui.style.Pink, CircleShape),
-                )
-            }
-        }
-        val addLabel = stringResource(R.string.quick_talk_add)
-        Column(
-            Modifier.width(72.dp).clickable(role = Role.Button, onClickLabel = addLabel, onClick = add).padding(vertical = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Box(
-                Modifier.size(56.dp).morphRing(1, LibraryColors.Muted.copy(alpha = 0.5f), width = 1.5.dp, dash = 5.dp),
-                contentAlignment = Alignment.Center,
-            ) { Icon(LibraryIcons.Plus, null, tint = LibraryColors.Muted, modifier = Modifier.size(22.dp)) }
-            Text(addLabel, color = LibraryColors.Muted, style = LibraryType.Small, maxLines = 1, modifier = Modifier.padding(top = 4.dp))
+        listOf(
+            TalkList.Filter.ALL to stringResource(R.string.talk_filter_all),
+            TalkList.Filter.HEARING to stringResource(R.string.talk_filter_hearing),
+            TalkList.Filter.UNREAD to stringResource(R.string.talk_filter_unread) + if (unread > 0) " · $unread" else "",
+            TalkList.Filter.GROUPS to stringResource(R.string.talk_filter_groups),
+        ).forEach { (f, label) ->
+            val on = f == filter
+            Text(
+                label,
+                color = if (on) LibraryColors.OnInverse else LibraryColors.OnBackground,
+                style = LibraryType.Small,
+                maxLines = 1,
+                modifier = Modifier.semantics { selected = on }
+                    .background(if (on) LibraryColors.Inverse else LibraryColors.Raised, CircleShape)
+                    .clickable(role = Role.Tab) { choose(f) }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            )
         }
     }
 }
 
-/**
- * The picked chat's stage: a card with its face (and ring) large, its name (a tap opens the chat), what its floor is
- * doing, its last push with Play, and at its foot Chat / Voice call / Video call. It slides in a little from the side
- * it came from (250 ms) and fades in. A sideways swipe on it goes to the next or previous chat.
- */
 @Composable
-private fun Stage(
-    page: QuickTalkPage,
-    from: Int,
-    ring: Int,
+private fun TalkRows(
+    rows: List<TalkListItem>,
+    open: String,
+    busy: Boolean,
+    list: LazyListState,
     talk: TalkUiState,
     me: String,
     nameOf: (String) -> String,
-    last: TextMessage?,
+    ring: (String) -> Int,
+    recent: (String) -> List<TextMessage>,
     playClip: (String) -> Unit,
-    stopClip: () -> Unit,
-    openChat: () -> Unit,
-    call: (Boolean) -> Unit,
-    swipe: (Int) -> Unit,
+    openChat: (String) -> Unit,
+    send: (String, String) -> Unit,
+    pick: (String) -> Unit,
 ) {
-    val density = LocalDensity.current
-    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    // Coming in: from the side of the chat it was (the end side in reading order is the left in Hebrew).
-    val shift = remember { Animatable(if (from == 0) 0f else 1f) }
-    LaunchedEffect(Unit) { shift.animateTo(0f, tween(250)) }
-    val startX = with(density) { 32.dp.toPx() } * from * (if (rtl) -1 else 1)
-    val swipeAt = with(density) { 72.dp.toPx() }
-    val onSwipe by rememberUpdatedState(swipe)
-    Column(
-        Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp)
-            .graphicsLayer {
-                translationX = startX * shift.value
-                alpha = 1f - shift.value
-            }
-            .background(LibraryColors.Raised, RoundedCornerShape(28.dp))
-            .pointerInput(rtl) {
-                var dx = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = { dx = 0f },
-                    onDragEnd = {
-                        // Towards the reading end (left in Hebrew): the next chat.
-                        if (kotlin.math.abs(dx) > swipeAt) onSwipe(if ((dx < 0) != rtl) 1 else -1)
-                    },
-                ) { _, d -> dx += d }
-            },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Spacer(Modifier.weight(1f))
-        Box(Modifier.size(132.dp).morphRing(ring, LibraryColors.Accent, width = 3.dp, dash = 10.dp), contentAlignment = Alignment.Center) {
-            // On the card a letter circle in the card's own colour would vanish: the page's colour behind it.
-            Box(Modifier.size(120.dp).background(LibraryColors.Background, CircleShape), contentAlignment = Alignment.Center) {
-                if (Group.idOf(page.chat) != null && page.groupPicture == null && page.name.isNotBlank()) {
-                    Text(page.name.first().uppercaseChar().toString(), color = LibraryColors.OnBackground, fontSize = 48.sp, fontWeight = FontWeight.Bold)
-                } else ChatFace(page, 120.dp)
-            }
+    if (rows.isEmpty()) {
+        Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+            Text(stringResource(R.string.talk_list_empty), color = LibraryColors.Muted, style = LibraryType.Body)
         }
-        Text(
-            page.name,
-            color = LibraryColors.OnBackground,
-            style = LibraryType.PageTitle,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 12.dp, start = 24.dp, end = 24.dp).semantics { heading() }
-                .clickable(role = Role.Button, onClick = openChat),
-        )
-        val line = talkLine(page.chat, talk, nameOf, me)
-        val someone = talk.talkers[page.chat]?.takeIf { it.user != me } != null
-        Text(
-            line,
-            color = if (someone || talk.own?.chat == page.chat) LibraryColors.Accent else LibraryColors.Muted,
-            style = LibraryType.Caption,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            modifier = Modifier.padding(top = 4.dp, start = 24.dp, end = 24.dp).height(36.dp),
-        )
-        if (last != null) LastPush(last, talk, me, nameOf, playClip, stopClip)
-        Spacer(Modifier.weight(1f))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(LibraryColors.Muted.copy(alpha = 0.15f)))
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            StageAction(LibraryIcons.Chat, stringResource(R.string.talk_action_chat), Modifier.weight(1f), openChat)
-            StageAction(LibraryIcons.Call, stringResource(R.string.call_voice), Modifier.weight(1f)) { call(false) }
-            StageAction(LibraryIcons.Video, stringResource(R.string.call_video), Modifier.weight(1f)) { call(true) }
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp)) {
+        items(rows, key = { it.row.chat }) { item ->
+            val isOpen = item.row.chat == open
+            Column(
+                Modifier.animateItem(fadeInSpec = tween(200), placementSpec = tween(250), fadeOutSpec = tween(150))
+                    .fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp)
+                    .background(if (isOpen) LibraryColors.Raised else Color.Transparent, RoundedCornerShape(20.dp))
+                    .animateContentSize(tween(220)),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clickable(enabled = !isOpen && !busy, role = Role.Button) { pick(item.row.chat) }
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(52.dp).morphRing(ring(item.row.chat), LibraryColors.Accent), contentAlignment = Alignment.Center) { RowFace(item, 44.dp) }
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text(
+                            item.name,
+                            color = if (item.row.talking) LibraryColors.Accent else LibraryColors.OnBackground,
+                            style = LibraryType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        val line = if (item.row.talking) talkLine(item.row.chat, talk, nameOf, me) else item.last?.let { previewOf(it) }.orEmpty()
+                        if (line.isNotEmpty()) {
+                            Text(
+                                line,
+                                color = if (item.row.talking) LibraryColors.Accent else LibraryColors.Muted,
+                                style = LibraryType.Small, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (isOpen) {
+                        Text(
+                            stringResource(R.string.talk_full_chat),
+                            color = com.chencohen.ptt.ui.style.Pink, style = LibraryType.Small,
+                            modifier = Modifier.clickable(role = Role.Button) { openChat(item.row.chat) }.padding(horizontal = 8.dp, vertical = 10.dp),
+                        )
+                    } else {
+                        Column(horizontalAlignment = Alignment.End) {
+                            item.last?.let { Text(timeOf(it.at), color = LibraryColors.Muted, style = LibraryType.Tiny) }
+                            if (item.row.unread > 0) {
+                                Text(
+                                    item.row.unread.toString(), color = Color.White, style = LibraryType.Tiny,
+                                    modifier = Modifier.padding(top = 4.dp).background(com.chencohen.ptt.ui.style.Pink, CircleShape).padding(horizontal = 7.dp, vertical = 1.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                AnimatedVisibility(
+                    isOpen,
+                    enter = fadeIn(tween(200)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(tween(200)),
+                ) {
+                    OpenRow(item, recent(item.row.chat), nameOf, playClip) { body -> send(item.row.chat, body) }
+                }
+            }
         }
     }
 }
 
-/** The chat's last push, to hear again: Play (Pause while it plays), who said it, and how long. */
+/** The open row's inside: its last few messages, one-touch replies, and a line to write. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LastPush(m: TextMessage, talk: TalkUiState, me: String, nameOf: (String) -> String, playClip: (String) -> Unit, stopClip: () -> Unit) {
-    val playing = talk.playing?.clip == m.id
-    val who = if (m.outgoing) stringResource(R.string.talk_you) else nameOf(m.author ?: m.user)
-    val ms = m.clip?.durationMs ?: 0L
-    val length = if (ms > 0) " · %d:%02d".format(ms / 60_000, (ms / 1_000) % 60) else ""
-    val label = stringResource(R.string.clip_play)
-    Row(
-        Modifier.padding(top = 12.dp)
-            .background(LibraryColors.Accent.copy(alpha = 0.14f), CircleShape)
-            .clickable(role = Role.Button, onClickLabel = label) { if (playing) stopClip() else playClip(m.id) }
-            .padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(28.dp).background(LibraryColors.OnBackground, CircleShape), contentAlignment = Alignment.Center) {
-            Icon(if (playing) LibraryIcons.Pause else LibraryIcons.Play, null, tint = LibraryColors.Background, modifier = Modifier.size(14.dp))
+private fun OpenRow(item: TalkListItem, messages: List<TextMessage>, nameOf: (String) -> String, playClip: (String) -> Unit, send: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+        val group = item.row.group
+        messages.forEach { m ->
+            Box(Modifier.fillMaxWidth().padding(vertical = 2.dp), contentAlignment = if (m.outgoing) Alignment.CenterEnd else Alignment.CenterStart) {
+                Column(
+                    Modifier.widthIn(max = 280.dp)
+                        .background(if (m.outgoing) LibraryColors.Accent.copy(alpha = 0.16f) else LibraryColors.Background, RoundedCornerShape(14.dp))
+                        .then(if (m.clip != null) Modifier.clickable(role = Role.Button) { playClip(m.id) } else Modifier)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    if (group && !m.outgoing) Text(nameOf(m.author ?: m.user), color = LibraryColors.Accent, style = LibraryType.Tiny)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (m.clip != null) Icon(LibraryIcons.Play, null, tint = LibraryColors.OnBackground, modifier = Modifier.padding(end = 4.dp).size(14.dp))
+                        Text(previewOf(m), color = LibraryColors.OnBackground, style = LibraryType.Small, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
         }
-        Text(
-            android.text.BidiFormatter.getInstance().unicodeWrap(who) + length,
-            color = LibraryColors.OnBackground, style = LibraryType.Small,
-            maxLines = 1, modifier = Modifier.padding(start = 8.dp),
-        )
-        if (m.clip?.kind == ClipKind.BURST && !m.outgoing && m.clip?.heard == false) {
-            Box(Modifier.padding(start = 8.dp).size(8.dp).background(Color(0xFF2BB3A3), CircleShape))
+        FlowRow(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(R.string.talk_quick_got_it, R.string.talk_quick_on_my_way, R.string.talk_quick_five, R.string.talk_quick_moment).forEach { id ->
+                val words = stringResource(id)
+                Text(
+                    words, color = LibraryColors.OnBackground, style = LibraryType.Small,
+                    modifier = Modifier.background(LibraryColors.Background, CircleShape)
+                        .clickable(role = Role.Button) { send(words) }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                )
+            }
+        }
+        var text by rememberSaveable(item.row.chat) { mutableStateOf("") }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp).background(LibraryColors.Background, RoundedCornerShape(22.dp)).padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.weight(1f).padding(vertical = 8.dp)) {
+                if (text.isEmpty()) Text(stringResource(R.string.talk_reply_to, item.name), color = LibraryColors.Muted, style = LibraryType.Body, maxLines = 1)
+                BasicTextField(
+                    text, { text = it },
+                    textStyle = LibraryType.Body.copy(color = LibraryColors.OnBackground),
+                    cursorBrush = SolidColor(LibraryColors.Accent),
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            val label = stringResource(R.string.voice_send)
+            AnimatedVisibility(text.isNotBlank(), enter = fadeIn(tween(150)), exit = fadeOut(tween(150))) {
+                Box(
+                    Modifier.size(36.dp).background(com.chencohen.ptt.ui.style.Pink, CircleShape)
+                        .clickable(role = Role.Button, onClickLabel = label) {
+                            send(text.trim())
+                            text = ""
+                        },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(LibraryIcons.ArrowUp, label, tint = Color.White, modifier = Modifier.size(18.dp)) }
+            }
         }
     }
 }
 
 @Composable
-private fun StageAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
-    Column(
-        modifier.clickable(role = Role.Button, onClick = onClick).padding(vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(icon, null, tint = LibraryColors.OnBackground, modifier = Modifier.size(22.dp))
-        Text(label, color = LibraryColors.Muted, style = LibraryType.Small, maxLines = 1, modifier = Modifier.padding(top = 4.dp))
-    }
+private fun RowFace(item: TalkListItem, size: Dp) {
+    if (item.row.group) GroupAvatar(item.name, item.groupPicture, size)
+    else HearFace(item.row.chat, size) { Avatar(item.row.chat, size) }
+}
+
+private fun timeOf(at: Long): String {
+    val now = java.util.Calendar.getInstance()
+    val then = java.util.Calendar.getInstance().apply { timeInMillis = at }
+    val sameDay = now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR) && now.get(java.util.Calendar.DAY_OF_YEAR) == then.get(java.util.Calendar.DAY_OF_YEAR)
+    return if (sameDay) android.text.format.DateFormat.format("HH:mm", then).toString()
+    else android.text.format.DateFormat.format("d.M", then).toString()
 }
