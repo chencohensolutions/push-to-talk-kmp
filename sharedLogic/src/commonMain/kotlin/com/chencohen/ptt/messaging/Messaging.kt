@@ -434,26 +434,30 @@ internal class Messaging(
         if (target != null) {
             viewingJob = scope.launch {
                 while (true) {
-                    sendViewing(target, true)
-                    kotlinx.coroutines.delay(HERE_EVERY)
+                    // Not sent (not connected yet, or it failed): again in a second, not at the next refresh 20 s on
+                    // (2026-11-26: back in hen's chat, testbot's ring on hen's phone stayed dashed for up to 20 s).
+                    if (sendViewing(target, true)) kotlinx.coroutines.delay(HERE_EVERY) else kotlinx.coroutines.delay(1_000)
                 }
             }
         }
     }
 
-    private suspend fun sendViewing(chat: String, open: Boolean) {
-        if (socket.state.value !is SocketState.Live) return
+    /** True when it went out (or there's no one to tell). */
+    private suspend fun sendViewing(chat: String, open: Boolean): Boolean {
+        if (socket.state.value !is SocketState.Live) return false
         val content = Content(viewing = ViewingContent(open))
-        try {
+        return try {
             Group.idOf(chat)?.let { id ->
                 groups.send(id, content, PushKind.NONE, ephemeral = true)
-                return
+                return true
             }
-            val contact = store.contact(chat)?.takeIf { it.paired && !it.blocked } ?: return
+            val contact = store.contact(chat)?.takeIf { it.paired && !it.blocked } ?: return true
             sender.send(contact.user, content, pushKind = PushKind.NONE, ephemeral = true)
+            true
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
+            false
         }
     }
 
@@ -2231,6 +2235,9 @@ internal class Messaging(
             }
         }
         content.receipt?.let { receipt ->
+            // Read the moment it came: they have the chat in view (2026-11-26, hen: "the message is being read but his
+            // presence was dashed"); their own "here" may still be on its way.
+            if (receipt.read && receipt.ids.mapNotNull(store::message).any { it.outgoing && now() - it.at < READ_IN_VIEW_MS }) takeViewing(contact.user, true)
             val status = if (receipt.read) MessageStatus.READ else MessageStatus.DELIVERED
             for (id in receipt.ids) {
                 val message = store.message(id)?.takeIf { it.outgoing && it.user == contact.user } ?: continue
@@ -2354,6 +2361,9 @@ internal class Messaging(
         const val HERE_SCREEN = "screen"
         const val HERE_BUBBLE = "bubble"
         const val HERE_EVERY = 20_000L
+
+        /** A message of mine read within this of its sending: they have the chat in view. */
+        const val READ_IN_VIEW_MS = 10_000L
 
         fun typingKey(chat: String, author: String): String = "$chat/$author"
 
