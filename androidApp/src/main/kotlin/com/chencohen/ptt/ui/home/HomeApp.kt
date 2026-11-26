@@ -1064,6 +1064,9 @@ internal fun HomeScreen(state: HomeState, tab: HomeTab, selectTab: (HomeTab) -> 
                 setHere = actions.setHere,
                 viewing = { c -> viewingIn(chats.viewing, c, nowMs, Group.idOf(c) != null).isNotEmpty() },
                 playClip = actions.playClip,
+                press = actions.pressTalk,
+                release = actions.releaseTalk,
+                micDenied = actions.micDenied,
                 chat = actions.talkChat,
             )
             }

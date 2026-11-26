@@ -9,8 +9,11 @@ talk). It is `ui/talk/QuickTalkHome.kt`; the list and its order are `talk/QuickT
   (solid: on that chat's screen; dashed: in its talk room; none: away) and can't-hear badge, its name, its last
   message or push (while someone talks there, what the floor is doing, in the accent colour), and at the end its time
   and unread count. Who is talking comes first, then the newest message, then the newest contact or group.
-- **Filters** on top, clear of my profile circle: All, Hearing now (someone there can hear a push now), Unread (with
-  how many) and Groups. The chosen one is in ink.
+- **Search and filters** on top, clear of my profile circle: Search first (a tap turns the row into a line for a
+  name, with Close; rows whose name holds it), then All, Hearing now (someone there can hear a push now), Unread (with
+  how many) and Groups. The chosen one is in ink. Neither moves the open row, so Push keeps going where it went.
+- **Hold a face** (a moment, so a scroll is never a push): a push to that row's chat until the finger lifts, the face a
+  little bigger with a pink ring meanwhile; then that row opens. Not while my push runs.
 - **One row is open**, in place, on a card: its last three messages (mine at the end side, a group's with who said
   them; a tap on a push or voice message plays it), one-touch replies (Got it, On my way, 5 more minutes, One moment)
   that send at once, a line to write ("Message to testbot") with Send, and **Full chat** at the row's end. A reply
