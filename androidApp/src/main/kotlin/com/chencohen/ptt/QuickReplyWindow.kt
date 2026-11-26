@@ -245,9 +245,11 @@ object QuickReplyWindow {
             }
 
             // The first touch makes it the window in use: until then the app under it keeps the keys and its keyboard.
+            // As the finger lifts, not under it: the window changes then, and a touch in progress isn't disturbed.
             override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
-                if (event.actionMasked == android.view.MotionEvent.ACTION_DOWN) takeKeys(context)
-                return super.dispatchTouchEvent(event)
+                val handled = super.dispatchTouchEvent(event)
+                if (event.actionMasked == android.view.MotionEvent.ACTION_UP || event.actionMasked == android.view.MotionEvent.ACTION_CANCEL) post { takeKeys(context) }
+                return handled
             }
         }
         // Compose looks for its lifecycle from the window's root view: set on the ComposeView alone, it crashed the
