@@ -25,3 +25,21 @@ internal object ChatHandover {
     /** The app left the screen (MainActivity.onStop): the window covering it may shrink back to floating. */
     var onLeft: (() -> Unit)? = null
 }
+
+/**
+ * The Talk tab opening a chat (2026-11-26, hen picked option A of docs/screens/mocks/talk-live-list-review.png): where
+ * each Quick talk row is on the screen, and the one about to open, so the chat comes up from it: the row rises into
+ * the header, the messages come in, the bottom stays (380 ms), and Back goes the same way down.
+ */
+internal object TalkTabMove {
+    /** Each row's top, in window pixels, as last laid out. */
+    val rowTops = mutableMapOf<String, Float>()
+    private var pending: Pair<String, Float>? = null
+
+    fun go(chat: String) {
+        pending = rowTops[chat]?.let { chat to it }
+    }
+
+    /** The row's top for [chat] when it is the chat about to open (once). */
+    fun take(chat: String): Float? = pending?.takeIf { it.first == chat }?.second.also { pending = null }
+}

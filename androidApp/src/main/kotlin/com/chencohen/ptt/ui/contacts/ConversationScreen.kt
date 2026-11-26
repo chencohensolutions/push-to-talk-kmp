@@ -297,6 +297,20 @@ private fun ConversationScreenIn(
         selected.clear()
         sheet = null
     }
+    // Opened from the Talk tab's row (TalkTabMove): the row rises into the header, the messages come in, the bottom stays.
+    val talkMove = remember(user) { if (embeddedHeader == null) TalkTabMove.take(user) else null }
+    val rise = remember(user) { androidx.compose.animation.core.Animatable(if (talkMove != null) 0f else 1f) }
+    LaunchedEffect(user) { if (talkMove != null) rise.animateTo(1f, androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    var headerTop by remember(user) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var leaving by remember(user) { mutableStateOf(false) }
+    val riseScope = androidx.compose.runtime.rememberCoroutineScope()
+    androidx.activity.compose.BackHandler(enabled = talkMove != null && !leaving) {
+        leaving = true
+        riseScope.launch {
+            rise.animateTo(0f, androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            actions.back()
+        }
+    }
     val allMessages = messages
     @Suppress("NAME_SHADOWING")
     val messages = remember(messages, pendingDelete) { pendingDelete?.let { d -> messages.filter { it.id !in d.ids } } ?: messages }
@@ -325,6 +339,8 @@ private fun ConversationScreenIn(
                     .using(androidx.compose.animation.SizeTransform(clip = false))
             },
             label = "header or selection",
+            modifier = Modifier.onGloballyPositioned { headerTop = it.positionInWindow().y }
+                .graphicsLayer { if (talkMove != null) translationY = (talkMove - headerTop) * (1f - rise.value) },
         ) { selecting ->
             if (selecting) {
                 val chosen = selected.mapNotNull { id -> allMessages.firstOrNull { it.id == id } }
@@ -956,6 +972,7 @@ private fun ConversationScreenIn(
             if (stage != null) Box(Modifier.fillMaxSize().padding(bottom = floatingRoom)) { stage(videoPanel || myPanel) { liveOverlay() } } else
             LazyColumn(
                 Modifier.fillMaxSize()
+                    .graphicsLayer { if (talkMove != null) { alpha = rise.value; translationY = 40.dp.toPx() * (1f - rise.value) } }
                     .pointerInput(Unit) {
                     // A tap on the chat puts the keyboard away (the draft stays).
                     detectTapGestures(onTap = {

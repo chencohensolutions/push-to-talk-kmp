@@ -472,6 +472,7 @@ fun HomeApp(
                             // The Talk tab: the chat's own bottom, its writing bubble naming the chat and opening it to write.
                             ChatScreenFor(c, h, s, writeHint = resources.getString(R.string.talk_reply_to, chatName(c))) {
                                 com.chencohen.ptt.ui.contacts.ChatHandover.landing.value = com.chencohen.ptt.ui.contacts.ChatHandover.Landing(c, "", System.currentTimeMillis(), write = true)
+                                com.chencohen.ptt.ui.contacts.TalkTabMove.go(c)
                                 push("chat/$c")
                             }
                         },

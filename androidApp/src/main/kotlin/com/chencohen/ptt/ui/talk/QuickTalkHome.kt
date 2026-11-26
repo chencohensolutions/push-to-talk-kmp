@@ -52,6 +52,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -190,7 +192,10 @@ internal fun QuickTalkHome(
                                         item, item.chat == u.chosen, u.busy, u.talk, me, nameOf, u.rings[item.chat] ?: 0,
                                         myVideo = u.myVideo[item.chat] == true,
                                         choose = { if (!ui.value.busy) asked = item.chat },
-                                        open = { write(item.chat) },
+                                        open = {
+                                            com.chencohen.ptt.ui.contacts.TalkTabMove.go(item.chat)
+                                            write(item.chat)
+                                        },
                                     )
                                 }
                             }
@@ -274,7 +279,9 @@ private fun TalkRow(
         }
     }
     Column(
-        Modifier.bringIntoViewRequester(inView).fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp)
+        Modifier.bringIntoViewRequester(inView)
+            .onGloballyPositioned { com.chencohen.ptt.ui.contacts.TalkTabMove.rowTops[item.chat] = it.positionInWindow().y }
+            .fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp)
             .shadow((3 * bg).dp, RoundedCornerShape(20.dp))
             .background(LibraryColors.Raised.copy(alpha = bg), RoundedCornerShape(20.dp))
             .semantics { selected = chosen }

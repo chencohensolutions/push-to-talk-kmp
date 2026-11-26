@@ -23,6 +23,9 @@ talk). It is `ui/talk/QuickTalkHome.kt`; the list and its order are `talk/QuickT
   for the whole run, kept over a renewal's gap); who can't hear me under the name. The floating window doesn't show
   for the chosen chat while the tab is in front. "Make it a call" and the chat's other chips stay at the bottom.
 - **Whoever starts talking** is chosen (Push answers them), unless my push runs.
+- **Opening the chat from here** (touching the chosen row, or its writing bubble): the chat comes up from the row: its
+  header starts where the row was and rises into place while the messages fade in from a little below, 380 ms, the
+  writing bubble and the strip not moving. Back from it goes the same way down, then the tab.
 - **None marked yet:** one line ("No one here yet. Add the people and groups you talk with most.") and **Add**, which
   opens the same list as +. No Push and no writing bubble. Nothing is said before the chats have come (2 s at most).
 - **The chat chosen last** is chosen next time (`TalkSettings.quickTalkPage`); else the first.
