@@ -26,6 +26,8 @@ class LiveTalkTest {
         val heard = mutableSetOf<String>()
         val silenced = mutableListOf<String>()
         var joinWorks = true
+        var stale = false
+        override fun stale() = stale
         override var listener: TalkTransportListener? = null
         override val capture: TalkCapture = object : TalkCapture {
             override fun start(onPacket: (ByteArray) -> Unit) = true
@@ -61,6 +63,27 @@ class LiveTalkTest {
             now = { scope.testScheduler.currentTime },
             random = Random(1),
         ).also { it.transport = transport }
+    }
+
+    @Test
+    fun aRoomJoinedAsCallAudioInTheBackgroundIsJoinedAgainWhenItsChatComesOnScreen() = runTest {
+        val s = Setup(this)
+        s.live.warm("testbot")
+        runCurrent()
+        assertEquals(1, s.transport.joins.size)
+        // The app opened: media may play now, the room's call audio is stale.
+        s.transport.stale = true
+        s.live.show("testbot")
+        runCurrent()
+        assertEquals(2, s.transport.joins.size, "joined again, as media")
+        assertEquals(1, s.transport.leaves)
+        assertEquals("testbot", s.live.state.value.room)
+        // Not stale: showing it again keeps the room.
+        s.transport.stale = false
+        s.live.show(null)
+        s.live.show("testbot")
+        runCurrent()
+        assertEquals(2, s.transport.joins.size)
     }
 
     @Test

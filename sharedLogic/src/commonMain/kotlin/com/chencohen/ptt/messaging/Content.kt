@@ -67,6 +67,18 @@ internal data class Content(
      * live) stay open there until either ends it ([ViewingContent.open] false). Older apps skip it.
      */
     @ProtoNumber(25) val roomCall: ViewingContent? = null,
+    /**
+     * What became of the talker's push here (2026-11-25, hen: "who can hear you"): heard, or saved and why
+     * (HeardStatus). To the talker only, live only. Older apps skip it.
+     */
+    @ProtoNumber(26) val talkHeard: TalkHeardContent? = null,
+)
+
+/** A push's fate at one listener: [burstId] and one of HeardStatus. */
+@Serializable
+internal data class TalkHeardContent(
+    @ProtoNumber(1) val burstId: String = "",
+    @ProtoNumber(2) val status: Int = 0,
 )
 
 /** One expression of the sender's face ([code]: Expression code), a small WebP with alpha. */
@@ -231,9 +243,12 @@ internal data class ClipContent(
     @ProtoNumber(5) val durationMs: Long = 0,
     /** Push-to-video: the clip's packets are tagged, audio and pieces of the camera's frames (TalkVideo). */
     @ProtoNumber(6) val video: Boolean = false,
+    /** An urgent push (2026-11-25, hen): may play through Do Not Disturb where the listener allows it. */
+    @ProtoNumber(7) val urgent: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean = other is ClipContent && id == other.id && key.contentEquals(other.key) &&
-        kind == other.kind && sentAt == other.sentAt && durationMs == other.durationMs && video == other.video
+        kind == other.kind && sentAt == other.sentAt && durationMs == other.durationMs && video == other.video &&
+        urgent == other.urgent
 
     override fun hashCode(): Int = id.hashCode()
 
@@ -396,6 +411,19 @@ internal object ContentCodec {
     fun note(user: String, content: Content) {
         if (content.caps and CAPS_SAID != 0) heard[user] = content.caps
     }
+
+    /**
+     * This phone's H.265 decoder failed for real (2026-11-26, hen: "if one phone can't play H.265, fall back both
+     * phones to VP8"): it no longer says it decodes H.265, so everyone sends it VP8 from their next push or call (the
+     * caps go with everything it sends). [onH265Failed] keeps it so (the platform remembers it).
+     */
+    fun h265Failed() {
+        if (myCaps and CAPS_H265 == 0) return
+        myCaps = myCaps and CAPS_H265.inv()
+        onH265Failed?.invoke()
+    }
+
+    var onH265Failed: (() -> Unit)? = null
 
     /** Whether [user]'s phone said it decodes H.265 (unknown: no). */
     fun decodesH265(user: String): Boolean = (heard[user] ?: 0) and CAPS_H265 != 0

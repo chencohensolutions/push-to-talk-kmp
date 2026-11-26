@@ -58,6 +58,8 @@ class ContactActions(
     val rename: (String) -> Unit = {},
     /** Their email as this user knows it (blank: none), for Android Contacts to join cards by. */
     val setEmail: (String) -> Unit = {},
+    /** Let their urgent pushes through Do Not Disturb (2026-11-25, hen; off by default). */
+    val setUrgentThroughDnd: (Boolean) -> Unit = {},
 )
 
 /**
@@ -65,7 +67,7 @@ class ContactActions(
  * safety number to accept, the safety number, block and remove. The conversation itself is ConversationScreen.
  */
 @Composable
-internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActions, notifyOnly: Boolean = false, quickTalk: Boolean = false, liveTyping: Boolean = false, direction: Int = 0, inChat: @Composable () -> Unit = {}) {
+internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActions, notifyOnly: Boolean = false, quickTalk: Boolean = false, liveTyping: Boolean = false, direction: Int = 0, urgentThroughDnd: Boolean = false, inChat: @Composable () -> Unit = {}) {
     SettingsScaffold(title = user, back = actions.back, imePadding = true) {
         if (contact == null) {
             EmptyState(stringResource(R.string.contact_gone))
@@ -157,6 +159,7 @@ internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActi
         if (contact.paired && !contact.blocked) {
             com.chencohen.ptt.ui.talk.QuickTalkCard(quickTalk, actions.setQuickTalk)
             com.chencohen.ptt.ui.talk.WhenAwayCard(notifyOnly, actions.setNotifyOnly)
+            com.chencohen.ptt.ui.talk.UrgentThroughDndCard(urgentThroughDnd, actions.setUrgentThroughDnd)
             com.chencohen.ptt.ui.talk.LiveTypingCard(liveTyping, actions.setLiveTyping)
         }
         if (contact.paired) inChat()

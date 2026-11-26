@@ -6,7 +6,7 @@ import android.media.AudioManager
 import android.util.Log
 
 /**
- * The media stream, the one talk plays on (AndroidTalkPlayer, USAGE_MEDIA), for Unmute for incoming talk. Not
+ * The media stream, the one talk plays on (AndroidTalkPlayer, USAGE_MEDIA), for the Talk volume (TalkLoudness). Not
  * changeable under Do Not Disturb (any filter but "all"), on a fixed-volume device, or during a call, when talk plays
  * on the call stream instead. The ringer is never touched.
  */
@@ -24,7 +24,7 @@ class AndroidTalkVolume(context: Context) : TalkVolume {
     }
 
     override fun changeable(): Boolean =
-        !audio.isVolumeFixed && !TalkAudio.inCallSession &&
+        !audio.isVolumeFixed && !TalkAudio.inCallSession && audio.mode != AudioManager.MODE_IN_CALL &&
             notifications.currentInterruptionFilter == NotificationManager.INTERRUPTION_FILTER_ALL
 
     private companion object {

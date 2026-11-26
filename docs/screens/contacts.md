@@ -56,3 +56,9 @@ identifiers); the code is `ptt://safety?v=1&n=<base64url>`.
 On a paired contact's page, before Chat direction: **Keep voice in chat**, **Keep videos in chat** and **Both live
 becomes a call**, all off by default (docs/screens/conversation.md, "Live in the chat"). This phone's only; never
 sent.
+
+## Urgent pushes and the shield (2026-11-25/26, hen)
+
+- **Urgent pushes › Let urgent pushes through Do Not Disturb**: see talk.md, "Who can hear you".
+- No shield for a verified contact anywhere; an amber shield shows only while a contact's safety number isn't verified,
+  in Chats and the chat header, a tap opening the safety number.

@@ -5,8 +5,8 @@ Signal's conversation in the library's look. How texts, receipts, typing and pre
 [design.md](../design.md), "Phase 3".
 
 - **Header:** slim (2026-11-25, hen: "shrink the header height"): 48 dp under the status bar, with a 32 dp face; back
-  and the name's row keep 48 dp touch targets. Back; the contact's letter circle, their name (the display name when they gave one) and a shield when
-  verified; under it "typing…" or "online" (teal), or "last seen <time>" (muted; a date before today), or nothing when
+  and the name's row keep 48 dp touch targets. Back; the contact's letter circle, their name (the display name when they gave one) and a shield (amber) only while
+  their safety number is not verified, a tap on it opening the safety number (2026-11-26, hen); under it "typing…" or "online" (teal), or "last seen <time>" (muted; a date before today), or nothing when
   it isn't known or hidden. A tap on the name opens the [contact's page](contacts.md) (safety number, block, remove).
   At the right, **Video call** and **Voice call** ([calls.md](calls.md)), then the **Talk button** (a walkie-talkie) opens [Talk mode](talk.md); it shows only where one can talk
   (paired and not blocked, or a member of the group). While someone talks there (or this phone does), a teal line
@@ -316,11 +316,14 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
 
 The header (in the floating chat too) keeps the screen's own background, with one 1-px line under it in the palette's
 outline variant. The live row rests just below that line.
+Since 2026-11-26 the line shows only while messages are scrolled under the header (see "Solid behind the buttons, lines
+only while scrolled under" below).
 
 ## Bottom buttons (2026-11-25, hen)
 
 Push-to-talk sits in the middle of the screen, and the voice message button just to its left, the same in Hebrew and
 English (not mirrored). No call buttons in the chat. While a press waits, "Waiting for …" shows left of them.
+Since 2026-11-26 they are smaller and rest on a solid strip (below): Push 64 dp, Voice message 48 dp.
 
 ## Their face's ring in the header (2026-11-25, hen: "ring only, no new words")
 
@@ -338,3 +341,145 @@ on this chat's screen; dashed, in its talk room; none, away. Those here come fir
 rest, each in a steady order; as many as fit, then "+N"; a tap opens the group's page with its members. When someone's
 state changes, the faces move to their new places together, in one move. The small read faces at the chat's end show
 no presence any more, in groups too (the header does).
+
+## Live typing lands in place (2026-11-26, hen: "it's supposed to stay in place and transition to a message")
+
+Their live draft and the message it becomes are one item (LiveKeys: the same key), so the draft fills into the message
+where it is: no remove and insert, no scroll. When their draft's end comes before the message, the draft stays where it is
+for up to 1.5 s, so the message lands in its place instead of the draft going and the message coming anew. Start and end
+are the language's (the bubble at the start side, the grow origin at its bottom start corner, right in Hebrew).
+
+## Their read face beside the bubble (2026-11-26, hen: "the little avatar is misplacing often and makes problems")
+
+One to one, their small face is no longer an item of the list. It sits beside the last message of mine they read: on
+the bubble's inner side (toward the middle of the chat), at its bottom, and takes no room of its own. When they read on,
+it fades out there and in beside the newer message in the same 200 ms; nothing else in the chat moves. A tap still shows
+when they read it, written over the chat beside the face (it takes no width, so the bubble never gets narrower).
+Before, the face was a list item that changed places (in the middle, or at the very end sharing the draft's key), so each
+change pushed the chat up or down by its height, and when it left the end the list followed it and showed older messages
+under the writing bubble until their next draft.
+
+Sent while they have the chat in view, a message is taken as read from the frame it comes in, and stays so for as long
+as they keep the chat in view (at least 3 s, half a minute at most without their receipt); it shows no envelope either.
+Before, it was held for 3 s only, so a receipt that came later made the face go back a message and forward again.
+
+In a group the members' faces are still a row of their own under the message (unchanged).
+
+## A live draft, calmer (2026-11-26, hen)
+
+- A new line: the lines already there stay in view and ride up with the bubble's top (160 ms) while the new line shows
+  under them. (They were hidden for three frames at every wrap, only the new line showing.) A line fewer: the same, back.
+- Their caret is always drawn over the text, at its end when their phone doesn't say where (or the draft ended and waits
+  for its message); it is never a character of the text, so it can't push a word onto a new line as the message lands.
+- When I send while their draft is at the chat's end, my message's place opens over the flight's 300 ms, so the messages
+  above rise with the flight instead of jumping up at its start.
+- Only a draft grows in; the message it became, scrolled away and back, comes whole.
+
+## My bubble says how far it got; their faces in the gaps (2026-11-26, hen)
+
+hen: "Message should be dashed border until it arrives to server; when arrived to server it should be solid green
+border, with smart transition not a crossfade; when message arrives to all participants it should be whole green. The
+avatar bubbles look good but between the messages it should be less spacing. Only when there are avatars between
+messages the space is bigger to make room for the avatars. Don't stack avatars on top of each other; they should be with
+a little spacing between them." (The mock: `mocks/read-avatars-mock.png`.)
+
+This replaces the envelope marks beside the time, the read face beside the bubble and the group's row of reader circles.
+
+**My bubble** (green `#23774a`; its outline is the same green, brighter on the dark page so the thin line reads as the
+fill does):
+
+| Where it is | The bubble |
+|---|---|
+| On its way, not on the server yet | A dashed green outline, no fill |
+| On the server, not on every participant's phone yet | A whole green outline, no fill |
+| On every participant's phone (one to one: theirs; a group: every other member's) | Whole green |
+| Not sent | The dashed outline, the time in red; a tap sends it again |
+
+- Dashed to whole is the line itself moving, not a crossfade: every dash grows from its middle until the dashes meet
+  (250 ms). Then the green fades in over the whole bubble at once (250 ms; 2026-11-26, hen: "fade into green, not
+  filled into green"), and the text turns from the page's colour to the bubble's with it. The two steps never run at once, so each is seen even
+  when both receipts come together. A bubble that comes on screen is simply as it is; only a change moves.
+- Send's flying copy lands as the dashed outline (its coral outline turns green as it opens into dashes); what came
+  while it flew shows once it has landed.
+- What was read was received, and whoever has a later message has the ones before it (so an old message whose receipt
+  never came fills when a newer one arrives).
+- In a group each member's phone now tells the group, end to end and with no push, that it has a message (a delivered
+  receipt, as one to one); the author keeps who and when (`TextMessage.deliveredTo`), and Message info lists them. A
+  member on an older app sends none: for them the bubble fills when they read it.
+- A screen reader hears the same as the bubble's state ("Waiting to send", "Sent", "Delivered", "Not sent · tap to try
+  again").
+
+**Their faces** (22 dp), in the gap under a message of mine, on my side (the bubbles' own edge; the left in Hebrew):
+
+- A face in a whole green ring after the last message of mine they read (not when they hide their presence); a faint
+  face in a dashed circle under the last one their phone has. In the same gap only the ringed face shows.
+- The gap between two messages is the chat's usual 6 dp. Only a gap with faces is taller (26 dp more), the faces in its
+  middle. The gap is part of its message's own list item, not a row of its own, so nothing is added to or taken from the
+  list as faces come and go.
+- When someone reads or receives further, their face glides from its gap to the new one (250 ms), over the bubbles
+  between, while the gap it leaves closes and the one it comes to opens, all in one move; the bubbles follow in the same
+  frame and the chat stays anchored at its end. A face whose new gap is not on screen yet (a message just sent, still
+  coming in) stays where it is until it is, then glides.
+- Several people in one gap stand side by side, 4 dp apart, from my side inward, never over one another: ringed faces
+  first, then dashed circles, each by name (so nothing shuffles as others move on). "+N" only when the row is full (13
+  faces on a 360 dp wide phone).
+- A tap on the faces opens a small card under them: each person, and "read 01:53" or "received 01:54".
+- Sent while they have the chat in view, a message is still taken as read at once (their ringed face goes to it from
+  the start); the bubble itself shows only what really came.
+- Places are counted from my side inward and positions come from the layout (start and end), so it is the same in
+  Hebrew and in English, mirrored.
+
+**Rings around faces in the header** (hen: "should emerge from no border to dashed border with a continuous animation,
+not a crossfade; also when transforming from dashed to solid border"): the ring is drawn with the same line as my
+bubble's outline. None to dashed: the dashes grow out of nothing; dashed to whole: they grow until they meet; and back
+the same way (250 ms, one move). The contact's face in the chat header and the members' faces in a group's header.
+
+
+## From floating to the chat, one move (2026-11-26, hen: "should feel seamless, an expanding transformation")
+
+A tap on the floating chat's header (or on the floating bar's Chat button) doesn't close one thing and open another: the
+floating window itself grows into the chat.
+
+- **The floating chat**: its top edge rises to the top of the screen, its round corners flatten, and its header becomes
+  the chat's in the same move (it rises under the status bar; the grab bar and × go; Back comes in before the face; the
+  face and the name land where the chat has them). The draft and the buttons at the bottom don't move at all, the
+  messages stay where they are and the older ones show above them. 380 ms, eased. An open keyboard goes down in the same
+  move, and what was written stays in the draft.
+- **The floating bar**: a frame in the bar's exact place, shape and colour grows to the whole screen, its corners
+  flattening and its colour turning into the chat's, the chat (laid out for the whole screen, not moving) showing
+  through as it grows.
+- **Then the app**: only when the window covers the whole screen, showing the chat exactly as the app does, the app
+  opens under it, unseen. When the app's chat is drawn (at its end, the keyboard away, the same draft), the window goes
+  (120 ms). Nothing of Android's own way in is seen, and no empty frame.
+- **Back**, in a chat opened this way over another app: the same backwards. The window covers the screen, the app
+  leaves under it, and the window shrinks to the floating chat over the app that was in use. After going elsewhere in
+  the app, or when the window floated over this app, Back is the app's own.
+- `QuickReplyWindow` (expand, growFrom, shrinkFrom), `ChatHandover`, `MainActivity` (landSoon, leaveToWindow). Debug
+  builds: `-a morph_hold --es chat x --ef at 0.4` stops the move part of the way, to look at it (`--ef at -1`: off).
+
+
+## Solid behind the buttons, lines only while scrolled under (2026-11-26, hen)
+
+hen: "in chat screen the transparent layout is disorienting when scrolling"; of the mocked ways hen picked "D · Strip for
+the buttons only", and "make the banner smaller, the red button smaller".
+
+- **The strip**: behind the button row only (Voice message and Push), a solid strip in the page's own colour, light and
+  dark, as tall as the row. Messages never show behind the buttons. With the keyboard up the row folds away and the
+  strip with it, in the same move. The notes that stand in the row's place (blocked, waiting to pair, a group's note)
+  rest on the same strip.
+- **Its line**: one 1-px line in the outline variant on the strip's top edge, only while messages are scrolled under
+  the strip (the newest message has passed the writing bubble on its way down); it fades in and out over 200 ms. At the
+  chat's end there is no line.
+- **The writing bubble** has a solid fill in the page's colour (it was 92%), and floats above the strip with my face,
+  as before; messages pass beside them, never readable through the bubble.
+- **The header's line** shows only while messages are scrolled under the header (the list isn't at its oldest end),
+  fading in and out over 200 ms; none at the chat's oldest end. The header itself is solid as it was, and the list
+  stops exactly at its bottom edge. The line is drawn at the top of the list, so it is the same under the header, the
+  selection bar and the floating chat's header.
+- **Smaller buttons**: Push 64 dp (it was 84), Voice message 48 dp (it was 52), 6 dp above and below them (it was 12),
+  so the strip is 76 dp tall above the system's navigation bar (the row was 108). Touch targets stay 48 dp or more. The
+  hands-free and video targets keep their places beside and above Push.
+- Still floating, as they were: the live pills and video boxes, the day pill, the faces in the gaps, the ⌄ button, the
+  Undo pill.
+- Geometry is the same in Hebrew and in English (full-width strip and lines; the buttons were already unmirrored).
+- `ConversationScreen` (HeaderHairline, `strip`, `underStrip`), `ChatComposer` (ChatButtons, the draft's fill).

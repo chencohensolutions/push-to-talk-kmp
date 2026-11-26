@@ -106,13 +106,19 @@ object TalkPlaying {
             shown = null
             TalkWidgets.show(app, chat, com.chencohen.ptt.talk.TalkWidgetView.Idle)
             TalkReply.open(chat)
-            post(app, chat, from, 0, live = false)
+            // Heard: nothing stays behind in the shade (2026-11-25, hen: "show notification only if i missed the
+            // stream"); a push not heard is TalkNotifications' missed push instead.
+            NotificationManagerCompat.from(app).cancel(ID)
             if (quiet) {
-                Log.i(TAG, "woken burst over: a quiet record in the shade, no bubble")
+                Log.i(TAG, "woken burst over: no notification left, no bubble")
                 quiet = false
                 onQuietEnd?.invoke()
             } else if (chatInFront(app) != chat) {
                 TalkBubble.show(app, chat, TalkBubble.titleOf(app, chat, from), live = false)
+            } else {
+                // Their chat is in front now, but the floating window's row may still show them live (it showed before
+                // the chat came up): it ends there too (2026-11-26: "hen talking" stayed 4 minutes on testbot).
+                TalkBubble.burstEnded(app, chat)
             }
         }
     }

@@ -71,6 +71,8 @@ internal data class TalkStart(
     @ProtoNumber(1) val burstId: String = "",
     @ProtoNumber(2) val peer: String = "",
     @ProtoNumber(3) val group: String = "",
+    /** An urgent push (2026-11-25, hen): the server passes it on in STARTED. */
+    @ProtoNumber(4) val urgent: Boolean = false,
 )
 
 @Serializable
@@ -81,6 +83,9 @@ internal data class TalkAck(@ProtoNumber(1) val burstId: String = "")
 
 @Serializable
 internal data class BufferedTalkFrame(@ProtoNumber(14) val bufferedTalk: BufferedTalk) : FrameKind
+
+@Serializable
+internal data class HearStateFrame(@ProtoNumber(15) val hearState: HearState) : FrameKind
 
 /**
  * A push kept for this user by the server's recorder because they weren't in the talk room (the server's
@@ -114,6 +119,8 @@ internal data class TalkState(
     @ProtoNumber(8) val refusal: Int = 0,
     @ProtoNumber(9) val detail: String = "",
     @ProtoNumber(10) @ProtoType(ProtoIntegerType.DEFAULT) val startedAt: Long = 0,
+    /** With STARTED: the talker marked it urgent. */
+    @ProtoNumber(11) val urgent: Boolean = false,
 )
 
 /** `TalkState.Event`. */
@@ -156,7 +163,13 @@ internal data class Presence(
     @ProtoNumber(2) val online: Boolean = false,
     /** When offline: last connected, milliseconds since 1970, rounded down to 5 minutes; 0 when unknown. */
     @ProtoNumber(3) @ProtoType(ProtoIntegerType.DEFAULT) val lastSeen: Long = 0,
+    /** While online: whether they can hear talk now (the proto's `Hear`; 0 not said). */
+    @ProtoNumber(4) val hear: Int = 0,
 )
+
+/** Whether this user can hear talk now (`Hear`), told to the server when it changes. */
+@Serializable
+internal data class HearState(@ProtoNumber(1) val hear: Int = 0)
 
 @Serializable
 internal data class Envelope(

@@ -8,6 +8,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.chencohen.ptt.R
 import com.chencohen.ptt.messaging.TalkSettings
 import com.chencohen.ptt.talk.CatchUpMode
@@ -123,8 +125,20 @@ internal fun TalkSettingsScreen(
                 followPrefs.edit().putBoolean(com.chencohen.ptt.ui.talk.FOLLOW_TALK, on).apply()
             }
             RowDivider()
-            SwitchRow(stringResource(R.string.talk_unmute), stringResource(R.string.talk_unmute_body), settings.unmuteForTalk) {
+            // Talk volume (2026-11-25, hen: "turn up the volume when incoming voice"): on, the media volume is set to the
+            // level below while someone talks; the volume keys meanwhile set it too.
+            SwitchRow(stringResource(R.string.talk_volume), stringResource(R.string.talk_volume_body), settings.unmuteForTalk) {
                 change(settings.copy(unmuteForTalk = it))
+            }
+            if (settings.unmuteForTalk) TalkVolumeSlider(settings.talkVolume) { change(settings.copy(talkVolume = it)) }
+            RowDivider()
+            SwitchRow(stringResource(R.string.talk_boost), stringResource(R.string.talk_boost_body), settings.boostVoice) {
+                change(settings.copy(boostVoice = it))
+            }
+            RowDivider()
+            // On by default (2026-11-25, hen): music and videos in other apps go quieter while someone talks.
+            SwitchRow(stringResource(R.string.talk_lower_others), stringResource(R.string.talk_lower_others_body), settings.lowerOthersForTalk) {
+                change(settings.copy(lowerOthersForTalk = it))
             }
             RowDivider()
             SwitchRow(stringResource(R.string.talk_stay_connected), stringResource(R.string.talk_stay_connected_body), settings.stayConnected) {
@@ -159,5 +173,22 @@ private fun AllowRow(title: String, open: () -> Unit) {
     ) {
         androidx.compose.material3.Text(title, color = com.chencohen.ptt.ui.style.LibraryColors.Warning, style = com.chencohen.ptt.ui.style.LibraryType.RowTitle)
         androidx.compose.material3.Text(stringResource(R.string.talk_allow_body), color = com.chencohen.ptt.ui.style.LibraryColors.Muted, style = com.chencohen.ptt.ui.style.LibraryType.Caption)
+    }
+}
+
+/** Settings › Talk › Talk volume's level, 10% to 100% of the media volume; kept when the finger lifts. */
+@Composable
+private fun TalkVolumeSlider(share: Double, set: (Double) -> Unit) {
+    var value by androidx.compose.runtime.remember(share) { androidx.compose.runtime.mutableFloatStateOf(share.toFloat()) }
+    val label = stringResource(R.string.talk_volume_level, kotlin.math.round(value * 100).toInt())
+    androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        androidx.compose.material3.Text(label, color = com.chencohen.ptt.ui.style.LibraryColors.Muted, style = com.chencohen.ptt.ui.style.LibraryType.Caption)
+        androidx.compose.material3.Slider(
+            value = value,
+            onValueChange = { value = it },
+            onValueChangeFinished = { set(value.toDouble()) },
+            valueRange = 0.1f..1f,
+            modifier = androidx.compose.ui.Modifier.semantics { contentDescription = label },
+        )
     }
 }

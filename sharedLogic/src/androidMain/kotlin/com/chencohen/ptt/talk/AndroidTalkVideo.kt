@@ -821,7 +821,11 @@ object AndroidTalkVideoOut : TalkVideoOut {
                     if (waitMs > 0) h.postDelayed(render, minOf(waitMs, MAX_WAIT_MS)) else render.run()
                 }
 
-                override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) { Log.w(TAG, "decoder", e) }
+                override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+                    Log.w(TAG, "decoder", e)
+                    // H.265 that doesn't decode here: VP8 from everyone from now on (ContentCodec.h265Failed).
+                    if (mime == MediaFormat.MIMETYPE_VIDEO_HEVC && !e.isTransient) com.chencohen.ptt.messaging.ContentCodec.h265Failed()
+                }
                 override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
                     val w = format.getInteger(MediaFormat.KEY_WIDTH)
                     val h = format.getInteger(MediaFormat.KEY_HEIGHT)
@@ -842,6 +846,7 @@ object AndroidTalkVideoOut : TalkVideoOut {
             dec
         } catch (e: Exception) {
             Log.w(TAG, "no decoder for $mime", e)
+            if (mime == MediaFormat.MIMETYPE_VIDEO_HEVC) com.chencohen.ptt.messaging.ContentCodec.h265Failed()
             null
         }
     }

@@ -30,9 +30,15 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   play loud; hiding the channel keeps the service working.
 - **Talk playing** (high importance, no sound of its own: the burst is the sound): while a woken burst plays, the
   sender (and the group), "Talking… 0:04", "Hold your headset button to reply", with **Talk back**, **Stop** (what plays
-  and what waits) and **Mute <name> 1 h** (their bursts show the talk notification instead of playing, for an hour).
-  A tap opens that conversation's Talk screen. When it ends, for a minute: "Talked just now" with **Talk back** and
-  **Play again**.
+  and what waits) and **Mute <name> 1 h** (their bursts show the missed-push notification instead of playing, for an
+  hour). A tap opens that conversation's Talk screen. When it ends it goes at once (2026-11-25, hen: "show
+  notification only if i missed the stream"): a push that was heard, played or live in the room, leaves nothing in
+  the shade.
+- **Missed push** (the Talk channel, high importance, its sound): only for a push the user didn't hear: Notify only,
+  muted for an hour, the phone couldn't play it, or it reached the phone too late to play (over 30 s old, the app
+  not on screen). "Missed push from Sharon" ("Missed video push from Sharon", "… in Family" in a group), "Tap to open
+  the chat"; a tap opens the chat, with **Play**, **Reply**, a typed reply and Mark as read. One per chat (the newest
+  replaces it), and it goes when the chat is read, here or on another phone of the user.
 - **Talk back** (2026-11-22, hen: the Talk screen, not a voice message): opens that conversation's Talk screen, the
   big hold-to-talk button with the microphone already open; over the lock screen Android asks to unlock first.
 - **Floating window** (2026-11-24, hen picked "A, a small pill at the bottom"; voice "c, but remove the wave, make
@@ -154,3 +160,27 @@ lifecycle on the window's root view), so it never showed; fixed.
 - **Closing by itself**: untouched for 20 s with nothing typed and nobody talking. A new message from them keeps it.
 - **Someone else writes**: the window switches to them, unless you are typing or talking, then they wait and show when
   the window closes (once each, in order; one opened in the app meanwhile is skipped).
+
+## The floating chat, calmer (2026-11-26, hen's recording and notes)
+
+- **It doesn't take the keyboard**: it comes without taking the keys, so the app in use keeps its keyboard and what is
+  being typed there goes on; the window sits above that keyboard. A touch on the window gives it the keys (its field can
+  be written in, Back closes it).
+- **No jump with the keyboard**: the chat is placed from the window's bottom edge at its own height, and Android's own
+  sliding of a window whose place changed is off, so opening and closing the keyboard is the keyboard's one move.
+  Android's own fade of a window that comes or goes is off too: the window slides in by itself.
+- **Taller**: 47% of the screen's height (was 40%): two or three more messages, the app behind still over half the
+  screen; with a keyboard it stays clear of the status bar.
+- **Arriving**: 90% solid (was 50%) until it has landed, 450 ms (was a second), then full in 150 ms; it can't be
+  touched for those 450 ms, as before. The floating bar arrives the same way.
+
+## Dismissed until quiet (2026-11-26, hen: "after dismissing, new text messages should appear as notifications until the chat goes quiet")
+
+Sending the floating chat away (×, a swipe down, Back) or swiping the floating bar down says "not now" for that
+conversation: its next text messages don't bring the floating chat back. They are normal message notifications (grouped
+by chat, with Reply). It lasts while the conversation goes on: until no message has come or gone in it for **5
+minutes** (a reply from the notification counts, and starts the 5 minutes again), or until the chat is opened in the
+app. Then the floating chat may come again. Each conversation by itself; a window that closed by itself, untouched,
+isn't a dismissal. Pushes (voice, video, urgent) play and show as always. `QuickReplyQuiet` (shared, tested),
+`QuickReplyWindow.arrive`.
+

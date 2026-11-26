@@ -233,7 +233,17 @@ internal fun Modifier.holdToTalk(onPress: () -> Unit, onRelease: (dx: Float) -> 
  * Hold to talk, or slide up to lock it hands-free (2026-11-24, hen): [onLift] with how far up the finger is, and
  * [onRelease] with whether it went past [lockAt] (locked: the burst goes on).
  */
-internal fun Modifier.holdOrLock(lockAt: Float, onPress: () -> Unit, onLift: (Float) -> Unit, onRelease: (locked: Boolean) -> Unit): Modifier = pointerInput(Unit) {
+internal fun Modifier.holdOrLock(
+    lockAt: Float,
+    onPress: () -> Unit,
+    onLift: (Float) -> Unit,
+    onRelease: (locked: Boolean) -> Unit,
+    /**
+     * How far left of where it went down the finger is, on the screen in either language (the hands-free target's
+     * side; 2026-11-26, hen: "on the other side: most people are right-handed and the thumb hides the icon").
+     */
+    onSide: (Float) -> Unit = {},
+): Modifier = pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         down.consume()
@@ -243,6 +253,8 @@ internal fun Modifier.holdOrLock(lockAt: Float, onPress: () -> Unit, onLift: (Fl
             val event = awaitPointerEvent(PointerEventPass.Main)
             val change = event.changes.firstOrNull { it.id == down.id } ?: break
             up = (down.position.y - change.position.y).coerceAtLeast(0f)
+            // Sideways first, so the lift knows which way the thumb is going (towards the side target, or up to the lock).
+            onSide((down.position.x - change.position.x).coerceAtLeast(0f))
             onLift(up)
             change.consume()
             if (!change.pressed) break

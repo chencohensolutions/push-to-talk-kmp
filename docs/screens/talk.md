@@ -181,3 +181,95 @@ the floating chat's row (TalkBubble, `placeGroup`) show them all:
   whatever the language. One-to-one chats keep their row as before (`LiveLayout.place`: the pictures in their own shapes).
 - Test builds: `adb shell am broadcast -a com.chencohen.ptt.TEST_BUBBLE -n com.chencohen.ptt/.TestBubble --es chat
   '#<group id>' --es members testbot2:video,testbot3:voice [--es where chat --es mine voice]` pretends members live at once.
+
+## Who can hear you, and urgent pushes (2026-11-25, hen: "yes, make it all")
+
+A push to someone who can't hear it now (Do Not Disturb, the phone on silent or vibrate, the media volume at 0 with Talk
+volume off, or in a phone call) isn't played: it is saved, a quiet "Missed push from X" notification shows, and the
+talker is told why, end to end (TalkHeardContent; HeardStatus).
+
+- **Urgent**: while holding Push, slide sideways onto the red bell (the chat's button, and the floating window's: the
+  bell shows up and to the right of Push, on the screen in either language). The button turns red with a bell, my pill
+  says "You · Urgent" in red (live row and floating window). A push made urgent while held is let through after all where
+  it was saved at first.
+- **Contact page › Urgent pushes › Let urgent pushes through Do Not Disturb**: off by default. Turned on the first time
+  without Do Not Disturb access, it asks for it (Android's Do Not Disturb access page). Without access, the note says
+  urgent pushes still arrive, silently. With it, an urgent push from them opens Do Not Disturb while it plays and puts it
+  back after; on silent it plays anyway.
+- **Settings › Privacy › Show when I can't hear**: on by default; off, contacts see nothing of it.
+- **Talker's bubble labels** (under my push): "Saved: Do Not Disturb", "Saved: silent", "Saved: in a call", "Saved:
+  urgent not allowed", "URGENT ✓ Heard", "URGENT ✓ Heard through Do Not Disturb", "URGENT ✓ Heard through silent"; red
+  for urgent. In a group, each with the member's name.
+- **Face badges** (chat header, Chats, a group header's faces): Do Not Disturb is Android's own sign, a red filled circle
+  with a white bar (never a moon); silent a crossed bell; in a call a phone. Bottom right of the face on the screen in
+  either direction; it comes and goes in one move (scale with fade).
+- **Header line**: "Do Not Disturb", "Silent · hears it later", "In a call" (typing… comes first). A group: "2 of 4 can
+  hear now" while someone can't.
+- **While pushing** (2026-11-26, hen: "show only when not hearing"): a grey chip under my pill for each one who can't
+  hear it now, "Sharon can't hear now · Do Not Disturb · saved" (a group: "testbot · Do Not Disturb · gets it later"),
+  with one short buzz when the first shows. Nothing while everyone hears; no "is hearing you". One who stops hearing
+  mid-push drops in, one who hears again leaves, each in one move. The labels on my bubbles stay as they are.
+- **Urgent lock** (2026-11-26, hen): let go on the bell and the push goes on hands-free, urgent voice, until Stop (a red
+  Stop with the bell), in the chat and the floating window; renewals stay urgent.
+
+- **The side target is hands-free; the bell only when someone can't hear** (2026-11-26, hen: "the urgent indicator
+  should be only if the user didn't hear; until then it should be a microphone icon, and sliding to it turns into
+  hands-free voice transmission. And it should be on the other side: most people are right-handed and the thumb hides
+  the icon"). In the chat (the floating window is handled apart):
+  - While Push is held, the target shows on its **left on the screen, in Hebrew and in English**, where Voice message
+    is; Voice message steps aside while the finger is down and comes back when it lifts. Slide left onto it (72 dp; one
+    buzz on reaching it).
+  - By default it is a **microphone, "Hands-free"**: let go on it and the voice push goes on, hands-free, until Stop (the
+    usual Stop, not red; renewed every 55 s as any hands-free push). Not urgent.
+  - Only when someone in the chat can't hear now (their presence says Do Not Disturb, silent or in a call, or they
+    already told that this push was saved: the same rule as the grey chip) it is the **red bell, "Urgent"**: on it the
+    push turns urgent (red button with a bell, "You · Urgent"), and let go there it goes on hands-free and urgent until
+    Stop (red Stop with the bell; renewals urgent), as before.
+  - It changes while held: when someone stops hearing mid-push the microphone turns into the bell in one move (250 ms:
+    one shrinks away as the other grows in, the pill's colour turning with them); with the thumb already on it, the
+    push turns urgent at its next move or as it lifts.
+  - Sliding up is still hands-free video; a thumb heading more sideways than up never reaches the video lock.
+
+## Live for exactly as long as they transmit (2026-11-25, hen)
+
+The listener shows a talker live for as long as the talker transmits, voice or video, held, hands-free or from the
+floating window. While transmitting through the talk room, the sender sends a tiny "still pushing" beat once a second
+over the room's data channel (TalkBeat, sealed with its own room key). Silence while held stays live: the beat isn't
+audio. The listener ends their live state at once on any end signal: the floor's end (TalkState ENDED), their room
+microphone muted or unpublished, or their leaving the room; or 3 s after their last beat. A beat (or a live segment)
+again puts them back, in one move. Only bursts that beat are watched: an older app is left to its floor's end. After /ws
+comes back from a drop, floors with no beat in the last 3 s go, and an end of mine that couldn't be sent goes then. The
+server sends ENDED (DROPPED) to the listeners 3 s after a floor holder's connection closes, unless it connects again.
+
+## H.265 only when everyone can play it (2026-11-26, hen: "if one phone can't play H.265, fall back both phones to VP8")
+
+Settings › Calls › Video is "Prefer H.265". Each phone says, with everything it sends, whether it decodes H.265
+(ContentCodec caps: a decoder for video/hevc, and it never failed here). Push-to-video and calls go as H.265 only when
+the setting prefers it, this phone has an H.265 encoder, and every other phone in the chat said it decodes H.265;
+otherwise VP8 for everyone. When a phone's H.265 decoder fails for real (no decoder, or a non-transient decoder
+error), it stops saying so for good (remembered), so everyone sends it VP8 from their next push or call.
+
+## The floating bar (2026-11-26, hen: the floating-bar mock, "option A + button layout 1")
+
+The floating window's bottom pill is a bar that stands out over any app, and is swiped away.
+
+- **Surface**: fully solid (#191D1C), a light rim inside a dark hairline, a deep shadow: one of its edges shows over a
+  light app, a dark one and a keyboard alike. The voice's teal ring is drawn on its face, in the rim's place.
+- **Two buttons**: Chat (48 dp) at the left and Push (60 dp) at the right, 12 dp apart, in a bar 76 dp tall; Push sits
+  right of the bar's middle, under a right thumb. No ✕. The same places in Hebrew and English.
+- **While Push is held**, the Chat button's own place is the slide target (nothing new pops up beside the bar): a teal
+  microphone, "Hands-free": slid onto it and let go, the push goes on as hands-free **voice** until Stop (a normal
+  "■ Stop · 0:42", renewed as voice). Only while someone in the chat can't hear now (their phone says Do Not Disturb,
+  silent or in a call, or this push was saved there) it is the red bell, "Urgent", and the lock is the urgent one, as
+  before. The two change places in one cross-fade (220 ms) if that changes while Push is held; once slid onto, it stays
+  what it was. The lock for hands-free video is above Push as before; sliding left never opens the camera.
+- **Swipe the bar down** to send it away, from anywhere on it (a small grab line at its top hints at it). It follows the
+  finger, fading a little, and the live row at the top goes up with it. Let go past a third of the bar's height, or
+  fling it down: the bar and the row leave together, one move of 200 ms. Let go earlier: both settle back. Started on
+  Push, the swipe ends the push first (what was said is sent; a press shorter than a hold says nothing), and the
+  microphone is off from there. While a call rings the bar shows Answer and Decline and can't be swiped.
+- **After it**: that chat's text messages are notifications until the chat goes quiet
+  ([notifications.md](notifications.md), "Dismissed until quiet"). Pushes play and show as always.
+- **Chat grows into the chat**: a tap on Chat grows the bar itself, from its place, shape and colour, over the whole
+  screen into the conversation ([conversation.md](conversation.md), "From floating to the chat, one move").
+- Debug builds: `adb shell am broadcast -n com.chencohen.ptt/.DebugTriggers -a bubble --es chat <user>` shows the bar.

@@ -101,6 +101,8 @@ data class TextMessage(
     val editedAt: Long? = null,
     /** When it reached their phone (this phone's clock as the receipt came; mine, one-to-one). */
     val deliveredAt: Long? = null,
+    /** In a group: whose phone has it (mine only), and when (this phone's clock as each receipt came; 2026-11-26, hen). */
+    val deliveredTo: Map<String, Long> = emptyMap(),
     /** Deleted by its author (2026-11-24, hen): only "Message deleted" is left of it here. */
     val deleted: Boolean = false,
     /** One of the author's faces instead of words (Expression code + 1; 2026-11-24, hen); 0: a text. */
@@ -162,6 +164,10 @@ data class Clip(
     val heard: Boolean = false,
     /** Push-to-video: the camera too (TalkVideo). */
     val video: Boolean = false,
+    /** An urgent push (2026-11-25, hen). */
+    val urgent: Boolean = false,
+    /** A push this phone said: what became of it at each listener ("user" to HeardStatus), as they told it. */
+    val heardBy: Map<String, Int> = emptyMap(),
 )
 
 /** A member of a group as the owner's devices named them: the user and the identity key the owner trusts (base64). */
@@ -277,6 +283,19 @@ internal data class Meta(
 )
 
 /** The shared code's part of the [SecureStore], as JSON values. */
+/** A buffered push held for its late key: where and whose, and its packets (base64) with which are audio. */
+@kotlinx.serialization.Serializable
+internal data class LateHeld(
+    val chat: String,
+    val from: String,
+    val video: Boolean,
+    val at: Long,
+    val packets: List<String>,
+    val audio: List<Boolean>,
+)
+
+private const val LATE_KEYS = "late_keys"
+
 internal class MessagingStore(val store: SecureStore) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -291,6 +310,15 @@ internal class MessagingStore(val store: SecureStore) {
     var meta: Meta
         get() = read(Spaces.META, "meta", Meta.serializer()) ?: Meta()
         set(value) = write(Spaces.META, "meta", Meta.serializer(), value)
+
+    /** Buffered pushes read before their key came (Talk; 2026-11-26, hen), by burst: kept here, encrypted, until it does. */
+    fun lateKey(id: String): LateHeld? = read(LATE_KEYS, id, LateHeld.serializer())
+
+    fun putLateKey(id: String, held: LateHeld) = write(LATE_KEYS, id, LateHeld.serializer(), held)
+
+    fun removeLateKey(id: String) = store.remove(LATE_KEYS, id)
+
+    fun lateKeys(): List<String> = store.keys(LATE_KEYS)
 
     fun contacts(): List<Contact> = all(Spaces.CONTACTS, Contact.serializer())
 
@@ -323,20 +351,54 @@ internal class MessagingStore(val store: SecureStore) {
         set(value) = if (value == null) store.remove(Spaces.LINKS, JOIN) else write(Spaces.LINKS, JOIN, LinkJoin.serializer(), value)
 
     /** Messages are keyed by time, so the space's sorted keys are the order they came in. */
-    fun putMessage(message: TextMessage) =
-        write(Spaces.MESSAGES, message.at.toString().padStart(15, '0') + "-" + message.id, TextMessage.serializer(), message)
+    // The messages, kept in memory as well, in the store's order (2026-11-26: every message(id) read and decoded the
+    // whole table, so storing one incoming message took 1-5 s and publish() as long again). Writes go to both.
+    private val messageLock = Any()
+    private var messageCache: MutableMap<String, TextMessage>? = null
+    private val keyById = mutableMapOf<String, String>()
 
-    fun messages(): List<TextMessage> = all(Spaces.MESSAGES, TextMessage.serializer())
+    private fun messageKey(message: TextMessage) = message.at.toString().padStart(15, '0') + "-" + message.id
 
-    fun messagesWith(user: String): List<TextMessage> = messages().filter { it.user == user }
+    private fun cache(): MutableMap<String, TextMessage> = messageCache ?: run {
+        val loaded = mutableMapOf<String, TextMessage>()
+        store.keys(Spaces.MESSAGES).forEach { key -> read(Spaces.MESSAGES, key, TextMessage.serializer())?.let { loaded[key] = it } }
+        keyById.clear()
+        loaded.forEach { (key, m) -> keyById[m.id] = key }
+        messageCache = loaded
+        loaded
+    }
 
-    fun message(id: String): TextMessage? = messages().firstOrNull { it.id == id }
+    fun putMessage(message: TextMessage) = synchronized(messageLock) {
+        val key = messageKey(message)
+        write(Spaces.MESSAGES, key, TextMessage.serializer(), message)
+        val c = cache()
+        // The same message under another time: the old row goes (it was kept twice before).
+        keyById[message.id]?.takeIf { it != key }?.let { old ->
+            c.remove(old)
+            store.remove(Spaces.MESSAGES, old)
+        }
+        c[key] = message
+        keyById[message.id] = key
+    }
 
-    fun removeMessage(message: TextMessage) = store.remove(Spaces.MESSAGES, message.at.toString().padStart(15, '0') + "-" + message.id)
+    fun messages(): List<TextMessage> = synchronized(messageLock) { cache().entries.sortedBy { it.key }.map { it.value } }
 
-    fun removeMessagesOf(user: String) {
-        store.keys(Spaces.MESSAGES).forEach { key ->
-            if (read(Spaces.MESSAGES, key, TextMessage.serializer())?.user == user) store.remove(Spaces.MESSAGES, key)
+    fun messagesWith(user: String): List<TextMessage> = synchronized(messageLock) { cache().entries.filter { it.value.user == user }.sortedBy { it.key }.map { it.value } }
+
+    fun message(id: String): TextMessage? = synchronized(messageLock) { val c = cache(); keyById[id]?.let { c[it] } }
+
+    fun removeMessage(message: TextMessage) = synchronized(messageLock) {
+        val key = keyById[message.id] ?: messageKey(message)
+        store.remove(Spaces.MESSAGES, key)
+        cache().remove(key)
+        keyById.remove(message.id)
+    }
+
+    fun removeMessagesOf(user: String) = synchronized(messageLock) {
+        val c = cache()
+        c.filterValues { it.user == user }.keys.toList().forEach { key ->
+            store.remove(Spaces.MESSAGES, key)
+            c.remove(key)?.let { keyById.remove(it.id) }
         }
     }
 

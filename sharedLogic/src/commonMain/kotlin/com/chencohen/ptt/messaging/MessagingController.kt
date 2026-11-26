@@ -168,6 +168,9 @@ class MessagingController internal constructor(
     /** Whether this user shows contacts when they're online (Settings). */
     val presenceVisible: Boolean get() = messaging.presenceVisible
 
+    /** Settings › Privacy › Show when I can't hear (on by default). */
+    val hearVisible: Boolean get() = messaging.hearVisible
+
     /** Shows or hides this user's presence; [done] gets the setting now, or null when the server couldn't be told. */
     fun setPresenceVisible(visible: Boolean, done: (Boolean?) -> Unit) {
         scope.launch {
@@ -313,6 +316,17 @@ class MessagingController internal constructor(
 
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     fun pressTalk(chat: String) = onWork { messaging.talk.press(chat) }
+
+    /** The press slid onto the red bell (2026-11-25, hen): an urgent push. */
+    fun markUrgent() = onWork { messaging.talk.markUrgent() }
+
+    /** Shows or hides whether this user can hear (Settings › Privacy); [done] gets the setting now, or null. */
+    fun setHearVisible(visible: Boolean, done: (Boolean?) -> Unit) {
+        scope.launch {
+            val shown = withContext(work) { runCatching { messaging.setHearVisible(visible) }.getOrNull() }
+            done(shown)
+        }
+    }
 
     /** This user is live and waiting for [chat]'s floor (both live), or not. */
     fun sendLiveWaiting(chat: String, waiting: Boolean) = onWork { messaging.sendLiveWaiting(chat, waiting) }
