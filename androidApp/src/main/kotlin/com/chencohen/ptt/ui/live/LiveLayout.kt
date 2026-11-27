@@ -216,8 +216,10 @@ class LiveMotion(private val ms: Long = 300L) {
      * The items should rest at [targets] (LiveLayout.place). A change of who is there or of pill and box starts one
      * move for all (true); a frame only a little different ([small]: a pill's time getting a digit wider) is taken as
      * it is, without starting over. [offTop]: how far the items' resting top is below the screen's top edge.
+     * [inPlace]: new items are simply there, in their place (the chat's row handed over to the floating window as the
+     * app went: 2026-11-27, hen, "the videos or voices should stay put, not exit and enter").
      */
-    fun target(targets: Map<String, LiveRect>, offTop: Float, small: Float = 0f): Boolean {
+    fun target(targets: Map<String, LiveRect>, offTop: Float, small: Float = 0f, inPlace: Boolean = false): Boolean {
         var restart = moves.any { (key, m) -> key !in targets && !m.leaving }
         for ((key, t) in targets) {
             val m = moves[key]
@@ -247,7 +249,7 @@ class LiveMotion(private val ms: Long = 300L) {
             val m = moves[key]
             if (m == null) {
                 // In from above the top edge, already in its own place sideways and at its final size.
-                val above = t.copy(y = -(t.h + offTop))
+                val above = if (inPlace) t else t.copy(y = -(t.h + offTop))
                 moves[key] = Move(above, t, above, false)
             } else {
                 m.to = t

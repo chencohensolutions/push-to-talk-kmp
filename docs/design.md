@@ -324,7 +324,8 @@ what was shown (the server sends HIGH only to phones that registered notificatio
   so a voice at arm's length is heard: communication mode with the built-in speaker as the communication device,
   only for the press, then back to the normal mode so playback stays media; not with a headset or during a phone
   call; logcat `TalkCapture` logs the first second's level) and
-  `TalkStart` (a new 32-hex burst id, the conversation) goes on `/ws`. What is recorded before the answer is kept
+  `TalkStart` (a new 32-hex burst id, the conversation) goes on `/ws`, once my last burst has let go of its floor
+  (up to 3 s: a renewal or a handover would otherwise find my own floor still held). What is recorded before the answer is kept
   and sent first, so nothing of the start is lost. **GRANTED**: the burst is kept in the chat (`Clip`, kind BURST),
   its key goes in an encrypted "clip start" message (`Content.clip`, `ClipContent`, with PUSH_TALK), and each 200 ms
   segment (ten packets) goes as a `ClipSegment`. Release sends the last segment (`last`), which ends the floor.

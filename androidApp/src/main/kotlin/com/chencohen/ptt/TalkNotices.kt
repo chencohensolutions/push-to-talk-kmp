@@ -72,6 +72,7 @@ object TalkPlaying {
         app.scope.launch {
             val playing = messagingState(app).value.talk.playing ?: return@launch
             if (!playing.live || quiet || chatInFront(app) == playing.chat || !TalkBubble.allowed(app)) return@launch
+            TalkBubble.takingOverRow()
             TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video, who = playing.from)
         }
     }
@@ -82,6 +83,8 @@ object TalkPlaying {
      * them from here, as it does when the app goes to the back. A moment later, once the next screen says what it shows.
      */
     fun leftChat(app: TalkApp, chat: String) {
+        // The row comes over in place, even after the moment the next screen takes to say what it shows.
+        TalkBubble.takingOverRow()
         app.scope.launch {
             kotlinx.coroutines.delay(300)
             val talk = messagingState(app).value.talk
