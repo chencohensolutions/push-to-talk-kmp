@@ -491,6 +491,12 @@ class LiveKitTalkTransport(
     /** Their microphone's audio decrypts and is unmuted (a press), not just published and waiting. */
     override val micReady: Boolean get() = mic != null
 
+    /** A press before the microphone's track was there: published now, muted (the press's unmute follows). */
+    override suspend fun readyMic(): Boolean {
+        val room = room ?: return false
+        return prepareMic(room, press = true) != null
+    }
+
     override fun hears(identity: String): Boolean {
         if (identity !in decrypting) return false
         val p = room?.remoteParticipants?.values?.firstOrNull { it.identity?.value == identity } ?: return false

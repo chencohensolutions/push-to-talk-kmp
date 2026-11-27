@@ -86,6 +86,12 @@ interface TalkTransport {
 
     /** The microphone is unmuted in the room now: what is said is really going out through it ([setTalking]). */
     val talkingLive: Boolean get() = false
+
+    /**
+     * A press came while the room's microphone track wasn't there (no Push was on screen): published now, muted, as
+     * [setTalking] would for the press. True when it is there after it.
+     */
+    suspend fun readyMic(): Boolean = micReady
 }
 
 interface TalkTransportListener {
@@ -336,6 +342,36 @@ internal class LiveTalk(
         return on && sendingLive(chat)
     }
 
+    /**
+     * A push's voice can go through a room: there is a transport, the voice goes by it, and the server hasn't said it
+     * has no live talk. Such a push goes into the room only (Talk, "LiveKit only").
+     */
+    val takesVoice: Boolean get() = transport != null && audio && liveOn != false
+
+    /**
+     * A press in [chat] before its room can take it (2026-11-27, hen: shown as connecting): the room is joined, and
+     * its microphone's track published there, asked for again every PRESS_ASK while [still] (the button held), for
+     * PRESS_WAIT at most. True once a press can go live in it by an unmute ([captureFor]).
+     */
+    suspend fun readyForPress(chat: String, still: () -> Boolean): Boolean {
+        val t = transport ?: return false
+        if (!audio) return false
+        var waited = 0L
+        while (still() && waited < PRESS_WAIT) {
+            if (captureFor(chat) != null) return true
+            // The server has no live talk (it just said so): nothing to wait for.
+            if (liveOn == false) return false
+            if (waited % PRESS_ASK == 0L) {
+                // On their own, so that a press let go of doesn't cut a join or a publish half way.
+                if (_state.value.room == chat && identity != null) scope.launch { runCatching { t.readyMic() } }
+                else if (!_state.value.joining) scope.launch { enter(chat) }
+            }
+            delay(PRESS_POLL)
+            waited += PRESS_POLL
+        }
+        return still() && captureFor(chat) != null
+    }
+
     /** This phone's voice is going into [chat]'s room now (in it, its microphone unmuted there). */
     fun sendingLive(chat: String): Boolean = audio && _state.value.room == chat && transport?.talkingLive == true
 
@@ -409,6 +445,9 @@ internal class LiveTalk(
             null
         }
         if (liveOn != true) return
+        // Another ask got here first while the server was being asked (two joins at once left one room orphaned).
+        if (_state.value.joining) return
+        if (_state.value.room == chat && !t.stale()) return
         _state.update { it.copy(joining = true) }
         try {
             if (_state.value.room != null) {
@@ -531,6 +570,13 @@ internal class LiveTalk(
 
         /** How long a video burst waits for the room to be joined before its pictures go by the clips only. */
         const val JOIN_WAIT = 3_000
+
+        /** How long a press waits for its room before it is given up (shown as failed). */
+        const val PRESS_WAIT = 10_000L
+
+        /** How often a waiting press looks whether its room is ready, and how often it asks for it again. */
+        const val PRESS_POLL = 50L
+        const val PRESS_ASK = 500L
 
         /** `wss://host:port` of the GraphQL endpoint `https://host:port/query`. */
         fun origin(serverUrl: String): String = "wss://" + serverUrl.removePrefix("https://").substringBefore('/')

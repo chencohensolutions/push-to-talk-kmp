@@ -750,15 +750,29 @@ phone never uploads a second copy.
 
 **Sending.** Nobody waits to send, and there is no "Waiting for …" anywhere: in a one-to-one chat and in a group,
 every talker has a floor of their own (a group no longer has one floor for all). A press unmutes the microphone track
-(and, for video, the camera track) already published, muted, in the room. Only a press that really is live in the
-room goes into the room only (`LiveTalk.talking` answers whether it is; `Outgoing.inRoom`). A press the room can't
-carry goes by the clip path instead, from the moment before the press, so no first words are lost and nothing is
-shown live that reaches nobody (2026-11-27; such a press used to be recorded on the talker's phone only): the phone
-isn't in the room yet (right after a chat opens, a hardware button, the floating window, the widget, a notification's
-talk-back, the car), the room has no microphone track of this phone's, or the room is lost during the push (what was
-said so far goes up, and the press ends if its microphone was the room's). Otherwise the phone uploads no clip by
-default; the older clip upload stays as a setting, "Send through the server when they're away" (off), for a server
-without the buffer.
+(and, for video, the camera track) already published, muted, in the room.
+
+**LiveKit only** (2026-11-27, hen: "livekit only, show connection indication without words, only visual"). A push goes
+into the room and nowhere else: nothing is uploaded beside it. A press the room can't take yet waits for it instead
+of going another way (the phone isn't in the room yet: right after a chat opens, a hardware button, the floating
+window, the widget, a notification's talk-back, the car; or the room has no microphone track of this phone's):
+
+- `Talk.connect` shows the press as `TalkPhase.REQUESTING` (the Push button's connecting look, no words) while
+  `LiveTalk.readyForPress` joins the room and publishes the microphone's track, asking again every 500 ms for 10 s at
+  most. Nothing is recorded meanwhile: what is said before the press is live isn't sent.
+- The moment the room can take it, and the button is still held, the press begins like any other: the unmute, then
+  the floor. The floor is asked for only once the voice is live in the room (`Outgoing.room`, `LiveTalk.talking`'s
+  answer), so the others are never told of a push that reaches nobody. `TalkPhase.TALKING` shows from the grant.
+- Let go while connecting: back to ready, nothing sent or kept.
+- The room can't be reached in 10 s, or doesn't take the unmute: the press ends as `TalkPhase.REFUSED` with
+  `OwnTalk.ROOM` (the button falls back to ready with a short buzz, no words), nothing sent or kept.
+- The room is lost during a push (`LiveTalk.onLost`, or a segment recorded while the microphone is no longer live
+  there): the press ends the same way; what went into the room until then is the push, kept on the talker's phone
+  as its clip.
+
+The older clip upload stays as a setting, "Send through the server when they're away" (off), for a server without the
+buffer; with it on, or on a server without live talk, a press goes by its clip from the moment before the press, as
+before.
 
 **The recorder in the room.** ptt-server's recorder (package recorder, as for saved calls) joins a chat's talk room as
 a hidden participant right after the first phone joins it (on its talk token), so it is there before any press. It

@@ -790,23 +790,71 @@ class TalkTest {
     }
 
     @Test
-    fun aPushPressedBeforeItsRoomIsJoinedGoesByItsClipFromTheFirstWord() = runTest {
-        // It was shown live and reached nobody: into the room only, with the phone not in the room.
+    fun aPushPressedBeforeItsRoomIsJoinedShowsConnectingAndGoesLiveWhenTheRoomHasIt() = runTest {
+        // It was shown live and reached nobody: into the room only, with the phone not in the room. LiveKit only
+        // (2026-11-27, hen): it waits for the room, shown as connecting, and nothing is uploaded.
         val (server, hen, bot) = paired("testbot")
         val room = room(server, hen)
         room.joinTakes = 1_000
         hen.work.launch { hen.talk.press("testbot") }
         advanceTimeBy(200)
-        assertEquals(TalkPhase.TALKING, hen.state.talk.own?.phase)
+        assertEquals(TalkPhase.REQUESTING, hen.state.talk.own?.phase, "connecting, not live")
         assertFalse(room.live, "not in the room yet")
-        val id = hen.state.talk.own!!.clip
-        hen.mic.say(0, 10)
-        hen.work.launch { hen.talk.release() }
+        assertTrue(server.clips.values.all { it.isEmpty() }, "nothing goes anywhere meanwhile")
         // Not until idle: the room joined for the burst is kept by the phone's clock, which stands still here.
+        advanceTimeBy(1_500)
+        assertTrue(room.live, "live the moment the room has it")
+        assertEquals(TalkPhase.TALKING, hen.state.talk.own?.phase)
+        val id = hen.state.talk.own!!.clip
+        room.mic.say(0, 10)
+        hen.work.launch { hen.talk.release() }
         advanceTimeBy(5_000)
-        assertTrue(id in server.completeClips, "the clip went up")
-        assertEquals(10, bot.speaker.played.single().size)
-        assertContentEquals(packets(0, 1).single(), bot.speaker.played.single().first(), "from the first word")
+        assertNull(hen.state.talk.own)
+        assertFalse(room.live)
+        assertFalse(id in server.completeClips, "no clip upload: the room carried it")
+        assertTrue(server.clips[id].isNullOrEmpty())
+        assertNotNull(hen.files.read(id), "kept on the talker's own phone")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun aPushLetGoWhileStillConnectingSendsAndKeepsNothing() = runTest {
+        val (server, hen, bot) = paired("testbot")
+        val room = room(server, hen)
+        room.joinTakes = 1_000
+        hen.work.launch { hen.talk.press("testbot") }
+        advanceTimeBy(200)
+        assertEquals(TalkPhase.REQUESTING, hen.state.talk.own?.phase)
+        hen.work.launch { hen.talk.release() }
+        advanceTimeBy(100)
+        assertNull(hen.state.talk.own, "back to ready at once")
+        advanceTimeBy(5_000)
+        assertFalse(room.live, "the room joined after the release doesn't open the microphone")
+        assertNull(hen.state.talk.own)
+        assertTrue(hen.chat("testbot").isEmpty(), "nothing kept")
+        assertTrue(server.completeClips.isEmpty())
+        assertTrue(bot.speaker.played.isEmpty())
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun aPushWhoseRoomCantBeReachedFailsWithNothingSent() = runTest {
+        val (server, hen, bot) = paired("testbot")
+        val room = room(server, hen)
+        server.liveTalkFails = 1_000
+        hen.work.launch { hen.talk.press("testbot") }
+        advanceTimeBy(9_000)
+        assertEquals(TalkPhase.REQUESTING, hen.state.talk.own?.phase, "still trying")
+        advanceTimeBy(2_000)
+        assertEquals(TalkPhase.REFUSED, hen.state.talk.own?.phase)
+        assertEquals(OwnTalk.ROOM, hen.state.talk.own?.refusal)
+        assertFalse(room.live)
+        advanceTimeBy(3_000)
+        assertNull(hen.state.talk.own, "the button is ready again")
+        assertTrue(hen.chat("testbot").isEmpty())
+        assertTrue(server.completeClips.isEmpty())
         hen.stop()
         bot.stop()
     }
@@ -835,22 +883,26 @@ class TalkTest {
     }
 
     @Test
-    fun aRoomLostDuringAPushSendsWhatWasSaidByItsClipAndEndsThePress() = runTest {
+    fun aRoomLostDuringAPushEndsThePressWithNothingUploaded() = runTest {
         val (server, hen, bot) = paired("testbot")
         val room = room(server, hen)
         hen.messaging.live.show("testbot")
         advanceTimeBy(100)
         hen.work.launch { hen.talk.press("testbot") }
         advanceTimeBy(200)
+        assertEquals(TalkPhase.TALKING, hen.state.talk.own?.phase)
         val id = hen.state.talk.own!!.clip
         room.mic.say(0, 15)
         advanceTimeBy(100)
-        assertTrue(server.clips[id].isNullOrEmpty(), "into the room only so far")
         room.lose()
-        advanceTimeBy(2_000)
-        assertNull(hen.state.talk.own, "not shown live with nothing going out")
-        assertTrue(id in server.completeClips)
-        assertEquals(15, bot.speaker.played.single().size)
+        advanceTimeBy(500)
+        assertEquals(TalkPhase.REFUSED, hen.state.talk.own?.phase, "not shown live with nothing going out")
+        assertEquals(OwnTalk.ROOM, hen.state.talk.own?.refusal)
+        advanceTimeBy(3_000)
+        assertNull(hen.state.talk.own)
+        assertFalse(id in server.completeClips, "LiveKit only: what went into the room is the push")
+        assertTrue(server.clips[id].isNullOrEmpty())
+        assertNotNull(hen.files.read(id), "what was said until then is kept on the talker's own phone")
         hen.stop()
         bot.stop()
     }
