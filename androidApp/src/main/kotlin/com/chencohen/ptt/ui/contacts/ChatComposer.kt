@@ -382,10 +382,10 @@ internal fun ChatButtons(
                 Box(Modifier.graphicsLayer { alpha = 1f - aside; scaleX = 1f - 0.2f * aside; scaleY = 1f - 0.2f * aside }) {
                     if (recording) {
                         RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
-                    } else if (aside < 0.99f) {
-                        RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
                     } else {
-                        // Hidden: its place kept (nothing moves), nothing to tap.
+                        // No Voice message button (2026-11-27, hen: "remove the microphone button, keep only the push
+                        // to transmit button"): its place is kept for the side target while Push is held, so nothing
+                        // moves.
                         Spacer(Modifier.size(small))
                     }
                 }
@@ -488,7 +488,7 @@ internal fun ChatButtons(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    com.chencohen.ptt.ui.style.IconsOnAccent { Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f)) }
+                    com.chencohen.ptt.ui.style.IconsOnAccent { Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Mic, null, tint = Color.White, modifier = Modifier.size(big * 0.42f)) }
                 }
                 // The side target, left of Push while it is held: it fills as the thumb nears it. The microphone
                 // turns into the bell (and back) in one move when someone stops hearing while it is held.

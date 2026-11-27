@@ -117,8 +117,10 @@ above it and scrolls behind nothing. On Send the message fills in at the end of 
 
 
 **The button row, on the screen itself** (2026-11-24, hen): laid out left to right the same in Hebrew and English, so
-the thumb finds it in one place: Voice message, then the big push-to-talk button near the right edge, both under the
-right thumb. No call buttons in the chat (2026-11-25, hen: "in chat screen, remove the video and voice call buttons"),
+the thumb finds it in one place: the big push-to-talk button near the right edge, under the right thumb, with a
+microphone on it (the bell while urgent). There is no Voice message button (2026-11-27, hen: "remove the microphone
+button, keep only the push to transmit button, use the mic icon for the main button"): its place on Push's left stays
+empty for the side target while Push is held. No call buttons in the chat (2026-11-25, hen: "in chat screen, remove the video and voice call buttons"),
 in the full chat and the floating chat alike: voice and video calls start from Talk mode's actions and from a call's
 row in the Calls tab ([calls.md](calls.md)).
 
