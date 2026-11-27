@@ -114,6 +114,12 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     service so the microphone and camera may go on in the background; `TalkBubble.takeOver`). When the floating
     window can't show (setting off, no permission, the screen off or locked) leaving the app changes nothing (it goes
     on as before) and leaving the chat ends it.
+    My box or pill is in the floating row from the moment the chat lets go, so it stays through the gap, and the new
+    press waits for the chat's last one to let go of its floor first (each talker has one floor per chat: asked
+    sooner, the server answered BUSY with my own floor and the bar said "Waiting for testbot…"; 2026-11-27).
+  - **Stays put** (2026-11-27, hen: "when moving out to home screen the videos or voices should stay put, not exit
+    and enter"): for 1.5 s after the app or the chat goes (`TalkBubble.takingOverRow`), what comes into the top row is
+    simply there in its place instead of dropping in from the screen's top edge (`LiveMotion.target`'s `inPlace`).
   - **Moving the bar:** hold it (anywhere but Push) for 400 ms and it lifts; drag it, and the four places light up,
     dashed teal: the top, the bottom, and anywhere along the left or right edge (filled where it would go now). Let go
     and it glides from there into the nearest place (250 ms); it is kept for next time. On a side edge it stands

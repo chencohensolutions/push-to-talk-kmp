@@ -87,6 +87,8 @@ object TalkBubble {
     private const val RENEW_MS = 55_000L
     /** Held this long on the bar (not on Push): it lifts and can be dragged to another edge. */
     private const val LONG_PRESS_MS = 400L
+    /** How long after the app or chat goes the top row takes over in place ([takingOverRow]). */
+    private const val IN_PLACE_MS = 1_500L
     /** Upright on a side edge: Stop is this tall (its icon over the time). */
     private const val STOP_UPRIGHT_DP = 84
     /** The room kept beside the bar for the lock while Push is held. */
@@ -1489,15 +1491,19 @@ object TalkBubble {
             this.chat = chat
             this.title = title
             if (talking) endTalk(app, send = true)
+            takingOverRow()
+            // Mine shows from now, in its place, through the moment between the chat's burst and this one: one item
+            // that stays, not one going up and coming back (2026-11-27, hen).
+            this.urgent = urgent
+            sideVoice = !video && !urgent
+            locked = true
+            lockSince = System.currentTimeMillis()
+            showLocked(true)
+            refreshTop(app)
             main.postDelayed({
-                if (pillWindow == null || talking || this.chat != chat) return@postDelayed
-                this.urgent = urgent
-                sideVoice = !video && !urgent
-                locked = true
-                lockSince = System.currentTimeMillis()
+                if (pillWindow == null || talking || this.chat != chat || !locked) return@postDelayed
                 startTalk(app, video = video)
                 runStarted = talkStarted
-                showLocked(true)
                 if (urgent) {
                     showUrgent(app)
                     main.postDelayed({ if (talking) markUrgent(app) }, 600)
@@ -1509,6 +1515,18 @@ object TalkBubble {
             }, 900)
         }
         return true
+    }
+
+    /**
+     * Until then, what comes into the top row is simply there in its place, not dropped in from the screen's edge: the
+     * chat's live row became this one as the chat or the app went (2026-11-27, hen: "when moving out to home screen
+     * the videos or voices should stay put, not exit and enter").
+     */
+    @Volatile private var inPlaceUntil = 0L
+
+    /** The chat or the app is going off the screen now, with what is live in it: the row takes it over in place. */
+    fun takingOverRow() {
+        inPlaceUntil = System.currentTimeMillis() + IN_PLACE_MS
     }
 
     /** [chat] came on screen in the app: its own buttons are there, so the floating bar for it goes. */
@@ -2001,7 +2019,7 @@ object TalkBubble {
         // The screen's own left edge and width, as the window sees them.
         val targets = LiveLayout.place(items, screen, gap, topRtl, left = -window[0].toFloat())
         // From above the screen's top edge, the shadow too.
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat())
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil)
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (screen ${screen.toInt()}, window at ${window[0]},${window[1]}, ${if (topRtl) "right to left" else "left to right"})")
         showTop()
@@ -2053,7 +2071,7 @@ object TalkBubble {
             if (cell.video) size(cell.box, bw.toInt(), bh.toInt())
         }
         val targets = LiveGroupLayout.place(slots, width, gap, topHeight(context).toFloat(), myShape, topRtl, left = -window[0].toFloat() + margin, chip = chipSize)
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat())
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil)
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "group row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} y=${r.y.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (${hidden.size} more; ${if (topRtl) "right to left" else "left to right"})")
         showTop()

@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.io.encoding.Base64
 import kotlin.random.Random
 
@@ -391,14 +392,28 @@ internal class Talk(
             // The live path doesn't wait for the grant; a Busy stops it again.
             scope.launch { live?.talking(chat, true, out.video) { out.liveNow() } }
         }
+        // My last burst may still be letting go of its floor (its last segments going up, its end not sent yet): a
+        // hands-free renewal, or the floating window taking over from the chat. Each talker has one floor per chat, so
+        // a start sent before that end came back Busy with my own floor and showed "Waiting for testbot…"
+        // (2026-11-27, hen). The start waits for it (frames on /ws are taken in order), a few seconds at most.
+        val before = lastConsumer
         out.consumer = scope.launch { consume(out) }
+        lastConsumer = out.consumer
         if (!voiceOnly) {
             if (connected()) {
                 scope.launch {
-                    if (!sendFrame(TalkStartFrame(talkStart(chat, out.id, out.urgent)))) toVoice(out)
-                }
-                // No answer in a few seconds: the connection is gone in all but name.
-                scope.launch {
+                    if (before != null) withTimeoutOrNull(PREVIOUS_END_WAIT) { before.join() }
+                    if (outgoing !== out || out.released) {
+                        // Let go before it was even asked for: nothing went out, nothing is kept.
+                        out.decided = true
+                        finish(out)
+                        return@launch
+                    }
+                    if (!sendFrame(TalkStartFrame(talkStart(chat, out.id, out.urgent)))) {
+                        toVoice(out)
+                        return@launch
+                    }
+                    // No answer in a few seconds: the connection is gone in all but name.
                     delay(GRANT_WAIT)
                     if (!out.decided && !out.waiting) toVoice(out)
                 }
@@ -408,6 +423,9 @@ internal class Talk(
         }
         showOwn(out)
     }
+
+    /** The last burst's consumer: done once its floor is let go of (its last segment or its end sent). */
+    private var lastConsumer: Job? = null
 
     private val overlaps = HashMap<String, MutableList<Long>>()
 
@@ -1515,6 +1533,8 @@ internal class Talk(
 
         /** How long a press waits for the floor before it records a voice message instead. */
         const val GRANT_WAIT = 3_000L
+        /** How long a new press's start waits for my last burst's floor to end. */
+        const val PREVIOUS_END_WAIT = 3_000L
         /** How long a buffered push waits for its burst's key (its "clip start" message). */
         const val BUFFER_KEY_WAIT = 5_000
         /** How long a grant waits to learn whether everyone hears it in the room (else the clip goes). */
