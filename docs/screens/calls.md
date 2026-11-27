@@ -150,16 +150,19 @@ show here."
 speaking is already a call, just in a floating layout; I want to navigate to the call screen and out to the floating
 layout at ease"; "'Full screen' is enough"). In its place "⤢ Full screen" shows while their video or both of us are
 live: under the live panel in the chat (`FullScreenChip`), under the boxes in the floating window. A tap opens the
-same live talk full screen in the app (`LiveFull`, `LiveFullScreen`): nothing is dialled, nothing rings and the other
-phone isn't told anything; their video fills it (their face while they show none), the chat's name and the time on
-top. Already live when I tap it (my push held, hands-free, or the floating window's), the same press goes on there,
-my microphone and camera as they were (2026-11-27, hen: "when transmitting my camera or only voice and entering full
-screen my camera or microphone should stay on"; `LiveFull.open`'s `mic` and `camera`). Otherwise I start muted, shown as in a call (hen: "don't encourage to open the mic; show that I am muted, with an icon"):
-the microphone with its line through it and "You're muted". Tapping it holds a press for me (renewed every 55 s, so
-the other side sees me live as for any push) until tapped again; the camera button does the same with my video, mine
-in a small window at the top end. The chevron at the top start, or Back, shrinks it: back to the floating layout when
-it came from there (the app goes to the back and the floating window shows them again), else back to the chat; my
-press ends first. Both live becomes a call after 10 s (the setting) still turns the room into a call as below.
+same live talk full screen in the app (`LiveFull`, `LiveFullScreen`), on the call screen itself (2026-11-27, hen:
+"the layout should be exactly as the call screen layout, with end call button"; "use the same screen"):
+`CallScreen` draws the talk room's videos (`LiveVideos`, from `LiveTalkVideo`) with every layout, pill and button a
+call has, the time from when it opened. Nothing is dialled, nothing rings and the other phone isn't told anything.
+Already live when I tap it (my push held, hands-free, or the floating window's), the same press goes on there, my
+microphone and camera as they were (2026-11-27, hen: "when transmitting my camera or only voice and entering full
+screen my camera or microphone should stay on"; `LiveFull.open`'s `mic` and `camera`). Otherwise I start muted, the
+microphone button with its line through it, as in a call. Unmute holds a press for me (renewed every 55 s, so the
+other side sees me live as for any push) until muted again; Camera does the same with my video (it unmutes too),
+mine in the call's own window. There is no Flip (the talk camera has none). Hang up lets go of my press and opens
+the chat (the floating window closes as its chat opens). The chevron at the top start, or Back, shrinks it: back to
+the floating layout when it came from there (the app goes to the back and the floating window shows them again),
+else back to the chat; my press ends first. Both live becomes a call after 10 s (the setting) still turns the room into a call as below.
 
 ## A push turned into a call (2026-11-26, hen)
 

@@ -900,7 +900,6 @@
     <string name="talk_make_call">להפוך לשיחה</string>
     <string name="talk_full_screen">מסך מלא</string>
     <string name="talk_minimize">חזרה לתצוגה הקטנה</string>
-    <string name="talk_you_are_muted">המיקרופון שלך כבוי</string>
     <string name="talk_call_no_room">אי אפשר להפוך לשיחה כרגע</string>
     <string name="talk_stop">עצירה</string>
     <string name="talk_lock_hint">להחליק למעלה לשידור וידאו רציף</string>

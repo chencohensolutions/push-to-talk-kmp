@@ -128,6 +128,9 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     camera videos"): that chat coming on screen (opened, or the app back in front on it) closes the floating window
     at once (`TalkBubble.handBack`); its items are handed to the chat's row from where they were (`LiveHandoff.floating`),
     and my hands-free press it held goes on in the chat as it is (hands-free there again, video or urgent as it was).
+  - **Above Android's gestures** (2026-11-27, hen: "when floating layout on bottom it is hard to drag it or to close
+    it"): at the bottom the bar rests above the navigation bar and Android's own home and back swipe area together
+    (`navGestureInsets`, `mandatorySystemGestures`), since a touch starting there goes to the system.
   - **The chat's face:** Chat's button is the other person's picture (else the chat name's first letter; a group's
     letter), 2026-11-27, hen: "replace the chat icon with the recipient avatar".
   - **Through their own edge** (2026-11-27, hen: "if the video is docked to any edge it should exit and enter from
@@ -139,7 +142,7 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     upright, Chat above Push, and Stop is "■" over "0:42"; the lock (hands-free video) is then on the screen's inside
     of Push (slide toward the middle), the side target is Chat's place (slide up). At the top the lock is below Push.
   - **Folding:** with nobody talking for 8 s (`FloatDock.QUIET_MS`), when the keyboard comes up, or when an app goes
-    full screen, the bar slides into its edge until only a slim handle (14 dp; a tab of 24 dp on the sides, which takes touches 20 dp further in and is kept from Android's back gesture, `systemGestureExclusionRects`: 2026-11-27, hen, "hard to interact with because of the Android gesture") with its
+    full screen, the bar slides into its edge until only a slim handle (20 dp; a tab of 24 dp on the sides; either takes touches 20 dp further in than it shows, and a side tab is kept from Android's back gesture, `systemGestureExclusionRects`: 2026-11-27, hen, "hard to interact with because of the Android gesture") with its
     grab line shows, its buttons fading in the same move (250 ms). Never while Push is held or hands-free, video is
     live, or a call rings. It comes out by itself the moment anyone starts talking (the tab's rim glows with their
     voice as before); a tap on the handle or tab, or a swipe in from the edge, brings it out too. A slow swipe toward
