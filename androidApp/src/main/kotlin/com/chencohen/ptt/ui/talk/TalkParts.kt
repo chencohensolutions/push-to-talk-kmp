@@ -580,9 +580,12 @@ private fun SwatchRow(title: String, chosen: Int, global: Boolean, choose: (Int)
         // their twins.
         val deep = com.chencohen.ptt.ui.style.DEEP_SWATCHES
         val all = com.chencohen.ptt.ui.style.ChatSwatches.indices
+        // Both rows scroll sideways together (2026-11-27, hen: "it suppose to be scrollable"), so a bright one stays under
+        // its twin and nothing is cut at the edge of a narrow screen.
+        Column(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState())) {
         listOf(listOf(-1) + all.filter { it < deep }, listOf(-2) + all.filter { it >= deep }).forEach { rowItems ->
         Row(
-            Modifier.fillMaxWidth().padding(top = 8.dp),
+            Modifier.padding(top = 8.dp, end = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // A: on a chat's page "like everyone" (Settings' colours), on Settings' card the default look.
@@ -611,6 +614,7 @@ private fun SwatchRow(title: String, chosen: Int, global: Boolean, choose: (Int)
                     }
                 }
             }
+        }
         }
         }
     }

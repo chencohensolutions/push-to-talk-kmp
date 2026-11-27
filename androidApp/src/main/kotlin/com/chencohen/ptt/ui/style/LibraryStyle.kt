@@ -138,10 +138,16 @@ internal fun MineInk(ink: Color, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
 }
 
-/** Text on [c]: near-white or near-black, whichever stands out more on it. */
+/**
+ * Text on [c]: white on a dark colour, near-black on a light one (2026-11-27, hen: "white on dark or dark on white").
+ * The deep chat colours are made for white text (4.6:1), where black reads about the same; white is kept unless black
+ * clearly stands out more (the bright ones: 11:1 against about 2).
+ */
 internal fun inkOn(c: Color): Color {
     val l = c.luminance()
-    return if ((l + 0.05f) / 0.05f > 1.05f / (l + 0.05f)) Color(0xFF17201F) else Color(0xFFF7FAF9)
+    val black = (l + 0.05f) / 0.05f
+    val white = 1.05f / (l + 0.05f)
+    return if (black > white * 2f) Color(0xFF17201F) else Color.White
 }
 
 /**
