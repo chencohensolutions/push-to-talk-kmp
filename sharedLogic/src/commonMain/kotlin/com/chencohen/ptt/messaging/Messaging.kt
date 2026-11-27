@@ -51,6 +51,11 @@ data class MessagingState(
     val linkedDevice: Int? = null,
     /** Contacts online now, or when last seen, by user (presence; only contacts who show theirs). */
     val presence: Map<String, UserPresence> = emptyMap(),
+    /**
+     * Whether each contact can hear a push, as shown (SteadyHear: a change shows once it held 2 s; 2026-11-27, hen:
+     * the Do Not Disturb badge flickered while a phone kept reconnecting).
+     */
+    val hearShown: Map<String, com.chencohen.ptt.talk.Hear> = emptyMap(),
     /** Whether this phone's user can hear talk now (setHear; 2026-11-25, hen). */
     val hearNow: com.chencohen.ptt.talk.Hear = com.chencohen.ptt.talk.Hear.OK,
     /** Contacts typing to this user now: until when, milliseconds since 1970. */
@@ -1255,7 +1260,16 @@ internal class Messaging(
 
     private fun updatePresence(p: UserPresence) {
         _state.update { it.copy(presence = it.presence + (p.user to p)) }
+        val (shown, waiting) = steadyHear.offer(p.user, com.chencohen.ptt.talk.Hear.of(p.online, p.hear), now())
+        if (_state.value.hearShown[p.user] != shown) _state.update { it.copy(hearShown = it.hearShown + (p.user to shown)) }
+        if (waiting) scope.launch {
+            delay(com.chencohen.ptt.talk.SteadyHear.HOLD_MS)
+            val settled = steadyHear.settle(p.user, now()) ?: return@launch
+            if (_state.value.hearShown[p.user] != settled) _state.update { it.copy(hearShown = it.hearShown + (p.user to settled)) }
+        }
     }
+
+    private val steadyHear = com.chencohen.ptt.talk.SteadyHear()
 
     // --- Who can hear you (2026-11-25, hen) -------------------------------------------------------------------
 
