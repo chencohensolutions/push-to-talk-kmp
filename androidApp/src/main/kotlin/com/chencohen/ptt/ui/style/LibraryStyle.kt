@@ -142,12 +142,13 @@ internal fun MineInk(ink: Color, content: @Composable () -> Unit) {
 internal fun inkOn(c: Color): Color = if (c.luminance() > 0.45f) Color(0xFF17201F) else Color(0xFFF7FAF9)
 
 /**
- * The chat colours one can pick (2026-11-27, hen): ten that read in light and dark, with text on them light or dark by
- * the colour. -1 is the default (my green, their raised page colour).
+ * The chat colours one can pick (2026-11-27, hen: exactly these six, in RGB (1, 0.5, 0), (1, 0, 0.5), (0, 0.5, 1),
+ * (0, 1, 0.5), (0.5, 1, 0), (0.5, 0, 1)), each darkened in lightness only (hue and saturation kept) until white text on
+ * it reaches 4.5:1: orange, rose, azure, spring green, chartreuse and violet. Used for the fill, the outlines and the
+ * writing box. -1 is the default (my green, their raised page colour).
  */
 internal val ChatSwatches = listOf(
-    Color(0xFF23774A), Color(0xFF0F766E), Color(0xFF2563EB), Color(0xFF4F46E5), Color(0xFF7C3AED),
-    Color(0xFFDB2777), Color(0xFFDC2626), Color(0xFFEA580C), Color(0xFFF5C542), Color(0xFF64748B),
+    Color(0xFFBA5D00), Color(0xFFE50073), Color(0xFF0074E8), Color(0xFF008744), Color(0xFF428500), Color(0xFF8000FF),
 )
 
 /** [content] with a chat's colours ([mine], [theirs]: ChatSwatches indexes, -1 the default). */

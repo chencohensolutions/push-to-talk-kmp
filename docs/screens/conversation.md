@@ -491,8 +491,9 @@ the buttons only", and "make the banner smaller, the red button smaller".
 ## Chat colours (2026-11-27, hen: "customize the two colors of a chat screen messages, from the contact settings screen")
 
 On a contact's page and a group's page, **Chat colours**: two bubbles showing them as the chat will, then **My
-messages** and **Their messages**, each Default (A) or one of ten colours that read in light and dark (green, teal,
-blue, indigo, violet, pink, red, orange, yellow, slate); the chosen one ringed (200 ms). Kept on this phone only. In
+messages** and **Their messages**, each Default (A) or one of six (2026-11-27, hen: RGB (1, 0.5, 0), (1, 0, 0.5),
+(0, 0.5, 1), (0, 1, 0.5), (0.5, 1, 0), (0.5, 0, 1), each darkened in lightness only until white text on it reaches
+4.5:1: #BA5D00, #E50073, #0074E8, #008744, #428500, #8000FF); the chosen one ringed (200 ms). Kept on this phone only. In
 the chat, the floating window and the Talk tab's chat: the whole way, in its colour (2026-11-27, hen: "respect the sending
 rectangle border colors and also the new message textbox border colors"): my bubble's outline while sending (dashed,
 then whole), its fill once every phone has it, the read faces' rings, and the writing bubble (its dashed outline at
