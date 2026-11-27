@@ -218,6 +218,8 @@ internal fun ConversationScreen(
     writeOpens: (() -> Unit)? = null,
     /** This chat's colours (TalkSettings.colorsOf): mine and theirs, ChatSwatches indexes, -1 the default. */
     colors: Pair<Int, Int> = -1 to -1,
+    /** This chat's own bubble brightness (TalkSettings.brightOf), or null: every chat's. */
+    bright: List<Int>? = null,
     /** A group's members' colours (TalkSettings.memberHues): their bubbles, faces, names and live drafts. */
     memberHues: Map<String, Int> = emptyMap(),
 ) {
@@ -225,7 +227,7 @@ internal fun ConversationScreen(
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
     ) {
-        com.chencohen.ptt.ui.style.ChatColors(colors.first, colors.second) {
+        com.chencohen.ptt.ui.style.ChatColors(colors.first, colors.second, bright) {
           androidx.compose.runtime.CompositionLocalProvider(LocalMemberHues provides memberHues) {
             ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage, pushTo, writeHint, writeOpens)
           }

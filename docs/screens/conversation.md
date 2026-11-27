@@ -529,5 +529,23 @@ theme on screen (each theme keeps its own): its track goes from white through th
 is in the middle (the default). The hue stays; the text on a bubble (and its time and name) turns white or black,
 whichever reads; thin outlines stay the deep shade so they're seen on the page. The preview above follows it.
 
+**Synced with them** (2026-11-27, hen: "when choosing colors on contact screen sync it with other person phone so same
+person will be as the same color on both phone"): colours chosen on a contact's page go to that contact end to end
+(`ColorsContent` in the content the phones already exchange, PUSH_NONE; older apps skip it), "Like everyone" too (as
+cleared). On their phone the pair arrives swapped, so each person shows in the same colour on both phones: what I
+chose for "their messages" is their "my messages" in our chat, and my "my messages" their "their messages". The
+newer choice wins (each side's time of choosing); what I chose stays kept under theirs. Groups aren't synced; in a
+group, a member's colour on my phone is the one that member synced with me, if they did. The page's note says so
+for a contact: "Shared with them, so each of you shows in the same colour on both phones".
+
+**Respect synced colours** (hen: "add option to respect synced colors, enabled by default"; Hebrew "כבד צבעים
+מסונכרנים"): a switch on Settings' chat colours card, on by default. Off, colours a contact synced don't show here and
+my own choices stay; mine still go to them. On again, theirs show again where they chose last.
+
+**A chat's own brightness** (hen: "add the slider for brightness also in the contact settings screen"): the same
+"Bubble brightness" slider on a contact's and a group's colour card, for the theme on screen, with **Like everyone**
+beside its title, chosen by default (Settings' brightness). Moving it gives the chat its own; the preview follows; Like
+everyone goes back. It stays on this phone (not synced: each phone and theme differs).
+
 In a group the sender's name is inside their bubble, at its top, and only on the first of their messages in a row,
 until someone else's comes; the bubble's time is in the same colour as the name (2026-11-27, hen).

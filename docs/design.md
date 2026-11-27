@@ -119,7 +119,10 @@ devices, opens sessions with new ones from their bundles and sends again (3 trie
 A `PREKEY_MESSAGE` or `MESSAGE` envelope's ciphertext opens to one protobuf `Content` (`messaging/Content.kt`, only
 the phones read it), padded to a multiple of 160 bytes (a 0x80 byte, then zeros): `pair_request` (1: `secret`,
 `user`, `identity_key`), `text` (2: `body`, `sent_at`, `id`), `contact` (3, to one's own phones only), `receipt` (4:
-`read`, `ids`), `typing` (5: `typing`), and on the copies for the sender's own devices `destination` (15).
+`read`, `ids`), `typing` (5: `typing`), and on the copies for the sender's own devices `destination` (15). Later
+fields are added the same way and older apps skip them; among them `about` (27: the app version) and `colors` (28:
+`ColorsContent` `mine`, `theirs`, `at`; the chat colours the sender chose for a one-to-one chat, in the sender's
+words, sent with `PushKind.NONE` when they change; see docs/screens/conversation.md, Chat colours).
 
 ### Pairing
 

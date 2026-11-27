@@ -74,6 +74,20 @@ internal data class Content(
     @ProtoNumber(26) val talkHeard: TalkHeardContent? = null,
     /** The sender's phone's app version (2026-11-27, hen: "see what version the contact uses"). Older apps send none. */
     @ProtoNumber(27) val about: AboutContent? = null,
+    /**
+     * The chat colours the sender chose for our one-to-one chat (2026-11-27, hen: "when choosing colors on contact
+     * screen sync it with other person phone so same person will be as the same color on both phone"), in the
+     * sender's words: its [ColorsContent.mine] is the sender's bubbles, so it is "their messages" here. Older apps skip it.
+     */
+    @ProtoNumber(28) val colors: ColorsContent? = null,
+)
+
+/** Chat colours as the sender chose them: swatch indexes, -1 "like everyone", and when (ms) they chose. */
+@Serializable
+internal data class ColorsContent(
+    @ProtoNumber(1) val mine: Int = -1,
+    @ProtoNumber(2) val theirs: Int = -1,
+    @ProtoNumber(3) val at: Long = 0,
 )
 
 /** About the sending phone: its app's version ("1.4.28"). */

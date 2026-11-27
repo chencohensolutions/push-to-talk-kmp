@@ -58,4 +58,55 @@ class ChatColorsTest {
         assertEquals(DeviceVersion("1.4.27", 0), v["testbot"]?.get(2))
         assertEquals(2, v["testbot"]?.size)
     }
+
+    @Test
+    fun syncedColoursArriveSwappedAndTheNewerChoiceWins() {
+        // I chose at 100: green for me, blue for them.
+        var s = TalkSettings().withColors("testbot", 2, 3, at = 100)
+        // testbot chose at 200: orange for themselves, pink for me. Here that's pink for mine, orange for theirs.
+        s = s.withSynced("testbot", mine = 0, theirs = 5, at = 200)
+        assertEquals(5 to 0, s.ownColorsOf("testbot"))
+        assertEquals(5 to 0, s.colorsOf("testbot"))
+        // What I chose is kept underneath.
+        assertEquals(2 to 3, s.chosenColorsOf("testbot"))
+        // An older sync doesn't replace a newer one.
+        s = s.withSynced("testbot", mine = 1, theirs = 1, at = 150)
+        assertEquals(5 to 0, s.ownColorsOf("testbot"))
+        // I choose again after: mine wins.
+        s = s.withColors("testbot", 4, 0, at = 300)
+        assertEquals(4 to 0, s.ownColorsOf("testbot"))
+        // "Like everyone" synced as cleared.
+        s = s.withSynced("testbot", mine = -1, theirs = -1, at = 400)
+        assertEquals(-1 to -1, s.ownColorsOf("testbot"))
+    }
+
+    @Test
+    fun syncedColoursCanBeIgnored() {
+        var s = TalkSettings().withColors("testbot", 2, 3, at = 100).withSynced("testbot", mine = 0, theirs = 5, at = 200)
+        s = s.copy(respectSyncedColors = false)
+        assertEquals(2 to 3, s.ownColorsOf("testbot"))
+        // Turned on again, theirs show again.
+        assertEquals(5 to 0, s.copy(respectSyncedColors = true).ownColorsOf("testbot"))
+    }
+
+    @Test
+    fun aGroupMemberTakesTheColourTheySynced() {
+        // testbot2 chose violet for their own bubbles in our chat: in a group, testbot2 is violet here too.
+        val s = TalkSettings().withSynced("testbot2", mine = 4, theirs = -1, at = 10)
+        assertEquals(4, s.memberHues("grp", listOf("testbot", "testbot2"))["testbot2"])
+    }
+
+    @Test
+    fun aChatsOwnBrightness() {
+        var s = TalkSettings()
+        assertEquals(null, s.brightOf("testbot"))
+        s = s.withBright("testbot", 30, -1)
+        assertEquals(listOf(30, -1), s.brightOf("testbot"))
+        assertEquals(null, s.brightOf(GLOBAL_COLORS))
+        assertEquals("*bright", brightKey(GLOBAL_COLORS))
+        s = s.withBright("testbot", -1, -1)
+        assertEquals(null, s.brightOf("testbot"))
+        // A brightness key isn't a chat's colours.
+        assertEquals(-1 to -1, s.ownColorsOf("testbot"))
+    }
 }

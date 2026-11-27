@@ -321,6 +321,7 @@ fun HomeApp(
             writeHint = writeHint,
             writeOpens = writeOpens,
             colors = messagingState.talkSettings.colorsOf(user),
+            bright = messagingState.talkSettings.brightOf(user),
             // In a group, each member's own colour (2026-11-27, hen: "in group chat there should be color for every contact").
             memberHues = Group.idOf(user)?.let { id ->
                 val g = messagingState.groups.firstOrNull { it.id == id }

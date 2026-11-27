@@ -293,6 +293,21 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_COLORS_FOR)?.let { runCatching { json.decodeFromString<Map<String, List<Int>>>(it) }.getOrNull() }.orEmpty()
         set(value) = store.putString(KEY_COLORS_FOR, json.encodeToString(value))
 
+    /** When this phone last chose each chat's colours (ms; TalkSettings.colorsAt). */
+    var colorsAt: Map<String, Long>
+        get() = store.getString(KEY_COLORS_AT)?.let { runCatching { json.decodeFromString<Map<String, Long>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_COLORS_AT, json.encodeToString(value))
+
+    /** The colours each contact synced for our chat, already as this phone sees them (TalkSettings.colorsSynced). */
+    var colorsSynced: Map<String, List<Long>>
+        get() = store.getString(KEY_COLORS_SYNCED)?.let { runCatching { json.decodeFromString<Map<String, List<Long>>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_COLORS_SYNCED, json.encodeToString(value))
+
+    /** Settings › Chat colours › Respect synced colours: on unless turned off. */
+    var respectSyncedColors: Boolean
+        get() = store.getString(KEY_RESPECT_SYNCED) != "false"
+        set(value) = store.putString(KEY_RESPECT_SYNCED, value.toString())
+
     /** Each contact's phones' app versions as they told them: user → device → [version, when (ms)]. */
     var contactVersions: Map<String, Map<String, List<String>>>
         get() = store.getString(KEY_CONTACT_VERSIONS)?.let { runCatching { json.decodeFromString<Map<String, Map<String, List<String>>>>(it) }.getOrNull() }.orEmpty()
@@ -343,6 +358,9 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_VIDEO_FOR = "talk_video_for"
         private const val KEY_DIRECTION_FOR = "chat_direction_for"
         private const val KEY_COLORS_FOR = "chat_colors_for"
+        private const val KEY_COLORS_AT = "chat_colors_at"
+        private const val KEY_COLORS_SYNCED = "chat_colors_synced"
+        private const val KEY_RESPECT_SYNCED = "chat_colors_respect_synced"
         private const val KEY_CONTACT_VERSIONS = "contact_versions"
         private const val KEY_VERSION_TOLD = "version_told_to"
         private const val KEY_LIVE_TYPING = "live_typing"

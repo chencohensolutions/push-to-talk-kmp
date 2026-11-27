@@ -546,10 +546,28 @@ internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.Talk
     val global = chat == com.chencohen.ptt.messaging.GLOBAL_COLORS
     val (mine, theirs) = talk.ownColorsOf(chat)
     val (shownMine, shownTheirs) = talk.colorsOf(chat)
+    // The bubbles' brightness, for this theme (2026-11-27, hen: "from white to black slider, the brightness, default at
+    // center"; and "add the slider for brightness also in the contact settings screen"): Settings' for every chat, or
+    // this chat's own over it ("like everyone" until moved). Kept on this phone only.
+    val light = LibraryColors.Background.luminance() > 0.5f
+    val side = if (light) 0 else 1
+    val everyone = if (light) com.chencohen.ptt.ui.style.ChatShade.light else com.chencohen.ptt.ui.style.ChatShade.dark
+    val ownBright = if (global) null else talk.brightOf(chat)
+    val ownNow = ownBright?.getOrNull(side)?.takeIf { it >= 0 }
+    var value by androidx.compose.runtime.remember(light, chat, if (global) talk.colorsFor[com.chencohen.ptt.messaging.brightKey(chat)] else ownBright) {
+        androidx.compose.runtime.mutableFloatStateOf(ownNow?.let { it / 100f } ?: everyone)
+    }
+    // While its own slider moves, the preview follows it.
+    var moving by androidx.compose.runtime.remember(chat) { androidx.compose.runtime.mutableStateOf(false) }
+    fun withThisTheme(v: Int): List<Int> {
+        val other = ownBright?.getOrNull(1 - side) ?: -1
+        return if (light) listOf(v, other) else listOf(other, v)
+    }
+    val previewBright = if (global) null else if (moving) withThisTheme((value * 100).toInt()) else ownBright
     com.chencohen.ptt.ui.style.SectionTitle(stringResource(R.string.chat_colors))
     com.chencohen.ptt.ui.style.SettingsCard {
         // The preview: theirs at the start side, mine at the end, as in the chat.
-        com.chencohen.ptt.ui.style.ChatColors(shownMine, shownTheirs) {
+        com.chencohen.ptt.ui.style.ChatColors(shownMine, shownTheirs, previewBright) {
             Column(Modifier.fillMaxWidth().background(LibraryColors.Background).padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                     Text(
@@ -567,34 +585,51 @@ internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.Talk
         }
         SwatchRow(stringResource(R.string.chat_colors_mine), mine, global) { set(talk.withColors(chat, it, theirs)) }
         SwatchRow(stringResource(R.string.chat_colors_theirs), theirs, global) { set(talk.withColors(chat, mine, it)) }
-        // The bubbles' brightness, for this theme (2026-11-27, hen: "from white to black slider, the brightness, default
-        // at center"): its track goes from white through the colour to black, the colour as it is in the middle.
-        if (global) {
-            val light = LibraryColors.Background.luminance() > 0.5f
-            val key = com.chencohen.ptt.ui.style.ChatShade.KEY
-            val saved = talk.colorsFor[key]
-            var value by androidx.compose.runtime.remember(light, saved) {
-                androidx.compose.runtime.mutableFloatStateOf(if (light) com.chencohen.ptt.ui.style.ChatShade.light else com.chencohen.ptt.ui.style.ChatShade.dark)
-            }
-            val hueNow = (if (shownMine >= 0) shownMine else 2)
-            val base = (if (light) com.chencohen.ptt.ui.style.ChatHuesBright else com.chencohen.ptt.ui.style.ChatHuesDeep)[hueNow % 6]
-            val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-            val stops = listOf(androidx.compose.ui.graphics.Color.White, base, androidx.compose.ui.graphics.Color.Black)
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Text(stringResource(R.string.chat_colors_brightness), color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
-                Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
-                    // White at the start (the right in Hebrew), black at the end.
-                    Box(
-                        Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(10.dp)
-                            .background(androidx.compose.ui.graphics.Brush.horizontalGradient(if (rtl) stops.reversed() else stops), CircleShape)
-                            .border(1.dp, LibraryColors.Muted.copy(alpha = 0.4f), CircleShape),
+        // Its track goes from white through the colour to black, the colour as it is in the middle.
+        val hueNow = (if (shownMine >= 0) shownMine else 2)
+        val base = (if (light) com.chencohen.ptt.ui.style.ChatHuesBright else com.chencohen.ptt.ui.style.ChatHuesDeep)[hueNow % 6]
+        val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+        val stops = listOf(androidx.compose.ui.graphics.Color.White, base, androidx.compose.ui.graphics.Color.Black)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.chat_colors_brightness), color = LibraryColors.OnBackground, style = LibraryType.RowTitle, modifier = Modifier.weight(1f))
+                // On a chat's page: "Like everyone" until its own is set; a tap goes back to it.
+                if (!global) {
+                    val following = ownNow == null && !moving
+                    Text(
+                        stringResource(R.string.chat_colors_like_everyone),
+                        color = if (following) LibraryColors.OnInverse else LibraryColors.OnBackground,
+                        style = LibraryType.Caption,
+                        modifier = Modifier
+                            .background(if (following) LibraryColors.Inverse else LibraryColors.Raised, CircleShape)
+                            .border(1.dp, if (following) androidx.compose.ui.graphics.Color.Transparent else LibraryColors.Muted.copy(alpha = 0.4f), CircleShape)
+                            .clickable(role = Role.Button) {
+                                moving = false
+                                value = everyone
+                                val other = ownBright?.getOrNull(1 - side) ?: -1
+                                set(if (light) talk.withBright(chat, -1, other) else talk.withBright(chat, other, -1))
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                     )
+                }
+            }
+            Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
+                // White at the start (the right in Hebrew), black at the end.
+                Box(
+                    Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(10.dp)
+                        .background(androidx.compose.ui.graphics.Brush.horizontalGradient(if (rtl) stops.reversed() else stops), CircleShape)
+                        .border(1.dp, LibraryColors.Muted.copy(alpha = 0.4f), CircleShape),
+                )
                 androidx.compose.material3.Slider(
                     value = value,
                     onValueChange = { v ->
                         value = v
                         // Seen at once in the preview above.
-                        if (light) com.chencohen.ptt.ui.style.ChatShade.light = v else com.chencohen.ptt.ui.style.ChatShade.dark = v
+                        if (global) {
+                            if (light) com.chencohen.ptt.ui.style.ChatShade.light = v else com.chencohen.ptt.ui.style.ChatShade.dark = v
+                        } else {
+                            moving = true
+                        }
                     },
                     colors = androidx.compose.material3.SliderDefaults.colors(
                         thumbColor = LibraryColors.OnBackground,
@@ -604,15 +639,33 @@ internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.Talk
                         inactiveTickColor = androidx.compose.ui.graphics.Color.Transparent,
                     ),
                     onValueChangeFinished = {
-                        val now = listOf((com.chencohen.ptt.ui.style.ChatShade.light * 100).toInt(), (com.chencohen.ptt.ui.style.ChatShade.dark * 100).toInt())
-                        set(talk.copy(colorsFor = talk.colorsFor + (key to now)))
+                        if (global) {
+                            val now = listOf((com.chencohen.ptt.ui.style.ChatShade.light * 100).toInt(), (com.chencohen.ptt.ui.style.ChatShade.dark * 100).toInt())
+                            set(talk.copy(colorsFor = talk.colorsFor + (com.chencohen.ptt.messaging.brightKey(chat) to now)))
+                        } else {
+                            val both = withThisTheme((value * 100).toInt())
+                            set(talk.withBright(chat, both[0], both[1]))
+                            moving = false
+                        }
                     },
                 )
-                }
+            }
+        }
+        // Settings' card: whether a contact's synced colours show here (2026-11-27, hen: "add option to respect synced
+        // colors, enabled by default").
+        if (global) {
+            SwitchRow(stringResource(R.string.chat_colors_respect_synced), stringResource(R.string.chat_colors_respect_synced_body), talk.respectSyncedColors) { on ->
+                set(talk.copy(respectSyncedColors = on))
             }
         }
     }
-    com.chencohen.ptt.ui.style.PageNote(stringResource(if (global) R.string.chat_colors_global_body else R.string.chat_colors_body), top = 6)
+    // A contact's colours go to them (synced); a group's stay on this phone.
+    val note = when {
+        global -> R.string.chat_colors_global_body
+        com.chencohen.ptt.messaging.Group.idOf(chat) == null -> R.string.chat_colors_body_contact
+        else -> R.string.chat_colors_body
+    }
+    com.chencohen.ptt.ui.style.PageNote(stringResource(note), top = 6)
 }
 
 /** A row of colours to pick from: A, then the six hues in this theme's shade; the chosen one ringed. Scrolls sideways. */
