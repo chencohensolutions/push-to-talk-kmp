@@ -320,6 +320,13 @@ fun HomeApp(
             pushTo = pushTo,
             writeHint = writeHint,
             writeOpens = writeOpens,
+            colors = messagingState.talkSettings.colorsOf(user),
+            // In a group, each member's own colour (2026-11-27, hen: "in group chat there should be color for every contact").
+            memberHues = Group.idOf(user)?.let { id ->
+                val g = messagingState.groups.firstOrNull { it.id == id }
+                val me = state.device?.user.orEmpty()
+                g?.readers?.map { it.user }?.filter { it != me }?.let { messagingState.talkSettings.memberHues(user, it) }
+            }.orEmpty(),
             contact = messagingState.contacts.firstOrNull { it.user == user },
             messages = messagingState.conversations[user].orEmpty(),
             header = ConversationHeader(typing = (typingUntil ?: 0) > now, presence = messagingState.presence[user]),
@@ -500,6 +507,7 @@ fun HomeApp(
                         linkPhone = { push("devices") },
                         openPicture = { push("picture") },
                         openTalk = { push("talksettings") },
+                        chatColors = { com.chencohen.ptt.ui.talk.ChatColorsCard(com.chencohen.ptt.messaging.GLOBAL_COLORS, messagingState.talkSettings, onTalkSettings) },
                         openCalls = { push("callsettings") },
                         updates = updates,
                         checkUpdates = { com.chencohen.ptt.AppUpdates.check(app) },
@@ -695,7 +703,10 @@ fun HomeApp(
                             setDirection = { d -> onTalkSettings(messagingState.talkSettings.withDirection(Group.chatOf(id), d)) },
                         ),
                         notifyOnly = Group.chatOf(id) in messagingState.talkSettings.notifyOnly,
-                        inChat = { com.chencohen.ptt.ui.talk.KeepInChatCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings) },
+                        inChat = {
+                            com.chencohen.ptt.ui.talk.KeepInChatCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.talk.ChatColorsCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
+                        },
                         liveTyping = messagingState.talkSettings.liveTypingTo(Group.chatOf(id)),
                         direction = messagingState.talkSettings.directionOf(Group.chatOf(id)),
                         quickTalk = Group.chatOf(id) in messagingState.talkSettings.quickTalk,
@@ -839,7 +850,11 @@ fun HomeApp(
                         ),
                         notifyOnly = user in messagingState.talkSettings.notifyOnly,
                         urgentThroughDnd = user in messagingState.talkSettings.urgentThroughDnd,
-                        inChat = { com.chencohen.ptt.ui.talk.KeepInChatCard(user, messagingState.talkSettings, onTalkSettings) },
+                        inChat = {
+                            com.chencohen.ptt.ui.talk.KeepInChatCard(user, messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.talk.ChatColorsCard(user, messagingState.talkSettings, onTalkSettings)
+                        },
+                        versions = messagingState.versions[user].orEmpty(),
                         quickTalk = user in messagingState.talkSettings.quickTalk,
                         liveTyping = messagingState.talkSettings.liveTypingTo(user),
                         direction = messagingState.talkSettings.directionOf(user),

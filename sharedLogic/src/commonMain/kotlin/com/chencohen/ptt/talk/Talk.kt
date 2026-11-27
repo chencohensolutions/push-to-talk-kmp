@@ -1219,11 +1219,17 @@ internal class Talk(
         val fresh = burst.announced || age < PLAY_IF_NEWER
         // Do Not Disturb, silent, a call (2026-11-25, hen): not out loud, saved, unless it is urgent and let through.
         if (fresh && saveIfCantHear(burst)) return
+        // Readied to play off screen (the talk session or Talk ready) for the room's audio, if it was.
+        var prepared: Boolean? = null
         // In the conversation's room the talker may be heard live already (their phone doesn't wait for the grant).
         if (fresh && burst.announced && live?.audio == true && live?.state?.value?.room == burst.chat) {
             val identity = "${burst.from}.${burst.device}"
             // Their last burst may have been silenced (its clip played instead): this one is heard again.
             live?.unsilence(burst.chat, identity)
+            // Off screen, the talk session or Talk ready comes first, before any of it plays (2026-11-27: Android mutes
+            // an app's sound in the background without one, "AudioHardening background playback muted"; it was asked
+            // only once the room's audio was already playing).
+            prepared = if (!awake()) runCatching { host?.prepareToPlay(burst.chat, burst.from) }.getOrNull() else null
             var waited = 0L
             while (live?.hearsLive(burst.chat, identity) != true && waited < LIVE_WAIT) {
                 delay(50)
@@ -1237,7 +1243,7 @@ internal class Talk(
                 dimmer.heard("live:${burst.id}")
                 // Heard through the room, the app off screen: the same as a burst that plays (the talk session or
                 // Talk ready for its sound, the floating window) (2026-11-25, hen: "i didn't see the testbot push").
-                if (!awake()) runCatching { host?.prepareToPlay(burst.chat, burst.from) }
+                if (!awake() && prepared == null) runCatching { host?.prepareToPlay(burst.chat, burst.from) }
                 if (burst.video) videoOut?.begin(burst.id)
                 sendFrame(TalkAckFrame(TalkAck(burst.id)))
                 return drain(burst)
@@ -1252,6 +1258,8 @@ internal class Talk(
             }
             awake() -> burst.play = true
             prefs.notifyOnly(burst.chat) -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
+            // Already readied above, for the room's audio: not asked twice (a second talk session).
+            prepared == true -> burst.play = true
             host?.prepareToPlay(burst.chat, burst.from) == true -> burst.play = true
             else -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
         }

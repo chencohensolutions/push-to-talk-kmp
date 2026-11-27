@@ -28,6 +28,7 @@ import com.chencohen.ptt.talk.TalkHost
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -81,7 +82,8 @@ class AndroidTalkHost(private val app: TalkApp) : TalkHost {
 
     override fun idle() {
         TalkReady.endSoon(app)
-        TalkSession.endSoon(app)
+        // On screen there is no waiting for a reply in a call: the session goes now, and talk is media again.
+        if (TalkSession.active && onScreen()) TalkSession.leave() else TalkSession.endSoon(app)
     }
 }
 
@@ -459,12 +461,15 @@ object TalkSession {
                     launch {
                         // Answered by the app itself: a talk session isn't a call the user picks up.
                         answer(CallAttributesCompat.CALL_TYPE_AUDIO_CALL)
-                        launch { toLoudspeaker() }
+                        val loud = launch { keepLoud(app) }
                         com.chencohen.ptt.talk.TalkAudio.inCallSession = true
                         active = true
                         TalkSessionService.start(app, name)
                         ready.complete(true)
                         done.await()
+                        loud.cancel()
+                        // The call volume from before, while the session's route is still the one it was raised on.
+                        TalkCallVolume.restore(app)
                         disconnect(DisconnectCause(DisconnectCause.LOCAL))
                     }
                 }
@@ -482,17 +487,29 @@ object TalkSession {
 
     /**
      * A walkie-talkie is heard on the loudspeaker. Telecom starts an audio call on the earpiece, at the earpiece's
-     * call volume, so a burst played in the background sounded like a phone call (2026-11-22, hen). Move the session
-     * to the speaker unless a headset or Bluetooth device is the route; the volume buttons then set the speaker's
-     * call volume while the session lasts.
+     * call volume, so a burst played in the background sounded like a phone call (2026-11-22, hen). For as long as the
+     * session lasts: whenever its route is the earpiece it is moved to the speaker (a headset or Bluetooth device is
+     * left as the route), and on each route the call volume is raised to the media's level (2026-11-27, hen: "it
+     * suppose always to be loud as a speaker"; TalkCallVolume).
      */
-    private suspend fun CallControlScope.toLoudspeaker() {
-        val current = runCatching { currentCallEndpoint.first() }.getOrNull() ?: return
-        if (current.type != CallEndpointCompat.TYPE_EARPIECE) return
-        val speaker = runCatching { availableEndpoints.first() }.getOrNull()
-            ?.firstOrNull { it.type == CallEndpointCompat.TYPE_SPEAKER } ?: return
-        val result = requestEndpointChange(speaker)
-        Log.i(TAG, "talk session to the loudspeaker: $result")
+    private suspend fun CallControlScope.keepLoud(app: TalkApp) {
+        currentCallEndpoint.collectLatest { current ->
+            if (current.type == CallEndpointCompat.TYPE_EARPIECE) {
+                val speaker = runCatching { availableEndpoints.first() }.getOrNull()?.firstOrNull { it.type == CallEndpointCompat.TYPE_SPEAKER }
+                if (speaker != null) {
+                    val result = requestEndpointChange(speaker)
+                    Log.i(TAG, "talk session to the loudspeaker: $result")
+                    // The speaker comes here as the next route, and the volume is raised on it then.
+                    return@collectLatest
+                }
+            }
+            // The audio route follows the endpoint a moment later; the call volume is kept per route. Asked again when
+            // Android ignored it (Android 17 lets an app off screen change a volume only once its call counts).
+            for (wait in listOf(150L, 1_000L, 3_000L)) {
+                delay(wait)
+                if (TalkCallVolume.raise(app, current.type)) break
+            }
+        }
     }
 
     /** Nothing plays: the session ends after the reply time unless another burst comes. */
@@ -505,10 +522,67 @@ object TalkSession {
         }
     }
 
-    /** Ends the session now (Leave, or the reply time is up). */
+    /** Ends the session now (Leave, the reply time is up, or the app came on screen: talk is media there). */
     fun leave() {
         leave?.complete(Unit)
         leave = null
+    }
+}
+
+/**
+ * The call volume while a talk session plays (2026-11-27, hen: "sometimes i hear it as low as a phone call"). In the
+ * session talk is the call's voice, on the call stream, whose volume is its own (and one per route): raised to what
+ * media would play at (TalkSound.callLevel: the Talk volume's share, or the media volume's with the setting off; never
+ * lowered) and put back when the session ends. Android lets any app set the call stream, but not to 0.
+ */
+object TalkCallVolume {
+    private const val TAG = "TalkSession"
+    private const val STREAM = android.media.AudioManager.STREAM_VOICE_CALL
+
+    /** The route the volume was raised on, the level found there, and the level set. */
+    private var raised: Triple<Int, Int, Int>? = null
+
+    /** True once the call volume is what it should be on [route] (raised now or before, or loud enough already). */
+    @Synchronized
+    fun raise(app: TalkApp, route: Int): Boolean {
+        val audio = app.getSystemService(android.media.AudioManager::class.java) ?: return true
+        return runCatching {
+            // Another route now: the first one's volume can't be reached any more (it is set for the route in use).
+            if (raised != null && raised?.first != route) raised = null
+            if (raised != null || audio.isVolumeFixed) return true
+            val settings = messagingState(app).value.talkSettings
+            val now = audio.getStreamVolume(STREAM)
+            val music = android.media.AudioManager.STREAM_MUSIC
+            val max = audio.getStreamMaxVolume(STREAM)
+            val to = com.chencohen.ptt.talk.TalkSound.callLevel(
+                mediaLevel = audio.getStreamVolume(music),
+                mediaMax = audio.getStreamMaxVolume(music),
+                callNow = now,
+                callMin = audio.getStreamMinVolume(STREAM),
+                callMax = max,
+                talkVolume = settings.talkVolume.takeIf { settings.unmuteForTalk },
+            )
+            if (to != now) audio.setStreamVolume(STREAM, to, 0)
+            val got = audio.getStreamVolume(STREAM)
+            if (got != to) {
+                Log.w(TAG, "call volume $now -> $to of $max asked for the talk session, Android left it at $got (route $route, mode ${audio.mode})")
+                return false
+            }
+            raised = Triple(route, now, to)
+            Log.i(TAG, "call volume $now -> $to of $max for the talk session (route $route, mode ${audio.mode})")
+            true
+        }.onFailure { Log.w(TAG, "the call volume wasn't raised", it) }.getOrDefault(false)
+    }
+
+    @Synchronized
+    fun restore(context: Context) {
+        val (_, before, to) = raised ?: return
+        raised = null
+        val audio = context.getSystemService(android.media.AudioManager::class.java) ?: return
+        runCatching {
+            if (before != to) audio.setStreamVolume(STREAM, before, 0)
+            Log.i(TAG, "call volume back to $before")
+        }.onFailure { Log.w(TAG, "the call volume wasn't put back", it) }
     }
 }
 

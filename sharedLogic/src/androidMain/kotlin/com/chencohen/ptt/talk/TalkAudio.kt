@@ -1,7 +1,7 @@
 package com.chencohen.ptt.talk
 
 /**
- * How talk is heard right now (docs/design.md, "Woken by talk"). Normally as media (USAGE_MEDIA: the loudspeaker,
+ * How talk is heard right now (docs/design.md, "Woken by talk"; the rule is TalkSound). Normally as media (USAGE_MEDIA: the loudspeaker,
  * media volume). While a woken burst plays in a Telecom talk session ([inCallSession]), as that call's voice
  * (USAGE_VOICE_COMMUNICATION): Android 17 lets an app play from the background only inside such a session, and mutes
  * media tracks while a call is on; the session itself is moved to the loudspeaker.
@@ -18,6 +18,13 @@ object TalkAudio {
      */
     @Volatile
     var playAsCall: () -> Boolean = { false }
+
+    /** Clips playing now (AndroidTalkPlayer): a press doesn't switch to communication mode meanwhile (SpeakerphoneMic). */
+    val clipsPlaying = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Someone else is live in the room now (LiveKitTalkTransport): no communication mode for a press meanwhile. */
+    @Volatile
+    var roomHearing: () -> Boolean = { false }
 
     /** Settings › Talk › Boost voice (VoiceBoost): incoming talk's own gain. Set by the app. */
     @Volatile

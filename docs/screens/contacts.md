@@ -62,3 +62,10 @@ sent.
 - **Urgent pushes › Let urgent pushes through Do Not Disturb**: see talk.md, "Who can hear you".
 - No shield for a verified contact anywhere; an amber shield shows only while a contact's safety number isn't verified,
   in Chats and the chat header, a tap opening the safety number.
+
+## Their app (2026-11-27, hen: "see what version the contact uses")
+
+Under their name: "Talk 1.4.29" for each of their phones (with "Phone 2" when they have several) and when it was
+told. Each phone tells its paired contacts its app version end to end (AboutContent, in the content the phones
+already exchange; the server sees nothing new), once a run when it changed. Before their phone has told it: "Version
+not known yet", "Their phone tells it from version 1.4.29 on, when the app opens."

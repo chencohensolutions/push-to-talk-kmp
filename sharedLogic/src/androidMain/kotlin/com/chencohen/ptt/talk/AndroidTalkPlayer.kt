@@ -47,6 +47,10 @@ private class TrackPlayback(
     private var lastProgressNs = 0L
     private val frame = ShortArray(TalkAudioFormat.SAMPLES_PER_FRAME)
     private var frameFill = 0
+    private var counted = false
+
+    /** This clip plays as the talk session's voice (decided when its track opens). */
+    private var asCall = false
 
     fun begin() = thread.start()
 
@@ -68,6 +72,10 @@ private class TrackPlayback(
         var decoder: OpusDecoder? = null
         try {
             decoder = OpusDecoder()
+            // Heard as media on the loudspeaker: a press's communication mode goes first (SpeakerphoneMic).
+            TalkAudio.clipsPlaying.incrementAndGet()
+            counted = true
+            TalkAudio.appContext?.let { SpeakerphoneMic.yieldToTalk(it) }
             track = openTrack()
             track.play()
             diagnose(track)
@@ -88,6 +96,7 @@ private class TrackPlayback(
         } catch (e: Exception) {
             Log.w(TAG, "playback failed", e)
         } finally {
+            if (counted) TalkAudio.clipsPlaying.decrementAndGet()
             TalkAudio.playLevel = 0f
             if (::track.isInitialized) {
                 if (stopped) runCatching { track.pause(); track.flush() }
@@ -172,8 +181,8 @@ private class TrackPlayback(
     }
 
     private fun writeToTrack(samples: ShortArray, count: Int) {
-        // Boost voice: louder in the app, the limiter keeping it from clipping.
-        if (TalkAudio.boost()) VoiceBoost.apply(samples, count)
+        // Boost voice, and always a call's voice (TalkSound.boost): louder in the app, the limiter keeping it from clipping.
+        if (TalkSound.boost(TalkAudio.boost(), if (asCall) TalkSound.Kind.Call else TalkSound.Kind.Media)) VoiceBoost.apply(samples, count)
         TalkAudio.playLevel = VoiceLevel.fromRms(VoiceLevel.rms(samples, count))
         var at = 0
         while (at < count && !stopped) {
@@ -223,13 +232,14 @@ private class TrackPlayback(
     }
 
     private fun openTrack(): AudioTrack {
+        asCall = TalkAudio.inCallSession
         val minBytes = AudioTrack.getMinBufferSize(TalkAudioFormat.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     // Inside a Telecom talk session (a woken burst in the background), the call's own voice:
                     // Android mutes media during a call (TalkAudio).
-                    .setUsage(if (TalkAudio.inCallSession) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA)
+                    .setUsage(if (asCall) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
