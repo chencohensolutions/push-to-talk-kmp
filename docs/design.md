@@ -435,10 +435,21 @@ through ptt-server's `/rtc` (mTLS, like `/ws`), and `serverInfo.liveTalk` says w
   shows only while talking (R3). While in the room the clip records from that same microphone (the track's sink,
   encoded to Opus by `SampleCapture`), so it isn't opened twice. The talker's phone publishes at the press, without
   waiting for the grant; Busy stops it like the clip. LiveKit's track has WebRTC's echo canceller, noise suppressor
-  and gain control, and the press takes the speakerphone tuning (`SpeakerphoneMic`) like the clip path.
-- **Hearing.** A listener in the room waits up to 400 ms at STARTED for the talker's live audio to decrypt
-  (`hearsLive`); if it does, the burst's clip is kept but not played (and acked). Otherwise the clip plays and that
-  talker's live track for this burst is silenced, so the two never play over each other.
+  and gain control, and the press takes the speakerphone tuning (`SpeakerphoneMic`) like the clip path. The unmute
+  comes first and the tuning after it, off the messaging thread (2026-11-27, hen: "sometimes the partner doesn't hear
+  my first words"): Android takes a few hundred ms over the audio mode and route, and that used to pass before the
+  unmute, on the thread that also asks for the floor. The log says how long each took ("microphone live in the
+  room, N ms after the press reached it", "speakerphone tuning took N ms"). The track is disabled before it is
+  published, so nothing of the microphone leaves the phone between the publish and its mute.
+- **Hearing.** A listener in the room with the talker waits up to 400 ms at STARTED for the talker's live audio to
+  decrypt (`hearsLive`); if it does, the burst's clip is kept but not played (and acked). If the clip's segments have
+  come by then, the clip plays, from its first segment, and that talker's live track for this burst is silenced, so
+  the two never play over each other. If neither has come, the phone goes on waiting for whichever comes first (it
+  acks at 400 ms, so the server doesn't wake it by FCM): the live track used to be silenced at 400 ms whatever
+  happened, and a room-only push whose microphone opened late was then not heard at all. A talker who isn't in the
+  room is not waited for. While a burst's way of playing is being decided (this wait, or readying a talk session
+  off screen, which takes seconds), its segments wait (`Incoming.deciding`); they used to be taken unplayed, and the
+  clip then began after them.
 - **Debug readout.** In Talk mode a debug build shows "Live: in the room", then "Live: heard 230 ms after the press"
   (STARTED to the first decrypted live audio on this phone).
 
@@ -739,10 +750,15 @@ phone never uploads a second copy.
 
 **Sending.** Nobody waits to send, and there is no "Waiting for …" anywhere: in a one-to-one chat and in a group,
 every talker has a floor of their own (a group no longer has one floor for all). A press unmutes the microphone track
-(and, for video, the camera track) already published, muted, in the room. A hardware button pressed with no room
-joined records on the phone from the press, and that backlog goes into the room as soon as it is joined, so no first
-words are lost. The phone uploads no clip by default; the older clip upload stays only as a setting, "Send through
-the server when they're away" (off), for a server without the buffer.
+(and, for video, the camera track) already published, muted, in the room. Only a press that really is live in the
+room goes into the room only (`LiveTalk.talking` answers whether it is; `Outgoing.inRoom`). A press the room can't
+carry goes by the clip path instead, from the moment before the press, so no first words are lost and nothing is
+shown live that reaches nobody (2026-11-27; such a press used to be recorded on the talker's phone only): the phone
+isn't in the room yet (right after a chat opens, a hardware button, the floating window, the widget, a notification's
+talk-back, the car), the room has no microphone track of this phone's, or the room is lost during the push (what was
+said so far goes up, and the press ends if its microphone was the room's). Otherwise the phone uploads no clip by
+default; the older clip upload stays as a setting, "Send through the server when they're away" (off), for a server
+without the buffer.
 
 **The recorder in the room.** ptt-server's recorder (package recorder, as for saved calls) joins a chat's talk room as
 a hidden participant right after the first phone joins it (on its talk token), so it is there before any press. It

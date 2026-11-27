@@ -115,13 +115,57 @@ private class FakePlayer : TalkPlayer {
     }
 }
 
+/** A talk room: the test says who is heard in it; [say] speaks into its microphone track. */
+private class FakeRoom : TalkTransport {
+    override var listener: TalkTransportListener? = null
+    val mic = FakeCapture()
+    override val capture: TalkCapture get() = mic
+    var joined = false
+    var live = false
+    /** How long joining takes (a real room: about a second). */
+    var joinTakes = 0L
+    val heard = mutableSetOf<String>()
+    val silenced = mutableListOf<String>()
+
+    override suspend fun join(url: String, token: String, identity: String, ownKey: ByteArray, ownIndex: Int): Boolean {
+        if (joinTakes > 0) kotlinx.coroutines.delay(joinTakes)
+        joined = true
+        return true
+    }
+
+    override fun leave() {
+        joined = false
+        live = false
+    }
+
+    override fun setKey(identity: String, key: ByteArray, index: Int) {}
+    override suspend fun setTalking(on: Boolean) {
+        live = on && joined
+    }
+
+    override val talkingLive get() = live
+    override fun hears(identity: String) = identity in heard
+    override fun silence(identity: String) {
+        silenced += identity
+    }
+
+    /** The room is lost under the phone (the network), as LiveKit says it. */
+    fun lose() {
+        leave()
+        listener!!.left()
+    }
+}
+
 private class FakeHost(var allow: Boolean) : TalkHost {
+    /** How long readying to play off screen takes (a talk session: seconds). */
+    var takes = 0L
     val notified = mutableListOf<String>()
     /** Each notification's HeardStatus (0 for a plain missed push). */
     val notifiedWhy = mutableListOf<Int>()
     var prepared = 0
     override suspend fun prepareToPlay(chat: String, from: String): Boolean {
         prepared++
+        if (takes > 0) kotlinx.coroutines.delay(takes)
         return allow
     }
 
@@ -736,6 +780,149 @@ class TalkTest {
         dana.stop()
     }
     // --- Live for exactly as long as they transmit (2026-11-25, hen: the receiver kept showing the sender live) ------
+
+    // --- The room and the clip (2026-11-27, hen: "sometimes the partner doesn't hear my first words") ---------------
+
+    /** [phone] with a talk room it can join (the server has live talk). */
+    private fun room(server: FakeServer, phone: TalkPhone): FakeRoom {
+        server.liveTalk = true
+        return FakeRoom().also { phone.messaging.live.transport = it }
+    }
+
+    @Test
+    fun aPushPressedBeforeItsRoomIsJoinedGoesByItsClipFromTheFirstWord() = runTest {
+        // It was shown live and reached nobody: into the room only, with the phone not in the room.
+        val (server, hen, bot) = paired("testbot")
+        val room = room(server, hen)
+        room.joinTakes = 1_000
+        hen.work.launch { hen.talk.press("testbot") }
+        advanceTimeBy(200)
+        assertEquals(TalkPhase.TALKING, hen.state.talk.own?.phase)
+        assertFalse(room.live, "not in the room yet")
+        val id = hen.state.talk.own!!.clip
+        hen.mic.say(0, 10)
+        hen.work.launch { hen.talk.release() }
+        // Not until idle: the room joined for the burst is kept by the phone's clock, which stands still here.
+        advanceTimeBy(5_000)
+        assertTrue(id in server.completeClips, "the clip went up")
+        assertEquals(10, bot.speaker.played.single().size)
+        assertContentEquals(packets(0, 1).single(), bot.speaker.played.single().first(), "from the first word")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun aPushThatIsLiveInItsRoomGoesIntoTheRoomOnly() = runTest {
+        val (server, hen, bot) = paired("testbot")
+        val room = room(server, hen)
+        hen.messaging.live.show("testbot")
+        advanceTimeBy(100)
+        assertEquals("testbot", hen.messaging.live.state.value.room)
+        hen.work.launch { hen.talk.press("testbot") }
+        advanceTimeBy(200)
+        assertTrue(room.live, "the room's microphone is live")
+        val id = hen.state.talk.own!!.clip
+        // In the room, the room's microphone feeds the burst.
+        room.mic.say(0, 10)
+        hen.work.launch { hen.talk.release() }
+        advanceTimeBy(2_000)
+        assertNull(hen.state.talk.own)
+        assertFalse(id in server.completeClips, "no clip upload: the room carried it")
+        assertTrue(server.clips[id].isNullOrEmpty())
+        assertNotNull(hen.files.read(id), "kept on the talker's own phone")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun aRoomLostDuringAPushSendsWhatWasSaidByItsClipAndEndsThePress() = runTest {
+        val (server, hen, bot) = paired("testbot")
+        val room = room(server, hen)
+        hen.messaging.live.show("testbot")
+        advanceTimeBy(100)
+        hen.work.launch { hen.talk.press("testbot") }
+        advanceTimeBy(200)
+        val id = hen.state.talk.own!!.clip
+        room.mic.say(0, 15)
+        advanceTimeBy(100)
+        assertTrue(server.clips[id].isNullOrEmpty(), "into the room only so far")
+        room.lose()
+        advanceTimeBy(2_000)
+        assertNull(hen.state.talk.own, "not shown live with nothing going out")
+        assertTrue(id in server.completeClips)
+        assertEquals(15, bot.speaker.played.single().size)
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun aTalkerWhoseVoiceComesLateInTheRoomIsHeardLiveNotSilenced() = runTest {
+        // Silenced for good 400 ms after the start, with no clip to play instead (room only): not heard at all.
+        val (server, hen, bot) = paired("testbot")
+        val room = room(server, bot)
+        bot.messaging.live.show("hen")
+        advanceTimeBy(100)
+        room.listener!!.joined("hen.1")
+        bot.talk.onFrame(com.chencohen.ptt.relay.TalkStateFrame(com.chencohen.ptt.relay.TalkState(TalkEvent.STARTED, burstX, "hen", 1, peer = "hen", startedAt = bot.clock)))
+        advanceTimeBy(1_200)
+        assertTrue(room.silenced.isEmpty(), "still waited for: nothing else has come")
+        assertNull(bot.state.talk.playing)
+        // Their microphone opens now (its track was only just published).
+        room.heard += "hen.1"
+        advanceTimeBy(100)
+        assertEquals(1, bot.messaging.live.state.value.heardCount, "heard live")
+        assertTrue(room.silenced.isEmpty())
+        assertTrue(bot.address to burstX in server.talkAcks, "the server was told this phone has it: no FCM wake")
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun inTheRoomAClipThatPlaysInsteadOfTheLiveVoiceStartsAtItsFirstWord() = runTest {
+        // While the phone waited for the live voice, the clip's first segments were taken unplayed.
+        val (server, hen, bot) = paired("testbot")
+        val room = room(server, bot)
+        bot.messaging.live.show("hen")
+        advanceTimeBy(100)
+        room.listener!!.joined("hen.1")
+        // hen's push goes by its clip (hen's phone has no room here); its voice never comes through bot's room.
+        hen.work.launch { hen.talk.press("testbot") }
+        advanceTimeBy(100)
+        hen.mic.say(0, 25)
+        advanceTimeBy(1_000)
+        hen.work.launch { hen.talk.release() }
+        // Not until idle: a room on screen is kept, and checked once a minute for ever.
+        advanceTimeBy(5_000)
+        assertEquals(listOf("hen.1"), room.silenced, "its live audio, if it came late, wouldn't play over the clip")
+        assertEquals(25, bot.speaker.played.single().size)
+        bot.speaker.played.single().forEachIndexed { i, p -> assertContentEquals(packets(0, 25)[i], p) }
+        hen.stop()
+        bot.stop()
+    }
+
+    @Test
+    fun whatComesWhileAPhoneOffScreenReadiesToPlayIsPlayedFromItsFirstWord() = runTest {
+        // Readying to play off screen takes seconds (a talk session); the segments that came meanwhile were skipped.
+        val (_, hen, dana) = paired()
+        dana.controller.stop()
+        advanceUntilIdle()
+        // Woken and connected, off screen (the wake keeps the connection while a burst plays).
+        dana.work.launch { dana.messaging.wake() }
+        advanceTimeBy(1_000)
+        dana.host.takes = 2_000
+        hen.work.launch { hen.talk.press("dana") }
+        advanceTimeBy(100)
+        hen.mic.say(0, 20)
+        advanceTimeBy(500)
+        hen.mic.say(20, 10)
+        hen.work.launch { hen.talk.release() }
+        advanceTimeBy(10_000)
+        assertEquals(1, dana.host.prepared)
+        assertEquals(30, dana.speaker.played.single().size)
+        assertContentEquals(packets(0, 1).single(), dana.speaker.played.single().first())
+        hen.stop()
+        dana.stop()
+    }
 
     private val burstX = "ab".repeat(16)
 

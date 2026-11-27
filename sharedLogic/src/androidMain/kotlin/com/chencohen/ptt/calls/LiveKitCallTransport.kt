@@ -139,9 +139,22 @@ class LiveKitCallTransport(
             ),
             LiveKitOverrides(okHttpClient = okHttp(), eglBase = egl),
         )
-        events = scope.launch { room.events.events.collect { onEvent(room, it) } }
+        val watching = scope.launch { room.events.events.collect { onEvent(room, it) } }
+        events = watching
+        joining = room
         try {
             room.connect(url, token)
+            // Hung up (or another call begun) while this one was connecting: its room goes, with no microphone or
+            // camera ever opened in it. leave() couldn't end it: it only knew the rooms already connected, so the
+            // phone stayed in the call's room with its microphone live after "Call ended" (2026-11-27).
+            if (joining !== room) {
+                Log.i(TAG, "the call ended while its room was connecting: left")
+                watching.cancel()
+                runCatching { room.disconnect() }
+                runCatching { room.release() }
+                return@withContext false
+            }
+            joining = null
             _room.value = room
             room.localParticipant.setMicrophoneEnabled(true)
             if (video) {
@@ -156,15 +169,22 @@ class LiveKitCallTransport(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "the call's room didn't open", e)
-            events?.cancel()
+            watching.cancel()
             runCatching { room.disconnect() }
             runCatching { room.release() }
-            _room.value = null
+            // Only this join's own state: a newer call's room isn't touched.
+            if (joining === room) joining = null
+            if (_room.value === room) _room.value = null
             false
         }
     }
 
+    /** The room still connecting ([join]); null once it is connected, or when it was left meanwhile. */
+    @Volatile private var joining: Room? = null
+
     override fun leave() {
+        // A room still connecting is let go by its own join, as soon as its connect returns.
+        joining = null
         stopRecording()
         cameraWatch?.cancel()
         cameraWatch = null

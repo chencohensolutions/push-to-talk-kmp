@@ -841,6 +841,7 @@ internal class Messaging(
         // Live for exactly as long as they transmit (2026-11-25, hen): their beats, and their microphone going quiet.
         live.onBeat = { identity, burst -> talk.onBeat(identity, burst) }
         live.onStopped = { identity -> talk.onStopped(identity) }
+        live.onLost = { chat -> talk.onRoomLost(chat) }
         talk.sendVideo = { chat -> talkSettings().pushVideoFor(chat) }
         talk.clipUpload = { _ -> talkSettings().clipUpload }
         talk.keepsPush = { chat, video -> talkSettings().let { if (video) chat in it.keepVideo else chat in it.keepVoice } }

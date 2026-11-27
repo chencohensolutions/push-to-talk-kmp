@@ -83,6 +83,9 @@ interface TalkTransport {
 
     /** The room's microphone track is there (published, muted until a press): [capture] has its samples. */
     val micReady: Boolean get() = true
+
+    /** The microphone is unmuted in the room now: what is said is really going out through it ([setTalking]). */
+    val talkingLive: Boolean get() = false
 }
 
 interface TalkTransportListener {
@@ -152,6 +155,9 @@ internal class LiveTalk(
 
     /** A talker stopped transmitting in the room (their microphone muted, unpublished, or they left). */
     var onStopped: ((identity: String) -> Unit)? = null
+
+    /** [chat]'s room was lost under this phone (the network, the server): a press going into it isn't any more. */
+    var onLost: ((chat: String) -> Unit)? = null
 
     /** This phone transmits [burstId] in [chat]'s room: one beat to the others (TalkBeat). False when not in that room. */
     suspend fun beat(chat: String, burstId: String): Boolean {
@@ -294,30 +300,44 @@ internal class LiveTalk(
         leaveLater()
     }
 
-    /** In [chat]'s room, the microphone goes there too, and the camera with a video burst ([video]). */
-    suspend fun talking(chat: String, on: Boolean, video: Boolean = false, still: () -> Boolean = { true }) {
-        val t = transport ?: return
+    /**
+     * In [chat]'s room, the microphone goes there too, and the camera with a video burst ([video]). True when this
+     * phone's voice is live in that room after it (an "on" that took): a press that isn't (not in the room yet, the
+     * room failed, no microphone track) must go by its clip instead (Talk), or nobody would get it.
+     */
+    suspend fun talking(chat: String, on: Boolean, video: Boolean = false, still: () -> Boolean = { true }): Boolean {
+        val t = transport ?: return false
         // Only the newest say counts: an "on" still waiting for the room must not land after the "off" that followed
         // it (2026-11-25: Stop, then the room's microphone came on and stayed live for 20 s).
         val my = ++talkingSeq
         // A video burst from outside the chat (the floating window): the room is still being joined; wait a little.
         if (on && video && _state.value.room != chat) {
             var waited = 0
-            while (_state.value.room != chat && waited < JOIN_WAIT) {
+            while (_state.value.room != chat && waited < JOIN_WAIT && still()) {
                 delay(100)
                 waited += 100
             }
         }
-        if (_state.value.room != chat) return
+        if (_state.value.room != chat) return false
         // A call in the room keeps its media whatever the floor does.
-        if (inCall) return
+        if (inCall) return on && audio && t.talkingLive
         talkingLock.withLock {
             // On: only while its press is still live. Off: unless a newer press came on meanwhile.
-            if (if (on) !still() else my != talkingSeq) return
+            if (if (on) !still() else my != talkingSeq) return false
             if (audio) runCatching { t.setTalking(on) }
+            // Let go while the microphone was still being readied (its track published for this press): not live
+            // after the release.
+            if (on && !still()) {
+                if (audio) runCatching { t.setTalking(false) }
+                return false
+            }
             if (on && video) runCatching { t.setVideo(true) } else if (!on) runCatching { t.setVideo(false) }
         }
+        return on && sendingLive(chat)
     }
+
+    /** This phone's voice is going into [chat]'s room now (in it, its microphone unmuted there). */
+    fun sendingLive(chat: String): Boolean = audio && _state.value.room == chat && transport?.talkingLive == true
 
     private var talkingSeq = 0
     private val talkingLock = kotlinx.coroutines.sync.Mutex()
@@ -331,6 +351,9 @@ internal class LiveTalk(
 
     /** The microphone of the room [chat] is in; null when not in it (the app's own recorder is used). */
     fun captureFor(chat: String): TalkCapture? = transport?.takeIf { audio && _state.value.room == chat && identity != null && it.micReady }?.capture
+
+    /** [user] has a phone in [chat]'s room, where this phone is too: their live audio may come. */
+    fun inRoomWith(chat: String, user: String): Boolean = _state.value.let { it.room == chat && user in it.present }
 
     /** [identity] ("user.device") is heard live in [chat]'s room: its clip needn't play. */
     fun hearsLive(chat: String, identity: String): Boolean = audio && _state.value.room == chat && transport?.hears(identity) == true
@@ -376,7 +399,15 @@ internal class LiveTalk(
         leaving?.cancel()
         if (_state.value.joining) return
         if (_state.value.room == chat && !t.stale()) return
-        if (liveOn == null) liveOn = runCatching { available() }.getOrDefault(false)
+        // Asked again after an error (offline, the server not found yet): only its own "no" is kept. A failed ask
+        // used to count as "no" for the rest of the app's run, and every later push then went into no room.
+        if (liveOn == null) liveOn = try {
+            available()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
         if (liveOn != true) return
         _state.update { it.copy(joining = true) }
         try {
@@ -473,7 +504,11 @@ internal class LiveTalk(
         }
 
         override fun left() {
-            scope.launch { _state.update { it.copy(room = null, present = emptySet()) } }
+            scope.launch {
+                val room = _state.value.room
+                _state.update { it.copy(room = null, present = emptySet()) }
+                if (room != null) onLost?.invoke(room)
+            }
         }
     }
 
