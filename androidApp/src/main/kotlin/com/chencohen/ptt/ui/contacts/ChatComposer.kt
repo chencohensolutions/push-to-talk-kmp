@@ -419,6 +419,21 @@ internal fun ChatButtons(
             val onPressed by androidx.compose.runtime.rememberUpdatedState(pressed)
             val onRelease by androidx.compose.runtime.rememberUpdatedState(release)
             val onPress by androidx.compose.runtime.rememberUpdatedState(press ?: actions.startVoice)
+            // Held (not hands-free) and the screen turns off or locks: let go at once (2026-11-27: a press left open
+            // stayed live until the server's 60 s limit). Hands-free goes on, as it does over the lock screen.
+            var heldNow by remember { androidx.compose.runtime.mutableStateOf(false) }
+            if (heldNow && !handsFree) androidx.compose.runtime.DisposableEffect(Unit) {
+                val receiver = object : android.content.BroadcastReceiver() {
+                    override fun onReceive(c: android.content.Context, i: android.content.Intent) {
+                        if (!heldNow) return
+                        heldNow = false
+                        val r = onRelease
+                        if (r != null) r(PushLock.NONE) else actions.finishVoice(true)
+                    }
+                }
+                context.registerReceiver(receiver, android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_OFF))
+                onDispose { runCatching { context.unregisterReceiver(receiver) } }
+            }
             Box(Modifier.size(big)) {
                 if (handsFree) {
                     StopLive(big, stopLive, urgent)
@@ -429,7 +444,7 @@ internal fun ChatButtons(
                         .semantics { contentDescription = talkLabel }
                         .holdOrLock(
                             lockAt = lockAt,
-                            onPress = { lifting = 0f; side = 0f; onTarget = false; urgentNow = false; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
+                            onPress = { lifting = 0f; side = 0f; onTarget = false; urgentNow = false; lockedNow = false; slidingNow = false; heldNow = true; onPressed(true); microphone(onPress) },
                             onSide = { left ->
                                 side = left
                                 if (left >= sideAt && !onTarget && !lockedNow) {
@@ -463,6 +478,13 @@ internal fun ChatButtons(
                                 }
                             },
                             onRelease = { locked ->
+                                // Already let go (the screen went off while it was held).
+                                if (!heldNow && !lockedNow) {
+                                    lifting = -1f
+                                    onPressed(false)
+                                    return@holdOrLock
+                                }
+                                heldNow = false
                                 lifting = -1f
                                 side = 0f
                                 // Let go on the side target: the push goes on hands-free until Stop (2026-11-26, hen):
