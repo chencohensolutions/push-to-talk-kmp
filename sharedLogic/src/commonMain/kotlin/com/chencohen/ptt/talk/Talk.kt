@@ -424,6 +424,9 @@ internal class Talk(
         showOwn(out)
     }
 
+    /** My press is sending video now (not yet let go). */
+    val sendingVideo: Boolean get() = outgoing?.let { it.video && !it.released } == true
+
     /** The last burst's consumer: done once its floor is let go of (its last segment or its end sent). */
     private var lastConsumer: Job? = null
 

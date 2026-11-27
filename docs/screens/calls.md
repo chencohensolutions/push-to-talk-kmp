@@ -152,7 +152,9 @@ layout at ease"; "'Full screen' is enough"). In its place "⤢ Full screen" show
 live: under the live panel in the chat (`FullScreenChip`), under the boxes in the floating window. A tap opens the
 same live talk full screen in the app (`LiveFull`, `LiveFullScreen`): nothing is dialled, nothing rings and the other
 phone isn't told anything; their video fills it (their face while they show none), the chat's name and the time on
-top. I start muted, shown as in a call (hen: "don't encourage to open the mic; show that I am muted, with an icon"):
+top. Already live when I tap it (my push held, hands-free, or the floating window's), the same press goes on there,
+my microphone and camera as they were (2026-11-27, hen: "when transmitting my camera or only voice and entering full
+screen my camera or microphone should stay on"; `LiveFull.open`'s `mic` and `camera`). Otherwise I start muted, shown as in a call (hen: "don't encourage to open the mic; show that I am muted, with an icon"):
 the microphone with its line through it and "You're muted". Tapping it holds a press for me (renewed every 55 s, so
 the other side sees me live as for any push) until tapped again; the camera button does the same with my video, mine
 in a small window at the top end. The chevron at the top start, or Back, shrinks it: back to the floating layout when

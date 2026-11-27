@@ -411,7 +411,7 @@ fun HomeApp(
                 micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                 call = { video -> call(user, video) },
                 sendLiveWaiting = { waiting -> messaging.sendLiveWaiting(user, waiting) },
-                fullScreen = { com.chencohen.ptt.ui.calls.LiveFull.open(user, fromFloating = false) },
+                fullScreen = { mic, cam -> com.chencohen.ptt.ui.calls.LiveFull.open(user, fromFloating = false, mic = mic, camera = cam) },
                 handOver = { video, urgent -> com.chencohen.ptt.TalkBubble.takeOver(context, user, chatName(user), video, urgent) },
                 callInChat = {
                     // In the talk room already: it becomes the call at once. Without a room to turn, a
@@ -991,8 +991,11 @@ fun HomeApp(
             // The live talk full screen (2026-11-27, hen): the same room, I start muted; the chevron or Back goes back to
             // the floating layout (the app to the back) or the chat it came from.
             com.chencohen.ptt.ui.calls.LiveFull.chat.value?.let { live ->
-                var open by remember(live) { mutableStateOf(false) }
-                var camera by remember(live) { mutableStateOf(false) }
+                // Muted, unless I was already sending (then it stays on, the same press: 2026-11-27, hen).
+                var open by remember(live) { mutableStateOf(com.chencohen.ptt.ui.calls.LiveFull.startMic) }
+                var camera by remember(live) { mutableStateOf(com.chencohen.ptt.ui.calls.LiveFull.startCamera) }
+                var adopting by remember(live) { mutableStateOf(com.chencohen.ptt.ui.calls.LiveFull.startMic) }
+                val ownTalk by androidx.compose.runtime.rememberUpdatedState(messagingState.talk.own)
                 val since = remember(live) { System.currentTimeMillis() }
                 val minimize = {
                     if (open) messaging.releaseTalk(true)
@@ -1005,10 +1008,26 @@ fun HomeApp(
                 // Open: a press held for me, renewed before the server's 60 s floor ends; muted: let go (sent).
                 LaunchedEffect(live, open, camera) {
                     if (!open) return@LaunchedEffect
-                    messaging.pressTalkWith(live, camera)
+                    fun going() = ownTalk?.takeIf {
+                        it.chat == live && (it.phase == com.chencohen.ptt.talk.TalkPhase.TALKING || it.phase == com.chencohen.ptt.talk.TalkPhase.REQUESTING)
+                    }
+                    // My press as it opened goes on as it is (its camera never let go); renewed when its 55 s are up.
+                    val kept = going().takeIf { adopting }
+                    adopting = false
+                    if (kept == null) {
+                        // A press while the last is still letting go would be ignored: it waits for that first.
+                        var waited = 0
+                        while (ownTalk?.chat == live && waited < 2_000) {
+                            kotlinx.coroutines.delay(50)
+                            waited += 50
+                        }
+                        messaging.pressTalkWith(live, camera)
+                    }
                     try {
+                        var wait = kept?.let { (it.startedAt + 55_000 - System.currentTimeMillis()).coerceIn(1_000L, 55_000L) } ?: 55_000L
                         while (true) {
-                            kotlinx.coroutines.delay(55_000)
+                            kotlinx.coroutines.delay(wait)
+                            wait = 55_000L
                             messaging.releaseTalk(true)
                             kotlinx.coroutines.delay(300)
                             messaging.pressTalkWith(live, camera)

@@ -219,7 +219,13 @@ class LiveMotion(private val ms: Long = 300L) {
      * [inPlace]: new items are simply there, in their place (the chat's row handed over to the floating window as the
      * app went: 2026-11-27, hen, "the videos or voices should stay put, not exit and enter").
      */
-    fun target(targets: Map<String, LiveRect>, offTop: Float, small: Float = 0f, inPlace: Boolean = false): Boolean {
+    fun target(
+        targets: Map<String, LiveRect>, offTop: Float, small: Float = 0f, inPlace: Boolean = false,
+        away: ((LiveRect) -> LiveRect)? = null,
+    ): Boolean {
+        // Off the screen: above its top edge, or through the edge [away] names (the floating videos rest at the bottom
+        // or a side: 2026-11-27, hen, "if the video is docked to any edge it should exit and enter from that edge").
+        val off: (LiveRect) -> LiveRect = away ?: { r -> r.copy(y = -(r.h + offTop)) }
         var restart = moves.any { (key, m) -> key !in targets && !m.leaving }
         for ((key, t) in targets) {
             val m = moves[key]
@@ -240,16 +246,16 @@ class LiveMotion(private val ms: Long = 300L) {
         for ((key, m) in moves) {
             m.from = m.now
             if (key !in targets && !m.leaving) {
-                // Out through the top edge from where it is, as it is.
+                // Out through the edge from where it is, as it is.
                 m.leaving = true
-                m.to = m.now.copy(y = -(m.now.h + offTop))
+                m.to = off(m.now)
             }
         }
         for ((key, t) in targets) {
             val m = moves[key]
             if (m == null) {
                 // In from above the top edge, already in its own place sideways and at its final size.
-                val above = if (inPlace) t else t.copy(y = -(t.h + offTop))
+                val above = if (inPlace) t else off(t)
                 moves[key] = Move(above, t, above, false)
             } else {
                 m.to = t

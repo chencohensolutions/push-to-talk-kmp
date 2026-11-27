@@ -109,9 +109,13 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     front keeps it while someone is live in a chat that isn't the one on screen (`TalkPlaying.cameToFront`).
   - **Hands-free goes on** (2026-11-27, hen: "when I'm transmitting hands-free from the chat screen and exit to the
     home screen it should keep transmitting with the floating layout"): leaving the app, or the chat, while my push
-    there is hands-free (voice, video or urgent), the chat lets its press go and the floating window takes the floor
-    again 0.9 s later, locked as if slid to hands-free in it (Stop, renewals every 55 s, through Talk's foreground
-    service so the microphone and camera may go on in the background; `TalkBubble.takeOver`). When the floating
+    there is hands-free (voice, video or urgent), the floating window takes that same press over as it is, locked as
+    if slid to hands-free in it (Stop, the renewal when its 55 s are up), through Talk's foreground service so the
+    microphone and camera go on in the background (`TalkBubble.takeOver`, `TalkReadyService.EXTRA_ADOPT`). Nothing
+    is pressed anew and the camera never closes (2026-11-27, hen: "the video should stay as a floating window ...
+    without remounting the camera view"): a screen letting go of the camera closes it only 1.5 s later, and not while
+    my video burst goes on (`Messaging.COOL_AFTER_MS`). Between two presses (a renewal's moment) the chat's is let go
+    and the floating window presses anew 0.9 s later. When the floating
     window can't show (setting off, no permission, the screen off or locked) leaving the app changes nothing (it goes
     on as before) and leaving the chat ends it.
     My box or pill is in the floating row from the moment the chat lets go, so it stays through the gap, and the new
@@ -120,6 +124,9 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   - **Stays put** (2026-11-27, hen: "when moving out to home screen the videos or voices should stay put, not exit
     and enter"): for 1.5 s after the app or the chat goes (`TalkBubble.takingOverRow`), what comes into the top row is
     simply there in its place instead of dropping in from the screen's top edge (`LiveMotion.target`'s `inPlace`).
+  - **Through their own edge** (2026-11-27, hen: "if the video is docked to any edge it should exit and enter from
+    that edge"): videos resting at the bottom come in and go out through the bottom edge, ones dropped against a side
+    partway down through that side, the rest through the top (`TalkBubble.awayEdge`).
   - **Moving the bar:** hold it (anywhere but Push) for 400 ms and it lifts; drag it, and the four places light up,
     dashed teal: the top, the bottom, and anywhere along the left or right edge (filled where it would go now). Let go
     and it glides from there into the nearest place (250 ms); it is kept for next time. On a side edge it stands

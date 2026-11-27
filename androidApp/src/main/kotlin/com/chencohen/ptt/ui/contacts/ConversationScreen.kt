@@ -151,7 +151,7 @@ class ConversationActions(
     /** Both live: turn it into a video call inside the chat; null: no calls here. */
     val callInChat: (() -> Unit)? = null,
     /** The live talk full screen (2026-11-27, hen: instead of "Make it a call"); null: not here. */
-    val fullScreen: (() -> Unit)? = null,
+    val fullScreen: ((mic: Boolean, camera: Boolean) -> Unit)? = null,
     /**
      * My hands-free push goes on in the floating window ([video], [urgent]) as the chat goes off the screen; false when
      * it can't show (the push then ends here). Null: not here.
@@ -873,7 +873,9 @@ private fun ConversationScreenIn(
             handsFree = false
             standby = false
             runs.end()
-            actions.finishVoice(true)
+            // Taken over: the same press goes on there, not let go here (2026-11-27, hen: "without remounting the
+            // camera"); the floating window lets it go when it can't take it as it is.
+            if (!taken) actions.finishVoice(true)
         }
         androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { handOverOrEnd("app left", keep = true) }
         androidx.compose.runtime.DisposableEffect(user) { onDispose { handOverOrEnd("chat left", keep = false) } }
@@ -916,11 +918,14 @@ private fun ConversationScreenIn(
             actions.callInChat?.invoke()
         }
         val goFullScreen: () -> Unit = {
+            // Live now: the same press goes on there, my microphone (and camera) still on (2026-11-27, hen: "when
+            // transmitting my camera or only voice and entering full screen my camera or microphone should stay on").
+            val live = ownNow?.takeIf { it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING }
             runs.end()
             handsFree = false
             standby = false
-            if (ownNow != null) actions.finishVoice(true)
-            actions.fullScreen?.invoke()
+            if (ownNow != null && live == null) actions.finishVoice(true)
+            actions.fullScreen?.invoke(live != null, live != null && pushVideo)
         }
         androidx.compose.runtime.SideEffect {
             bothLiveNow = bothLive
