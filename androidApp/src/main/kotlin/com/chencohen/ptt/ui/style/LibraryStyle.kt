@@ -159,8 +159,10 @@ internal val ChatSwatches = listOf(
     // Deep, white text at 4.6:1, around the wheel (2026-11-27, hen: "spread the colors evenly"): orange, lime, green,
     // blue, violet, pink, each with the same lightness.
     Color(0xFFB85C00), Color(0xFF428500), Color(0xFF008744), Color(0xFF0073E5), Color(0xFF9E3DFF), Color(0xFFE50072),
-    // The same six bright, with black text at 11:1, in the same order (hen: "brighter with black text to stand out").
-    Color(0xFFFFA852), Color(0xFF6AD400), Color(0xFF00D86C), Color(0xFF82C1FF), Color(0xFFD4AAFF), Color(0xFFFF9DCE),
+    // The same six bright, with black text, in the same order (hen: "brighter with black text to stand out"). Orange,
+    // blue, violet and pink at black 8:1 (2026-11-27, hen: "the red is too close to white": the paler ones looked
+    // washed out); lime and green as they were (11:1), already strong.
+    Color(0xFFFA7D00), Color(0xFF6AD400), Color(0xFF00D86C), Color(0xFF48A4FF), Color(0xFFC284FF), Color(0xFFFF6BB5),
 )
 
 /** How many of ChatSwatches are deep (white text); the rest are their bright twins, in the same order. */
