@@ -105,6 +105,10 @@ internal fun ComposeBubble(
     focused: () -> Unit = {},
     /** The text and where the caret is in it, at every change, the caret moving too (live typing shows it). */
     caret: (String, androidx.compose.ui.text.TextRange) -> Unit = { _, _ -> },
+    /** Its resting words, in place of "Write a message…". */
+    hint: String? = null,
+    /** A tap opens the chat (the Talk tab): the field takes no focus here. */
+    opens: Boolean = false,
 ) {
     // The field's own value, composition included, kept as the keyboard gives it (2026-11-24, hen: suggestions and
     // autocorrect didn't take when it was rebuilt from the text each time): set from outside only when the text
@@ -121,7 +125,7 @@ internal fun ComposeBubble(
     )
     val style = LibraryType.Message.copy(color = LibraryColors.OnBackground)
     val label = stringResource(R.string.chat_send)
-    val hint = stringResource(R.string.chat_write_hint)
+    @Suppress("NAME_SHADOWING") val hint = hint ?: stringResource(R.string.chat_write_hint)
     // From 38.2% of the row (1 − 0.618, the golden ratio) growing with the text, at once, up to 85%, then wrapping;
     // past 6 lines it scrolls inside with the caret in view.
     // Never narrower than its resting words (2026-11-24: "Write a message…" was cut to "Write a" in English).
@@ -147,7 +151,7 @@ internal fun ComposeBubble(
                 .background(coral.copy(alpha = 0.08f * open), LibraryShapes.Card)
                 // Resting, a tap anywhere on it starts writing, not only on its words (2026-11-24, hen).
                 .then(
-                    if (!editing) Modifier.clickable(
+                    if (!editing || opens) Modifier.clickable(
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         indication = null, role = Role.Button, onClickLabel = hint,
                     ) { startEditing() } else Modifier,
@@ -168,6 +172,7 @@ internal fun ComposeBubble(
                 // The caret fades in with the morph.
                 cursorBrush = SolidColor(coral.copy(alpha = open)),
                 maxLines = 6,
+                enabled = !opens,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Default),
                 decorationBox = { field ->
                     Box(contentAlignment = Alignment.CenterStart) {
@@ -332,6 +337,8 @@ internal fun ChatButtons(
      * dimmed inside a dashed ring, and "Waiting for Sharon…" beside it.
      */
     waitingFor: String? = null,
+    /** Who Push goes to, said beside it while nothing is waiting (the Talk tab's list). */
+    pushTo: String? = null,
     /** My push now is urgent (the red bell; 2026-11-25, hen): the button red with a bell. */
     urgent: Boolean = false,
     /**
@@ -364,10 +371,12 @@ internal fun ChatButtons(
             // back when the push stops.
             val aside by androidx.compose.animation.core.animateFloatAsState(if (lifting >= 0f || handsFree) 1f else 0f, tween(180), label = "voice message aside")
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                if (waitingFor != null) {
+                val sideLine = waitingFor?.let { stringResource(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(it)) }
+                    ?: pushTo?.takeIf { !handsFree && lifting < 0f }?.let { stringResource(R.string.talk_push_to, android.text.BidiFormatter.getInstance().unicodeWrap(it)) }
+                if (sideLine != null) {
                     Text(
                         // The line in the language's direction, the name wrapped: a Latin name doesn't turn a Hebrew line around.
-                        stringResource(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(waitingFor)), color = LibraryColors.Muted,
+                        sideLine, color = LibraryColors.Muted,
                         style = LibraryType.Caption.copy(textDirection = if (reading == androidx.compose.ui.unit.LayoutDirection.Rtl) androidx.compose.ui.text.style.TextDirection.Rtl else androidx.compose.ui.text.style.TextDirection.Ltr),
                         // Beside the buttons, which are at the right whatever the language.
                         maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Right,
