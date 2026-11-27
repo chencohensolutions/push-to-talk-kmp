@@ -106,9 +106,8 @@ Push-to-video from the chat (2026-11-23, hen; since 2026-11-24 only hands-free, 
 time); on release the same bubble stays and becomes the sent video (first picture, length, status circle). Their
 push-to-video plays live in their bubble the same way, then stays as the video. No separate preview over the chat.
 
-**Both pushing at once** (2026-11-23, hen): a press while the other holds the floor still records ("Waiting for
-Sharon…" on the live bubble); the moment their burst ends it is asked for and sent, so both phones see the two in press
-order. Three such overlaps within a minute show a "Switch to a video call?" chip for 10 s. Two video bursts that overlap
+**Both pushing at once:** both are live at once; nothing waits for the other (2026-11-27, hen: "remove this logic").
+Two video bursts that overlap
 in time, one each side, sit side by side in one row (theirs on their side, mine on mine), the later one lower by how
 much later it started, both a little smaller.
 
@@ -291,14 +290,11 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   which takes the button's place. The server ends a floor at 60 s, so at 55 s it is let go and taken again at once
   (each part a burst of its own). Leaving the chat stops it. There is no Voice | Video switch any more, and no
   hands-free voice (it went with this gesture). Without the camera allowed, reaching the target asks for it.
-- **Waiting for the floor looks like waiting** (2026-11-25, hen: "when sending video or voice, only when the UI says
-  it's transmitting, then transmit"). In a one-to-one chat a press (or a lock) while they hold the floor stands by
-  (2026-11-24, hen, "a"): nothing is sent, my phone tells theirs I'm waiting (`liveWaiting`, live only), and when
-  their floor ends while I still stand by, my burst starts. In a group a press waits its turn in the queue, and a
-  press the server still queues in a one-to-one chat is turned into the same standby. While it waits, no pill or box
-  of mine is in the live row and nothing says "both live": the Push button (or Stop, hands-free) is dimmed inside a
-  dashed ring, with "Waiting for Sharon…" beside it. Mine comes into the row the moment its turn does (the floor asked
-  for or held: REQUESTING, TALKING), in one move with theirs.
+- **Nothing waits** (2026-11-27, hen: "what is the waiting for? ... search all app and remove this logic"): there is
+  no standby, no queued press and no "Waiting for …" anywhere. Every talker has a floor of their own, so a press is
+  live at once. A Busy with my own floor (my last burst's end not yet taken) lets go of my recent bursts and asks
+  again, unseen (`Talk.OWN_FLOOR_RETRIES`); a Busy from anyone else (an older server) ends the press as busy, nothing
+  sent or kept.
 - **Full screen** (2026-11-27, hen; docs/screens/calls.md, "Live talk full screen"): "⤢ Full screen" shows just
   under the live panel while their video or both of us are live, instead of "Make it a call"; a tap ends my push and
   opens the live talk full screen, me muted. Before that:
@@ -325,7 +321,7 @@ only while scrolled under" below).
 ## Bottom buttons (2026-11-25, hen)
 
 Push-to-talk sits in the middle of the screen, and the voice message button just to its left, the same in Hebrew and
-English (not mirrored). No call buttons in the chat. While a press waits, "Waiting for …" shows left of them.
+English (not mirrored). No call buttons in the chat.
 Since 2026-11-26 they are smaller and rest on a solid strip (below): Push 64 dp, Voice message 48 dp.
 When hands-free gets no floor for 2.5 s it ends, and a press still on its way is let go too, so a late floor
 never goes on with no Stop (2026-11-26).

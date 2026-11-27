@@ -179,13 +179,12 @@ internal val LocalLiveBoxHeight = androidx.compose.runtime.compositionLocalOf<an
  * bars), with only their own rounded shape and a soft shadow: nothing behind them, the chat scrolls on beneath.
  * Where each rests and how they move is LiveLayout and LiveMotion's (one move for everything; docs/screens/style.md,
  * "Motion"): a side comes down from under the header's edge and goes back up under it, the other glides aside or
- * back to the centre meanwhile, and "the pill becomes the video" as one frame growing about its centre. [waitingFor]:
- * mine queued behind someone else's floor (a group).
+ * back to the centre meanwhile, and "the pill becomes the video" as one frame growing about its centre.
  */
 @Composable
 internal fun LivePanel(
     theirs: Boolean, who: String?, theirSince: Long,
-    mine: Boolean, mySince: Long, waitingFor: String?, @Suppress("UNUSED_PARAMETER") handsFree: Boolean,
+    mine: Boolean, mySince: Long, @Suppress("UNUSED_PARAMETER") handsFree: Boolean,
     /** The talker's "user.device": their video through the talk room, when it comes (LiveTalkVideo). */
     theirIdentity: String? = null,
     /** How far behind the clip path's picture plays (the test builds' readout). */
@@ -272,7 +271,6 @@ internal fun LivePanel(
         val tag = when {
             // Who only, no time, at the box's top centre (2026-11-25, hen).
             !isMine -> who ?: voice.name
-            waitingFor != null -> stringResource(R.string.talk_waiting_for, waitingFor)
             else -> me
         }
         LiveBoxInside(voice, tag, w, h, p, pictured = side.video && pictured[if (isMine) 1 else 0]) { box ->
@@ -300,7 +298,7 @@ internal fun LivePanel(
  * face (the clip path's one decoder can't show several). All of it moves as one (LiveStage, LiveMotion).
  */
 @Composable
-internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?, myUrgent: Boolean = false) {
+internal fun GroupLivePanel(talkers: List<GroupTalker>, myUrgent: Boolean = false) {
     val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
     val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsState()
     val localPicture by com.chencohen.ptt.talk.LiveTalkVideo.localPicture.collectAsState()
@@ -354,7 +352,6 @@ internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?, myU
         val voice = VoiceSide(if (t.mine) "" else t.user, if (t.mine) me else t.name, t.mine, t.since)
         val tag = when {
             !t.mine -> t.name
-            waitingFor != null -> stringResource(R.string.talk_waiting_for, waitingFor)
             else -> me
         }
         val room = if (t.mine) null else arriving[t.key]

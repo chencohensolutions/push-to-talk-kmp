@@ -62,11 +62,6 @@ enum class TalkPhase {
     /** Recording a voice message (the composer's microphone): no floor. */
     VOICE,
 
-    /**
-     * Someone else held the floor at the press (2026-11-23, hen: both pushing at once): still recording, sent right
-     * after their burst ends, so both phones see them in press order ([OwnTalk.busyWith]: whom it waits for).
-     */
-    WAITING,
 }
 
 /** This phone talking, or recording a voice message, in [chat]. */
@@ -290,8 +285,8 @@ internal class Talk(
         var granted = false
         var decided = voiceOnly
         val unsent = ArrayDeque<ClipSegment>()
-        /** Waiting for someone else's floor to end ([TalkPhase.WAITING]). */
-        var waiting = false
+        /** Times the start was asked again after a Busy with my own floor. */
+        var ownRetries = 0
         /** One sender at a time: the segments go out in order (2026-11-23: a race sent one ahead of those waiting). */
         val sending = kotlinx.coroutines.sync.Mutex()
         val records = mutableListOf<ByteArray>()
@@ -310,7 +305,7 @@ internal class Talk(
         /** Into the room only: the server's recorder keeps it for whoever is away (no clip upload at all). */
         var roomOnly = false
         /** Still this phone's live press: the room's microphone may come on for it. */
-        fun liveNow() = outgoing === this && !released && !waiting
+        fun liveNow() = outgoing === this && !released
         var consumer: Job? = null
         var mic: TalkCapture? = null
         /** The camera goes too (push-to-video): every packet is tagged (TalkVideo). */
@@ -397,6 +392,10 @@ internal class Talk(
         // a start sent before that end came back Busy with my own floor and showed "Waiting for testbot…"
         // (2026-11-27, hen). The start waits for it (frames on /ws are taken in order), a few seconds at most.
         val before = lastConsumer
+        if (!voiceOnly) {
+            recentBursts.addLast(out.id)
+            while (recentBursts.size > 8) recentBursts.removeFirst()
+        }
         out.consumer = scope.launch { consume(out) }
         lastConsumer = out.consumer
         if (!voiceOnly) {
@@ -415,7 +414,7 @@ internal class Talk(
                     }
                     // No answer in a few seconds: the connection is gone in all but name.
                     delay(GRANT_WAIT)
-                    if (!out.decided && !out.waiting) toVoice(out)
+                    if (!out.decided) toVoice(out)
                 }
             } else {
                 toVoice(out)
@@ -427,26 +426,11 @@ internal class Talk(
     /** My press is sending video now (not yet let go). */
     val sendingVideo: Boolean get() = outgoing?.let { it.video && !it.released } == true
 
+    /** My last few bursts' ids: let go of again when the server says my own floor is still held. */
+    private val recentBursts = ArrayDeque<String>()
+
     /** The last burst's consumer: done once its floor is let go of (its last segment or its end sent). */
     private var lastConsumer: Job? = null
-
-    private val overlaps = HashMap<String, MutableList<Long>>()
-
-    /** A press waited for someone else's: three within a minute in one chat suggests a video call. */
-    private fun noteOverlap(chat: String) {
-        val now = now()
-        val times = overlaps.getOrPut(chat) { mutableListOf() }
-        times += now
-        times.removeAll { now - it > 60_000 }
-        if (times.size >= 3) {
-            times.clear()
-            _state.update { it.copy(suggestCall = chat) }
-            scope.launch {
-                delay(10_000)
-                _state.update { if (it.suggestCall == chat) it.copy(suggestCall = null) else it }
-            }
-        }
-    }
 
     /** A burst or voice message deleted: its file goes too. */
     fun forgetClip(id: String) = runCatching { clips.delete(id) }
@@ -464,12 +448,6 @@ internal class Talk(
         val out = outgoing ?: return
         out.released = true
         if (!send) out.cancelled = true
-        // Let go while waiting for their floor: nothing of it went out, and nothing is kept.
-        if (out.waiting) {
-            out.waiting = false
-            out.cancelled = true
-            out.decided = true
-        }
         if (out.video) {
             videoCapture?.faces(null)
             videoCapture?.stop()
@@ -483,8 +461,6 @@ internal class Talk(
         for (item in out.packets) {
             when (item) {
                 is Captured.Packet -> {
-                    // Waiting for their floor: not live on screen, so nothing is recorded or sent.
-                    if (out.waiting) continue
                     out.pending += item.bytes
                     out.pendingBytes += item.bytes.size
                     if (item.audio) {
@@ -831,7 +807,7 @@ internal class Talk(
     private fun beatWhileTransmitting(out: Outgoing) {
         scope.launch {
             // Only through the room: off it, the clip's own segments (every 200 ms, silence too) are the sign.
-            while (outgoing === out && out.granted && !out.released && !out.finished && !out.waiting) {
+            while (outgoing === out && out.granted && !out.released && !out.finished) {
                 if (runCatching { live?.beat(out.chat, out.id) }.getOrNull() != true) break
                 delay(TalkBeat.EVERY_MS)
             }
@@ -854,29 +830,23 @@ internal class Talk(
         when (s.event) {
             TalkEvent.GRANTED -> out?.let { granted(it) }
             TalkEvent.BUSY -> out?.let { o ->
-                if (o.voiceOnly || o.waiting) return@let lost(o, TalkPhase.BUSY, busyWith = s.talkerUser)
-                // Their floor: shown as waiting, nothing recorded or sent, and asked again the moment it ends; it
-                // starts from then (2026-11-25, hen: transmit only while the screen says so).
-                o.waiting = true
-                o.phase = TalkPhase.WAITING
-                o.records.clear()
-                o.pending = mutableListOf()
-                o.pendingBytes = 0
-                o.pendingAudio = 0
-                o.unsent.clear()
-                o.index = 0
-                o.frames = 0
-                _state.update { it.copy(own = OwnTalk(o.chat, o.id, TalkPhase.WAITING, o.startedAt, s.talkerUser, urgent = o.urgent)) }
-                scope.launch { live?.talking(o.chat, false) }
-                noteOverlap(o.chat)
-                scope.launch {
-                    // Their floor can't outlast the server's limit; if no end comes, the press is let go.
-                    delay(STALE_TALKER_MS)
-                    if (o.waiting) {
-                        o.waiting = false
-                        lost(o, TalkPhase.BUSY, busyWith = s.talkerUser)
+                // Busy with my own floor (this phone's last burst, its end not yet taken or lost on the way): there is
+                // nobody to wait for, as anyone may talk any time (2026-11-27, hen: "what is the waiting for?", the
+                // chat said "Waiting for Sharon…"). My recent bursts are let go of and the start asked again, unseen.
+                val self = me()
+                if (!o.voiceOnly && self != null && s.talkerUser == self.user && s.talkerDevice == self.deviceNumber && o.ownRetries < OWN_FLOOR_RETRIES) {
+                    o.ownRetries++
+                    val stale = recentBursts.filter { it != o.id }
+                    scope.launch {
+                        stale.forEach { endFloor(it) }
+                        delay(OWN_FLOOR_RETRY_MS * o.ownRetries)
+                        if (outgoing === o && !o.released && !o.decided) sendFrame(TalkStartFrame(talkStart(o.chat, o.id, o.urgent)))
                     }
+                    return@let
                 }
+                // Someone else's floor (my other phone's: anyone else has a floor of their own): not waited for
+                // (2026-11-27, hen: "remove this logic"), the press goes as busy, nothing sent or kept.
+                lost(o, TalkPhase.BUSY, busyWith = s.talkerUser)
             }
             TalkEvent.REFUSED -> out?.let {
                 // Refused after the floor was given (a segment the server couldn't take): let go of it at once.
@@ -908,20 +878,6 @@ internal class Talk(
                 signs.forget(s.burstId)
                 cleared.remove(s.burstId)
                 endTheirs(chat, s.burstId)
-                // Someone else's floor ended: a burst waiting for it asks now (sent right after theirs).
-                outgoing?.takeIf { it.waiting && it.chat == chat && it.id != s.burstId }?.let { w ->
-                    w.waiting = false
-                    w.phase = TalkPhase.REQUESTING
-                    w.startedAt = now()
-                    showOwn(w)
-                    // Live again from this moment, on screen and in the room together.
-                    scope.launch { live?.talking(w.chat, true, w.video) { w.liveNow() } }
-                    scope.launch { if (!sendFrame(TalkStartFrame(talkStart(w.chat, w.id, w.urgent)))) toVoice(w) }
-                    scope.launch {
-                        delay(GRANT_WAIT)
-                        if (!w.decided && !w.waiting) toVoice(w)
-                    }
-                }
                 if (out != null && s.endReason != TalkEndReason.RELEASED) {
                     // The server ended it (60 s, or the connection dropped): what is recorded until now is the clip.
                     if (s.endReason == TalkEndReason.DROPPED) toVoice(out) else release()
@@ -1536,6 +1492,10 @@ internal class Talk(
 
         /** How long a press waits for the floor before it records a voice message instead. */
         const val GRANT_WAIT = 3_000L
+        /** A Busy with my own floor: the start asked again this many times, [OWN_FLOOR_RETRY_MS] apart (growing). */
+        const val OWN_FLOOR_RETRIES = 3
+        const val OWN_FLOOR_RETRY_MS = 150L
+
         /** How long a new press's start waits for my last burst's floor to end. */
         const val PREVIOUS_END_WAIT = 3_000L
         /** How long a buffered push waits for its burst's key (its "clip start" message). */

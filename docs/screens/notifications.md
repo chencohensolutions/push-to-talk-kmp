@@ -59,9 +59,6 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     button is put by its left edge, `shapePill`). The timer's digits are all one width and Stop is as wide as its
     widest time, so the seconds don't nudge it. The room for the lock above the button is always there, unseen, so
     the window never changes size and the pill never moves when the lock shows; only the pill itself takes touches.
-    A press that waits for the floor looks like waiting, not live: the Push button dimmed inside a dashed ring,
-    "Waiting for Sharon…" in Stop's place when hands-free, and no pill or box of mine in the row at the top until
-    its turn comes.
   - **Voice** (2026-11-24, hen, "B, a slim pill at the top"): a slim pill at the top centre, entering like the video
     box (from the top edge, resting just below the status bar): their face in a teal ring that glows with their voice
     (brightness, glow and thickness follow the level, 60 ms up and 200 ms down; no wave), "Sharon is talking" and the

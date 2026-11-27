@@ -758,7 +758,6 @@
     <string name="chat_received_at">received %1$s</string>
     <string name="chat_received">Received</string>
     <string name="chat_received_by">Received by %1$s</string>
-    <string name="talk_waiting_for">Waiting for %1$s…</string>
     <string name="chat_suggest_call">Switch to a video call?</string>
     <string name="chat_my_draft">Your message</string>
     <string name="chat_edited">edited</string>

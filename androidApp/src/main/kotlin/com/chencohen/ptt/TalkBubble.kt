@@ -89,6 +89,8 @@ object TalkBubble {
     private const val LONG_PRESS_MS = 400L
     /** How long after the app or chat goes the top row takes over in place ([takingOverRow]). */
     private const val IN_PLACE_MS = 1_500L
+    /** How long a press handed to the chat by Chat waits for the chat to take it. */
+    private const val PENDING_BACK_MS = 5_000L
     /** Upright on a side edge: Stop is this tall (its icon over the time). */
     private const val STOP_UPRIGHT_DP = 84
     /** The room kept beside the bar for the lock while Push is held. */
@@ -145,8 +147,6 @@ object TalkBubble {
     private var pillMorph: android.animation.ValueAnimator? = null
     /** "■ Stop · 00:00" at its widest: the Stop pill's width, the same whatever the time says. */
     private var stopWidth = 0
-    /** My press waits for the floor (TalkPhase.WAITING): shown as waiting, never as live. */
-    private var waiting = false
     private var chatButton: ImageView? = null
     private var button: ImageView? = null
     private var closeButton: ImageView? = null
@@ -674,7 +674,6 @@ object TalkBubble {
             pillChat = 1f
             pillDecline = 0f
             barDrag = false
-            waiting = false
             folded = false
             barShown = 1f
             moving = false
@@ -773,6 +772,10 @@ object TalkBubble {
         pickPreview()
         showChatFace(context)
     }
+
+    /** My press, handed to [chat]'s screen by a tap on Chat [at], until that screen takes it ([handBack]). */
+    private class PendingBack(val chat: String, val video: Boolean, val urgent: Boolean, val at: Long)
+    private var pendingBack: PendingBack? = null
 
     /** The chat whose face [chatButton] shows. */
     private var chatFaceOf: String? = null
@@ -1125,30 +1128,11 @@ object TalkBubble {
         }
     }
 
-    /**
-     * Waiting for the floor looks like waiting (2026-11-25, hen): the push button dimmed inside a dashed ring, and
-     * "Waiting for Sharon…" in Stop's place when hands-free; back to its live look the moment the turn comes.
-     */
-    private fun showWaiting(context: Context) {
-        (button?.background as? GradientDrawable)?.apply {
-            if (waiting) {
-                setColor(0x66E9504F)
-                setStroke(dp(context, 2), 0xFFFFB3A8.toInt(), dp(context, 5).toFloat(), dp(context, 4).toFloat())
-            } else {
-                setColor(PINK)
-                if (talking) setStroke(dp(context, 4), 0x80FFB3A8.toInt()) else setStroke(0, Color.TRANSPARENT)
-            }
-        }
-        button?.contentDescription = if (waiting) context.getString(R.string.talk_waiting_for, title) else context.getString(if (talking) R.string.bubble_send else R.string.bubble_talk_hint)
-        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else if (urgent) URGENT else PINK)
-        updateStop()
-    }
-
     /** Hands-free: the push button's place is "■ Stop · 0:42". */
     private fun showLocked(on: Boolean) {
         stopShown = on
         // Locked on the bell: a red Stop (2026-11-26, hen).
-        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else if (urgent) URGENT else PINK)
+        (stopPill?.background as? GradientDrawable)?.setColor(if (urgent) URGENT else PINK)
         updateStop()
         morphPill()
     }
@@ -1649,6 +1633,11 @@ object TalkBubble {
      * Main thread.
      */
     fun handBack(chat: String): Pair<Boolean, Boolean>? {
+        // Chat tapped here while my press went on: it is the chat's now.
+        pendingBack?.takeIf { it.chat == chat }?.let { back ->
+            pendingBack = null
+            if (System.currentTimeMillis() - back.at < PENDING_BACK_MS) return back.video to back.urgent
+        }
         if (this.chat != chat || pillWindow == null) return null
         if (QuickReplyWindow.showing(chat)) return null
         com.chencohen.ptt.ui.live.LiveHandoff.fromFloating(topOnScreen(), System.currentTimeMillis())
@@ -1836,11 +1825,8 @@ object TalkBubble {
         val stop = stopPill ?: return
         if (!stopShown) return
         val s = ((System.currentTimeMillis() - lockSince) / 1000).coerceAtLeast(0)
-        // Waiting for the floor says so, not a time that looks like sending.
         val upright = dock.edge.upright
         val words = when {
-            waiting && upright -> "…"
-            waiting -> stop.context.getString(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(title))
             // Upright on a side edge: the icon over the time.
             upright -> (if (urgent) "🔔" else "■") + "\n%d:%02d".format(s / 60, s % 60)
             else -> (if (urgent) "🔔  " else "■  ") + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
@@ -1963,10 +1949,6 @@ object TalkBubble {
         // Kept only for the lock's video right after; a real end starts the next press anew.
         talkEndedAt = if (keepLock) System.currentTimeMillis() else 0L
         if (!keepLock) talkStarted = 0L
-        if (waiting) {
-            waiting = false
-            showWaiting(context)
-        }
         if (!keepLock) {
             locked = false
             warming = false
@@ -2044,12 +2026,12 @@ object TalkBubble {
         val theirOn = !group && (burstLive || (out != null && out.theirs != LiveKind.None)) && !topPutAway
         val theirsVideo = theirOn && theirVideoWanted() && (theirPictureReady(context) || !theirWasPill)
         // Mine stays a box from the lock to Stop, through the moment between a hands-free floor and its renewal.
-        // A press that waits for the floor sends nothing and shows nothing live (2026-11-25, hen: "only when the UI
+        // Nothing waits for a floor (2026-11-27, hen: "remove this logic"; before: "only when the UI
         // says it's transmitting, then transmit"): no pill or box of mine until its turn comes.
         // A lock from the side target is voice: my pill, staying through its renewals, never a box.
         val voiceLock = locked && (urgent || sideVoice)
-        val mine = ((sendingVideo || goingLive || (locked && !voiceLock)) && !waiting) || out?.mine == LiveKind.Video
-        val myVoice = !mine && !topPutAway && (((talking || voiceLock) && !waiting) || out?.mine == LiveKind.Voice)
+        val mine = (sendingVideo || goingLive || (locked && !voiceLock)) || out?.mine == LiveKind.Video
+        val myVoice = !mine && !topPutAway && ((talking || voiceLock) || out?.mine == LiveKind.Voice)
         main.removeCallbacks(hideSoon)
         val groupOn = members.isNotEmpty() || groupCells.values.any { it.cell.on }
         if (!theirOn && !mine && !myVoice && !groupOn) {
@@ -3040,16 +3022,9 @@ object TalkBubble {
             // The voice's ring on the bar's face; at rest, its light rim.
             if (active) barFace?.setStroke((density * (1.5f + 4 * level)).toInt().coerceAtLeast(rimPx(context)), if (ringing != null) HERE else TEAL)
             else barFace?.setStroke(rimPx(context), RIM)
-            val scale = 1f + 0.15f * (if (talking && !waiting) level else 0f)
+            val scale = 1f + 0.15f * (if (talking) level else 0f)
             button?.scaleX = scale
             button?.scaleY = scale
-            // My press waits for the floor, or its turn came: the button and the row say which.
-            val waits = talking && state.talk.own?.takeIf { it.chat == chat }?.phase == com.chencohen.ptt.talk.TalkPhase.WAITING
-            if (waits != waiting) {
-                waiting = waits
-                showWaiting(context)
-                refreshTop(context)
-            }
             updateStop()
             main.postDelayed(this, 60)
         }
@@ -3090,8 +3065,23 @@ object TalkBubble {
      * moves there), and the top box grows a little and fades into it (200 ms) instead of sliding away.
      */
     private fun intoChat(context: Context, chat: String) {
-        // My push from here ends first (sent): the microphone is on only while a red Push shows.
-        if (talking) {
+        // My push in this chat goes on in the chat's screen as it is (2026-11-27, hen: "when returning from floating to
+        // the chat screen the stream turned off, it should stay on"); one in another chat ends (sent).
+        if (talking && this.chat == chat) {
+            com.chencohen.ptt.ui.live.LiveHandoff.fromFloating(topOnScreen(), System.currentTimeMillis())
+            val back = PendingBack(chat, sendingVideo, urgent, System.currentTimeMillis())
+            pendingBack = back
+            letGoOfPress(context)
+            // Not taken by the chat after all (it didn't open): let go, so nothing goes on unseen.
+            val app = context.applicationContext as? TalkApp
+            main.postDelayed({
+                if (pendingBack === back) {
+                    pendingBack = null
+                    Log.i(TAG, "the chat didn't take my press back: let go")
+                    app?.scope?.launch { com.chencohen.ptt.talkBack(app, null, down = false, send = true) }
+                }
+            }, PENDING_BACK_MS)
+        } else if (talking) {
             locked = false
             endTalk(context, send = true)
         }
@@ -3201,7 +3191,6 @@ object TalkBubble {
         pillMorph?.cancel()
         pillMorph = null
         stopShown = false
-        waiting = false
         talking = false
         locked = false
         sendingVideo = false
