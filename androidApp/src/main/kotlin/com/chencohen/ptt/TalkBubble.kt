@@ -100,6 +100,12 @@ object TalkBubble {
     private const val PEEK_SIDE_DP = 24
     /** Folded, the handle or tab takes touches this much further in than it shows. */
     private const val PEEK_TOUCH_DP = 20
+    /**
+     * The grip (2026-11-27, hen: "make the gripper a little bigger, not visually, just to grip and drag more easily"):
+     * a finger this close to the bar's inside edge, or up to [GRIP_OUT_DP] beyond it, moves the bar at once, no hold.
+     */
+    private const val GRIP_IN_DP = 18
+    private const val GRIP_OUT_DP = 18
 
     // ---- Where the bar rests, and folding (2026-11-27, hen: "drag the floating bar ... along the edges", "auto hide in
     // a smart way", "if docked to the side edges ... hide and be able to return with a gesture") ----
@@ -398,6 +404,24 @@ object TalkBubble {
             private var downX = 0f
             private var downY = 0f
             private var mine = false
+            /** Down on the grip: a move lifts the bar at once. */
+            private var grip = false
+
+            /** How far in from the bar's inside edge (the grip's side) the finger is. */
+            private fun inside(e: MotionEvent): Float = when (dock.edge) {
+                DockEdge.BOTTOM -> e.y
+                DockEdge.TOP -> height - e.y
+                DockEdge.LEFT -> width - e.x
+                DockEdge.RIGHT -> e.x
+            }
+
+            /** Lifted by the grip: counted from here, so the bar doesn't jump by the slop. */
+            private fun liftHere(e: MotionEvent) {
+                main.removeCallbacks(longPress)
+                liftBar()
+                downX = e.rawX
+                downY = e.rawY
+            }
 
             private fun away(e: MotionEvent) = along(e.rawX - downX, e.rawY - downY, awayDir())
             private fun across(e: MotionEvent) = kotlin.math.abs(along(e.rawX - downX, e.rawY - downY, acrossDir()))
@@ -428,11 +452,17 @@ object TalkBubble {
                         // Folded: the whole tab is one target, a tap or a swipe in.
                         if (folded) return true
                         main.removeCallbacks(longPress)
-                        if (!talking && ringing == null && !onPush(e)) main.postDelayed(longPress, LONG_PRESS_MS)
+                        grip = !onPush(e) && inside(e) < dp(context, GRIP_IN_DP)
+                        if (canLift() && !onPush(e)) main.postDelayed(longPress, LONG_PRESS_MS)
                     }
                     MotionEvent.ACTION_MOVE -> {
                         if (moving) return true
                         if (far(e)) main.removeCallbacks(longPress)
+                        // From the grip, any way but toward the edge (that still folds it) moves the bar.
+                        if (grip && far(e) && !swipes(e) && canLift()) {
+                            liftHere(e)
+                            return moving
+                        }
                         if (!barDrag && swipes(e)) {
                             mine = true
                             return true
@@ -681,6 +711,8 @@ object TalkBubble {
             moving = false
             lastActive = System.currentTimeMillis()
             shapePill()
+            // Touches just beyond the bar (the grip's room, or a folded tab's): they move it, or bring it out.
+            holder.setOnTouchListener { _, e -> edgeTouch(context, e) }
             // Only the pill takes touches (folded: the part of it that shows): the room kept for the lock beside it is
             // the app's beneath.
             row.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (pill === row) touchBar() }
@@ -1264,6 +1296,16 @@ object TalkBubble {
         // Folded: the tab or handle takes touches a little further in than it shows, and at a side Android's back
         // gesture leaves it alone there (2026-11-27, hen: "on the edge and minimized it's hard to interact with because
         // of the Android gesture"; "when floating layout on bottom it is hard to drag it or to close it").
+        // Open: the grip takes touches a little past the bar's inside edge too ([edgeTouch]).
+        if (!folded) {
+            val more = dp(row.context, GRIP_OUT_DP)
+            when (dock.edge) {
+                DockEdge.LEFT -> r.right += more
+                DockEdge.RIGHT -> r.left -= more
+                DockEdge.BOTTOM -> r.top -= more
+                DockEdge.TOP -> r.bottom += more
+            }
+        }
         if (folded) {
             val more = dp(row.context, PEEK_TOUCH_DP)
             when (dock.edge) {
@@ -1336,12 +1378,20 @@ object TalkBubble {
         }
     }
 
+    /**
+     * The bar can be lifted to move: not while Push is held (the finger is on it) or a call rings, but while I talk
+     * hands-free, yes (2026-11-27, hen: "when transmitting, I can't drag the bar").
+     */
+    private fun canLift(): Boolean = (!talking || locked) && ringing == null && !folded && pill != null
+
     /** Held on the bar: it lifts, and follows the finger to another edge ([moveBar], [dropMove]). */
-    private val longPress = Runnable {
-        val row = pill ?: return@Runnable
-        val holder = pillWindow ?: return@Runnable
-        val params = pillParams ?: return@Runnable
-        if (talking || ringing != null || folded) return@Runnable
+    private val longPress = Runnable { liftBar() }
+
+    private fun liftBar() {
+        val row = pill ?: return
+        val holder = pillWindow ?: return
+        val params = pillParams ?: return
+        if (!canLift() || moving) return
         moving = true
         lastActive = System.currentTimeMillis()
         row.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
@@ -1401,6 +1451,54 @@ object TalkBubble {
         pill = null
         runCatching { context.getSystemService(WindowManager::class.java).removeView(old) }
         if (!addPill(context.applicationContext, from)) remove()
+        // Moved while talking hands-free: Stop again as it was.
+        else if (stopShown) morphPill()
+    }
+
+    private var edgeX = 0f
+    private var edgeY = 0f
+    private var edgeFar = false
+
+    /**
+     * A finger on the bar's window beside the bar itself: in the grip's room past its inside edge, or past a folded
+     * tab or handle ([touchBar] lets those in). A move lifts the bar (folded: a swipe in brings it out); a tap brings a
+     * folded bar out.
+     */
+    private fun edgeTouch(context: Context, e: MotionEvent): Boolean {
+        val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                edgeX = e.rawX
+                edgeY = e.rawY
+                edgeFar = false
+                lastActive = System.currentTimeMillis()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = e.rawX - edgeX
+                val dy = e.rawY - edgeY
+                if (moving) {
+                    moveBar(dx, dy)
+                    return true
+                }
+                if (kotlin.math.hypot(dx, dy) <= slop) return true
+                edgeFar = true
+                if (folded) {
+                    if (-along(dx, dy, awayDir()) > slop) unfold()
+                } else if (canLift()) {
+                    liftBar()
+                    edgeX = e.rawX
+                    edgeY = e.rawY
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val cancelled = e.actionMasked == MotionEvent.ACTION_CANCEL
+                when {
+                    moving -> dropMove(context, cancelled)
+                    folded && !edgeFar && !cancelled -> unfold()
+                }
+            }
+        }
+        return true
     }
 
     /** The screen as the bar and the videos see it. */

@@ -140,7 +140,11 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
   - **Through their own edge** (2026-11-27, hen: "if the video is docked to any edge it should exit and enter from
     that edge"): videos resting at the bottom come in and go out through the bottom edge, ones dropped against a side
     partway down through that side, the rest through the top (`TalkBubble.awayEdge`).
-  - **Moving the bar:** hold it (anywhere but Push) for 400 ms and it lifts; drag it, and the four places light up,
+  - **Moving the bar:** hold it (anywhere but Push) for 400 ms and it lifts, or drag it from its grip at once: the
+    strip along its inside edge, 18 dp into the bar and 18 dp past it, unseen (2026-11-27, hen: "make the gripper a
+    little bigger, not visually, just to grip and drag more easily"; `GRIP_IN_DP`, `GRIP_OUT_DP`, `edgeTouch`). It
+    moves while I talk hands-free too, Stop kept (hen: "when transmitting, I can't drag the bar"); not while Push is
+    held or a call rings. Drag it, and the four places light up,
     dashed teal: the top, the bottom, and anywhere along the left or right edge (filled where it would go now). Let go
     and it glides from there into the nearest place (250 ms); it is kept for next time. On a side edge it stands
     upright, Chat above Push, and Stop is "■" over "0:42"; the lock (hands-free video) is then on the screen's inside
