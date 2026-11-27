@@ -76,7 +76,9 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     250 ms; a swipe up sends it back out the same way): 23.6% of the screen high and as wide as
     the picture's own shape (no crop, no bars), rounded 18 dp with a thin teal outline, "Name · 0:04" inside its
     bottom-start corner. While I send video my camera shows the same way (coral outline, "● You · LIVE 0:03", one line),
-    side by side with theirs when both are live, and "You're both live · Make it a call" under them (a tap turns
+    side by side with theirs when both are live, and (since 2026-11-27) "⤢ Full screen" under them while a video
+    shows or both are live, which opens the live talk full screen in the app (docs/screens/calls.md); before that
+    "You're both live · Make it a call" under them (a tap turns
     the talk room into the call, no ringing, and opens the chat with it; without a room to turn, a short word). Drag moves it; a swipe up puts it away until their next burst; a tap opens the chat.
   - **The row's places and moves** (2026-11-25, hen: "every combined animation in one move"; his phone is in Hebrew,
     where items came in at the wrong side and moved in steps). The row's window is as wide as the screen and as tall
@@ -96,6 +98,35 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     their first picture; mine stays a box from the lock to Stop, through a hands-free renewal. The both-live chip
     shows only while both items show.
     `adb shell setprop log.tag.TalkBubble VERBOSE` logs each frame of a move.
+- **Where it rests, folding, and the videos' own place** (2026-11-27, hen: "drag the floating bar ... along the
+  edges", "auto hide in a smart way", "make the videos stay at the top in original position, not attached to the bar
+  unless they are at the same place; make the video also to be dragged"; mocks in the project's
+  `mockups/floating-bar/`). Geometry in `FloatDock` (`ui/live/FloatDock.kt`, with `FloatDockTest`), plain screen
+  pixels, nothing mirrored in Hebrew.
+  - **Leaving a live chat in the app** keeps them floating: leaving a chat (Back to the list, another page) while
+    someone is pushing voice or video in it shows the floating window for them, as leaving the app does
+    (`TalkPlaying.leftChat`). Opening that chat again takes it away (`TalkBubble.chatOpened`); the app coming to the
+    front keeps it while someone is live in a chat that isn't the one on screen (`TalkPlaying.cameToFront`).
+  - **Moving the bar:** hold it (anywhere but Push) for 400 ms and it lifts; drag it, and the four places light up,
+    dashed teal: the top, the bottom, and anywhere along the left or right edge (filled where it would go now). Let go
+    and it glides from there into the nearest place (250 ms); it is kept for next time. On a side edge it stands
+    upright, Chat above Push, and Stop is "■" over "0:42"; the lock (hands-free video) is then on the screen's inside
+    of Push (slide toward the middle), the side target is Chat's place (slide up). At the top the lock is below Push.
+  - **Folding:** with nobody talking for 8 s (`FloatDock.QUIET_MS`), when the keyboard comes up, or when an app goes
+    full screen, the bar slides into its edge until only a slim handle (14 dp; a tab of 18 dp on the sides) with its
+    grab line shows, its buttons fading in the same move (250 ms). Never while Push is held or hands-free, video is
+    live, or a call rings. It comes out by itself the moment anyone starts talking (the tab's rim glows with their
+    voice as before); a tap on the handle or tab, or a swipe in from the edge, brings it out too. A slow swipe toward
+    its edge (past a third of its depth) folds it by hand. Whether an overlay is told about the keyboard and full
+    screen depends on the phone: the log says "keyboard up/down, full screen/status bar shows" when it is.
+  - **Sending it away:** a fast fling toward its edge sends the bar off the screen (and the videos up), nothing left
+    behind; it comes back when someone talks to you again.
+  - **The videos** (and voice pills) rest at the top centre, just below the status bar, wherever the bar is. Drag them
+    (both together) and let go: near the top they go back there, near the bottom they rest at the bottom, else where
+    they were let go; leaning to the side they're nearer, or centred; kept for next time. They join the bar only at the
+    same place: under it when the bar is at the top and they are too, above it at the bottom, and beside it (level
+    with it) when it is on a side edge and they are dropped on that side across from it. A flick up at the top, or a
+    drag up past the screen's top, still puts them away until their next burst.
 - **From the floating video to the chat** (2026-11-24, hen: "open the chat with the video stay connected"): a tap on
   the top box, or on the pill's Chat, opens the chat; their video goes on in the chat's live
   panel without a break (the same decoder moves to the chat's picture), and the top box grows a little and fades into

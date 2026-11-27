@@ -150,6 +150,8 @@ class ConversationActions(
     val sendLiveWaiting: ((Boolean) -> Unit)? = null,
     /** Both live: turn it into a video call inside the chat; null: no calls here. */
     val callInChat: (() -> Unit)? = null,
+    /** The live talk full screen (2026-11-27, hen: instead of "Make it a call"); null: not here. */
+    val fullScreen: (() -> Unit)? = null,
 )
 
 /** A video call shown inside the chat (2026-11-24, hen): theirs under the header, mine with the call's bar at the bottom. */
@@ -419,6 +421,7 @@ private fun ConversationScreenIn(
         // Both live, and the call it can become: worked out further down, shown here under the panel.
         var bothLiveNow by remember(user) { mutableStateOf(false) }
         val makeCallNow = remember(user) { arrayOf<() -> Unit>({}) }
+        val fullScreenNow = remember(user) { arrayOf<() -> Unit>({}) }
         // Slid up to the lock: the voice burst ends and the video one starts a moment later; meanwhile the pill is
         // already becoming the box (2026-11-25, hen: "the voice pill should transition to video, not leave the screen
         // and enter again").
@@ -564,7 +567,11 @@ private fun ConversationScreenIn(
                     voices = voicesNow,
                     myUrgent = myUrgent,
                 )
-                BothLiveChip(bothShown && actions.callInChat != null) { makeCallNow[0]() }
+                // Full screen (2026-11-27, hen: "'Full screen' is enough"): while their video or both of us are live; my
+                // push ends (full screen starts muted).
+                FullScreenChip((bothShown || theirVideo) && actions.fullScreen != null) {
+                    fullScreenNow[0]()
+                }
             }
             if (liveRow == null) {
                 // Who can hear me while I push (2026-11-25, hen): under my pill, from what they told of this push, else
@@ -886,9 +893,17 @@ private fun ConversationScreenIn(
             if (ownNow != null) actions.finishVoice(true)
             actions.callInChat?.invoke()
         }
+        val goFullScreen: () -> Unit = {
+            runs.end()
+            handsFree = false
+            standby = false
+            if (ownNow != null) actions.finishVoice(true)
+            actions.fullScreen?.invoke()
+        }
         androidx.compose.runtime.SideEffect {
             bothLiveNow = bothLive
             makeCallNow[0] = makeCall
+            fullScreenNow[0] = goFullScreen
         }
         // A press in a one-to-one chat that the server still queued behind their floor (it came just as theirs
         // started, or a hands-free renewal): not queued, standby instead (2026-11-24, hen, "a").
@@ -1437,7 +1452,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage, markUrgent = a.markUrgent,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
-    sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat,
+    sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen,
 )
 
 

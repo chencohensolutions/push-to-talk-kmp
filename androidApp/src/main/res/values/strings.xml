@@ -894,6 +894,9 @@
     <string name="talk_more_talking">+%1$d talking · %2$s</string>
     <string name="talk_both_live">You\u2019re both live</string>
     <string name="talk_make_call">Make it a call</string>
+    <string name="talk_full_screen">Full screen</string>
+    <string name="talk_minimize">Back to the small view</string>
+    <string name="talk_you_are_muted">You\u2019re muted</string>
     <string name="talk_call_no_room">Can\u2019t make this a call right now</string>
     <string name="talk_stop">Stop</string>
     <string name="talk_lock_hint">Slide up for hands-free video</string>

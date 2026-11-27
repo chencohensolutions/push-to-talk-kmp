@@ -144,6 +144,21 @@ The **Calls** tab (`CallsList`) lists every call, newest first: the letter circl
 button at the right that calls back. A tap on the row opens the chat. With no calls yet, its empty state stays: "No calls yet. Calls you make and get
 show here."
 
+## Live talk full screen (2026-11-27, hen)
+
+"Make it a call" is gone from the chat and the floating window (hen: "it's not 'make it a call', because two people
+speaking is already a call, just in a floating layout; I want to navigate to the call screen and out to the floating
+layout at ease"; "'Full screen' is enough"). In its place "⤢ Full screen" shows while their video or both of us are
+live: under the live panel in the chat (`FullScreenChip`), under the boxes in the floating window. A tap opens the
+same live talk full screen in the app (`LiveFull`, `LiveFullScreen`): nothing is dialled, nothing rings and the other
+phone isn't told anything; their video fills it (their face while they show none), the chat's name and the time on
+top. I start muted, shown as in a call (hen: "don't encourage to open the mic; show that I am muted, with an icon"):
+the microphone with its line through it and "You're muted". Tapping it holds a press for me (renewed every 55 s, so
+the other side sees me live as for any push) until tapped again; the camera button does the same with my video, mine
+in a small window at the top end. The chevron at the top start, or Back, shrinks it: back to the floating layout when
+it came from there (the app goes to the back and the floating window shows them again), else back to the chat; my
+press ends first. Both live becomes a call after 10 s (the setting) still turns the room into a call as below.
+
 ## A push turned into a call (2026-11-26, hen)
 
 "You're both live · Make it a call" (or Both live becomes a call after 10 s) turns the talk room into the call, with

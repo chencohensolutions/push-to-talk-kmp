@@ -299,6 +299,9 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   of mine is in the live row and nothing says "both live": the Push button (or Stop, hands-free) is dimmed inside a
   dashed ring, with "Waiting for Sharon…" beside it. Mine comes into the row the moment its turn does (the floor asked
   for or held: REQUESTING, TALKING), in one move with theirs.
+- **Full screen** (2026-11-27, hen; docs/screens/calls.md, "Live talk full screen"): "⤢ Full screen" shows just
+  under the live panel while their video or both of us are live, instead of "Make it a call"; a tap ends my push and
+  opens the live talk full screen, me muted. Before that:
 - **Both live.** "You're both live · Make it a call" shows just under the live panel, in its own space, only while
   both sides' items are in the row. A tap turns the talk room into the call, with no ringing (2026-11-25, hen: "it's
   calling the recipient instead of opening the call seamlessly"), the same from the chat, the floating window and the

@@ -1175,3 +1175,103 @@ internal fun RoomCallScreen(
         }
     }
 }
+
+/**
+ * Which chat's live talk shows full screen (2026-11-27, hen: "it's not 'make it a call', because two people speaking is
+ * already a call, just in a floating layout; I want to navigate to the call screen and out to the floating layout at
+ * ease"; "'Full screen' is enough"). Set from the floating window's or the chat's Full screen; [fromFloating]: shrinking
+ * it puts the app in the back, so the floating window takes over again.
+ */
+object LiveFull {
+    val chat = androidx.compose.runtime.mutableStateOf<String?>(null)
+    @Volatile var fromFloating = false
+
+    fun open(chat: String, fromFloating: Boolean) {
+        this.fromFloating = fromFloating
+        this.chat.value = chat
+    }
+}
+
+/**
+ * The live talk with [chat], full screen: the same room, nothing dialled and nothing ringing. Their video fills it
+ * (else their face), mine in a corner while my camera is on. I start muted, shown as in a call (2026-11-27, hen:
+ * "don't encourage to open the mic; in full screen show that I am muted, with an icon, just like in a call"): the
+ * microphone button with its line through it. [open] unmutes ([camera]: with my video) and mutes again; [minimize]
+ * (the chevron, or Back) goes back to the floating layout or the chat.
+ */
+@Composable
+internal fun LiveFullScreen(
+    chat: String,
+    title: String,
+    me: String,
+    open: Boolean,
+    camera: Boolean,
+    since: Long,
+    setOpen: (microphone: Boolean, camera: Boolean) -> Unit,
+    minimize: () -> Unit,
+) {
+    val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsStateWithLifecycle()
+    val theirs = arriving.values.firstOrNull { it.identity.substringBeforeLast('.') != me }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    Box(Modifier.fillMaxSize().background(Color(0xFF0F1413)).pointerInput(Unit) { detectTapGestures { } }) {
+        if (theirs != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                com.chencohen.ptt.ui.talk.RoomVideoView(theirs, Modifier.fillMaxWidth().aspectRatio(theirs.aspect.coerceIn(0.3f, 3f)))
+            }
+        }
+        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 24.dp, start = 64.dp, end = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (theirs == null) {
+                Spacer(Modifier.height(48.dp))
+                com.chencohen.ptt.ui.contacts.Avatar(chat, size = 96.dp, name = title)
+                Spacer(Modifier.height(12.dp))
+            }
+            Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
+            Text(clipLength((now - since).coerceAtLeast(0)), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
+        }
+        // Back to the floating layout (or the chat).
+        Box(
+            Modifier.align(Alignment.TopStart).statusBarsPadding().padding(12.dp).size(48.dp)
+                .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = minimize),
+            contentAlignment = Alignment.Center,
+        ) { Icon(LibraryIcons.ChevronDown, stringResource(R.string.talk_minimize), tint = Color.White, modifier = Modifier.size(24.dp)) }
+        if (open && camera) {
+            val shape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+            val (w, h) = ownWindowDp(shape)
+            Box(
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 120.dp, end = 16.dp)
+                    .size(w.dp, h.dp).clip(RoundedCornerShape(12.dp)),
+            ) { com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true) }
+        }
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f))))
+                .navigationBarsPadding().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Muted, said in words too, as a call says it.
+            if (!open) {
+                Text(stringResource(R.string.talk_you_are_muted), color = LibraryColors.PhotoTextMuted, style = LibraryType.Small)
+                Spacer(Modifier.height(12.dp))
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                RoundButton(
+                    if (open) LibraryIcons.Mic else LibraryIcons.MicOff,
+                    stringResource(if (open) R.string.call_mute else R.string.call_unmute),
+                    if (open) Color(0xFF2BB3A3) else Color.White.copy(alpha = 0.18f),
+                ) { setOpen(!open, camera && !open) }
+                RoundButton(
+                    if (open && camera) LibraryIcons.Video else LibraryIcons.VideoOff,
+                    stringResource(if (open && camera) R.string.call_camera_off else R.string.call_camera_on),
+                    if (open && camera) Color(0xFF2BB3A3) else Color.White.copy(alpha = 0.18f),
+                ) { if (open && camera) setOpen(true, false) else setOpen(true, true) }
+            }
+        }
+    }
+}

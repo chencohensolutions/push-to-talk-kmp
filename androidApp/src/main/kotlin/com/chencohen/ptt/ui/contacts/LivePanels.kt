@@ -662,6 +662,28 @@ internal fun BothLiveChip(shown: Boolean, makeCall: () -> Unit) {
     }
 }
 
+/** "⤢ Full screen" (2026-11-27, hen), just under the top panel, in its own space: the live talk full screen. */
+@Composable
+internal fun FullScreenChip(shown: Boolean, open: () -> Unit) {
+    AnimatedVisibility(shown, enter = fadeIn(tween(200)) + expandVertically(tween(200)), exit = fadeOut(tween(150)) + shrinkVertically(tween(150))) {
+        Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+            Row(
+                Modifier.shadow(6.dp, CircleShape).background(LibraryColors.Inverse, CircleShape)
+                    .clickable(role = Role.Button, onClick = open)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Icon(com.chencohen.ptt.ui.style.LibraryIcons.Expand, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(16.dp))
+                Text(
+                    stringResource(R.string.talk_full_screen), color = LibraryColors.OnInverse,
+                    style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
+    }
+}
+
 /**
  * A push-to-talk burst the chat doesn't keep (2026-11-24, hen: its "Keep voice / videos in chat" off): one muted,
  * centred line once it ends, "Sharon sent live video · 0:07"; nothing to play. A run of them is a [TalkSession].

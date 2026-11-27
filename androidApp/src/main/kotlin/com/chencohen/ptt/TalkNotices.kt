@@ -77,6 +77,35 @@ object TalkPlaying {
     }
 
     /**
+     * [chat] went off the screen inside the app while someone is live in it (2026-11-27, hen: "when someone is pushing
+     * audio or video and I leave that chat screen I want to keep seeing them as floating"): the floating window shows
+     * them from here, as it does when the app goes to the back. A moment later, once the next screen says what it shows.
+     */
+    fun leftChat(app: TalkApp, chat: String) {
+        app.scope.launch {
+            kotlinx.coroutines.delay(300)
+            val talk = messagingState(app).value.talk
+            val playing = talk.playing?.takeIf { it.live && it.chat == chat } ?: heardInRoom(app, talk)?.takeIf { it.chat == chat } ?: return@launch
+            if (quiet || chatInFront(app) == chat || !TalkBubble.allowed(app)) return@launch
+            TalkBubble.show(app, playing.chat, TalkBubble.titleOf(app, playing.chat, playing.from), live = true, video = playing.video, who = playing.from)
+        }
+    }
+
+    /**
+     * The app came on screen: the floating window goes, unless someone is live in a chat that isn't the one on screen
+     * (then it stays, as it would after leaving that chat). A moment later, once the screen says what it shows.
+     */
+    fun cameToFront(app: TalkApp) {
+        app.scope.launch {
+            kotlinx.coroutines.delay(400)
+            val talk = messagingState(app).value.talk
+            val playing = talk.playing?.takeIf { it.live } ?: heardInRoom(app, talk)
+            if (playing != null && !quiet && chatInFront(app) != playing.chat && TalkBubble.showing) return@launch
+            TalkBubble.dismiss()
+        }
+    }
+
+    /**
      * The floating chat closed while someone is live in its conversation (their burst plays, or is heard through the
      * room): the floating window shows for it from here on, its row at the top staying as it is.
      */

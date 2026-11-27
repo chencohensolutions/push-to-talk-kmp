@@ -411,6 +411,7 @@ fun HomeApp(
                 micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                 call = { video -> call(user, video) },
                 sendLiveWaiting = { waiting -> messaging.sendLiveWaiting(user, waiting) },
+                fullScreen = { com.chencohen.ptt.ui.calls.LiveFull.open(user, fromFloating = false) },
                 callInChat = {
                     // In the talk room already: it becomes the call at once. Without a room to turn, a
                     // short word, never a ringing call (2026-11-25, hen: "it's calling the recipient
@@ -796,10 +797,17 @@ fun HomeApp(
                         com.chencohen.ptt.QuickReplyWindow.chatOpened(user)
                         onPauseOrDispose { }
                     }
+                    val app = LocalContext.current.applicationContext as? com.chencohen.ptt.TalkApp
                     DisposableEffect(user) {
                         messaging.openChat(user)
                         messaging.refreshPresence()
-                        onDispose { messaging.openChat(null) }
+                        // Its own buttons are here: the floating bar for it goes; leaving it while someone is live in
+                        // it, the floating bar shows them (2026-11-27, hen).
+                        com.chencohen.ptt.TalkBubble.chatOpened(user)
+                        onDispose {
+                            messaging.openChat(null)
+                            app?.let { com.chencohen.ptt.TalkPlaying.leftChat(it, user) }
+                        }
                     }
                     LaunchedEffect(messagingState.unread[user]) { if ((messagingState.unread[user] ?: 0) > 0) messaging.openChat(user) }
                     ChatScreenFor(user)
@@ -976,6 +984,56 @@ fun HomeApp(
                     inChatCallFor = null
                     messaging.dismissEndedCall()
                 }
+            }
+            // The live talk full screen (2026-11-27, hen): the same room, I start muted; the chevron or Back goes back to
+            // the floating layout (the app to the back) or the chat it came from.
+            com.chencohen.ptt.ui.calls.LiveFull.chat.value?.let { live ->
+                var open by remember(live) { mutableStateOf(false) }
+                var camera by remember(live) { mutableStateOf(false) }
+                val since = remember(live) { System.currentTimeMillis() }
+                val minimize = {
+                    if (open) messaging.releaseTalk(true)
+                    open = false
+                    val back = com.chencohen.ptt.ui.calls.LiveFull.fromFloating
+                    com.chencohen.ptt.ui.calls.LiveFull.chat.value = null
+                    if (back) (context as? android.app.Activity)?.moveTaskToBack(true)
+                }
+                BackHandler { minimize() }
+                // Open: a press held for me, renewed before the server's 60 s floor ends; muted: let go (sent).
+                LaunchedEffect(live, open, camera) {
+                    if (!open) return@LaunchedEffect
+                    messaging.pressTalkWith(live, camera)
+                    try {
+                        while (true) {
+                            kotlinx.coroutines.delay(55_000)
+                            messaging.releaseTalk(true)
+                            kotlinx.coroutines.delay(300)
+                            messaging.pressTalkWith(live, camera)
+                        }
+                    } finally {
+                        messaging.releaseTalk(true)
+                    }
+                }
+                com.chencohen.ptt.ui.calls.LiveFullScreen(
+                    chat = live,
+                    title = chatName(live),
+                    me = state.device?.user.orEmpty(),
+                    open = open,
+                    camera = camera,
+                    since = since,
+                    setOpen = { mic, cam ->
+                        if (mic) {
+                            callPermissions(cam) { allowed ->
+                                camera = cam && allowed
+                                open = true
+                            }
+                        } else {
+                            open = false
+                            camera = false
+                        }
+                    },
+                    minimize = minimize,
+                )
             }
             // A push turned into a call (the talk room's own), over everything like any call.
             messagingState.roomCall?.let { rc ->
