@@ -152,6 +152,11 @@ class ConversationActions(
     val callInChat: (() -> Unit)? = null,
     /** The live talk full screen (2026-11-27, hen: instead of "Make it a call"); null: not here. */
     val fullScreen: (() -> Unit)? = null,
+    /**
+     * My hands-free push goes on in the floating window ([video], [urgent]) as the chat goes off the screen; false when
+     * it can't show (the push then ends here). Null: not here.
+     */
+    val handOver: ((video: Boolean, urgent: Boolean) -> Boolean)? = null,
 )
 
 /** A video call shown inside the chat (2026-11-24, hen): theirs under the header, mine with the call's bar at the bottom. */
@@ -854,7 +859,24 @@ private fun ConversationScreenIn(
                 }
             }
         }
-        androidx.compose.runtime.DisposableEffect(user) { onDispose { if (handsFreeNow) actions.finishVoice(true) } }
+        // Hands-free and the chat goes off the screen (the app to the back, or another page): the push goes on in the
+        // floating window (2026-11-27, hen), which takes the floor once this one is let go; else it ends here.
+        val pushVideoNow by androidx.compose.runtime.rememberUpdatedState(pushVideo)
+        val urgentNow by androidx.compose.runtime.rememberUpdatedState(urgentHandsFree)
+        // [keep]: when the floating window can't take it (the screen went off), it goes on here as before.
+        fun handOverOrEnd(why: String, keep: Boolean) {
+            if (!handsFreeNow) return
+            val video = pushVideoNow && !urgentNow
+            val taken = actions.handOver?.invoke(video, urgentNow) == true
+            say("$why while hands-free: " + if (taken) "goes on in the floating window" else if (keep) "goes on here" else "ends")
+            if (!taken && keep) return
+            handsFree = false
+            standby = false
+            runs.end()
+            actions.finishVoice(true)
+        }
+        androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { handOverOrEnd("app left", keep = true) }
+        androidx.compose.runtime.DisposableEffect(user) { onDispose { handOverOrEnd("chat left", keep = false) } }
         // Kept open while live hands-free or in standby (2026-11-24: after a minute untouched it was let go, so the next
         // renewal went out as voice only).
         // Hands-free video (2026-11-24, hen): the camera opens as the finger starts sliding up from the Talk button, so the
@@ -1461,7 +1483,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage, markUrgent = a.markUrgent,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
-    sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen,
+    sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver,
 )
 
 
