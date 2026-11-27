@@ -73,7 +73,9 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     Chat · Push · Close (Stop while hands-free).
   - **Video**: a box at the top centre slides in from the very top edge of the screen and comes to rest just below
     the status bar (2026-11-24, hen: "enter from the edge of the screen and start just below the notification bar";
-    250 ms; a swipe up sends it back out the same way): 23.6% of the screen high and as wide as
+    250 ms; a swipe up sends it back out the same way). Moved to another edge, or joined to the bar docked there,
+    the boxes and pills come in and go out by that edge instead (2026-11-27, hen: "if the video is docked any edge it
+    should exit and enter from that edge"; `FloatDock.videosEdge`, `LiveAway`): 23.6% of the screen high and as wide as
     the picture's own shape (no crop, no bars), rounded 18 dp with a thin teal outline, "Name · 0:04" inside its
     bottom-start corner. While I send video my camera shows the same way (coral outline, "● You · LIVE 0:03", one line),
     side by side with theirs when both are live, and (since 2026-11-27) "⤢ Full screen" under them while a video

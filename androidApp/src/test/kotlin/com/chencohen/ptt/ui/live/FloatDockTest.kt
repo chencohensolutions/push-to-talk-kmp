@@ -76,4 +76,37 @@ class FloatDockTest {
         val free = FloatDock.dropVideos(ScreenRect(20f, 900f, 420f, 1400f), screen)
         assertEquals(VideoPlace(Lean.LEFT, Height.FREE, 900f), free)
     }
+
+    @Test
+    fun videosComeAndGoByTheEdgeTheyRestAt() {
+        // Alone: the nearest edge to where they rest.
+        assertEquals(DockEdge.TOP, FloatDock.videosEdge(VideoPlace.DEFAULT, 700f, 500f, screen, null, null, 12f))
+        assertEquals(DockEdge.BOTTOM, FloatDock.videosEdge(VideoPlace(Lean.CENTRE, Height.BOTTOM), 700f, 500f, screen, null, null, 12f))
+        assertEquals(DockEdge.LEFT, FloatDock.videosEdge(VideoPlace(Lean.LEFT, Height.FREE, 900f), 400f, 500f, screen, null, null, 12f))
+        assertEquals(DockEdge.RIGHT, FloatDock.videosEdge(VideoPlace(Lean.RIGHT, Height.FREE, 900f), 400f, 500f, screen, null, null, 12f))
+        // Joined to the bar: the bar's edge, even where another edge is nearer.
+        val sideBar = ScreenRect(940f, 900f, 1080f, 1500f)
+        assertEquals(DockEdge.RIGHT, FloatDock.videosEdge(VideoPlace(Lean.RIGHT, Height.FREE, 1000f), 400f, 500f, screen, Dock(DockEdge.RIGHT, 0.5f), sideBar, 12f))
+        val bottomBar = ScreenRect(200f, 2000f, 880f, 2210f)
+        assertEquals(DockEdge.BOTTOM, FloatDock.videosEdge(VideoPlace(Lean.CENTRE, Height.BOTTOM), 700f, 500f, screen, Dock(DockEdge.BOTTOM), bottomBar, 12f))
+    }
+
+    @Test
+    fun anItemComesInAndGoesOutThroughItsEdge() {
+        val rest = LiveRect(100f, 0f, 300f, 400f, 1f)
+        val away = LiveAway(DockEdge.LEFT, left = -50f, top = -200f, right = 1100f, bottom = 2000f)
+        val motion = LiveMotion()
+        motion.target(mapOf("a" to rest), away)
+        // In: starts just past the left edge at its own height and size.
+        assertEquals(LiveRect(-350f, 0f, 300f, 400f, 1f), motion.rects.getValue("a"))
+        motion.frame(0); motion.frame(10_000)
+        assertEquals(rest, motion.rects.getValue("a"))
+        // Out the same way, to the right one if the edge is the right.
+        motion.target(emptyMap(), away.copy(edge = DockEdge.RIGHT))
+        motion.frame(20_000); motion.frame(20_150)
+        val half = motion.rects.getValue("a")
+        assertTrue(half.x > rest.x && half.y == rest.y)
+        motion.frame(30_000)
+        assertTrue(motion.rects.isEmpty())
+    }
 }

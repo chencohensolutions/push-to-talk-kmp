@@ -114,11 +114,24 @@ object FloatDock {
     }
 
     /**
-     * Where videos [w] by [h] rest (their top left on the screen) at [place], with the bar at [dock] taking [bar] (its
-     * resting frame with the room its hints need; null: no bar). Joined to the bar ([joined]), they sit beside it
-     * [gap] away; else where [place] says, whatever the bar does.
+     * The screen edge the videos at [place] come in through and go out by (2026-11-27, hen: "if the video is docked
+     * any edge it should exit and enter from that edge"): the bar's edge while they are joined to it ([joined]), else
+     * the edge nearest to where they rest, the top when it is as near as any.
      */
-    fun videosAt(place: VideoPlace, w: Float, h: Float, screen: FloatScreen, dock: Dock?, bar: ScreenRect?, gap: Float): Pair<Float, Float> {
+    fun videosEdge(place: VideoPlace, w: Float, h: Float, screen: FloatScreen, dock: Dock?, bar: ScreenRect?, gap: Float): DockEdge {
+        val (x, y) = videosAt(place, w, h, screen, dock, bar, gap)
+        val alone = alone(place, w, h, screen)
+        if (dock != null && bar != null && joined(place, alone, dock, bar)) return dock.edge
+        val away = listOf(
+            DockEdge.TOP to y - screen.topInset,
+            DockEdge.BOTTOM to screen.h - screen.bottomInset - (y + h),
+            DockEdge.LEFT to x,
+            DockEdge.RIGHT to screen.w - (x + w),
+        )
+        return away.minBy { it.second }.first
+    }
+
+    private fun alone(place: VideoPlace, w: Float, h: Float, screen: FloatScreen): ScreenRect {
         val m = screen.margin
         val x = when (place.lean) {
             Lean.LEFT -> m
@@ -130,7 +143,18 @@ object FloatDock {
             Height.BOTTOM -> screen.h - screen.bottomInset - m - h
             Height.FREE -> place.top
         }
-        val alone = ScreenRect(x, y, x + w, y + h)
+        return ScreenRect(x, y, x + w, y + h)
+    }
+
+    /**
+     * Where videos [w] by [h] rest (their top left on the screen) at [place], with the bar at [dock] taking [bar] (its
+     * resting frame with the room its hints need; null: no bar). Joined to the bar ([joined]), they sit beside it
+     * [gap] away; else where [place] says, whatever the bar does.
+     */
+    fun videosAt(place: VideoPlace, w: Float, h: Float, screen: FloatScreen, dock: Dock?, bar: ScreenRect?, gap: Float): Pair<Float, Float> {
+        val alone = alone(place, w, h, screen)
+        val x = alone.left
+        val y = alone.top
         if (dock == null || bar == null || !joined(place, alone, dock, bar)) return x to y
         val lowest = (screen.h - screen.bottomInset - h).coerceAtLeast(screen.topInset)
         return when (dock.edge) {

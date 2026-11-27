@@ -36,6 +36,7 @@ import com.chencohen.ptt.ui.live.LiveLayout
 import com.chencohen.ptt.ui.live.LivePerson
 import com.chencohen.ptt.ui.live.LiveSlot
 import com.chencohen.ptt.ui.live.LiveMotion
+import com.chencohen.ptt.ui.live.LiveAway
 import com.chencohen.ptt.ui.live.LiveRect
 import com.chencohen.ptt.ui.live.Dock
 import com.chencohen.ptt.ui.live.DockEdge
@@ -1414,23 +1415,48 @@ object TalkBubble {
      * attached to the bar unless they are at the same place"): [videoPlace], or beside the bar when that is the same
      * place ([FloatDock.videosAt]). The row's window moves (its items keep their own places and moves in it), in 250 ms.
      */
-    private fun anchorTop(context: Context, animate: Boolean = true) {
-        val window = topWindow?.takeIf { it.isLaidOut } ?: return
-        val params = topParams ?: return
-        if (topHiding || topTouch?.dragging == true) return
-        val goals = topMotion.goals.values.filter { it.y > -1f }
-        if (goals.isEmpty()) return
+    /**
+     * Where the window goes so [goals] rest at the videos' place, and the screen edge they come and go by there
+     * (FloatDock.videosEdge). Null while there is nothing to place.
+     */
+    private fun anchorGoal(context: Context, goals: Collection<LiveRect>): Triple<Int, Int, DockEdge>? {
+        if (goals.isEmpty()) return null
         val minX = goals.minOf { it.x }
         val maxX = goals.maxOf { it.x + it.w }
         val minY = goals.minOf { it.y }
         var maxY = goals.maxOf { it.bottom }
         bothChip?.takeIf { it.visibility == View.VISIBLE }?.let { maxY += dp(context, 8) + it.height }
         val at = windowAt()
-        val left0 = at[0] + minX
-        val top0 = at[1] + restTop + minY
-        val (x, y) = FloatDock.videosAt(videoPlace, maxX - minX, maxY - minY, floatScreen(context), pillWindow?.let { dock }, barRest(), dp(context, 8).toFloat())
-        val toX = (x - left0).toInt()
-        val toY = (y - top0).toInt()
+        val screen = floatScreen(context)
+        val bar = barRest()
+        val docked = pillWindow?.let { dock }
+        val gap = dp(context, 8).toFloat()
+        val (x, y) = FloatDock.videosAt(videoPlace, maxX - minX, maxY - minY, screen, docked, bar, gap)
+        val edge = FloatDock.videosEdge(videoPlace, maxX - minX, maxY - minY, screen, docked, bar, gap)
+        return Triple((x - (at[0] + minX)).toInt(), (y - (at[1] + restTop + minY)).toInt(), edge)
+    }
+
+    /**
+     * Past which screen edge the items come in and go out (2026-11-27, hen: "if the video is docked any edge it should
+     * exit and enter from that edge"), in the items' own frame, at where the window rests for [goals] (where it is,
+     * while it is being dragged or there is nothing to place).
+     */
+    private fun topAway(context: Context, goals: Collection<LiveRect>): LiveAway {
+        val params = topParams
+        val goal = if (topTouch?.dragging == true) null else anchorGoal(context, goals)
+        val at = windowAt()
+        val originX = (at[0] + (goal?.first ?: params?.x ?: 0)).toFloat()
+        val originY = (at[1] + (goal?.second ?: params?.y ?: 0) + restTop).toFloat()
+        val screen = floatScreen(context)
+        val shadow = dp(context, 12).toFloat()
+        return LiveAway(goal?.third ?: DockEdge.TOP, -originX - shadow, -originY - shadow, screen.w - originX + shadow, screen.h - originY + shadow)
+    }
+
+    private fun anchorTop(context: Context, animate: Boolean = true) {
+        val window = topWindow?.takeIf { it.isLaidOut } ?: return
+        val params = topParams ?: return
+        if (topHiding || topTouch?.dragging == true) return
+        val (toX, toY) = anchorGoal(context, topMotion.goals.values.filter { it.y > -1f }) ?: return
         if (toX == params.x && toY == params.y && topMove?.isRunning != true) return
         topMove?.cancel()
         val wm = context.getSystemService(WindowManager::class.java)
@@ -2019,7 +2045,7 @@ object TalkBubble {
         // The screen's own left edge and width, as the window sees them.
         val targets = LiveLayout.place(items, screen, gap, topRtl, left = -window[0].toFloat())
         // From above the screen's top edge, the shadow too.
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil)
+        val moved = topMotion.target(targets, topAway(context, targets.values), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil)
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (screen ${screen.toInt()}, window at ${window[0]},${window[1]}, ${if (topRtl) "right to left" else "left to right"})")
         showTop()
@@ -2071,7 +2097,7 @@ object TalkBubble {
             if (cell.video) size(cell.box, bw.toInt(), bh.toInt())
         }
         val targets = LiveGroupLayout.place(slots, width, gap, topHeight(context).toFloat(), myShape, topRtl, left = -window[0].toFloat() + margin, chip = chipSize)
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil)
+        val moved = topMotion.target(targets, topAway(context, targets.values), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil)
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "group row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} y=${r.y.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (${hidden.size} more; ${if (topRtl) "right to left" else "left to right"})")
         showTop()
@@ -2697,7 +2723,7 @@ object TalkBubble {
         groupCells.values.forEach { it.cell.on = false }
         bothChip?.visibility = View.GONE
         topRoom.intValue = 0
-        topMotion.target(emptyMap(), (restTop + windowAt()[1] + dp(window.context, 12)).toFloat())
+        topMotion.target(emptyMap(), topAway(window.context, topMotion.goals.values.filter { it.y > -1f }))
         if (topMotion.running) frames() else removeTop()
     }
 

@@ -17,6 +17,26 @@ data class LiveRect(val x: Float, val y: Float, val w: Float, val h: Float, val 
     val bottom: Float get() = y + h
 }
 
+/**
+ * Where items come in from and go out to (2026-11-27, hen: "if the video is docked any edge it should exit and enter
+ * from that edge"): just past [edge] of the screen, whose four sides are given in the items' own frame ([LiveRect]),
+ * with the shadow's room already added.
+ */
+data class LiveAway(val edge: DockEdge, val left: Float, val top: Float, val right: Float, val bottom: Float) {
+    /** [r] just outside the screen at [edge], at its own place along it. */
+    fun out(r: LiveRect): LiveRect = when (edge) {
+        DockEdge.TOP -> r.copy(y = top - r.h)
+        DockEdge.BOTTOM -> r.copy(y = bottom)
+        DockEdge.LEFT -> r.copy(x = left - r.w)
+        DockEdge.RIGHT -> r.copy(x = right)
+    }
+
+    companion object {
+        /** Up through the top edge, [offTop] above the items' resting top. */
+        fun above(offTop: Float) = LiveAway(DockEdge.TOP, Float.NEGATIVE_INFINITY, -offTop, Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+    }
+}
+
 object LiveLayout {
     const val THEIRS = "theirs"
     const val MINE = "mine"
@@ -219,7 +239,11 @@ class LiveMotion(private val ms: Long = 300L) {
      * [inPlace]: new items are simply there, in their place (the chat's row handed over to the floating window as the
      * app went: 2026-11-27, hen, "the videos or voices should stay put, not exit and enter").
      */
-    fun target(targets: Map<String, LiveRect>, offTop: Float, small: Float = 0f, inPlace: Boolean = false): Boolean {
+    fun target(targets: Map<String, LiveRect>, offTop: Float, small: Float = 0f, inPlace: Boolean = false): Boolean =
+        target(targets, LiveAway.above(offTop), small, inPlace)
+
+    /** As [target] with offTop, through [away]'s edge instead of the top (the floating videos, by where they rest). */
+    fun target(targets: Map<String, LiveRect>, away: LiveAway, small: Float = 0f, inPlace: Boolean = false): Boolean {
         var restart = moves.any { (key, m) -> key !in targets && !m.leaving }
         for ((key, t) in targets) {
             val m = moves[key]
@@ -240,16 +264,16 @@ class LiveMotion(private val ms: Long = 300L) {
         for ((key, m) in moves) {
             m.from = m.now
             if (key !in targets && !m.leaving) {
-                // Out through the top edge from where it is, as it is.
+                // Out through the edge from where it is, as it is.
                 m.leaving = true
-                m.to = m.now.copy(y = -(m.now.h + offTop))
+                m.to = away.out(m.now)
             }
         }
         for ((key, t) in targets) {
             val m = moves[key]
             if (m == null) {
-                // In from above the top edge, already in its own place sideways and at its final size.
-                val above = if (inPlace) t else t.copy(y = -(t.h + offTop))
+                // In from past the edge, already in its own place along it and at its final size.
+                val above = if (inPlace) t else away.out(t)
                 moves[key] = Move(above, t, above, false)
             } else {
                 m.to = t
