@@ -761,7 +761,6 @@
     <string name="chat_received_at">התקבל %1$s</string>
     <string name="chat_received">התקבל</string>
     <string name="chat_received_by">התקבל אצל %1$s</string>
-    <string name="talk_waiting_for">בהמתנה ל%1$s…</string>
     <string name="chat_suggest_call">לעבור לשיחת וידאו?</string>
     <string name="chat_my_draft">ההודעה שלך</string>
     <string name="chat_edited">נערכה</string>

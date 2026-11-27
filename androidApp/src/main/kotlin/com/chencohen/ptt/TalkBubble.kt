@@ -89,13 +89,15 @@ object TalkBubble {
     private const val LONG_PRESS_MS = 400L
     /** How long after the app or chat goes the top row takes over in place ([takingOverRow]). */
     private const val IN_PLACE_MS = 1_500L
+    /** How long a press handed to the chat by Chat waits for the chat to take it. */
+    private const val PENDING_BACK_MS = 5_000L
     /** Upright on a side edge: Stop is this tall (its icon over the time). */
     private const val STOP_UPRIGHT_DP = 84
     /** The room kept beside the bar for the lock while Push is held. */
     private const val HINTS_DP = 58
     /** Folded into its edge, this much of the bar still shows: a handle at the top or bottom, a tab at the sides. */
     private const val PEEK_DP = 14
-    private const val PEEK_SIDE_DP = 18
+    private const val PEEK_SIDE_DP = 24
 
     // ---- Where the bar rests, and folding (2026-11-27, hen: "drag the floating bar ... along the edges", "auto hide in
     // a smart way", "if docked to the side edges ... hide and be able to return with a gesture") ----
@@ -145,8 +147,6 @@ object TalkBubble {
     private var pillMorph: android.animation.ValueAnimator? = null
     /** "■ Stop · 00:00" at its widest: the Stop pill's width, the same whatever the time says. */
     private var stopWidth = 0
-    /** My press waits for the floor (TalkPhase.WAITING): shown as waiting, never as live. */
-    private var waiting = false
     private var chatButton: ImageView? = null
     private var button: ImageView? = null
     private var closeButton: ImageView? = null
@@ -674,7 +674,6 @@ object TalkBubble {
             pillChat = 1f
             pillDecline = 0f
             barDrag = false
-            waiting = false
             folded = false
             barShown = 1f
             moving = false
@@ -771,6 +770,53 @@ object TalkBubble {
         val wantCamera = (warming || sendingVideo) && ringing == null
         if (wantCamera && !previewOn) preview(context, true) else if (!wantCamera && previewOn) preview(context, false)
         pickPreview()
+        showChatFace(context)
+    }
+
+    /** My press, handed to [chat]'s screen by a tap on Chat [at], until that screen takes it ([handBack]). */
+    private class PendingBack(val chat: String, val video: Boolean, val urgent: Boolean, val at: Long)
+    private var pendingBack: PendingBack? = null
+
+    /** The chat whose face [chatButton] shows. */
+    private var chatFaceOf: String? = null
+
+    /**
+     * Chat's button is the other person's face (2026-11-27, hen: "replace the chat icon with the recipient avatar"):
+     * their picture, else the first letter of the chat's name on the button's circle (a group's always).
+     */
+    private fun showChatFace(context: Context) {
+        val button = chatButton ?: return
+        val chat = chat ?: return
+        val key = "$chat|$title"
+        if (chatFaceOf == key) return
+        chatFaceOf = key
+        button.setPadding(0, 0, 0, 0)
+        button.scaleType = ImageView.ScaleType.CENTER_CROP
+        button.clipToOutline = true
+        button.setImageBitmap(letterFace(context, title))
+        if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) return
+        val app = context.applicationContext as? TalkApp ?: return
+        app.scope.launch {
+            val id = kotlinx.coroutines.withTimeoutOrNull(1_000) { com.chencohen.ptt.ui.face.Faces.ids(app).first { it.containsKey(chat) } }?.get(chat) ?: return@launch
+            val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, chat, id) }.getOrNull() ?: return@launch
+            main.post { if (chatButton === button && chatFaceOf == key) button.setImageBitmap(bitmap.asAndroidBitmap()) }
+        }
+    }
+
+    /** The first letter of [name], white on the button's circle. */
+    private fun letterFace(context: Context, name: String): android.graphics.Bitmap {
+        val size = dp(context, 48)
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val letter = name.trim().takeIf { it.isNotEmpty() }?.let { String(Character.toChars(it.codePointAt(0))).uppercase() } ?: "?"
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = size * 0.42f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+        }
+        val canvas = Canvas(bitmap)
+        canvas.drawText(letter, size / 2f, size / 2f - (paint.descent() + paint.ascent()) / 2, paint)
+        return bitmap
     }
 
     /**
@@ -1082,30 +1128,11 @@ object TalkBubble {
         }
     }
 
-    /**
-     * Waiting for the floor looks like waiting (2026-11-25, hen): the push button dimmed inside a dashed ring, and
-     * "Waiting for Sharon…" in Stop's place when hands-free; back to its live look the moment the turn comes.
-     */
-    private fun showWaiting(context: Context) {
-        (button?.background as? GradientDrawable)?.apply {
-            if (waiting) {
-                setColor(0x66E9504F)
-                setStroke(dp(context, 2), 0xFFFFB3A8.toInt(), dp(context, 5).toFloat(), dp(context, 4).toFloat())
-            } else {
-                setColor(PINK)
-                if (talking) setStroke(dp(context, 4), 0x80FFB3A8.toInt()) else setStroke(0, Color.TRANSPARENT)
-            }
-        }
-        button?.contentDescription = if (waiting) context.getString(R.string.talk_waiting_for, title) else context.getString(if (talking) R.string.bubble_send else R.string.bubble_talk_hint)
-        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else if (urgent) URGENT else PINK)
-        updateStop()
-    }
-
     /** Hands-free: the push button's place is "■ Stop · 0:42". */
     private fun showLocked(on: Boolean) {
         stopShown = on
         // Locked on the bell: a red Stop (2026-11-26, hen).
-        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else if (urgent) URGENT else PINK)
+        (stopPill?.background as? GradientDrawable)?.setColor(if (urgent) URGENT else PINK)
         updateStop()
         morphPill()
     }
@@ -1232,8 +1259,16 @@ object TalkBubble {
             DockEdge.LEFT -> inside.left += edgeInset
             DockEdge.RIGHT -> inside.right -= edgeInset
         }
+        // Folded at a side: the tab takes touches a little further in than it shows, and Android's back gesture leaves
+        // it alone there (2026-11-27, hen: "on the edge and minimized it's hard to interact with because of the
+        // Android gesture").
+        if (folded && dock.edge.upright) {
+            val more = dp(row.context, 20)
+            if (dock.edge == DockEdge.LEFT) r.right += more else r.left -= more
+        }
         if (!r.intersect(inside)) r.setEmpty()
         holder.rootSurfaceControl?.setTouchableRegion(android.graphics.Region(r))
+        holder.systemGestureExclusionRects = if (dock.edge.upright && !r.isEmpty) listOf(android.graphics.Rect(r)) else emptyList()
     }
 
     /** Someone is talking in the bar's chat, or I am, or a call rings, or the bar is in my hand. */
@@ -1418,7 +1453,7 @@ object TalkBubble {
         val window = topWindow?.takeIf { it.isLaidOut } ?: return
         val params = topParams ?: return
         if (topHiding || topTouch?.dragging == true) return
-        val goals = topMotion.goals.values.filter { it.y > -1f }
+        val goals = topMotion.goals.filter { !topMotion.leaving(it.key) }.values
         if (goals.isEmpty()) return
         val minX = goals.minOf { it.x }
         val maxX = goals.maxOf { it.x + it.w }
@@ -1456,6 +1491,25 @@ object TalkBubble {
         }
     }
 
+    /**
+     * The screen edge the videos rest at, which they come in and go out through (2026-11-27, hen: "if the video is
+     * docked to any edge it should exit and enter from that edge"): the bottom when they rest there, a side when
+     * dropped against it partway down, else the top (null: the row's own way, up through the top).
+     */
+    private fun awayEdge(context: Context, window: IntArray): ((com.chencohen.ptt.ui.live.LiveRect) -> com.chencohen.ptt.ui.live.LiveRect)? {
+        val params = topParams ?: return null
+        val screen = floatScreen(context)
+        val left = (window[0] + params.x).toFloat()
+        val top = (window[1] + params.y + restTop).toFloat()
+        val pad = dp(context, 16).toFloat()
+        return when {
+            videoPlace.height == Height.BOTTOM -> { r -> r.copy(y = screen.h - top + pad) }
+            videoPlace.height == Height.FREE && videoPlace.lean == Lean.LEFT -> { r -> r.copy(x = -left - r.w - pad) }
+            videoPlace.height == Height.FREE && videoPlace.lean == Lean.RIGHT -> { r -> r.copy(x = screen.w - left + pad) }
+            else -> null
+        }
+    }
+
     /** The videos were let go here ([at]: their frame on the screen): they rest there from now on. */
     private fun droppedVideos(context: Context, at: ScreenRect) {
         videoPlace = FloatDock.dropVideos(at, floatScreen(context))
@@ -1467,7 +1521,7 @@ object TalkBubble {
     /** The videos' frame on the screen now (with what a drag added). */
     private fun videosNow(): ScreenRect? {
         val params = topParams ?: return null
-        val goals = topMotion.goals.values.filter { it.y > -1f }
+        val goals = topMotion.goals.filter { !topMotion.leaving(it.key) }.values
         if (goals.isEmpty()) return null
         val at = windowAt()
         val l = at[0] + params.x + goals.minOf { it.x }
@@ -1477,10 +1531,11 @@ object TalkBubble {
 
     /**
      * The chat's hands-free push goes on here (2026-11-27, hen: "when I'm transmitting hands-free from the chat screen
-     * and exit to the home screen it should keep transmitting with the floating layout"): the chat let its press go
-     * (sent); a moment later the floating window takes the floor again, locked, as if slid to hands-free here ([video]:
-     * my camera, through Talk's foreground service; [urgent]: the bell's). False when the floating window may not show
-     * (the setting, the permission, the screen off or locked): then the push ends with the chat, as before.
+     * and exit to the home screen it should keep transmitting with the floating layout"): the same press, taken over as
+     * it is, locked as if slid to hands-free here ([video]: my camera, kept open, through Talk's foreground service;
+     * [urgent]: the bell's). Between two presses (or when the service can't take it), the chat's is let go and a new
+     * one pressed here a moment later. False when the floating window may not show (the setting, the permission, the
+     * screen off or locked): then the push ends with the chat, as before.
      */
     fun takeOver(context: Context, chat: String, title: String, video: Boolean, urgent: Boolean): Boolean {
         val app = context.applicationContext
@@ -1499,7 +1554,23 @@ object TalkBubble {
             locked = true
             lockSince = System.currentTimeMillis()
             showLocked(true)
+            // My press still going on there: it goes on here as it is, the same burst, the camera and the room's
+            // track never let go (2026-11-27, hen: "the video should stay as a floating window ... without remounting
+            // the camera view"). The renewal comes when its own 55 s are up.
+            val own = messagingState(app).value.talk.own?.takeIf {
+                it.chat == chat && (it.phase == com.chencohen.ptt.talk.TalkPhase.TALKING || it.phase == com.chencohen.ptt.talk.TalkPhase.REQUESTING)
+            }
+            if (own != null && adopt(app, chat, video, own.startedAt)) {
+                if (urgent) showUrgent(app)
+                main.removeCallbacks(renew)
+                main.postDelayed(renew, (RENEW_MS - (System.currentTimeMillis() - own.startedAt)).coerceIn(1_000L, RENEW_MS))
+                refreshTop(app)
+                Log.i(TAG, "hands-free ${if (video) "video" else "voice"} taken over from the chat, the same burst")
+                return@post
+            }
             refreshTop(app)
+            // Not taken as it is: the chat's press (if any) is let go, and a new one is pressed here a moment later.
+            if (own != null) (app as? TalkApp)?.scope?.launch { com.chencohen.ptt.talkBack(app, null, down = false, send = true) }
             main.postDelayed({
                 if (pillWindow == null || talking || this.chat != chat || !locked) return@postDelayed
                 startTalk(app, video = video)
@@ -1531,6 +1602,52 @@ object TalkBubble {
 
     /** [chat] came on screen in the app: its own buttons are there, so the floating bar for it goes. */
     fun chatOpened(chat: String) = main.post { if (this.chat == chat && !talking && !locked) dismissNow() }
+
+    /**
+     * Where an item handed over by the chat starts in the top row: where it was in the chat's row, in this window's
+     * frames (2026-11-27, hen: "when leaving, the video should move to the new position without leaving the screen").
+     */
+    private fun fromChat(window: IntArray): ((String, LiveRect) -> LiveRect?)? {
+        if (System.currentTimeMillis() >= inPlaceUntil) return null
+        val params = topParams ?: return null
+        val rows = com.chencohen.ptt.ui.live.LiveHandoff.chat.takeIf { it.isNotEmpty() } ?: return null
+        val left = (window[0] + params.x).toFloat()
+        val top = (window[1] + params.y + restTop).toFloat()
+        return { key, t -> rows[key]?.let { s -> LiveRect(s.left - left, s.top - top, s.w, s.h, t.video) } }
+    }
+
+    /** The top row's items where they are now on the screen. */
+    private fun topOnScreen(): Map<String, ScreenRect> {
+        val params = topParams ?: return emptyMap()
+        val at = windowAt()
+        val left = (at[0] + params.x).toFloat()
+        val top = (at[1] + params.y + restTop).toFloat()
+        return topMotion.rects.filterKeys { !topMotion.leaving(it) }.mapValues { (_, r) -> ScreenRect(left + r.x, top + r.y, left + r.x + r.w, top + r.y + r.h) }
+    }
+
+    /**
+     * [chat]'s screen came to the front (2026-11-27, hen: "if I have the floating layout and enter the same user's chat
+     * screen, the floating layout should close"; "the video should move to the in-chat position, at the moment I see
+     * two camera videos"): the floating window goes at once, its items handed to the chat's row from where they are
+     * ([LiveHandoff]). My press held here goes back to the chat as it is: returned as (video, urgent), null when none.
+     * Main thread.
+     */
+    fun handBack(chat: String): Pair<Boolean, Boolean>? {
+        // Chat tapped here while my press went on: it is the chat's now.
+        pendingBack?.takeIf { it.chat == chat }?.let { back ->
+            pendingBack = null
+            if (System.currentTimeMillis() - back.at < PENDING_BACK_MS) return back.video to back.urgent
+        }
+        if (this.chat != chat || pillWindow == null) return null
+        if (QuickReplyWindow.showing(chat)) return null
+        com.chencohen.ptt.ui.live.LiveHandoff.fromFloating(topOnScreen(), System.currentTimeMillis())
+        val context = pillWindow?.context
+        val mine = if (talking && context != null) (sendingVideo to urgent).also { letGoOfPress(context) } else null
+        if (outside == null) removeTop()
+        dismissNow()
+        Log.i(TAG, "back in the chat: the floating window goes" + if (mine != null) ", my press goes on there" else "")
+        return mine
+    }
 
     /**
      * While the bar is lifted: the edges it can go to, dashed, the one it would go to now filled (an overlay that
@@ -1708,11 +1825,8 @@ object TalkBubble {
         val stop = stopPill ?: return
         if (!stopShown) return
         val s = ((System.currentTimeMillis() - lockSince) / 1000).coerceAtLeast(0)
-        // Waiting for the floor says so, not a time that looks like sending.
         val upright = dock.edge.upright
         val words = when {
-            waiting && upright -> "…"
-            waiting -> stop.context.getString(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(title))
             // Upright on a side edge: the icon over the time.
             upright -> (if (urgent) "🔔" else "■") + "\n%d:%02d".format(s / 60, s % 60)
             else -> (if (urgent) "🔔  " else "■  ") + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
@@ -1788,6 +1902,44 @@ object TalkBubble {
         }
     }
 
+    /**
+     * Takes over my press already going on in [chat] (begun on the chat's screen [since]): talking here from now, the
+     * service keeping the microphone (and the camera, [video]) in the background; nothing is pressed anew. False when
+     * the service can't: the caller presses anew instead.
+     */
+    private fun adopt(context: Context, chat: String, video: Boolean, since: Long): Boolean {
+        val wantVideo = video && cameraAllowed(context)
+        val ok = runCatching {
+            context.startForegroundService(
+                Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_TALK_BACK).putExtra(TalkReadyService.EXTRA_CHAT, chat)
+                    .putExtra(TalkReadyService.EXTRA_VIDEO, wantVideo).putExtra(TalkReadyService.EXTRA_ADOPT, true),
+            )
+        }.onFailure { Log.w(TAG, "can't take the chat's push over", it) }.isSuccess
+        if (!ok) return false
+        sendingVideo = wantVideo
+        goingLive = false
+        talking = true
+        talkStarted = since
+        runStarted = since
+        (button?.background as? GradientDrawable)?.apply { setColor(PINK); setStroke(dp(context, 4), 0x80FFB3A8.toInt()) }
+        button?.setImageResource(R.drawable.ic_bubble_send)
+        button?.contentDescription = context.getString(R.string.bubble_send)
+        showMode(context)
+        return true
+    }
+
+    /** My press goes on elsewhere (full screen): this window stops holding it, without letting it go. */
+    private fun letGoOfPress(context: Context) {
+        main.removeCallbacks(renew)
+        talking = false
+        locked = false
+        sendingVideo = false
+        goingLive = false
+        talkStarted = 0L
+        runStarted = 0L
+        runCatching { context.startService(Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_HAND_BACK)) }
+    }
+
     private fun endTalk(context: Context, send: Boolean, keepLock: Boolean = false) {
         if (!talking) return
         // Stop: sending ends at once, and my box goes up showing my camera live: the room's track keeps reading it for
@@ -1797,10 +1949,6 @@ object TalkBubble {
         // Kept only for the lock's video right after; a real end starts the next press anew.
         talkEndedAt = if (keepLock) System.currentTimeMillis() else 0L
         if (!keepLock) talkStarted = 0L
-        if (waiting) {
-            waiting = false
-            showWaiting(context)
-        }
         if (!keepLock) {
             locked = false
             warming = false
@@ -1878,12 +2026,12 @@ object TalkBubble {
         val theirOn = !group && (burstLive || (out != null && out.theirs != LiveKind.None)) && !topPutAway
         val theirsVideo = theirOn && theirVideoWanted() && (theirPictureReady(context) || !theirWasPill)
         // Mine stays a box from the lock to Stop, through the moment between a hands-free floor and its renewal.
-        // A press that waits for the floor sends nothing and shows nothing live (2026-11-25, hen: "only when the UI
+        // Nothing waits for a floor (2026-11-27, hen: "remove this logic"; before: "only when the UI
         // says it's transmitting, then transmit"): no pill or box of mine until its turn comes.
         // A lock from the side target is voice: my pill, staying through its renewals, never a box.
         val voiceLock = locked && (urgent || sideVoice)
-        val mine = ((sendingVideo || goingLive || (locked && !voiceLock)) && !waiting) || out?.mine == LiveKind.Video
-        val myVoice = !mine && !topPutAway && (((talking || voiceLock) && !waiting) || out?.mine == LiveKind.Voice)
+        val mine = (sendingVideo || goingLive || (locked && !voiceLock)) || out?.mine == LiveKind.Video
+        val myVoice = !mine && !topPutAway && ((talking || voiceLock) || out?.mine == LiveKind.Voice)
         main.removeCallbacks(hideSoon)
         val groupOn = members.isNotEmpty() || groupCells.values.any { it.cell.on }
         if (!theirOn && !mine && !myVoice && !groupOn) {
@@ -2019,7 +2167,7 @@ object TalkBubble {
         // The screen's own left edge and width, as the window sees them.
         val targets = LiveLayout.place(items, screen, gap, topRtl, left = -window[0].toFloat())
         // From above the screen's top edge, the shadow too.
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil)
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil, away = awayEdge(context, window), from = fromChat(window))
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (screen ${screen.toInt()}, window at ${window[0]},${window[1]}, ${if (topRtl) "right to left" else "left to right"})")
         showTop()
@@ -2071,7 +2219,7 @@ object TalkBubble {
             if (cell.video) size(cell.box, bw.toInt(), bh.toInt())
         }
         val targets = LiveGroupLayout.place(slots, width, gap, topHeight(context).toFloat(), myShape, topRtl, left = -window[0].toFloat() + margin, chip = chipSize)
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil)
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil, away = awayEdge(context, window), from = fromChat(window))
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "group row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} y=${r.y.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (${hidden.size} more; ${if (topRtl) "right to left" else "left to right"})")
         showTop()
@@ -2391,11 +2539,16 @@ object TalkBubble {
             background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), TEAL) }
             setOnClickListener {
                 val chat = rowChat() ?: return@setOnClickListener
-                if (talking) {
+                // Live now: the same press goes on in full screen, my microphone (and camera) still on (2026-11-27,
+                // hen); this window only stops holding it.
+                val mic = talking && this@TalkBubble.chat == chat
+                val camera = mic && sendingVideo
+                if (mic) letGoOfPress(context)
+                else if (talking) {
                     locked = false
                     endTalk(context, send = true)
                 }
-                com.chencohen.ptt.ui.calls.LiveFull.open(chat, fromFloating = true)
+                com.chencohen.ptt.ui.calls.LiveFull.open(chat, fromFloating = true, mic = mic, camera = camera)
                 openChat(context, chat)
                 if (outside != null) QuickReplyWindow.close(context)
                 dismissNow()
@@ -2869,16 +3022,9 @@ object TalkBubble {
             // The voice's ring on the bar's face; at rest, its light rim.
             if (active) barFace?.setStroke((density * (1.5f + 4 * level)).toInt().coerceAtLeast(rimPx(context)), if (ringing != null) HERE else TEAL)
             else barFace?.setStroke(rimPx(context), RIM)
-            val scale = 1f + 0.15f * (if (talking && !waiting) level else 0f)
+            val scale = 1f + 0.15f * (if (talking) level else 0f)
             button?.scaleX = scale
             button?.scaleY = scale
-            // My press waits for the floor, or its turn came: the button and the row say which.
-            val waits = talking && state.talk.own?.takeIf { it.chat == chat }?.phase == com.chencohen.ptt.talk.TalkPhase.WAITING
-            if (waits != waiting) {
-                waiting = waits
-                showWaiting(context)
-                refreshTop(context)
-            }
             updateStop()
             main.postDelayed(this, 60)
         }
@@ -2919,8 +3065,23 @@ object TalkBubble {
      * moves there), and the top box grows a little and fades into it (200 ms) instead of sliding away.
      */
     private fun intoChat(context: Context, chat: String) {
-        // My push from here ends first (sent): the microphone is on only while a red Push shows.
-        if (talking) {
+        // My push in this chat goes on in the chat's screen as it is (2026-11-27, hen: "when returning from floating to
+        // the chat screen the stream turned off, it should stay on"); one in another chat ends (sent).
+        if (talking && this.chat == chat) {
+            com.chencohen.ptt.ui.live.LiveHandoff.fromFloating(topOnScreen(), System.currentTimeMillis())
+            val back = PendingBack(chat, sendingVideo, urgent, System.currentTimeMillis())
+            pendingBack = back
+            letGoOfPress(context)
+            // Not taken by the chat after all (it didn't open): let go, so nothing goes on unseen.
+            val app = context.applicationContext as? TalkApp
+            main.postDelayed({
+                if (pendingBack === back) {
+                    pendingBack = null
+                    Log.i(TAG, "the chat didn't take my press back: let go")
+                    app?.scope?.launch { com.chencohen.ptt.talkBack(app, null, down = false, send = true) }
+                }
+            }, PENDING_BACK_MS)
+        } else if (talking) {
             locked = false
             endTalk(context, send = true)
         }
@@ -3013,6 +3174,7 @@ object TalkBubble {
         previewOn = false
         ringing = null
         chatButton = null
+        chatFaceOf = null
         button = null
         closeButton = null
         pushBox = null
@@ -3029,7 +3191,6 @@ object TalkBubble {
         pillMorph?.cancel()
         pillMorph = null
         stopShown = false
-        waiting = false
         talking = false
         locked = false
         sendingVideo = false

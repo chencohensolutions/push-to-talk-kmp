@@ -1185,9 +1185,18 @@ internal fun RoomCallScreen(
 object LiveFull {
     val chat = androidx.compose.runtime.mutableStateOf<String?>(null)
     @Volatile var fromFloating = false
+    /** Already live when it opened: my microphone ([startMic]) and camera ([startCamera]) stay on, the same press. */
+    @Volatile var startMic = false
+    @Volatile var startCamera = false
 
-    fun open(chat: String, fromFloating: Boolean) {
+    /**
+     * [mic], [camera]: what I was sending as it opened (2026-11-27, hen: "when transmitting my camera or only voice and
+     * entering full screen my camera or microphone should stay on"); muted otherwise.
+     */
+    fun open(chat: String, fromFloating: Boolean, mic: Boolean = false, camera: Boolean = false) {
         this.fromFloating = fromFloating
+        startMic = mic
+        startCamera = mic && camera
         this.chat.value = chat
     }
 }

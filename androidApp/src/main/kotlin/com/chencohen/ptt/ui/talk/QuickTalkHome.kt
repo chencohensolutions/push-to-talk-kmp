@@ -145,7 +145,7 @@ internal fun QuickTalkHome(
     WarmMicrophone(warmMicrophone)
     var asked by rememberSaveable { mutableStateOf(startChat) }
     // My push runs (held, asking, waiting, or between hands-free renewals): the chosen row stays.
-    val busy = talk.own?.let { it.phase == TalkPhase.REQUESTING || it.phase == TalkPhase.TALKING || it.phase == TalkPhase.WAITING } == true
+    val busy = talk.own?.let { it.phase == TalkPhase.REQUESTING || it.phase == TalkPhase.TALKING } == true
     var heardTalkers by remember { mutableStateOf(talk.talkers.keys) }
     var started by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(talk.talkers.keys) {

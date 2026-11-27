@@ -219,7 +219,15 @@ class LiveMotion(private val ms: Long = 300L) {
      * [inPlace]: new items are simply there, in their place (the chat's row handed over to the floating window as the
      * app went: 2026-11-27, hen, "the videos or voices should stay put, not exit and enter").
      */
-    fun target(targets: Map<String, LiveRect>, offTop: Float, small: Float = 0f, inPlace: Boolean = false): Boolean {
+    fun target(
+        targets: Map<String, LiveRect>, offTop: Float, small: Float = 0f, inPlace: Boolean = false,
+        away: ((LiveRect) -> LiveRect)? = null,
+        /** Where a new item starts instead (null: the usual way in): where it was in the place that handed it over. */
+        from: ((String, LiveRect) -> LiveRect?)? = null,
+    ): Boolean {
+        // Off the screen: above its top edge, or through the edge [away] names (the floating videos rest at the bottom
+        // or a side: 2026-11-27, hen, "if the video is docked to any edge it should exit and enter from that edge").
+        val off: (LiveRect) -> LiveRect = away ?: { r -> r.copy(y = -(r.h + offTop)) }
         var restart = moves.any { (key, m) -> key !in targets && !m.leaving }
         for ((key, t) in targets) {
             val m = moves[key]
@@ -240,16 +248,16 @@ class LiveMotion(private val ms: Long = 300L) {
         for ((key, m) in moves) {
             m.from = m.now
             if (key !in targets && !m.leaving) {
-                // Out through the top edge from where it is, as it is.
+                // Out through the edge from where it is, as it is.
                 m.leaving = true
-                m.to = m.now.copy(y = -(m.now.h + offTop))
+                m.to = off(m.now)
             }
         }
         for ((key, t) in targets) {
             val m = moves[key]
             if (m == null) {
                 // In from above the top edge, already in its own place sideways and at its final size.
-                val above = if (inPlace) t else t.copy(y = -(t.h + offTop))
+                val above = from?.invoke(key, t) ?: if (inPlace) t else off(t)
                 moves[key] = Move(above, t, above, false)
             } else {
                 m.to = t
@@ -315,4 +323,33 @@ class LiveMotion(private val ms: Long = 300L) {
             return bezier((lo + hi) / 2, 0f, 1f)
         }
     }
+}
+
+/**
+ * Where the live items were on the screen as one place handed them to the other (2026-11-27, hen: "when leaving the
+ * video should move to the new position without leaving the screen", and back into the chat on coming back): the
+ * chat's row as it went ([chat]), the floating window's as it gave them back ([floating]). Screen pixels from the
+ * top left; keys as LiveLayout's (theirs, mine).
+ */
+object LiveHandoff {
+    @Volatile var chat: Map<String, ScreenRect> = emptyMap()
+        private set
+    @Volatile var floating: Map<String, ScreenRect> = emptyMap()
+        private set
+    @Volatile private var floatingAt = 0L
+
+    /** The chat's row now: [left], [top] its stage's resting top on the screen, [rects] its items there. */
+    fun chatRow(left: Float, top: Float, rects: Map<String, LiveRect>) {
+        chat = rects.mapValues { (_, r) -> ScreenRect(left + r.x, top + r.y, left + r.x + r.w, top + r.y + r.h) }
+    }
+
+    /** The floating window gave its items back to the chat now, from [rects] on the screen. */
+    fun fromFloating(rects: Map<String, ScreenRect>, now: Long) {
+        floating = rects
+        floatingAt = now
+    }
+
+    /** The floating window's items, if it gave them back within [withinMs] of [now]. */
+    fun recentFloating(now: Long, withinMs: Long = 1_500L): Map<String, ScreenRect> =
+        if (now - floatingAt > withinMs) emptyMap() else floating
 }

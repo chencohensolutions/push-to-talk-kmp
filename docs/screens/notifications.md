@@ -59,9 +59,6 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     button is put by its left edge, `shapePill`). The timer's digits are all one width and Stop is as wide as its
     widest time, so the seconds don't nudge it. The room for the lock above the button is always there, unseen, so
     the window never changes size and the pill never moves when the lock shows; only the pill itself takes touches.
-    A press that waits for the floor looks like waiting, not live: the Push button dimmed inside a dashed ring,
-    "Waiting for Sharon…" in Stop's place when hands-free, and no pill or box of mine in the row at the top until
-    its turn comes.
   - **Voice** (2026-11-24, hen, "B, a slim pill at the top"): a slim pill at the top centre, entering like the video
     box (from the top edge, resting just below the status bar): their face in a teal ring that glows with their voice
     (brightness, glow and thickness follow the level, 60 ms up and 200 ms down; no wave), "Sharon is talking" and the
@@ -109,9 +106,13 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     front keeps it while someone is live in a chat that isn't the one on screen (`TalkPlaying.cameToFront`).
   - **Hands-free goes on** (2026-11-27, hen: "when I'm transmitting hands-free from the chat screen and exit to the
     home screen it should keep transmitting with the floating layout"): leaving the app, or the chat, while my push
-    there is hands-free (voice, video or urgent), the chat lets its press go and the floating window takes the floor
-    again 0.9 s later, locked as if slid to hands-free in it (Stop, renewals every 55 s, through Talk's foreground
-    service so the microphone and camera may go on in the background; `TalkBubble.takeOver`). When the floating
+    there is hands-free (voice, video or urgent), the floating window takes that same press over as it is, locked as
+    if slid to hands-free in it (Stop, the renewal when its 55 s are up), through Talk's foreground service so the
+    microphone and camera go on in the background (`TalkBubble.takeOver`, `TalkReadyService.EXTRA_ADOPT`). Nothing
+    is pressed anew and the camera never closes (2026-11-27, hen: "the video should stay as a floating window ...
+    without remounting the camera view"): a screen letting go of the camera closes it only 1.5 s later, and not while
+    my video burst goes on (`Messaging.COOL_AFTER_MS`). Between two presses (a renewal's moment) the chat's is let go
+    and the floating window presses anew 0.9 s later. When the floating
     window can't show (setting off, no permission, the screen off or locked) leaving the app changes nothing (it goes
     on as before) and leaving the chat ends it.
     My box or pill is in the floating row from the moment the chat lets go, so it stays through the gap, and the new
@@ -119,14 +120,26 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     sooner, the server answered BUSY with my own floor and the bar said "Waiting for testbot…"; 2026-11-27).
   - **Stays put** (2026-11-27, hen: "when moving out to home screen the videos or voices should stay put, not exit
     and enter"): for 1.5 s after the app or the chat goes (`TalkBubble.takingOverRow`), what comes into the top row is
-    simply there in its place instead of dropping in from the screen's top edge (`LiveMotion.target`'s `inPlace`).
+    simply there in its place instead of dropping in from the screen's top edge (`LiveMotion.target`'s `inPlace`); an
+    item the chat's row showed glides from where it was there to its floating place, never leaving the screen
+    (`LiveHandoff.chat`, kept by the chat's `LiveStage`; 2026-11-27, hen).
+  - **Back in the chat** (2026-11-27, hen: "if I have the floating layout and I enter the same user's chat screen,
+    the floating layout should close"; "the video should move to the in-chat position, at the moment I see two
+    camera videos"): that chat coming on screen (opened, or the app back in front on it) closes the floating window
+    at once (`TalkBubble.handBack`); its items are handed to the chat's row from where they were (`LiveHandoff.floating`),
+    and my hands-free press it held goes on in the chat as it is (hands-free there again, video or urgent as it was).
+  - **The chat's face:** Chat's button is the other person's picture (else the chat name's first letter; a group's
+    letter), 2026-11-27, hen: "replace the chat icon with the recipient avatar".
+  - **Through their own edge** (2026-11-27, hen: "if the video is docked to any edge it should exit and enter from
+    that edge"): videos resting at the bottom come in and go out through the bottom edge, ones dropped against a side
+    partway down through that side, the rest through the top (`TalkBubble.awayEdge`).
   - **Moving the bar:** hold it (anywhere but Push) for 400 ms and it lifts; drag it, and the four places light up,
     dashed teal: the top, the bottom, and anywhere along the left or right edge (filled where it would go now). Let go
     and it glides from there into the nearest place (250 ms); it is kept for next time. On a side edge it stands
     upright, Chat above Push, and Stop is "■" over "0:42"; the lock (hands-free video) is then on the screen's inside
     of Push (slide toward the middle), the side target is Chat's place (slide up). At the top the lock is below Push.
   - **Folding:** with nobody talking for 8 s (`FloatDock.QUIET_MS`), when the keyboard comes up, or when an app goes
-    full screen, the bar slides into its edge until only a slim handle (14 dp; a tab of 18 dp on the sides) with its
+    full screen, the bar slides into its edge until only a slim handle (14 dp; a tab of 24 dp on the sides, which takes touches 20 dp further in and is kept from Android's back gesture, `systemGestureExclusionRects`: 2026-11-27, hen, "hard to interact with because of the Android gesture") with its
     grab line shows, its buttons fading in the same move (250 ms). Never while Push is held or hands-free, video is
     live, or a call rings. It comes out by itself the moment anyone starts talking (the tab's rim glows with their
     voice as before); a tap on the handle or tab, or a swipe in from the edge, brings it out too. A slow swipe toward

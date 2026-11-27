@@ -1160,15 +1160,33 @@ internal class Messaging(
         applyWarmCamera()
     }
 
+    /** A let-go of the camera that waits a moment ([COOL_AFTER_MS]), cancelled by a new warm. */
+    private var cooling: Job? = null
+
     private fun applyWarmCamera() {
         val camera = talk.videoCapture ?: return
         // The screen asks for it (pressing Push with Get camera ready on, sliding up, live video): no Voice | Video
         // setting to check any more (2026-11-24, hen).
         val chat = warmWanted?.takeIf { _state.value.call == null }
+        cooling?.cancel()
+        cooling = null
         if (chat != null) {
             if (talk.videoChat != chat) camera.cool()
             talk.videoChat = chat
             camera.warm()
+        } else if (_state.value.call == null) {
+            // Let go a moment later: the chat going off the screen lets go of it, and the floating window that takes
+            // its live video over asks for it again just after; the camera stays open between (2026-11-27, hen: "the
+            // video should stay as a floating window, without remounting the camera").
+            cooling = scope.launch {
+                // Not under my video burst still going (taken over by the floating window or full screen).
+                do delay(COOL_AFTER_MS) while (talk.sendingVideo)
+                if (warmWanted != null && _state.value.call == null) return@launch
+                talk.videoChat = null
+                camera.cool()
+                live.readyVideo(null)
+            }
+            return
         } else {
             talk.videoChat = null
             camera.cool()
@@ -2448,6 +2466,9 @@ internal class Messaging(
     }
 
     companion object {
+        /** How long the camera stays open after the last screen let go of it, for the next to take it over. */
+        const val COOL_AFTER_MS = 1_500L
+
         /** A woken phone stays connected this long after the last burst it played, so a reply can follow. */
         const val TALK_REPLY_WAIT = 20_000L
 

@@ -684,9 +684,9 @@ what goes out are one thing:
 
 - A press is live (pill or box, Stop) from the moment its sound goes into the talk room, and the room's microphone and
   camera are unmuted only while it is live.
-- Waiting for someone else's floor (TalkPhase.WAITING) is shown as waiting: nothing is recorded, nothing is sent, the
-  room's microphone is muted. When their floor ends, the press goes live at that moment and sends from then on.
-- Let go while waiting, offline, or with no answer to the floor: nothing of it is kept or sent (it used to be kept as a
+- Nothing waits for a floor (2026-11-27, hen: "remove this logic"; TalkPhase.WAITING is gone): a Busy with my own
+  floor asks again after letting go of my recent bursts, a Busy from anyone else ends the press as busy.
+- Let go offline, or with no answer to the floor: nothing of it is kept or sent (it used to be kept as a
   voice message, which put 0:01 bubbles in the chat). Only the composer's voice message button records to keep.
 - A burst that was live and then lost the connection keeps what went out as its clip.
 
