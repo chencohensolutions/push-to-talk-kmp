@@ -736,7 +736,7 @@ private fun RoundButton(icon: ImageVector, label: String, color: Color, onClick:
         Box(
             Modifier.size(64.dp).background(color, CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(28.dp)) }
+        ) { com.chencohen.ptt.ui.style.IconsOnAccent { Icon(icon, label, tint = Color.White, modifier = Modifier.size(28.dp)) } }
         Spacer(Modifier.height(6.dp))
         Text(label, color = LibraryColors.PhotoTextMuted, style = LibraryType.Small)
     }
@@ -1093,20 +1093,20 @@ fun ChatCallBottom(call: CallUi, actions: CallActions, fullScreen: () -> Unit) {
             )
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp).navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            SmallCallButton(if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute)) { actions.setMicrophone(!call.microphone) }
-            SmallCallButton(if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on)) { actions.setCamera(!call.camera) }
-            if (call.camera) SmallCallButton(LibraryIcons.Flip, stringResource(R.string.call_flip), actions.switchCamera)
-            SmallCallButton(LibraryIcons.Expand, stringResource(R.string.call_full_screen), fullScreen)
+            SmallCallButton(if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute), if (call.microphone) com.chencohen.ptt.ui.style.IconLive else null) { actions.setMicrophone(!call.microphone) }
+            SmallCallButton(if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on), if (call.camera) com.chencohen.ptt.ui.style.IconLive else null) { actions.setCamera(!call.camera) }
+            if (call.camera) SmallCallButton(LibraryIcons.Flip, stringResource(R.string.call_flip), onClick = actions.switchCamera)
+            SmallCallButton(LibraryIcons.Expand, stringResource(R.string.call_full_screen), onClick = fullScreen)
         }
     }
 }
 
 @Composable
-private fun SmallCallButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun SmallCallButton(icon: ImageVector, label: String, key: Color? = null, onClick: () -> Unit) {
     Box(
         Modifier.size(48.dp).background(LibraryColors.Raised, CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(22.dp)) }
+    ) { com.chencohen.ptt.ui.style.FineIcon(icon, label, Modifier.size(22.dp), tint = LibraryColors.OnBackground, key = key) }
 }
 
 /**

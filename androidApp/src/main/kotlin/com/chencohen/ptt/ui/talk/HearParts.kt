@@ -91,7 +91,7 @@ internal fun HearBadge(hear: Hear, size: Dp, modifier: Modifier = Modifier) {
                 },
             )
             Hear.IN_CALL -> Box(Modifier.size(size).background(ring, CircleShape).padding(1.5.dp).background(LibraryColors.Accent, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(LibraryIcons.Call, null, tint = Color.White, modifier = Modifier.size(size * 0.6f))
+                com.chencohen.ptt.ui.style.IconsOnAccent { Icon(LibraryIcons.Call, null, tint = Color.White, modifier = Modifier.size(size * 0.6f)) }
             }
             else -> Box(Modifier.size(size).background(ring, CircleShape).padding(1.5.dp).background(LibraryColors.Muted, CircleShape), contentAlignment = Alignment.Center) {
                 Icon(LibraryIcons.BellOff, null, tint = Color.White, modifier = Modifier.size(size * 0.62f))
