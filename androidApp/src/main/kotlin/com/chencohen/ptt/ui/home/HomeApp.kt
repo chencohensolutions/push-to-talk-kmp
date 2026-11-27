@@ -321,6 +321,7 @@ fun HomeApp(
             writeHint = writeHint,
             writeOpens = writeOpens,
             colors = messagingState.talkSettings.colorsOf(user),
+            bright = messagingState.talkSettings.brightOf(user),
             // In a group, each member's own colour (2026-11-27, hen: "in group chat there should be color for every contact").
             memberHues = Group.idOf(user)?.let { id ->
                 val g = messagingState.groups.firstOrNull { it.id == id }
@@ -1044,6 +1045,8 @@ fun HomeApp(
                     open = open,
                     camera = camera,
                     since = since,
+                    nameOf = nameOf,
+                    statsAllowed = messagingState.talkSettings.videoStats,
                     setOpen = { mic, cam ->
                         if (mic) {
                             callPermissions(cam) { allowed ->
@@ -1056,6 +1059,13 @@ fun HomeApp(
                         }
                     },
                     minimize = minimize,
+                    // Hang up: my press let go, and the chat (the floating window closes as its chat opens).
+                    end = {
+                        if (open) messaging.releaseTalk(true)
+                        open = false
+                        com.chencohen.ptt.ui.calls.LiveFull.chat.value = null
+                        if (stack.lastOrNull() != "chat/$live") push("chat/$live")
+                    },
                 )
             }
             // A push turned into a call (the talk room's own), over everything like any call.

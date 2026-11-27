@@ -188,6 +188,19 @@ data class TalkSettings(
      * bubbles' and theirs, as ChatColors swatch indexes ([mine, theirs], -1 the default). This phone's only; never sent.
      */
     val colorsFor: Map<String, List<Int>> = emptyMap(),
+    /** When this phone chose each chat's colours (ms): a contact's synced choice that came later wins. */
+    val colorsAt: Map<String, Long> = emptyMap(),
+    /**
+     * The colours each contact chose for our chat and synced (2026-11-27, hen: "sync it with other person phone so same
+     * person will be as the same color on both phone"), already as this phone sees them: [mine, theirs, when (ms)], so
+     * what they chose for their own bubbles is "their messages" here.
+     */
+    val colorsSynced: Map<String, List<Long>> = emptyMap(),
+    /**
+     * The contacts whose Respect synced colours is off (2026-11-27, hen: "enabled by default", and "i thought the
+     * respect colors is per contact setting"): their synced colours don't show here, mine stay (mine are still sent).
+     */
+    val ignoreSyncedFrom: Set<String> = emptySet(),
     /**
      * Push-to-talk kept in the chat as messages (2026-11-24, hen): voice and video each per chat, off by default; off,
      * a burst leaves only a muted line once it ends. Voice messages from the mic button always stay.
@@ -203,8 +216,48 @@ data class TalkSettings(
     /** [chat]'s direction (ChatDirection). */
     fun directionOf(chat: String): Int = directionFor[chat] ?: ChatDirection.FOLLOW
 
-    /** [chat]'s own colours as chosen on its page ([GLOBAL_COLORS]: Settings' for every chat); -1 is "like everyone". */
-    fun ownColorsOf(chat: String): Pair<Int, Int> = colorsFor[chat]?.let { (it.getOrNull(0) ?: -1) to (it.getOrNull(1) ?: -1) } ?: (-1 to -1)
+    /** [chat]'s colours as chosen on this phone ([GLOBAL_COLORS]: Settings' for every chat); -1 is "like everyone". */
+    fun chosenColorsOf(chat: String): Pair<Int, Int> = colorsFor[chat]?.let { (it.getOrNull(0) ?: -1) to (it.getOrNull(1) ?: -1) } ?: (-1 to -1)
+
+    /**
+     * [chat]'s own colours: the contact's synced ones when they chose after this phone did (and synced colours are
+     * respected), else this phone's choice; -1 is "like everyone".
+     */
+    fun ownColorsOf(chat: String): Pair<Int, Int> {
+        if (Group.idOf(chat) != null) return groupColorsOf(chat)
+        val synced = colorsSynced[chat]?.takeIf { chat !in ignoreSyncedFrom && it.size >= 3 }
+        if (synced != null && synced[2] > (colorsAt[chat] ?: 0L)) return synced[0].toInt() to synced[1].toInt()
+        return chosenColorsOf(chat)
+    }
+
+    /**
+     * Group [chat]'s colours (2026-11-27, hen: "it also should be working in groups"): mine as I chose them; theirs (the
+     * members without a colour of their own) the newest "their messages" chosen in the group, by me or by a member who
+     * synced it (while synced colours are respected there). A member's "Like everyone" there is no choice for the others.
+     */
+    private fun groupColorsOf(chat: String): Pair<Int, Int> {
+        val mine = chosenColorsOf(chat)
+        if (chat in ignoreSyncedFrom) return mine
+        val newest = membersSynced(chat).values.filter { it[1] >= 0 }.maxByOrNull { it[2] }
+        return if (newest != null && newest[2] > (colorsAt[chat] ?: 0L)) mine.first to newest[1].toInt() else mine
+    }
+
+    /** What each member of group [chat] synced there, in their words: member → [mine, theirs, when]. */
+    private fun membersSynced(chat: String): Map<String, List<Long>> =
+        colorsSynced.filterKeys { it.startsWith("$chat>") }.filterValues { it.size >= 3 }.mapKeys { it.key.substringAfter('>') }
+
+    /** [member]'s own colour in group [chat], as they synced it there; -1 for none (or not respected there). */
+    fun memberOwnColor(chat: String, member: String): Int =
+        if (chat in ignoreSyncedFrom) -1 else membersSynced(chat)[member]?.get(0)?.toInt() ?: -1
+
+    /** [chat]'s bubble brightness of its own ([light, dark] in hundredths, -1 "like everyone"), or null for none. */
+    fun brightOf(chat: String): List<Int>? = colorsFor[brightKey(chat)]
+
+    /** With [chat]'s own bubble brightness ([light], [dark] in hundredths; -1 "like everyone"; both -1 takes it out). */
+    fun withBright(chat: String, light: Int, dark: Int): TalkSettings {
+        val key = brightKey(chat)
+        return copy(colorsFor = if (light < 0 && dark < 0) colorsFor - key else colorsFor + (key to listOf(light, dark)))
+    }
 
     /**
      * [chat]'s colours as shown: its own, each one "like everyone" (-1) taking Settings' for every chat (2026-11-27,
@@ -227,13 +280,16 @@ data class TalkSettings(
         // My green by default is the third hue.
         val mine = colorsOf(chat).first.let { if (it >= 0) it % hues else 2 }
         val sorted = members.distinct().sorted()
-        // Those already taken (chosen on a contact's page) aren't given to another member, while there are others left.
-        val chosen = sorted.map { ownColorsOf(it).second }.filter { it >= 0 }.map { it % hues }.toSet()
+        // A member's own colour: what they chose for their messages in this group (synced), else what was chosen for
+        // them on their contact's page here.
+        fun own(m: String) = memberOwnColor(chat, m).takeIf { it >= 0 } ?: ownColorsOf(m).second
+        // Those already taken aren't given to another member, while there are others left.
+        val chosen = sorted.map { own(it) }.filter { it >= 0 }.map { it % hues }.toSet()
         val free = (0 until hues).filter { it != mine && it !in chosen }.ifEmpty { (0 until hues).filter { it != mine } }
         val start = (chat.hashCode() and 0x7fffffff) % free.size
         var next = 0
         return sorted.associateWith { m ->
-            val own = ownColorsOf(m).second
+            val own = own(m)
             when {
                 own >= 0 -> own % hues
                 groupTheirs >= 0 -> groupTheirs % hues
@@ -242,9 +298,29 @@ data class TalkSettings(
         }
     }
 
-    /** With [chat]'s colours set (both default takes them out). */
-    fun withColors(chat: String, mine: Int, theirs: Int): TalkSettings =
-        copy(colorsFor = if (mine < 0 && theirs < 0) colorsFor - chat else colorsFor + (chat to listOf(mine, theirs)))
+    /** With [chat]'s colours set (both default takes them out), chosen [at] (ms): newer than any synced ones. */
+    fun withColors(chat: String, mine: Int, theirs: Int, at: Long = 0L): TalkSettings = copy(
+        colorsFor = if (mine < 0 && theirs < 0) colorsFor - chat else colorsFor + (chat to listOf(mine, theirs)),
+        colorsAt = if (at > 0L) colorsAt + (chat to at) else colorsAt,
+    )
+
+    /**
+     * With what [contact] synced for our chat ([ColorsContent], in their words: [mine] is their bubbles), if it is
+     * newer than what they synced before.
+     */
+    /** With what [member] synced in group [chat] ([ColorsContent], in their words), if newer than before. */
+    internal fun withGroupSynced(chat: String, member: String, mine: Int, theirs: Int, at: Long): TalkSettings {
+        val key = "$chat>$member"
+        val before = colorsSynced[key]?.getOrNull(2) ?: Long.MIN_VALUE
+        if (at <= before) return this
+        return copy(colorsSynced = colorsSynced + (key to listOf(mine.toLong(), theirs.toLong(), at)))
+    }
+
+    internal fun withSynced(contact: String, mine: Int, theirs: Int, at: Long): TalkSettings {
+        val before = colorsSynced[contact]?.getOrNull(2) ?: Long.MIN_VALUE
+        if (at <= before) return this
+        return copy(colorsSynced = colorsSynced + (contact to listOf(theirs.toLong(), mine.toLong(), at)))
+    }
 
     /** With [chat]'s direction set ([ChatDirection.FOLLOW] takes it out). */
     fun withDirection(chat: String, direction: Int): TalkSettings =
@@ -269,6 +345,9 @@ data class DeviceVersion(val version: String, val at: Long)
 
 /** TalkSettings.colorsFor's key for Settings' chat colours, for every chat. */
 const val GLOBAL_COLORS = "*"
+
+/** TalkSettings.colorsFor's key for [chat]'s bubble brightness ("*bright" for every chat's). */
+fun brightKey(chat: String): String = if (chat == GLOBAL_COLORS) "*bright" else "$chat*bright"
 
 internal fun versionsOf(saved: Map<String, Map<String, List<String>>>): Map<String, Map<Int, DeviceVersion>> =
     saved.mapValues { (_, devices) ->
@@ -650,6 +729,7 @@ internal class Messaging(
         onViewing = { group, author, open -> if (author != device()?.user) takeViewing(typingKey(group.chat, author), open) },
         onLiveWaiting = { group, author, waiting -> if (author != device()?.user) takeLiveWaiting(typingKey(group.chat, author), waiting) },
         onWarm = { group, author, open -> if (author != device()?.user) takeWarm(group.chat, open) },
+        onColors = { group, author, colors -> if (author != device()?.user) takeGroupColors(group.chat, author, colors) },
         onReaction = { group, author, reaction -> takeReaction(group.chat, if (author == device()?.user) null else author, reaction) },
         onProfile = { _, author, profile -> if (author != device()?.user) takePicture(author, profile, contact = store.contact(author)?.paired == true) },
         onTyping = { group, author, typing ->
@@ -936,6 +1016,9 @@ internal class Messaging(
         videoFor = settings.videoFor,
         directionFor = settings.directionFor,
         colorsFor = settings.colorsFor,
+        colorsAt = settings.colorsAt,
+        colorsSynced = settings.colorsSynced,
+        ignoreSyncedFrom = settings.ignoreSyncedFrom,
         keepVoice = settings.keepVoiceChats,
         keepVideo = settings.keepVideoChats,
         bothLiveCall = settings.bothLiveCallChats,
@@ -980,6 +1063,11 @@ internal class Messaging(
         if (talk.videoFor != before.videoFor) settings.videoFor = talk.videoFor
         if (talk.directionFor != before.directionFor) settings.directionFor = talk.directionFor
         if (talk.colorsFor != before.colorsFor) settings.colorsFor = talk.colorsFor
+        if (talk.colorsSynced != before.colorsSynced) settings.colorsSynced = talk.colorsSynced
+        if (talk.ignoreSyncedFrom != before.ignoreSyncedFrom) settings.ignoreSyncedFrom = talk.ignoreSyncedFrom
+        // A contact's colours chosen here go to them (2026-11-27, hen: "sync it with other person phone"), stamped now.
+        val stamped = syncColors(before, talk)
+        if (stamped != before.colorsAt) settings.colorsAt = stamped
         settings.keepVoiceChats = talk.keepVoice
         settings.keepVideoChats = talk.keepVideo
         settings.bothLiveCallChats = talk.bothLiveCall
@@ -988,8 +1076,64 @@ internal class Messaging(
         // The default turned on: the chats there are now keep theirs (off unless set), only new ones follow it.
         val known = if (talk.liveTyping && !before.liveTyping) knownChats() else talk.liveTypingKnown
         if (known != before.liveTypingKnown) settings.liveTypingKnown = known
-        val talk = talk.copy(liveTypingKnown = known)
+        val talk = talk.copy(liveTypingKnown = known, colorsAt = stamped)
         _state.update { it.copy(talkSettings = talk) }
+    }
+
+    /**
+     * The one-to-one chats whose colours were just chosen on this phone (from [before] to [after]): each is stamped now
+     * and sent to that contact (ColorsContent), "like everyone" too. Groups and the brightness stay here. The colours'
+     * times as they are now.
+     */
+    private fun syncColors(before: TalkSettings, after: TalkSettings): Map<String, Long> {
+        if (after.colorsFor == before.colorsFor) return after.colorsAt
+        val changed = (before.colorsFor.keys + after.colorsFor.keys).filter { chat ->
+            chat != GLOBAL_COLORS && !chat.endsWith("*bright") && before.chosenColorsOf(chat) != after.chosenColorsOf(chat)
+        }
+        if (changed.isEmpty()) return after.colorsAt
+        val at = now()
+        // A group's go to the group, through its Send (2026-11-27, hen: "it also should be working in groups").
+        val groupIds = changed.mapNotNull { Group.idOf(it) }
+        val contacts = changed.filter { Group.idOf(it) == null }.mapNotNull { store.contact(it)?.takeIf { c -> c.paired && !c.blocked } }
+        scope.launch {
+            for (c in contacts) {
+                val (mine, theirs) = after.chosenColorsOf(c.user)
+                try {
+                    sender.send(c.user, Content(colors = ColorsContent(mine, theirs, at)), pushKind = PushKind.NONE)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+            for (id in groupIds) {
+                val (mine, theirs) = after.chosenColorsOf(Group.chatOf(id))
+                try {
+                    groups.send(id, Content(colors = ColorsContent(mine, theirs, at)), PushKind.NONE)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+        }
+        return after.colorsAt + changed.associateWith { at }
+    }
+
+    /** [member] chose group [chat]'s colours ([colors], in their words). */
+    internal fun takeGroupColors(chat: String, member: String, colors: ColorsContent) {
+        val talk = _state.value.talkSettings
+        val next = talk.withGroupSynced(chat, member, colors.mine.coerceIn(-1, 11), colors.theirs.coerceIn(-1, 11), colors.at)
+        if (next == talk) return
+        settings.colorsSynced = next.colorsSynced
+        _state.update { it.copy(talkSettings = next) }
+    }
+
+    /** [user] chose our chat's colours ([colors], in their words). */
+    internal fun takeColors(user: String, colors: ColorsContent) {
+        val talk = _state.value.talkSettings
+        val next = talk.withSynced(user, colors.mine.coerceIn(-1, 11), colors.theirs.coerceIn(-1, 11), colors.at)
+        if (next == talk) return
+        settings.colorsSynced = next.colorsSynced
+        _state.update { it.copy(talkSettings = next) }
     }
 
     /** Records that a kept call was downloaded from the server, so its Download button is gone (idempotent). */
@@ -2393,6 +2537,7 @@ internal class Messaging(
         }
         content.reaction?.let { takeReaction(contact.user, contact.user, it) }
         content.about?.let { takeAbout(contact.user, envelope.senderDevice, it.version) }
+        content.colors?.let { takeColors(contact.user, it) }
         content.profile?.let { profile ->
             if (profile.needPicture) {
                 // They don't have this user's picture after all: it goes again.

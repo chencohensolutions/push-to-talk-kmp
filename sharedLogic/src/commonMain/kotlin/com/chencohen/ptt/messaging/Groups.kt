@@ -70,6 +70,8 @@ internal class Groups(
     private val onLiveWaiting: (group: Group, author: String, waiting: Boolean) -> Unit = { _, _, _ -> },
     /** A member opened (or left) the group's chat: its talk room is joined quietly (Content.warm). */
     private val onWarm: (group: Group, author: String, open: Boolean) -> Unit = { _, _, _ -> },
+    /** A member chose the group's chat colours (2026-11-27, hen: "it also should be working in groups"). */
+    private val onColors: (group: Group, author: String, colors: ColorsContent) -> Unit = { _, _, _ -> },
     private val attempts: Int = 3,
 ) {
     private fun self(): EnrolledDevice = me() ?: throw IllegalStateException("This phone isn't registered")
@@ -443,6 +445,7 @@ internal class Groups(
         content.reaction?.let { onReaction(group, author, it) }
         content.liveWaiting?.let { onLiveWaiting(group, author, it.open) }
         content.warm?.let { onWarm(group, author, it.open) }
+        content.colors?.let { onColors(group, author, it) }
         // (An older app takes only the read ones: a delivered receipt is nothing to it.)
         content.receipt?.takeIf { author != self.user }?.let { if (it.read) onRead(group, author, it.ids) else onDelivered(group, author, it.ids) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }

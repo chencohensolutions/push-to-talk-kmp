@@ -169,12 +169,22 @@ internal val ChatHuesBright = listOf(
  * bright shade with black text, in the dark theme its deep shade with white text. A stored pick from the twelve maps to
  * its hue.
  */
-internal fun chatHue(i: Int, lightPage: Boolean): Color? {
+internal fun chatHue(i: Int, lightPage: Boolean, bright: List<Int>? = null): Color? {
     if (i < 0) return null
     val h = i % ChatHuesDeep.size
     val base = if (lightPage) ChatHuesBright[h] else ChatHuesDeep[h]
-    return shaded(base, lightPage, if (lightPage) ChatShade.light else ChatShade.dark)
+    return shaded(base, lightPage, shadeOf(lightPage, bright))
 }
+
+/**
+ * The bubbles' brightness for this theme: a chat's own ([bright]: [light, dark] in hundredths, -1 "like everyone";
+ * 2026-11-27, hen: "add the slider for brightness also in the contact settings screen"), else every chat's.
+ */
+internal fun shadeOf(lightPage: Boolean, bright: List<Int>?): Float =
+    bright?.getOrNull(if (lightPage) 0 else 1)?.takeIf { it >= 0 }?.let { it / 100f } ?: if (lightPage) ChatShade.light else ChatShade.dark
+
+/** The chat's own bubble brightness ([ChatColors]' bright), for its group members' colours too ([TheirHue]). */
+internal val LocalChatBright = androidx.compose.runtime.staticCompositionLocalOf<List<Int>?> { null }
 
 /**
  * The bubbles' brightness (2026-11-27, hen: "make it from white to black slider, the brightness, default at center"),
@@ -234,23 +244,24 @@ internal fun chatHueLine(i: Int): Color? = if (i < 0) null else ChatHuesDeep[i %
 
 /** [content] with a chat's colours ([mine], [theirs]: chat hue indexes, -1 the default), in this theme's shade. */
 @Composable
-internal fun ChatColors(mine: Int, theirs: Int, content: @Composable () -> Unit) {
-    if (mine < 0 && theirs < 0) return content()
+internal fun ChatColors(mine: Int, theirs: Int, bright: List<Int>? = null, content: @Composable () -> Unit) {
+    if (mine < 0 && theirs < 0) return CompositionLocalProvider(LocalChatBright provides bright, content = content)
     val base = LocalLibraryPalette.current
-    val palette = androidx.compose.runtime.remember(base, mine, theirs, ChatShade.light, ChatShade.dark) {
+    val palette = androidx.compose.runtime.remember(base, mine, theirs, bright, ChatShade.light, ChatShade.dark) {
         val light = base.Background.luminance() > 0.5f
-        base.withChatColors(chatHue(mine, light), chatHue(theirs, light), chatHueLine(mine), chatHueLine(theirs))
+        base.withChatColors(chatHue(mine, light, bright), chatHue(theirs, light, bright), chatHueLine(mine), chatHueLine(theirs))
     }
-    CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
+    CompositionLocalProvider(LocalLibraryPalette provides palette, LocalChatBright provides bright, content = content)
 }
 
 /** [content] with their colour as hue [i] (a group member's), in this theme's shade; mine as it is. */
 @Composable
 internal fun TheirHue(i: Int, content: @Composable () -> Unit) {
     val base = LocalLibraryPalette.current
-    val palette = androidx.compose.runtime.remember(base, i, ChatShade.light, ChatShade.dark) {
+    val bright = LocalChatBright.current
+    val palette = androidx.compose.runtime.remember(base, i, bright, ChatShade.light, ChatShade.dark) {
         val light = base.Background.luminance() > 0.5f
-        base.withChatColors(null, chatHue(i, light), null, chatHueLine(i))
+        base.withChatColors(null, chatHue(i, light, bright), null, chatHueLine(i))
     }
     CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
 }
