@@ -635,7 +635,7 @@
     <string name="chat_colors_default">Default</string>
     <string name="chat_colors_sample_theirs">On my way</string>
     <string name="chat_colors_sample_mine">Great, see you soon</string>
-    <string name="chat_colors_body">Only on this phone. Your messages keep their green outline until everyone has them.</string>
+    <string name="chat_colors_body">Only on this phone. Your messages, their outline while sending and the writing box take your colour; their messages and their live writing take theirs.</string>
     <string name="contact_version">Their app</string>
     <string name="contact_version_line">Talk %1$s</string>
     <string name="contact_version_phone">Phone %1$d</string>

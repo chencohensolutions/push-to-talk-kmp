@@ -1839,23 +1839,23 @@ internal fun DraftBubble(
         Column(
             Modifier.widthIn(max = bubbleMaxWidth())
                 .then(if (settled > 0f) Modifier.animateContentSize(androidx.compose.animation.core.tween(250)) else Modifier)
-                .border(1.dp, LibraryColors.Accent.copy(alpha = 0.5f * (1f - settled)), shape)
-                .background(LibraryColors.Raised.copy(alpha = 0.5f + 0.5f * settled), shape)
+                .border(1.dp, LibraryColors.TheirLine.copy(alpha = 0.5f * (1f - settled)), shape)
+                .background(LibraryColors.Theirs.copy(alpha = 0.5f + 0.5f * settled), shape)
                 .padding(padding),
         ) {
             if (settled < 1f) {
                 Text(
                     if (who != null) com.chencohen.ptt.genderedString(R.string.chat_draft_by, who, who) else com.chencohen.ptt.genderedString(R.string.chat_draft, draftUser),
-                    color = LibraryColors.Accent.copy(alpha = 1f - settled), style = LibraryType.Small,
+                    color = LibraryColors.TheirLine.copy(alpha = 1f - settled), style = LibraryType.Small,
                     modifier = Modifier.padding(bottom = 2.dp),
                 )
             }
             Text(
                 if (settled > 0f) text else "$text\u258F",
-                color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * settled), style = LibraryType.Message,
+                color = LibraryColors.OnTheirs.copy(alpha = 0.75f + 0.25f * settled), style = LibraryType.Message,
             )
             if (time != null && settled > 0f) {
-                Text(time, color = LibraryColors.Muted.copy(alpha = settled), style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End).padding(top = 2.dp))
+                Text(time, color = LibraryColors.OnTheirsMuted.copy(alpha = 0.6f * settled), style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End).padding(top = 2.dp))
             }
         }
     }
@@ -1920,8 +1920,8 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
             // Their writing follows the text at once; only the turn into the message eases its size.
             Modifier.widthIn(max = bubbleMaxWidth())
                 .then(if (message != null) Modifier.animateContentSize(androidx.compose.animation.core.tween(MORPH_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) else Modifier)
-                .border(1.dp, LibraryColors.Accent.copy(alpha = 0.5f * (1f - s)), shape)
-                .background(LibraryColors.Raised.copy(alpha = 0.5f + 0.5f * s), shape)
+                .border(1.dp, LibraryColors.TheirLine.copy(alpha = 0.5f * (1f - s)), shape)
+                .background(LibraryColors.Theirs.copy(alpha = 0.5f + 0.5f * s), shape)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
         ) {
             // In a group the author's line stays on top ("Dana is writing…", then "Dana"): the same row, its words change.
@@ -1935,7 +1935,7 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                         who != null -> com.chencohen.ptt.genderedString(R.string.chat_draft_by, who, who)
                         else -> com.chencohen.ptt.genderedString(R.string.chat_draft, draftUser)
                     },
-                    color = LibraryColors.Accent.copy(alpha = if (message != null && who != null) 1f else 1f - s), style = LibraryType.Small,
+                    color = LibraryColors.TheirLine.copy(alpha = if (message != null && who != null) 1f else 1f - s), style = LibraryType.Small,
                     modifier = Modifier.padding(bottom = 2.dp),
                 )
             }
@@ -1950,7 +1950,7 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                 var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
                 Text(
                     text,
-                    color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * s), style = LibraryType.Message,
+                    color = LibraryColors.OnTheirs.copy(alpha = 0.75f + 0.25f * s), style = LibraryType.Message,
                     onTextLayout = { layout = it },
                     modifier = Modifier.smoothHeight().liveCaret(layout, caretNow.first, caretNow.second),
                 )
@@ -1973,7 +1973,7 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
                 var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
                 Text(
                     if (message == null && caret == null) "$t\u258F" else t,
-                    color = LibraryColors.OnBackground.copy(alpha = 0.75f + 0.25f * s), style = LibraryType.Message,
+                    color = LibraryColors.OnTheirs.copy(alpha = 0.75f + 0.25f * s), style = LibraryType.Message,
                     onTextLayout = { layout = it },
                     modifier = if (message == null && caret != null) Modifier.liveCaret(layout, caret.first, caret.second) else Modifier,
                 )
@@ -1984,12 +1984,12 @@ private fun LiveBubble(line: LiveLine, draftUser: String?) {
             Box(Modifier.align(Alignment.End).padding(top = 2.dp)) {
                 Text(
                     DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message?.at ?: System.currentTimeMillis())),
-                    color = LibraryColors.Muted.copy(alpha = s), style = LibraryType.Tiny,
+                    color = LibraryColors.OnTheirsMuted.copy(alpha = 0.6f * s), style = LibraryType.Tiny,
                 )
                 if (who == null) {
                     Text(
                         com.chencohen.ptt.genderedString(R.string.chat_draft, draftUser),
-                        color = LibraryColors.Accent.copy(alpha = 1f - s), style = LibraryType.Tiny, maxLines = 1,
+                        color = LibraryColors.TheirLine.copy(alpha = 1f - s), style = LibraryType.Tiny, maxLines = 1,
                     )
                 }
             }
@@ -2299,7 +2299,7 @@ private fun EditBubble(edit: Editing, change: (androidx.compose.ui.text.input.Te
         gone()
     }
     val p = open.value
-    val coral = com.chencohen.ptt.ui.style.Pink
+    val coral = LibraryColors.Writing
     val density = androidx.compose.ui.platform.LocalDensity.current
     val pad = 14.dp
     val from = with(density) { edit.width.toDp() }.coerceAtLeast(pad * 2 + 24.dp)
@@ -2456,7 +2456,7 @@ private fun SendFlightOverlay(flight: SendFlight) {
         androidx.compose.ui.util.lerp(from.left, to.left, p), androidx.compose.ui.util.lerp(from.top, to.top, p),
         androidx.compose.ui.util.lerp(from.right, to.right, p), androidx.compose.ui.util.lerp(from.bottom, to.bottom, p),
     )
-    val coral = com.chencohen.ptt.ui.style.Pink
+    val coral = LibraryColors.Writing
     val start = with(density) { androidx.compose.ui.util.lerp(14.dp.toPx(), 14.dp.toPx(), p).toDp() }
     val end = with(density) { androidx.compose.ui.util.lerp(8.dp.toPx(), 14.dp.toPx(), p).toDp() }
     Box(

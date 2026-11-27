@@ -115,7 +115,8 @@ internal fun ComposeBubble(
     // itself changed there (emptied after Send).
     var field by remember { androidx.compose.runtime.mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(text.length))) }
     if (field.text != text) field = androidx.compose.ui.text.input.TextFieldValue(text, androidx.compose.ui.text.TextRange(text.length))
-    val coral = com.chencohen.ptt.ui.style.Pink
+    // Coral, or the chat's own colour for my messages (ChatColors).
+    val coral = LibraryColors.Writing
     // One element, resting ("Write a message…", dashed) or writing (coral outline), morphing both ways in 250 ms on the
     // keyboard's easing (2026-11-24, hen); with text in it, it stays writing. Same size in both (no jump), anchored on
     // my side, no label.
@@ -237,7 +238,7 @@ internal fun SentMorphBubble(message: TextMessage) {
     val settled = remember(message.id) { Animatable(0f) }
     LaunchedEffect(message.id) { settled.animateTo(1f, tween(MORPH_MS)) }
     val s = settled.value
-    val coral = com.chencohen.ptt.ui.style.Pink
+    val coral = LibraryColors.Writing
     val fill = androidx.compose.ui.graphics.lerp(coral.copy(alpha = 0.08f), LibraryColors.Mine, s)
     val ink = androidx.compose.ui.graphics.lerp(LibraryColors.OnBackground, LibraryColors.OnMine, s)
     Box(Modifier.fillMaxWidth(), contentAlignment = MySide) {

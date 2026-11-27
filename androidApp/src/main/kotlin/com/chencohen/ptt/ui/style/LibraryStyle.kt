@@ -54,18 +54,25 @@ internal class LibraryPalette(
     /** Their chat bubbles and the text on them (2026-11-27, hen: a chat's two colours can be chosen; the page's raised by default). */
     val Theirs: Color = Raised,
     val OnTheirs: Color = OnBackground,
+    /** The writing bubble's outline, caret and Send, and my draft's (coral by default; a chat's own colour for mine). */
+    val Writing: Color = Color(0xFFE9504F),
+    /** Their live draft's outline and its "writing" label (teal by default; a chat's own colour for theirs). */
+    val TheirLine: Color = Accent,
 ) {
     /** The same palette with [ink] as the text on my bubbles (an outline bubble's text is the page's). */
-    fun withOnMine(ink: Color) = LibraryPalette(Background, Raised, OnBackground, Muted, Accent, Inverse, OnInverse, OnInverseMuted, Warning, Error, Mine, ink, MineLine, Theirs, OnTheirs)
+    fun withOnMine(ink: Color) = LibraryPalette(Background, Raised, OnBackground, Muted, Accent, Inverse, OnInverse, OnInverseMuted, Warning, Error, Mine, ink, MineLine, Theirs, OnTheirs, Writing, TheirLine)
 
     /**
-     * A chat's own colours ([mine], [theirs]; null keeps the default): their text is light or dark by the colour. My
-     * bubble's outline (dashed, then whole) stays the green line, the read state reading the same in any colour.
+     * A chat's own colours ([mine], [theirs]; null keeps the default), the whole way (2026-11-27, hen: "respect the
+     * sending rectangle border colors and also the new message textbox border colors"): my bubble's outline (dashed,
+     * then whole), its fill, the writing bubble's outline and my draft's in [mine]; their bubbles and their live draft's
+     * outline in [theirs]. Text on them is light or dark by the colour.
      */
     fun withChatColors(mine: Color?, theirs: Color?) = LibraryPalette(
         Background, Raised, OnBackground, Muted, Accent, Inverse, OnInverse, OnInverseMuted, Warning, Error,
-        mine ?: Mine, mine?.let { inkOn(it) } ?: OnMine, MineLine,
+        mine ?: Mine, mine?.let { inkOn(it) } ?: OnMine, mine ?: MineLine,
         theirs ?: Theirs, theirs?.let { inkOn(it) } ?: OnTheirs,
+        mine ?: Writing, theirs ?: TheirLine,
     )
 
     val OnTheirsMuted: Color get() = OnTheirs.copy(alpha = 0.6f)

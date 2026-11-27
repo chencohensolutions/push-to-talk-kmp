@@ -638,7 +638,7 @@
     <string name="chat_colors_default">ברירת מחדל</string>
     <string name="chat_colors_sample_theirs">אני בדרך</string>
     <string name="chat_colors_sample_mine">מצוין, נתראה</string>
-    <string name="chat_colors_body">רק בטלפון הזה. להודעות שלך נשאר קו ירוק עד שכולם מקבלים אותן.</string>
+    <string name="chat_colors_body">רק בטלפון הזה. ההודעות שלך, המסגרת שלהן בזמן השליחה ותיבת הכתיבה בצבע שלך; ההודעות שלהם והכתיבה החיה שלהם בצבע שלהם.</string>
     <string name="contact_version">האפליקציה שלהם</string>
     <string name="contact_version_line">Talk %1$s</string>
     <string name="contact_version_phone">טלפון %1$d</string>

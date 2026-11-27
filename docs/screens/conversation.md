@@ -493,6 +493,9 @@ the buttons only", and "make the banner smaller, the red button smaller".
 On a contact's page and a group's page, **Chat colours**: two bubbles showing them as the chat will, then **My
 messages** and **Their messages**, each Default (A) or one of ten colours that read in light and dark (green, teal,
 blue, indigo, violet, pink, red, orange, yellow, slate); the chosen one ringed (200 ms). Kept on this phone only. In
-the chat, the floating window and the Talk tab's chat: their bubbles take their colour, mine fill with mine once every
-phone has them; my bubble's outline before that stays the green line (dashed, then whole), so the read state reads the
-same in any colour. Text on a bubble is near-white or near-black by the colour.
+the chat, the floating window and the Talk tab's chat: the whole way, in its colour (2026-11-27, hen: "respect the sending
+rectangle border colors and also the new message textbox border colors"): my bubble's outline while sending (dashed,
+then whole), its fill once every phone has it, the read faces' rings, and the writing bubble (its dashed outline at
+rest, its outline, caret and Send while writing, my draft as it flies); their bubbles and their live draft's outline
+and label in theirs. The motion is the same. Default keeps green, coral and teal as before. Text on a bubble is
+near-white or near-black by the colour.
