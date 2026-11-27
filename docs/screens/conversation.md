@@ -524,11 +524,11 @@ The small faces between messages take their person's colour too (2026-11-27, hen
 should respect the colors"): the dashed circle (their phone has it) and the whole ring (read) in their colour, a letter
 face filled with it once read; in a group each member's own. Without chosen colours they stay green as before.
 
-**Bubble strength** (2026-11-27, hen: "set the brightness of the bubble in dark mode or darkness of the bubble in light
-mode"): on Settings' chat colours card, under the two rows, one slider for the theme on screen: in the light theme
-how dark the bubbles are (from the bright shade to as dark as black text still reads at 4.5:1), in the dark theme how
-bright (from half as light up to as bright as white text still reads at 4.5:1). The hue stays; text stays black in
-light and white in dark. The preview above follows it as it moves; each theme keeps its own value.
+**Bubble brightness** (2026-11-27, hen: "set the brightness of the bubble", then "make it from white to black slider,
+the brightness, default at center"): on Settings' chat colours card, under the two rows, "Bubble brightness" for the
+theme on screen (each theme keeps its own): its track goes from white through the colour to black, the colour as it
+is in the middle (the default). The hue stays; the text on a bubble (and its time and name) turns white or black,
+whichever reads; thin outlines stay the deep shade so they're seen on the page. The preview above follows it.
 
 In a group the sender's name is inside their bubble, at its top, and only on the first of their messages in a row,
 until someone else's comes; the bubble's time is in the same colour as the name (2026-11-27, hen).
