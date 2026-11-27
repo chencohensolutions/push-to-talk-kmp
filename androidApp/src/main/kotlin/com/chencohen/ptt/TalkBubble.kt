@@ -711,6 +711,10 @@ object TalkBubble {
             moving = false
             lastActive = System.currentTimeMillis()
             shapePill()
+            // A new Chat button (the bar moved to another edge, or shown again): the chat's face on it again (2026-11-27,
+            // hen: "when dragging the bar there is the chat icon instead of the avatar").
+            chatFaceOf = null
+            showChatFace(context)
             // Touches just beyond the bar (the grip's room, or a folded tab's): they move it, or bring it out.
             holder.setOnTouchListener { _, e -> edgeTouch(context, e) }
             // Only the pill takes touches (folded: the part of it that shows): the room kept for the lock beside it is
