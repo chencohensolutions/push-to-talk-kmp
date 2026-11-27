@@ -30,6 +30,7 @@ class TalkApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        TalkMuteWatch.start(this)
         Notifications.createChannel(this)
         TalkNotifications.createChannels(this)
         val notifications = Notifications(this)

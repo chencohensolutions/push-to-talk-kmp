@@ -286,3 +286,7 @@ The floating window's bottom pill is a bar that stands out over any app, and is 
   room plays isn't lowered by communication mode.
 - The log has the room's audio as numbers every 2 s while it flows (TalkAudioProbe): packets, level, energy,
   concealed samples and the volume set, per talker; packets and microphone level for this phone.
+- Off screen, a push heard through the room asks for the talk session or Talk ready first, before its sound plays
+  (2026-11-27: Android mutes an app's sound in the background without one, "AudioHardening background playback
+  muted"; it used to be asked only once the room's sound was already playing). When Android mutes one of the app's
+  players anyway, the log says so (TalkMuteWatch): which sound, why, and whether the app was on screen.
