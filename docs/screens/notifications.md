@@ -107,6 +107,13 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     someone is pushing voice or video in it shows the floating window for them, as leaving the app does
     (`TalkPlaying.leftChat`). Opening that chat again takes it away (`TalkBubble.chatOpened`); the app coming to the
     front keeps it while someone is live in a chat that isn't the one on screen (`TalkPlaying.cameToFront`).
+  - **Hands-free goes on** (2026-11-27, hen: "when I'm transmitting hands-free from the chat screen and exit to the
+    home screen it should keep transmitting with the floating layout"): leaving the app, or the chat, while my push
+    there is hands-free (voice, video or urgent), the chat lets its press go and the floating window takes the floor
+    again 0.9 s later, locked as if slid to hands-free in it (Stop, renewals every 55 s, through Talk's foreground
+    service so the microphone and camera may go on in the background; `TalkBubble.takeOver`). When the floating
+    window can't show (setting off, no permission, the screen off or locked) leaving the app changes nothing (it goes
+    on as before) and leaving the chat ends it.
   - **Moving the bar:** hold it (anywhere but Push) for 400 ms and it lifts; drag it, and the four places light up,
     dashed teal: the top, the bottom, and anywhere along the left or right edge (filled where it would go now). Let go
     and it glides from there into the nearest place (250 ms); it is kept for next time. On a side edge it stands

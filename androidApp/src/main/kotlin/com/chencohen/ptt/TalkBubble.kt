@@ -1473,6 +1473,44 @@ object TalkBubble {
         return ScreenRect(l, t, at[0] + params.x + goals.maxOf { it.x + it.w }, at[1] + params.y + restTop + goals.maxOf { it.bottom })
     }
 
+    /**
+     * The chat's hands-free push goes on here (2026-11-27, hen: "when I'm transmitting hands-free from the chat screen
+     * and exit to the home screen it should keep transmitting with the floating layout"): the chat let its press go
+     * (sent); a moment later the floating window takes the floor again, locked, as if slid to hands-free here ([video]:
+     * my camera, through Talk's foreground service; [urgent]: the bell's). False when the floating window may not show
+     * (the setting, the permission, the screen off or locked): then the push ends with the chat, as before.
+     */
+    fun takeOver(context: Context, chat: String, title: String, video: Boolean, urgent: Boolean): Boolean {
+        val app = context.applicationContext
+        if (!allowed(app)) return false
+        main.post {
+            if (pillWindow == null && !addPill(app)) return@post
+            if (this.chat != chat) setHere(app, chat)
+            this.chat = chat
+            this.title = title
+            if (talking) endTalk(app, send = true)
+            main.postDelayed({
+                if (pillWindow == null || talking || this.chat != chat) return@postDelayed
+                this.urgent = urgent
+                sideVoice = !video && !urgent
+                locked = true
+                lockSince = System.currentTimeMillis()
+                startTalk(app, video = video)
+                runStarted = talkStarted
+                showLocked(true)
+                if (urgent) {
+                    showUrgent(app)
+                    main.postDelayed({ if (talking) markUrgent(app) }, 600)
+                }
+                main.removeCallbacks(renew)
+                main.postDelayed(renew, RENEW_MS)
+                refreshTop(app)
+                Log.i(TAG, "hands-free ${if (video) "video" else "voice"} taken over from the chat")
+            }, 900)
+        }
+        return true
+    }
+
     /** [chat] came on screen in the app: its own buttons are there, so the floating bar for it goes. */
     fun chatOpened(chat: String) = main.post { if (this.chat == chat && !talking && !locked) dismissNow() }
 
