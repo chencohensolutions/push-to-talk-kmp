@@ -534,13 +534,21 @@ person will be as the same color on both phone"): colours chosen on a contact's 
 (`ColorsContent` in the content the phones already exchange, PUSH_NONE; older apps skip it), "Like everyone" too (as
 cleared). On their phone the pair arrives swapped, so each person shows in the same colour on both phones: what I
 chose for "their messages" is their "my messages" in our chat, and my "my messages" their "their messages". The
-newer choice wins (each side's time of choosing); what I chose stays kept under theirs. Groups aren't synced; in a
-group, a member's colour on my phone is the one that member synced with me, if they did. The page's note says so
+newer choice wins (each side's time of choosing); what I chose stays kept under theirs.
+
+Groups too (2026-11-27, hen: "it also should be working in groups"): a group's colours go to its members through the
+group's Send (sender keys, PUSH_NONE). What a member chose for their own messages there is their colour in that group
+on every member's phone; what they chose for "their messages" becomes the group's colour for the members without one
+of their own, the newest choice (mine or a member's) winning; a member's "Like everyone" there is no choice for the
+others. In a group a member's colour is, in order: what they synced in it, what was chosen (or synced) on their
+contact's page, the group's, one picked for them. The page's note says so
 for a contact: "Shared with them, so each of you shows in the same colour on both phones".
 
 **Respect synced colours** (hen: "add option to respect synced colors, enabled by default"; Hebrew "כבד צבעים
-מסונכרנים"): a switch on Settings' chat colours card, on by default. Off, colours a contact synced don't show here and
-my own choices stay; mine still go to them. On again, theirs show again where they chose last.
+מסונכרנים"; then "i thought the respect colors is per contact setting"): a switch on each contact's colour card, on by
+default (`TalkSettings.ignoreSyncedFrom` keeps the ones turned off), and on each group's. Off for a contact, the
+colours they synced with me don't show here and my own choices for them stay; off for a group, what its members
+synced there doesn't; mine still go. On again, theirs show again where they chose last. Not on Settings' card.
 
 **A chat's own brightness** (hen: "add the slider for brightness also in the contact settings screen"): the same
 "Bubble brightness" slider on a contact's and a group's colour card, for the theme on screen, with **Like everyone**

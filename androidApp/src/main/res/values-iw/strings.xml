@@ -644,8 +644,9 @@
     <string name="chat_colors_sample_mine">מצוין, נתראה</string>
     <string name="chat_colors_body">רק בטלפון הזה. ההודעות שלך, המסגרת שלהן בזמן השליחה ותיבת הכתיבה בצבע שלך; ההודעות שלהם והכתיבה החיה שלהם בצבע שלהם.</string>
     <string name="chat_colors_body_contact">משותף איתם, כך שכל אחד מכם מופיע באותו צבע בשני הטלפונים: הצבע של ההודעות שלך הוא הצבע שלך גם אצלם. הבהירות נשארת בטלפון הזה.</string>
+    <string name="chat_colors_body_group">משותף עם הקבוצה: הצבע של ההודעות שלך הוא הצבע שלך אצל כל החברים, והצבע של ההודעות שלהם עובר לחברים שאין להם צבע משלהם. הבהירות נשארת בטלפון הזה.</string>
     <string name="chat_colors_respect_synced">כבד צבעים מסונכרנים</string>
-    <string name="chat_colors_respect_synced_body">צבעים שאיש קשר בחר לצ׳אט שלכם יופיעו כאן אם הוא בחר אחרון. כבוי: הבחירות שלך נשארות, והן עדיין נשלחות אליו.</string>
+    <string name="chat_colors_respect_synced_body">הצבעים שהם בחרו לצ׳אט שלכם יופיעו כאן אם הם בחרו אחרונים. כבוי: הבחירות שלך נשארות, והן עדיין נשלחות אליהם.</string>
     <string name="contact_version">האפליקציה שלהם</string>
     <string name="contact_version_line">Talk %1$s</string>
     <string name="contact_version_phone">טלפון %1$d</string>

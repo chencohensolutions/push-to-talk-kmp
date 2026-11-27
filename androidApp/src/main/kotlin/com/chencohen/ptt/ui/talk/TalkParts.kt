@@ -651,19 +651,19 @@ internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.Talk
                 )
             }
         }
-        // Settings' card: whether a contact's synced colours show here (2026-11-27, hen: "add option to respect synced
-        // colors, enabled by default").
-        if (global) {
-            SwitchRow(stringResource(R.string.chat_colors_respect_synced), stringResource(R.string.chat_colors_respect_synced_body), talk.respectSyncedColors) { on ->
-                set(talk.copy(respectSyncedColors = on))
+        // A contact's card: whether the colours they synced show here (2026-11-27, hen: "add option to respect synced
+        // colors, enabled by default", "i thought the respect colors is per contact setting").
+        if (!global) {
+            SwitchRow(stringResource(R.string.chat_colors_respect_synced), stringResource(R.string.chat_colors_respect_synced_body), chat !in talk.ignoreSyncedFrom) { on ->
+                set(talk.copy(ignoreSyncedFrom = if (on) talk.ignoreSyncedFrom - chat else talk.ignoreSyncedFrom + chat))
             }
         }
     }
-    // A contact's colours go to them (synced); a group's stay on this phone.
+    // A contact's colours go to them, a group's to its members (synced); Settings' stay on this phone.
     val note = when {
         global -> R.string.chat_colors_global_body
         com.chencohen.ptt.messaging.Group.idOf(chat) == null -> R.string.chat_colors_body_contact
-        else -> R.string.chat_colors_body
+        else -> R.string.chat_colors_body_group
     }
     com.chencohen.ptt.ui.style.PageNote(stringResource(note), top = 6)
 }

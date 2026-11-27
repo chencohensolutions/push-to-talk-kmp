@@ -83,10 +83,17 @@ class ChatColorsTest {
     @Test
     fun syncedColoursCanBeIgnored() {
         var s = TalkSettings().withColors("testbot", 2, 3, at = 100).withSynced("testbot", mine = 0, theirs = 5, at = 200)
-        s = s.copy(respectSyncedColors = false)
+        s = s.withSynced("testbot2", mine = 1, theirs = 4, at = 200)
+        // Off for testbot only: testbot's are ignored, testbot2's still show.
+        s = s.copy(ignoreSyncedFrom = setOf("testbot"))
         assertEquals(2 to 3, s.ownColorsOf("testbot"))
+        assertEquals(4 to 1, s.ownColorsOf("testbot2"))
+        // In a group, testbot's synced colour is ignored too; testbot2's shows.
+        val hues = s.memberHues("grp", listOf("testbot", "testbot2"))
+        assertEquals(3, hues["testbot"])
+        assertEquals(1, hues["testbot2"])
         // Turned on again, theirs show again.
-        assertEquals(5 to 0, s.copy(respectSyncedColors = true).ownColorsOf("testbot"))
+        assertEquals(5 to 0, s.copy(ignoreSyncedFrom = emptySet()).ownColorsOf("testbot"))
     }
 
     @Test
@@ -108,5 +115,30 @@ class ChatColorsTest {
         assertEquals(null, s.brightOf("testbot"))
         // A brightness key isn't a chat's colours.
         assertEquals(-1 to -1, s.ownColorsOf("testbot"))
+    }
+
+    @Test
+    fun groupColoursSyncPerMember() {
+        val g = Group.chatOf("g1")
+        var s = TalkSettings().withColors(g, 2, 3, at = 100)
+        // testbot2 chose violet for their own messages there, and pink for the others, later.
+        s = s.withGroupSynced(g, "testbot2", mine = 4, theirs = 5, at = 200)
+        assertEquals(4, s.memberOwnColor(g, "testbot2"))
+        assertEquals(2 to 5, s.ownColorsOf(g))
+        val hues = s.memberHues(g, listOf("testbot2", "testbot3"))
+        assertEquals(4, hues["testbot2"])
+        assertEquals(5, hues["testbot3"])
+        // An older one from testbot2 changes nothing; a member's "like everyone" for the others is no choice.
+        s = s.withGroupSynced(g, "testbot2", mine = 0, theirs = 0, at = 150)
+        assertEquals(4, s.memberOwnColor(g, "testbot2"))
+        s = s.withGroupSynced(g, "testbot3", mine = -1, theirs = -1, at = 300)
+        assertEquals(2 to 5, s.ownColorsOf(g))
+        // I choose again: mine win for the others.
+        s = s.withColors(g, 2, 1, at = 400)
+        assertEquals(2 to 1, s.ownColorsOf(g))
+        // Respect off for the group: its members' synced colours are ignored there.
+        s = s.copy(ignoreSyncedFrom = setOf(g))
+        assertEquals(-1, s.memberOwnColor(g, "testbot2"))
+        assertEquals(1, s.memberHues(g, listOf("testbot2"))["testbot2"])
     }
 }
