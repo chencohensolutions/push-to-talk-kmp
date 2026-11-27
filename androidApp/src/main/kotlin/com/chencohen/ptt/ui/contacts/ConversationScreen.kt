@@ -403,7 +403,7 @@ private fun ConversationScreenIn(
         // (busy, refused, offline, a voice message, my other phone).
         val talkingShown = talk.own?.takeIf { it.chat == user }?.phase.let { it == TalkPhase.TALKING || it == TalkPhase.REQUESTING } ||
             (talk.own?.chat != user && talk.talkers[user] != null)
-        if (talkLine != null && !videoPanel && !talkingShown && (talk.talkers[user] != null || talk.own?.chat == user)) {
+        if (!talkLine.isNullOrEmpty() && !videoPanel && !talkingShown && (talk.talkers[user] != null || talk.own?.chat == user)) {
             Text(
                 talkLine,
                 color = LibraryColors.Accent,
@@ -413,7 +413,8 @@ private fun ConversationScreenIn(
             )
         }
         // Live in the chat (2026-11-24, hen): what this phone sends with its camera, and hands-free (below).
-        val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
+        // Not while it still connects (its room isn't ready): then it is my pill, in its dashes (myVoice below).
+        val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && !it.connecting && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
         var handsFree by remember(user) { mutableStateOf(false) }
         // Hands-free on the urgent bell (2026-11-26, hen): voice, urgent, until Stop; each renewal urgent again.
         var urgentHandsFree by remember(user) { mutableStateOf(false) }
@@ -450,7 +451,8 @@ private fun ConversationScreenIn(
         // counting.
         val ownActive = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
         var runSince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
-        if (ownActive != null && runSince == 0L) runSince = ownActive.startedAt
+        // Counted from when it is live, not from a press that still connects.
+        if (ownActive != null && !ownActive.connecting && runSince == 0L) runSince = ownActive.startedAt
         LaunchedEffect(ownActive != null || goingLive || handsFree) {
             if (ownActive == null && !goingLive && !handsFree) {
                 delay(1_500)
@@ -490,8 +492,10 @@ private fun ConversationScreenIn(
                     VoiceSide(theirTalker.user, if (group != null) theirTalker.user else contact?.name ?: user, false, theirRun[0].takeIf { it > 0 } ?: theirTalker.since)
                 else -> null
             }
-            val myVoice = talk.own?.takeIf { it.chat == user && !pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
+            val myVoice = talk.own?.takeIf { it.chat == user && (!pushVideo || it.connecting) && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
                 ?.let { VoiceSide("", youLabel(it.urgent), true, runSince.takeIf { r -> r > 0 } ?: it.startedAt) }
+            // My push still connects (its room isn't ready; 2026-11-27, hen): my pill in still dashes, no time.
+            val myConnecting = talk.own?.let { it.chat == user && it.connecting } == true
             // My push now is urgent (the red bell): "You · Urgent" in red, in the row and the floating window's.
             val myUrgent = talk.own?.let { it.chat == user && it.urgent } == true
             // Their voice turning into video: their pill stays a moment after the voice ends, so their video, starting
@@ -552,9 +556,11 @@ private fun ConversationScreenIn(
                     pretendMine == LiveKind.Voice -> GroupTalker(com.chencohen.ptt.ui.live.LiveLayout.MINE, "", me, false, mySinceNow, mine = true)
                     else -> null
                 }
-                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), myUrgent = myUrgent)
+                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) androidx.compose.runtime.CompositionLocalProvider(LocalMyPushConnecting provides myConnecting) {
+                    GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), myUrgent = myUrgent)
+                }
             } else {
-                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) LivePanel(
+                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) androidx.compose.runtime.CompositionLocalProvider(LocalMyPushConnecting provides myConnecting) { LivePanel(
                     theirVideo, if (group != null) (theirs?.from ?: talker?.user) else null, theirSinceNow,
                     myPanel, mySinceNow,
                     handsFree,
@@ -564,7 +570,7 @@ private fun ConversationScreenIn(
                     behindMs = theirs?.behindMs,
                     voices = voicesNow,
                     myUrgent = myUrgent,
-                )
+                ) }
                 // Full screen (2026-11-27, hen: "'Full screen' is enough"): while their video or both of us are live; my
                 // push ends (full screen starts muted).
                 FullScreenChip((bothShown || theirVideo) && actions.fullScreen != null) {

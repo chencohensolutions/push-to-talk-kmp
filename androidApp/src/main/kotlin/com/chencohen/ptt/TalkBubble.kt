@@ -2358,6 +2358,11 @@ object TalkBubble {
         override fun run() {
             if (topWindow == null) return
             theirPill?.tick(com.chencohen.ptt.talk.TalkAudio.playLevel, theirSince())
+            // My push still connecting (its room isn't ready; 2026-11-27, hen: shown in the pill, without words, nothing
+            // spinning): my pill and its frame in still grey dashes, no time, until the push is live.
+            val connecting = topWindow?.context?.let { c -> messagingState(c).value.talk.own?.takeIf { it.chat == chat }?.connecting } == true
+            myPill?.connecting = connecting
+            myCell?.connecting(connecting)
             myPill?.tick(com.chencohen.ptt.talk.TalkAudio.micLevel, mySince())
             groupCells.values.forEach { it.cell.pill.tick(com.chencohen.ptt.talk.TalkAudio.playLevel, it.member.since) }
             main.postDelayed(this, 60)
@@ -2932,7 +2937,45 @@ object TalkBubble {
         private var radius = -1f
 
         /** Its outline's colour (mine red while my push is urgent; 2026-11-25, hen). */
-        fun edgeColor(color: Int) = edge.setStroke((density).toInt().coerceAtLeast(2), color)
+        fun edgeColor(color: Int) {
+            if (edgeInk == color) return
+            edgeInk = color
+            drawEdge()
+        }
+
+        private var edgeInk = color
+
+        /** How far the outline's dashes have joined into its line: 0 while my push connects, 1 otherwise. */
+        private var joined = 1f
+        private var connectingNow = false
+        private var joining: android.animation.ValueAnimator? = null
+
+        /**
+         * My push still connects ([on]): the outline in still grey dashes (6 dp of every 11), which lengthen until they
+         * meet and take its colour when the push is live, in one 300 ms move. Nothing turns.
+         */
+        fun connecting(on: Boolean) {
+            if (connectingNow == on) return
+            connectingNow = on
+            joining?.cancel()
+            joining = android.animation.ValueAnimator.ofFloat(joined, if (on) 0f else 1f).apply {
+                duration = 300
+                addUpdateListener {
+                    joined = it.animatedValue as Float
+                    drawEdge()
+                }
+                start()
+            }
+        }
+
+        private fun drawEdge() {
+            val w = density.toInt().coerceAtLeast(2)
+            if (joined >= 1f) edge.setStroke(w, edgeInk)
+            else {
+                val on = (6f + 5f * joined) * density
+                edge.setStroke(w, androidx.core.graphics.ColorUtils.blendARGB(DASH_INK, edgeInk, joined), on, 11f * density - on)
+            }
+        }
 
         init {
             view.layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -3250,6 +3293,16 @@ object TalkBubble {
         var shown: String? = null
             private set
 
+        /** Mine, while my push still connects: the ring in still dashes, the words without a time (it starts when live). */
+        var connecting = false
+            set(value) {
+                if (field == value) return
+                field = value
+                ring.connecting = value
+                name.setTextColor(if (value) DASH_INK else Color.WHITE)
+            }
+        private var liveFrom = 0L
+
         /** Mine, urgent (the red bell; 2026-11-25, hen): "You · Urgent · 0:03", the ring red. */
         var urgent = false
             set(value) {
@@ -3315,11 +3368,13 @@ object TalkBubble {
         /** The voice's [level] on the ring, and the time since [since]. */
         fun tick(level: Float, since: Long) {
             if (view.visibility == View.VISIBLE) ring.level(level)
-            val s = ((System.currentTimeMillis() - since) / 1000).coerceAtLeast(0)
+            // The time counts from when the push went live, not from a press that was still connecting.
+            if (connecting) liveFrom = System.currentTimeMillis()
+            val s = ((System.currentTimeMillis() - maxOf(since, liveFrom)) / 1000).coerceAtLeast(0)
             val t = "%d:%02d".format(s / 60, s % 60)
             // Only when it changes: a text set again asks for a layout each time.
             val you = view.context.getString(R.string.talk_panel_you) + if (urgent) " · " + view.context.getString(R.string.talk_urgent) else ""
-            val (line, words) = if (mine) name to "$you · $t" else time to t
+            val (line, words) = if (mine) name to (if (connecting) you else "$you · $t") else time to t
             if (line.text.toString() != words) line.text = words
         }
     }
@@ -3343,6 +3398,18 @@ object TalkBubble {
             }
         private val density = context.resources.displayMetrics.density
 
+        /**
+         * My push still connects: the ring in twelve still grey dashes with no glow, which lengthen until they meet and
+         * take its colour when the push is live (300 ms). Nothing turns.
+         */
+        var connecting = false
+            set(value) {
+                if (field == value) return
+                field = value
+                postInvalidateOnAnimation()
+            }
+        private var joined = 1f
+
         fun level(v: Float) {
             target = v.coerceIn(0f, 1f)
             postInvalidateOnAnimation()
@@ -3352,7 +3419,10 @@ object TalkBubble {
             val now = android.os.SystemClock.uptimeMillis()
             val dt = if (last == 0L) 16f else (now - last).toFloat().coerceIn(1f, 100f)
             last = now
-            level = com.chencohen.ptt.talk.VoiceLevel.smooth(level, target, dt)
+            val to = if (connecting) 0f else 1f
+            joined = if (joined < to) (joined + dt / 300f).coerceAtMost(to) else (joined - dt / 300f).coerceAtLeast(to)
+            level = com.chencohen.ptt.talk.VoiceLevel.smooth(level, target * joined, dt)
+            val ink = paint.color
             val cx = width / 2f
             val cy = height / 2f
             // The ring just outside the 36 dp face.
@@ -3368,13 +3438,24 @@ object TalkBubble {
                 g -= 1.5f * density
             }
             paint.strokeWidth = thick
-            paint.alpha = (255 * (0.55f + 0.45f * level)).toInt()
+            if (joined < 1f) {
+                val period = (2 * Math.PI * r / 12).toFloat()
+                val on = period * (0.53f + 0.47f * joined)
+                paint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(on, period - on), 0f)
+                paint.color = androidx.core.graphics.ColorUtils.blendARGB(DASH_INK, ink, joined)
+            }
+            paint.alpha = (255 * (0.55f + 0.45f * level + 0.35f * (1f - joined))).toInt().coerceIn(0, 255)
             canvas.drawCircle(cx, cy, r, paint)
-            if (kotlin.math.abs(level - target) > 0.005f) postInvalidateOnAnimation()
+            paint.pathEffect = null
+            paint.color = ink
+            if (kotlin.math.abs(level - target * joined) > 0.005f || joined != to) postInvalidateOnAnimation()
         }
     }
 
     private const val PINK = 0xFFE9504F.toInt()
+
+    /** My pill's dashes while my push still connects (the palette's muted grey). */
+    private const val DASH_INK = 0xFFA9B4B1.toInt()
     /** The bar: solid, whatever is behind it; a light rim inside a dark hairline (2026-11-26, hen's pick from the mock). */
     private const val BAR = 0xFF191D1C.toInt()
     private const val RIM = 0x59FFFFFF
