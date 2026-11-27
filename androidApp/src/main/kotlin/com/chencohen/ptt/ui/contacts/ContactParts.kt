@@ -45,10 +45,12 @@ internal fun Avatar(user: String, size: Dp = 48.dp, name: String = user) {
         androidx.compose.foundation.Image(face, name, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.size(size))
         return
     }
-    Box(Modifier.size(size).clip(CircleShape).background(LibraryColors.Raised), contentAlignment = Alignment.Center) {
+    // Their colour in a chat with one chosen (2026-11-27, hen: "respect colors also in the avatar in the header"); the
+    // raised page colour otherwise.
+    Box(Modifier.size(size).clip(CircleShape).background(LibraryColors.Theirs), contentAlignment = Alignment.Center) {
         val letter = name.firstOrNull()?.uppercaseChar()
         if (letter != null) {
-            Text(letter.toString(), color = LibraryColors.OnBackground, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
+            Text(letter.toString(), color = LibraryColors.OnTheirs, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
         } else {
             Icon(LibraryIcons.Person, null, tint = LibraryColors.Muted, modifier = Modifier.size(size / 2))
         }

@@ -51,10 +51,10 @@ import kotlin.io.encoding.Base64
 @Composable
 internal fun GroupAvatar(name: String, picture: String?, size: Dp = 48.dp) {
     val bitmap = remember(picture) { picture?.let { runCatching { Base64.decode(it) }.getOrNull() }?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
-    Box(Modifier.size(size).clip(CircleShape).background(LibraryColors.Raised), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).clip(CircleShape).background(LibraryColors.Theirs), contentAlignment = Alignment.Center) {
         when {
             bitmap != null -> Image(bitmap.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.size(size))
-            name.isNotBlank() -> Text(name.first().uppercaseChar().toString(), color = LibraryColors.OnBackground, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
+            name.isNotBlank() -> Text(name.first().uppercaseChar().toString(), color = LibraryColors.OnTheirs, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
             else -> Icon(LibraryIcons.Group, null, tint = LibraryColors.Muted, modifier = Modifier.size(size / 2))
         }
     }

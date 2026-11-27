@@ -1526,7 +1526,7 @@ private val HEADER_HEIGHT = 48.dp
  * close into the whole ring ([morphRing], the line my bubble's outline is drawn with).
  */
 @Composable
-internal fun Modifier.faceRing(ring: Int): Modifier = morphRing(ring, LibraryColors.Accent)
+internal fun Modifier.faceRing(ring: Int): Modifier = morphRing(ring, LibraryColors.TheirLine)
 
 /**
  * The header's own edge (2026-11-25, hen chose "A · Hairline"; 2026-11-26, hen: only while messages are scrolled under

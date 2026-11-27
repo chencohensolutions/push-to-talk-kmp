@@ -508,3 +508,7 @@ For every chat (2026-11-27, hen: "add this as global settings for all contacts c
 **Settings**, above Talk, with Default (A) as the current look. On a contact's or group's page A is now **Like
 everyone**, the default: that chat takes Settings' colours; a colour chosen there overrides them, each of the two on
 its own.
+
+The header's face takes their colour too (2026-11-27, hen: "respect colors also in the avatar in the header"): a
+letter circle (theirs, or a group's) filled with it and its letter light or dark by it, and the presence ring (dashed,
+then whole) in it; so do the other faces in the chat. A photo face keeps its picture, its ring in their colour.
