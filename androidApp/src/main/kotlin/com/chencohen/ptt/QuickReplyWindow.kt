@@ -817,7 +817,7 @@ object QuickReplyWindow {
                 liveEdits = state.liveEdits,
                 viewing = viewingIn(state.viewing, current, System.currentTimeMillis(), Group.idOf(current) != null),
                 direction = state.talkSettings.directionOf(current),
-                colors = state.talkSettings.colorsOf(current),
+                colors = state.talkSettings.colorsOf(current).also { com.chencohen.ptt.ui.style.ChatShade.take(state.talkSettings.colorsFor[com.chencohen.ptt.ui.style.ChatShade.KEY]) },
                 live = com.chencohen.ptt.ui.contacts.ChatLive(
                     keeps = { m -> m.clip?.let { state.talkSettings.keeps(current, it) } ?: true },
                     // Who is live and waiting for this phone's floor, as in the chat itself.

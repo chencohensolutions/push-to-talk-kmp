@@ -632,6 +632,8 @@
     <string name="quick_talk_empty">עוד אין צ׳אטים לדיבור מהיר. אפשר להפעיל דיבור מהיר בדף של איש קשר או של קבוצה.</string>
     <string name="quick_talk_open_chats">לצ׳אטים</string>
     <string name="quick_talk_page">דף %1$d מתוך %2$d</string>
+    <string name="chat_colors_darkness">כהות הבועות (מצב בהיר)</string>
+    <string name="chat_colors_brightness">בהירות הבועות (מצב כהה)</string>
     <string name="chat_colors_like_everyone">כמו כולם</string>
     <string name="chat_colors_global_body">לכל הצ׳אטים בטלפון הזה. הצבעים של איש קשר או קבוצה, בדף שלהם, קודמים להם.</string>
     <string name="chat_colors">צבעי הצ׳אט</string>

@@ -568,6 +568,31 @@ internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.Talk
         }
         SwatchRow(stringResource(R.string.chat_colors_mine), mine, global) { set(talk.withColors(chat, it, theirs)) }
         SwatchRow(stringResource(R.string.chat_colors_theirs), theirs, global) { set(talk.withColors(chat, mine, it)) }
+        // The bubbles' strength, for this theme only (2026-11-27, hen): in light, how dark; in dark, how bright. Text
+        // stays black in light and white in dark, never under 4.5:1.
+        if (global) {
+            val light = LibraryColors.Background.luminance() > 0.5f
+            val key = com.chencohen.ptt.ui.style.ChatShade.KEY
+            val saved = talk.colorsFor[key]
+            var value by androidx.compose.runtime.remember(light, saved) {
+                androidx.compose.runtime.mutableFloatStateOf(if (light) com.chencohen.ptt.ui.style.ChatShade.light else com.chencohen.ptt.ui.style.ChatShade.dark)
+            }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Text(stringResource(if (light) R.string.chat_colors_darkness else R.string.chat_colors_brightness), color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+                androidx.compose.material3.Slider(
+                    value = value,
+                    onValueChange = { v ->
+                        value = v
+                        // Seen at once in the preview above.
+                        if (light) com.chencohen.ptt.ui.style.ChatShade.light = v else com.chencohen.ptt.ui.style.ChatShade.dark = v
+                    },
+                    onValueChangeFinished = {
+                        val now = listOf((com.chencohen.ptt.ui.style.ChatShade.light * 100).toInt(), (com.chencohen.ptt.ui.style.ChatShade.dark * 100).toInt())
+                        set(talk.copy(colorsFor = talk.colorsFor + (key to now)))
+                    },
+                )
+            }
+        }
     }
     com.chencohen.ptt.ui.style.PageNote(stringResource(if (global) R.string.chat_colors_global_body else R.string.chat_colors_body), top = 6)
 }

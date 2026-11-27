@@ -430,6 +430,8 @@ fun HomeApp(
             talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
         )
     }
+    // The bubbles' strength in each theme (Settings › chat colours).
+    androidx.compose.runtime.SideEffect { com.chencohen.ptt.ui.style.ChatShade.take(messagingState.talkSettings.colorsFor[com.chencohen.ptt.ui.style.ChatShade.KEY]) }
     CompositionLocalProvider(LocalMessages provides messages, com.chencohen.ptt.ui.talk.LocalHear provides hearOf) {
         Box(Modifier.fillMaxSize()) {
             val page = stack.lastOrNull()
