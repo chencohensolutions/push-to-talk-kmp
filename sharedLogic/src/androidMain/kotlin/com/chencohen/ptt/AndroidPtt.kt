@@ -128,6 +128,8 @@ private fun hub(context: Context): Messaging {
         clipFiles = com.chencohen.ptt.talk.AndroidClipFiles(context.applicationContext),
         blobApi = com.chencohen.ptt.talk.KtorBlobApi(http),
     ).also {
+        // This phone's app version, told to contacts (AboutContent).
+        it.appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
         it.talk.capture = com.chencohen.ptt.talk.AndroidTalkCapture(com.chencohen.ptt.talk.SpeakerphoneMic(context))
         com.chencohen.ptt.talk.MicGuard.init(context)
         val micHub = it

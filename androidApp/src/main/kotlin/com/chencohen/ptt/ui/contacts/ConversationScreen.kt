@@ -207,12 +207,16 @@ internal fun ConversationScreen(
     /** The Talk tab (2026-11-26): the writing bubble says "Message to testbot" and a tap on it opens the chat. */
     writeHint: String? = null,
     writeOpens: (() -> Unit)? = null,
+    /** This chat's colours (TalkSettings.colorsOf): mine and theirs, ChatSwatches indexes, -1 the default. */
+    colors: Pair<Int, Int> = -1 to -1,
 ) {
     val phone = androidx.compose.ui.platform.LocalLayoutDirection.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
     ) {
-        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage, pushTo, writeHint, writeOpens)
+        com.chencohen.ptt.ui.style.ChatColors(colors.first, colors.second) {
+            ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage, pushTo, writeHint, writeOpens)
+        }
     }
 }
 
@@ -1733,7 +1737,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 )
                 .animateContentSize(androidx.compose.animation.core.tween(MORPH_MS))
                 .then(if (liveEdit != null) Modifier.border(1.dp, LibraryColors.Accent.copy(alpha = 0.6f), LibraryShapes.Card) else Modifier)
-                .then(if (isFace) Modifier else if (look != null) Modifier.myBubble(look) else Modifier.background(LibraryColors.Raised, LibraryShapes.Card))
+                .then(if (isFace) Modifier else if (look != null) Modifier.myBubble(look) else Modifier.background(LibraryColors.Theirs, LibraryShapes.Card))
                 .then(if (reachLabel != null) Modifier.semantics { stateDescription = reachLabel } else Modifier)
                 .then(if (message.status == MessageStatus.FAILED) Modifier.clickable(role = Role.Button) { retry(message.id) } else Modifier)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -1773,7 +1777,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 if (liveEdit != null) Text(stringResource(R.string.chat_editing), color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
                 Text(
                     liveEdit?.text ?: message.body,
-                    color = if (mine) LibraryColors.OnMine else LibraryColors.OnBackground, style = LibraryType.Message,
+                    color = if (mine) LibraryColors.OnMine else LibraryColors.OnTheirs, style = LibraryType.Message,
                     onTextLayout = { textLayout = it },
                     modifier = Modifier.onGloballyPositioned { textPlace[1] = it }
                         .then(if (liveEdit?.text != null && liveEdit.selEnd >= 0) Modifier.liveCaret(textLayout, liveEdit.selStart, liveEdit.selEnd) else Modifier),
@@ -1787,14 +1791,14 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             // The time, and for mine how far it got: no "read" mark (their circle says it).
             Row(Modifier.align(Alignment.End).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (message.editedAt != null) {
-                    Text(stringResource(R.string.chat_edited), color = if (mine) LibraryColors.OnMineMuted else LibraryColors.Muted, style = LibraryType.Tiny, modifier = Modifier.padding(end = 4.dp))
+                    Text(stringResource(R.string.chat_edited), color = if (mine) LibraryColors.OnMineMuted else LibraryColors.OnTheirsMuted, style = LibraryType.Tiny, modifier = Modifier.padding(end = 4.dp))
                 }
                 Text(
                     time,
                     color = when {
                         message.status == MessageStatus.FAILED && mine -> LibraryColors.Warning
                         mine -> LibraryColors.OnMineMuted
-                        else -> LibraryColors.Muted
+                        else -> LibraryColors.OnTheirsMuted
                     },
                     style = LibraryType.Tiny,
                 )
