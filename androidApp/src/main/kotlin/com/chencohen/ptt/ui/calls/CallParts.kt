@@ -736,7 +736,7 @@ private fun RoundButton(icon: ImageVector, label: String, color: Color, onClick:
         Box(
             Modifier.size(64.dp).background(color, CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, label, tint = Color.White, modifier = Modifier.size(28.dp)) }
+        ) { com.chencohen.ptt.ui.style.IconsOnAccent { Icon(icon, label, tint = Color.White, modifier = Modifier.size(28.dp)) } }
         Spacer(Modifier.height(6.dp))
         Text(label, color = LibraryColors.PhotoTextMuted, style = LibraryType.Small)
     }
@@ -1093,20 +1093,20 @@ fun ChatCallBottom(call: CallUi, actions: CallActions, fullScreen: () -> Unit) {
             )
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp).navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            SmallCallButton(if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute)) { actions.setMicrophone(!call.microphone) }
-            SmallCallButton(if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on)) { actions.setCamera(!call.camera) }
-            if (call.camera) SmallCallButton(LibraryIcons.Flip, stringResource(R.string.call_flip), actions.switchCamera)
-            SmallCallButton(LibraryIcons.Expand, stringResource(R.string.call_full_screen), fullScreen)
+            SmallCallButton(if (call.microphone) LibraryIcons.Mic else LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute), if (call.microphone) com.chencohen.ptt.ui.style.IconLive else null) { actions.setMicrophone(!call.microphone) }
+            SmallCallButton(if (call.camera) LibraryIcons.Video else LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on), if (call.camera) com.chencohen.ptt.ui.style.IconLive else null) { actions.setCamera(!call.camera) }
+            if (call.camera) SmallCallButton(LibraryIcons.Flip, stringResource(R.string.call_flip), onClick = actions.switchCamera)
+            SmallCallButton(LibraryIcons.Expand, stringResource(R.string.call_full_screen), onClick = fullScreen)
         }
     }
 }
 
 @Composable
-private fun SmallCallButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun SmallCallButton(icon: ImageVector, label: String, key: Color? = null, onClick: () -> Unit) {
     Box(
         Modifier.size(48.dp).background(LibraryColors.Raised, CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(22.dp)) }
+    ) { com.chencohen.ptt.ui.style.FineIcon(icon, label, Modifier.size(22.dp), tint = LibraryColors.OnBackground, key = key) }
 }
 
 /**
@@ -1172,6 +1172,115 @@ internal fun RoomCallScreen(
                 Color.White.copy(alpha = 0.18f),
             ) { media(call.microphone, !call.camera) }
             RoundButton(LibraryIcons.Call, stringResource(R.string.call_hang_up), LibraryColors.Error, end)
+        }
+    }
+}
+
+/**
+ * Which chat's live talk shows full screen (2026-11-27, hen: "it's not 'make it a call', because two people speaking is
+ * already a call, just in a floating layout; I want to navigate to the call screen and out to the floating layout at
+ * ease"; "'Full screen' is enough"). Set from the floating window's or the chat's Full screen; [fromFloating]: shrinking
+ * it puts the app in the back, so the floating window takes over again.
+ */
+object LiveFull {
+    val chat = androidx.compose.runtime.mutableStateOf<String?>(null)
+    @Volatile var fromFloating = false
+    /** Already live when it opened: my microphone ([startMic]) and camera ([startCamera]) stay on, the same press. */
+    @Volatile var startMic = false
+    @Volatile var startCamera = false
+
+    /**
+     * [mic], [camera]: what I was sending as it opened (2026-11-27, hen: "when transmitting my camera or only voice and
+     * entering full screen my camera or microphone should stay on"); muted otherwise.
+     */
+    fun open(chat: String, fromFloating: Boolean, mic: Boolean = false, camera: Boolean = false) {
+        this.fromFloating = fromFloating
+        startMic = mic
+        startCamera = mic && camera
+        this.chat.value = chat
+    }
+}
+
+/**
+ * The live talk with [chat], full screen: the same room, nothing dialled and nothing ringing. Their video fills it
+ * (else their face), mine in a corner while my camera is on. I start muted, shown as in a call (2026-11-27, hen:
+ * "don't encourage to open the mic; in full screen show that I am muted, with an icon, just like in a call"): the
+ * microphone button with its line through it. [open] unmutes ([camera]: with my video) and mutes again; [minimize]
+ * (the chevron, or Back) goes back to the floating layout or the chat.
+ */
+@Composable
+internal fun LiveFullScreen(
+    chat: String,
+    title: String,
+    me: String,
+    open: Boolean,
+    camera: Boolean,
+    since: Long,
+    setOpen: (microphone: Boolean, camera: Boolean) -> Unit,
+    minimize: () -> Unit,
+) {
+    val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsStateWithLifecycle()
+    val theirs = arriving.values.firstOrNull { it.identity.substringBeforeLast('.') != me }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+    Box(Modifier.fillMaxSize().background(Color(0xFF0F1413)).pointerInput(Unit) { detectTapGestures { } }) {
+        if (theirs != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                com.chencohen.ptt.ui.talk.RoomVideoView(theirs, Modifier.fillMaxWidth().aspectRatio(theirs.aspect.coerceIn(0.3f, 3f)))
+            }
+        }
+        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 24.dp, start = 64.dp, end = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (theirs == null) {
+                Spacer(Modifier.height(48.dp))
+                com.chencohen.ptt.ui.contacts.Avatar(chat, size = 96.dp, name = title)
+                Spacer(Modifier.height(12.dp))
+            }
+            Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
+            Text(clipLength((now - since).coerceAtLeast(0)), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
+        }
+        // Back to the floating layout (or the chat).
+        Box(
+            Modifier.align(Alignment.TopStart).statusBarsPadding().padding(12.dp).size(48.dp)
+                .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = minimize),
+            contentAlignment = Alignment.Center,
+        ) { Icon(LibraryIcons.ChevronDown, stringResource(R.string.talk_minimize), tint = Color.White, modifier = Modifier.size(24.dp)) }
+        if (open && camera) {
+            val shape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
+            val (w, h) = ownWindowDp(shape)
+            Box(
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 120.dp, end = 16.dp)
+                    .size(w.dp, h.dp).clip(RoundedCornerShape(12.dp)),
+            ) { com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true) }
+        }
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f))))
+                .navigationBarsPadding().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Muted, said in words too, as a call says it.
+            if (!open) {
+                Text(stringResource(R.string.talk_you_are_muted), color = LibraryColors.PhotoTextMuted, style = LibraryType.Small)
+                Spacer(Modifier.height(12.dp))
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                RoundButton(
+                    if (open) LibraryIcons.Mic else LibraryIcons.MicOff,
+                    stringResource(if (open) R.string.call_mute else R.string.call_unmute),
+                    if (open) Color(0xFF2BB3A3) else Color.White.copy(alpha = 0.18f),
+                ) { setOpen(!open, camera && !open) }
+                RoundButton(
+                    if (open && camera) LibraryIcons.Video else LibraryIcons.VideoOff,
+                    stringResource(if (open && camera) R.string.call_camera_off else R.string.call_camera_on),
+                    if (open && camera) Color(0xFF2BB3A3) else Color.White.copy(alpha = 0.18f),
+                ) { if (open && camera) setOpen(true, false) else setOpen(true, true) }
+            }
         }
     }
 }

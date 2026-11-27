@@ -411,6 +411,9 @@ fun HomeApp(
                 micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                 call = { video -> call(user, video) },
                 sendLiveWaiting = { waiting -> messaging.sendLiveWaiting(user, waiting) },
+                fullScreen = { mic, cam -> com.chencohen.ptt.ui.calls.LiveFull.open(user, fromFloating = false, mic = mic, camera = cam) },
+                handOver = { video, urgent -> com.chencohen.ptt.TalkBubble.takeOver(context, user, chatName(user), video, urgent) },
+                takeBack = { com.chencohen.ptt.TalkBubble.handBack(user) },
                 callInChat = {
                     // In the talk room already: it becomes the call at once. Without a room to turn, a
                     // short word, never a ringing call (2026-11-25, hen: "it's calling the recipient
@@ -430,6 +433,8 @@ fun HomeApp(
             talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
         )
     }
+    // The bubbles' strength in each theme (Settings › chat colours).
+    androidx.compose.runtime.SideEffect { com.chencohen.ptt.ui.style.ChatShade.take(messagingState.talkSettings.colorsFor[com.chencohen.ptt.ui.style.ChatShade.KEY]) }
     CompositionLocalProvider(LocalMessages provides messages, com.chencohen.ptt.ui.talk.LocalHear provides hearOf) {
         Box(Modifier.fillMaxSize()) {
             val page = stack.lastOrNull()
@@ -796,10 +801,17 @@ fun HomeApp(
                         com.chencohen.ptt.QuickReplyWindow.chatOpened(user)
                         onPauseOrDispose { }
                     }
+                    val app = LocalContext.current.applicationContext as? com.chencohen.ptt.TalkApp
                     DisposableEffect(user) {
                         messaging.openChat(user)
                         messaging.refreshPresence()
-                        onDispose { messaging.openChat(null) }
+                        // Its own buttons are here: the floating bar for it goes; leaving it while someone is live in
+                        // it, the floating bar shows them (2026-11-27, hen).
+                        com.chencohen.ptt.TalkBubble.chatOpened(user)
+                        onDispose {
+                            messaging.openChat(null)
+                            app?.let { com.chencohen.ptt.TalkPlaying.leftChat(it, user) }
+                        }
                     }
                     LaunchedEffect(messagingState.unread[user]) { if ((messagingState.unread[user] ?: 0) > 0) messaging.openChat(user) }
                     ChatScreenFor(user)
@@ -976,6 +988,75 @@ fun HomeApp(
                     inChatCallFor = null
                     messaging.dismissEndedCall()
                 }
+            }
+            // The live talk full screen (2026-11-27, hen): the same room, I start muted; the chevron or Back goes back to
+            // the floating layout (the app to the back) or the chat it came from.
+            com.chencohen.ptt.ui.calls.LiveFull.chat.value?.let { live ->
+                // Muted, unless I was already sending (then it stays on, the same press: 2026-11-27, hen).
+                var open by remember(live) { mutableStateOf(com.chencohen.ptt.ui.calls.LiveFull.startMic) }
+                var camera by remember(live) { mutableStateOf(com.chencohen.ptt.ui.calls.LiveFull.startCamera) }
+                var adopting by remember(live) { mutableStateOf(com.chencohen.ptt.ui.calls.LiveFull.startMic) }
+                val ownTalk by androidx.compose.runtime.rememberUpdatedState(messagingState.talk.own)
+                val since = remember(live) { System.currentTimeMillis() }
+                val minimize = {
+                    if (open) messaging.releaseTalk(true)
+                    open = false
+                    val back = com.chencohen.ptt.ui.calls.LiveFull.fromFloating
+                    com.chencohen.ptt.ui.calls.LiveFull.chat.value = null
+                    if (back) (context as? android.app.Activity)?.moveTaskToBack(true)
+                }
+                BackHandler { minimize() }
+                // Open: a press held for me, renewed before the server's 60 s floor ends; muted: let go (sent).
+                LaunchedEffect(live, open, camera) {
+                    if (!open) return@LaunchedEffect
+                    fun going() = ownTalk?.takeIf {
+                        it.chat == live && (it.phase == com.chencohen.ptt.talk.TalkPhase.TALKING || it.phase == com.chencohen.ptt.talk.TalkPhase.REQUESTING)
+                    }
+                    // My press as it opened goes on as it is (its camera never let go); renewed when its 55 s are up.
+                    val kept = going().takeIf { adopting }
+                    adopting = false
+                    if (kept == null) {
+                        // A press while the last is still letting go would be ignored: it waits for that first.
+                        var waited = 0
+                        while (ownTalk?.chat == live && waited < 2_000) {
+                            kotlinx.coroutines.delay(50)
+                            waited += 50
+                        }
+                        messaging.pressTalkWith(live, camera)
+                    }
+                    try {
+                        var wait = kept?.let { (it.startedAt + 55_000 - System.currentTimeMillis()).coerceIn(1_000L, 55_000L) } ?: 55_000L
+                        while (true) {
+                            kotlinx.coroutines.delay(wait)
+                            wait = 55_000L
+                            messaging.releaseTalk(true)
+                            kotlinx.coroutines.delay(300)
+                            messaging.pressTalkWith(live, camera)
+                        }
+                    } finally {
+                        messaging.releaseTalk(true)
+                    }
+                }
+                com.chencohen.ptt.ui.calls.LiveFullScreen(
+                    chat = live,
+                    title = chatName(live),
+                    me = state.device?.user.orEmpty(),
+                    open = open,
+                    camera = camera,
+                    since = since,
+                    setOpen = { mic, cam ->
+                        if (mic) {
+                            callPermissions(cam) { allowed ->
+                                camera = cam && allowed
+                                open = true
+                            }
+                        } else {
+                            open = false
+                            camera = false
+                        }
+                    },
+                    minimize = minimize,
+                )
             }
             // A push turned into a call (the talk room's own), over everything like any call.
             messagingState.roomCall?.let { rc ->

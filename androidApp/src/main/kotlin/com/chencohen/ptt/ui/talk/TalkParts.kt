@@ -119,7 +119,7 @@ internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Uni
     ) {
         // The icon only (2026-11-22, hen); the label is for TalkBack.
         // A camera when the press sends video too (Voice | Video above it).
-        Icon(if (video) LibraryIcons.Video else LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp))
+        com.chencohen.ptt.ui.style.IconsOnAccent { Icon(if (video) LibraryIcons.Video else LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp)) }
     }
 }
 
@@ -278,7 +278,6 @@ internal fun talkLine(chat: String, talk: TalkUiState, nameOf: (String) -> Strin
             TalkPhase.REFUSED -> if (own.refusal == OwnTalk.MIC) stringResource(R.string.talk_no_mic) else stringResource(R.string.talk_refused)
             TalkPhase.OFFLINE -> stringResource(R.string.talk_offline)
             TalkPhase.VOICE -> stringResource(R.string.voice_recording)
-            TalkPhase.WAITING -> stringResource(R.string.talk_waiting_for, nameOf(own.busyWith.orEmpty()))
         }
         talker != null && talker.user == me -> stringResource(R.string.talk_other_phone)
         talker != null -> com.chencohen.ptt.genderedString(R.string.talk_someone, talker.user, nameOf(talker.user))
@@ -383,7 +382,7 @@ internal fun VoiceButton(recording: OwnTalk?, start: () -> Unit, finish: (send: 
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(22.dp))
+            com.chencohen.ptt.ui.style.IconsOnAccent { Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(22.dp)) }
         }
     }
 }
@@ -568,6 +567,50 @@ internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.Talk
         }
         SwatchRow(stringResource(R.string.chat_colors_mine), mine, global) { set(talk.withColors(chat, it, theirs)) }
         SwatchRow(stringResource(R.string.chat_colors_theirs), theirs, global) { set(talk.withColors(chat, mine, it)) }
+        // The bubbles' brightness, for this theme (2026-11-27, hen: "from white to black slider, the brightness, default
+        // at center"): its track goes from white through the colour to black, the colour as it is in the middle.
+        if (global) {
+            val light = LibraryColors.Background.luminance() > 0.5f
+            val key = com.chencohen.ptt.ui.style.ChatShade.KEY
+            val saved = talk.colorsFor[key]
+            var value by androidx.compose.runtime.remember(light, saved) {
+                androidx.compose.runtime.mutableFloatStateOf(if (light) com.chencohen.ptt.ui.style.ChatShade.light else com.chencohen.ptt.ui.style.ChatShade.dark)
+            }
+            val hueNow = (if (shownMine >= 0) shownMine else 2)
+            val base = (if (light) com.chencohen.ptt.ui.style.ChatHuesBright else com.chencohen.ptt.ui.style.ChatHuesDeep)[hueNow % 6]
+            val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+            val stops = listOf(androidx.compose.ui.graphics.Color.White, base, androidx.compose.ui.graphics.Color.Black)
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Text(stringResource(R.string.chat_colors_brightness), color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+                Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.Center) {
+                    // White at the start (the right in Hebrew), black at the end.
+                    Box(
+                        Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(10.dp)
+                            .background(androidx.compose.ui.graphics.Brush.horizontalGradient(if (rtl) stops.reversed() else stops), CircleShape)
+                            .border(1.dp, LibraryColors.Muted.copy(alpha = 0.4f), CircleShape),
+                    )
+                androidx.compose.material3.Slider(
+                    value = value,
+                    onValueChange = { v ->
+                        value = v
+                        // Seen at once in the preview above.
+                        if (light) com.chencohen.ptt.ui.style.ChatShade.light = v else com.chencohen.ptt.ui.style.ChatShade.dark = v
+                    },
+                    colors = androidx.compose.material3.SliderDefaults.colors(
+                        thumbColor = LibraryColors.OnBackground,
+                        activeTrackColor = androidx.compose.ui.graphics.Color.Transparent,
+                        inactiveTrackColor = androidx.compose.ui.graphics.Color.Transparent,
+                        activeTickColor = androidx.compose.ui.graphics.Color.Transparent,
+                        inactiveTickColor = androidx.compose.ui.graphics.Color.Transparent,
+                    ),
+                    onValueChangeFinished = {
+                        val now = listOf((com.chencohen.ptt.ui.style.ChatShade.light * 100).toInt(), (com.chencohen.ptt.ui.style.ChatShade.dark * 100).toInt())
+                        set(talk.copy(colorsFor = talk.colorsFor + (key to now)))
+                    },
+                )
+                }
+            }
+        }
     }
     com.chencohen.ptt.ui.style.PageNote(stringResource(if (global) R.string.chat_colors_global_body else R.string.chat_colors_body), top = 6)
 }

@@ -581,11 +581,10 @@ class TalkTest {
     }
 
     @Test
-    fun aPressWhileTheOtherTalksWaitsSendingNothingAndGoesLiveWhenTheirsEnds() = runTest {
-        // 2026-11-25 (hen): "only when the UI says it's transmitting, then transmit". Waiting is shown as waiting and
-        // nothing of it is recorded or sent; at the turn it goes live and sends from that moment.
+    fun aBusyFromSomeoneElseIsNotWaitedFor() = runTest {
+        // 2026-11-27 (hen: "remove this logic"): no "Waiting for …" anywhere. A server that still has one floor for
+        // the conversation answers Busy: the press goes as busy, nothing of it sent or kept, and nothing waits.
         val (server, hen, dana) = paired()
-        // The server as it was before 2026-11-25: one floor for the conversation, so a second press waits.
         server.oneFloorPerConversation = true
         dana.work.launch {
             dana.talk.press("hen")
@@ -597,51 +596,13 @@ class TalkTest {
             hen.mic.say(100, 15)
         }
         advanceTimeBy(1_000)
-        assertEquals(TalkPhase.WAITING, hen.state.talk.own?.phase)
+        assertEquals(TalkPhase.BUSY, hen.state.talk.own?.phase)
         assertEquals("dana", hen.state.talk.own?.busyWith)
-        assertTrue(server.talkStates.any { it.first == hen.address && it.second.event == TalkEvent.BUSY })
-        assertTrue(hen.chat("dana").none { it.outgoing && it.clip != null }, "nothing kept while waiting")
-        dana.work.launch { dana.talk.release() }
-        advanceTimeBy(1_000)
-        assertEquals(TalkPhase.TALKING, hen.state.talk.own?.phase)
-        hen.work.launch {
-            hen.mic.say(115, 5)
-            hen.talk.release()
-        }
-        advanceTimeBy(5_000)
-        val heard = dana.speaker.played.last()
-        assertEquals(5, heard.size, "only what was said once live")
-        val kept = hen.chat("dana").single { it.outgoing && it.clip != null }
-        assertEquals(ClipKind.BURST, kept.clip?.kind)
-        assertEquals(emptyList(), server.segmentRefusals)
-        hen.stop()
-        dana.stop()
-    }
-
-    @Test
-    fun aPressLetGoWhileWaitingSendsAndKeepsNothing() = runTest {
-        val (server, hen, dana) = paired()
-        // The server as it was before 2026-11-25: one floor for the conversation, so a second press waits.
-        server.oneFloorPerConversation = true
-        dana.work.launch {
-            dana.talk.press("hen")
-            dana.mic.say(0, 20)
-        }
-        advanceTimeBy(1_000)
-        hen.work.launch {
-            hen.talk.press("dana")
-            hen.mic.say(100, 15)
-        }
-        advanceTimeBy(1_000)
-        assertEquals(TalkPhase.WAITING, hen.state.talk.own?.phase)
-        hen.work.launch { hen.talk.release() }
-        advanceTimeBy(1_000)
         dana.work.launch { dana.talk.release() }
         advanceTimeBy(5_000)
-        assertTrue(hen.chat("dana").none { it.outgoing && it.clip != null }, "a press that never went live isn't kept")
-        assertTrue(dana.chat("hen").none { !it.outgoing && it.clip != null && it.clip?.kind == ClipKind.VOICE }, "nor sent as a voice message")
-        assertTrue(dana.speaker.played.isEmpty(), "dana heard nothing of it")
-        assertEquals(null, hen.state.talk.own)
+        assertEquals(1, server.talkStates.count { it.first == hen.address && it.second.event == TalkEvent.BUSY }, "not asked again")
+        assertTrue(hen.chat("dana").none { it.outgoing && it.clip != null }, "nothing kept")
+        assertTrue(dana.speaker.played.none { it.size == 15 }, "dana heard nothing of it")
         hen.stop()
         dana.stop()
     }

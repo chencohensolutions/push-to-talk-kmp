@@ -317,6 +317,9 @@ class MessagingController internal constructor(
     /** The Talk button went down in [chat] (a user, or a group's chat). */
     fun pressTalk(chat: String) = onWork { messaging.talk.press(chat) }
 
+    /** A press in [chat] with my camera ([video]) or without, whatever push-to-video says (the full-screen talk). */
+    fun pressTalkWith(chat: String, video: Boolean) = onWork { messaging.talk.press(chat, video) }
+
     /** The press slid onto the red bell (2026-11-25, hen): an urgent push. */
     fun markUrgent() = onWork { messaging.talk.markUrgent() }
 

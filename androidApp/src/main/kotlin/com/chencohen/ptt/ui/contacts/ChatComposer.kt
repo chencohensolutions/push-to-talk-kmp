@@ -334,11 +334,6 @@ internal fun ChatButtons(
     release: ((lock: PushLock) -> Unit)? = null,
     /** My camera, small, on the button's corner. */
     thumb: Boolean = true,
-    /**
-     * My press waits for this one's floor (2026-11-25, hen: waiting looks like waiting, not live): the big button
-     * dimmed inside a dashed ring, and "Waiting for Sharon…" beside it.
-     */
-    waitingFor: String? = null,
     /** Who Push goes to, said beside it while nothing is waiting (the Talk tab's list). */
     pushTo: String? = null,
     /** My push now is urgent (the red bell; 2026-11-25, hen): the button red with a bell. */
@@ -373,8 +368,7 @@ internal fun ChatButtons(
             // back when the push stops.
             val aside by androidx.compose.animation.core.animateFloatAsState(if (lifting >= 0f || handsFree) 1f else 0f, tween(180), label = "voice message aside")
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                val sideLine = waitingFor?.let { stringResource(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(it)) }
-                    ?: pushTo?.takeIf { !handsFree && lifting < 0f }?.let { stringResource(R.string.talk_push_to, android.text.BidiFormatter.getInstance().unicodeWrap(it)) }
+                val sideLine = pushTo?.takeIf { !handsFree && lifting < 0f }?.let { stringResource(R.string.talk_push_to, android.text.BidiFormatter.getInstance().unicodeWrap(it)) }
                 if (sideLine != null) {
                     Text(
                         // The line in the language's direction, the name wrapped: a Latin name doesn't turn a Hebrew line around.
@@ -425,20 +419,7 @@ internal fun ChatButtons(
             val onPressed by androidx.compose.runtime.rememberUpdatedState(pressed)
             val onRelease by androidx.compose.runtime.rememberUpdatedState(release)
             val onPress by androidx.compose.runtime.rememberUpdatedState(press ?: actions.startVoice)
-            val ring = com.chencohen.ptt.ui.style.Pink
-            Box(
-                Modifier.size(big)
-                    .drawBehind {
-                        // Waiting: a dashed ring around the button, the button itself dimmed.
-                        if (waitingFor != null) {
-                            drawCircle(
-                                ring, radius = size.minDimension / 2 + 5.dp.toPx(),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(7.dp.toPx(), 6.dp.toPx()))),
-                            )
-                        }
-                    }
-                    .graphicsLayer { alpha = if (waitingFor != null) 0.45f else 1f },
-            ) {
+            Box(Modifier.size(big)) {
                 if (handsFree) {
                     StopLive(big, stopLive, urgent)
                 } else Box(
@@ -507,7 +488,7 @@ internal fun ChatButtons(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
+                    com.chencohen.ptt.ui.style.IconsOnAccent { Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f)) }
                 }
                 // The side target, left of Push while it is held: it fills as the thumb nears it. The microphone
                 // turns into the bell (and back) in one move when someone stops hearing while it is held.
@@ -672,7 +653,7 @@ internal val LocalVideoAutoplay = androidx.compose.runtime.staticCompositionLoca
  * ends the bubble stays and becomes the video (first picture, length).
  */
 @Composable
-internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = true, waitingFor: String? = null) {
+internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = true) {
     var elapsed by remember { mutableLongStateOf(0L) }
     LaunchedEffect(startedAt) {
         while (true) {
@@ -685,14 +666,6 @@ internal fun LiveVideoBubble(mine: Boolean, startedAt: Long, framed: Boolean = t
     val video = @Composable {
         Box(Modifier.width(168.dp).aspectRatio(3f / 4f).background(Color.Black, shape).clip(shape), contentAlignment = Alignment.Center) {
             if (mine) com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize()) else com.chencohen.ptt.ui.talk.TalkVideoView(Modifier.fillMaxSize(), cover = true)
-            // Recording while their burst still goes: sent right after it.
-            androidx.compose.animation.AnimatedVisibility(waitingFor != null, modifier = Modifier.align(Alignment.TopCenter).padding(8.dp)) {
-                Text(
-                    stringResource(R.string.talk_waiting_for, waitingFor.orEmpty()),
-                    color = Color.White, style = LibraryType.Tiny,
-                    modifier = Modifier.background(Color.Black.copy(alpha = 0.55f), CircleShape).padding(horizontal = 8.dp, vertical = 3.dp),
-                )
-            }
             Row(
                 Modifier.align(Alignment.BottomStart).padding(8.dp).background(Color.Black.copy(alpha = 0.5f), CircleShape).padding(horizontal = 6.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,

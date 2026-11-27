@@ -37,6 +37,14 @@ import com.chencohen.ptt.ui.live.LivePerson
 import com.chencohen.ptt.ui.live.LiveSlot
 import com.chencohen.ptt.ui.live.LiveMotion
 import com.chencohen.ptt.ui.live.LiveRect
+import com.chencohen.ptt.ui.live.Dock
+import com.chencohen.ptt.ui.live.DockEdge
+import com.chencohen.ptt.ui.live.FloatDock
+import com.chencohen.ptt.ui.live.FloatScreen
+import com.chencohen.ptt.ui.live.Height
+import com.chencohen.ptt.ui.live.Lean
+import com.chencohen.ptt.ui.live.ScreenRect
+import com.chencohen.ptt.ui.live.VideoPlace
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -77,6 +85,45 @@ object TalkBubble {
     private const val LOCK_DP = 56
     /** Hands-free is let go and taken again before the server's 60 s floor ends. */
     private const val RENEW_MS = 55_000L
+    /** Held this long on the bar (not on Push): it lifts and can be dragged to another edge. */
+    private const val LONG_PRESS_MS = 400L
+    /** How long after the app or chat goes the top row takes over in place ([takingOverRow]). */
+    private const val IN_PLACE_MS = 1_500L
+    /** How long a press handed to the chat by Chat waits for the chat to take it. */
+    private const val PENDING_BACK_MS = 5_000L
+    /** Upright on a side edge: Stop is this tall (its icon over the time). */
+    private const val STOP_UPRIGHT_DP = 84
+    /** The room kept beside the bar for the lock while Push is held. */
+    private const val HINTS_DP = 58
+    /** Folded into its edge, this much of the bar still shows: a handle at the top or bottom, a tab at the sides. */
+    private const val PEEK_DP = 14
+    private const val PEEK_SIDE_DP = 24
+
+    // ---- Where the bar rests, and folding (2026-11-27, hen: "drag the floating bar ... along the edges", "auto hide in
+    // a smart way", "if docked to the side edges ... hide and be able to return with a gesture") ----
+    /** The edge the bar rests on (kept between showings); upright on the left and right edges. */
+    private var dock = Dock.DEFAULT
+    private var pillParams: WindowManager.LayoutParams? = null
+    /** The system bar's room at the bar's edge (the navigation bar at the bottom, the status bar at the top). */
+    private var edgeInset = 0
+    /** Folded into its edge: only a slim handle or tab shows, and a tap or a swipe in brings it back. */
+    private var folded = false
+    /** How much of the bar's buttons show (1; 0 while folded): the fold fades them as it slides. */
+    private var barShown = 1f
+    private var foldMove: android.animation.ValueAnimator? = null
+    /** When something last happened on the bar or in its chat (talk, a touch): it folds [FloatDock.QUIET_MS] after. */
+    private var lastActive = 0L
+    private var keyboardUp = false
+    private var fullScreen = false
+    /** Lifted by a long press: the bar follows the finger, and the edges it can go to show. */
+    private var moving = false
+    private var moveFrom = intArrayOf(0, 0)
+    private var guide: DockGuide? = null
+    /** Where the videos rest, on their own (2026-11-27, hen: "stay at the top in original position"). */
+    private var videoPlace = VideoPlace.DEFAULT
+    private var topMove: android.animation.ValueAnimator? = null
+    private var placesRead = false
+    private var wasBusy = false
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -100,8 +147,6 @@ object TalkBubble {
     private var pillMorph: android.animation.ValueAnimator? = null
     /** "■ Stop · 00:00" at its widest: the Stop pill's width, the same whatever the time says. */
     private var stopWidth = 0
-    /** My press waits for the floor (TalkPhase.WAITING): shown as waiting, never as live. */
-    private var waiting = false
     private var chatButton: ImageView? = null
     private var button: ImageView? = null
     private var closeButton: ImageView? = null
@@ -320,30 +365,54 @@ object TalkBubble {
     // ---- The bottom pill ----------------------------------------------------------------------------------------
 
     // Left, not start: the pill's buttons are put by their left edge whatever the language ([shapePill]).
+    /**
+     * The bar's window at [dock]. [from]: the bar was just dragged here, its centre was there on the screen (it glides
+     * from there into its new place instead of sliding in from the edge).
+     */
     @SuppressLint("ClickableViewAccessibility", "RtlHardcoded")
-    private fun addPill(context: Context): Boolean {
+    private fun addPill(context: Context, from: FloatArray? = null): Boolean {
         val wm = context.getSystemService(WindowManager::class.java)
         fun dp(v: Int) = dp(context, v)
+        readPlaces(context)
+        val edge = dock.edge
+        val upright = edge.upright
         val bars = wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.navigationBars())
+        val statusTop = maxOf(
+            wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout()).top,
+            statusBarHeight(context),
+        )
         // One frame that grows and shrinks about its centre in one move ([shapePill]; 2026-11-25, hen: "the bottom pill
         // transition is juggling when morphing"): Chat at its left end, Push or Stop after it, each put by its left
-        // edge, the same in Hebrew and English. No LinearLayout and LayoutTransition any more.
+        // edge, the same in Hebrew and English. No LinearLayout and LayoutTransition any more. Upright on a side edge
+        // (2026-11-27), the same from top to bottom: Chat above Push.
         //
         // The bar hen chose (2026-11-26, the floating-bar mock: "option A + button layout 1"): fully solid, a light rim
         // inside a dark hairline and a deep shadow, so one of its edges shows over any app, light or dark; two buttons
         // only, Chat (48 dp) and Push (60 dp), 12 dp apart, Push right of the middle for a right thumb; no ✕: the bar
-        // is swiped down to send it away ([dragBar], a small grab line hints at it). While Push is held the Chat
-        // button's place is the slide target (hands-free voice, or the urgent bell).
+        // is swiped toward its edge to fold it or flung to send it away ([dragBar], a small grab line hints at it).
+        // While Push is held the Chat button's place is the slide target (hands-free voice, or the urgent bell).
         val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
         val row = object : FrameLayout(context) {
             private var downX = 0f
             private var downY = 0f
             private var mine = false
 
-            /** A finger going down the bar, wherever it started on it (Push has its own: [touch]). */
+            private fun away(e: MotionEvent) = along(e.rawX - downX, e.rawY - downY, awayDir())
+            private fun across(e: MotionEvent) = kotlin.math.abs(along(e.rawX - downX, e.rawY - downY, acrossDir()))
+            private fun far(e: MotionEvent) = kotlin.math.hypot(e.rawX - downX, e.rawY - downY) > slop
+
+            /** A finger going toward the bar's edge, wherever it started on it (Push has its own: [touch]). */
             private fun swipes(e: MotionEvent): Boolean {
-                val dy = e.rawY - downY
-                return !talking && ringing == null && dy > slop && dy > kotlin.math.abs(e.rawX - downX)
+                val d = away(e)
+                return !talking && ringing == null && d > slop && d > across(e)
+            }
+
+            /** The finger is on Push (which has its own touches): no long press to move the bar there. */
+            private fun onPush(e: MotionEvent): Boolean {
+                val p = pushBox ?: return false
+                val x = p.left + p.translationX
+                val y = p.top + p.translationY
+                return e.x >= x && e.x <= x + p.width && e.y >= y && e.y <= y + p.height
             }
 
             override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
@@ -352,11 +421,25 @@ object TalkBubble {
                         downX = e.rawX
                         downY = e.rawY
                         mine = false
-                        dragSample(e.rawY, e.eventTime, first = true)
+                        lastActive = System.currentTimeMillis()
+                        dragSample(awayAt(e), e.eventTime, first = true)
+                        // Folded: the whole tab is one target, a tap or a swipe in.
+                        if (folded) return true
+                        main.removeCallbacks(longPress)
+                        if (!talking && ringing == null && !onPush(e)) main.postDelayed(longPress, LONG_PRESS_MS)
                     }
-                    MotionEvent.ACTION_MOVE -> if (!barDrag && swipes(e)) {
-                        mine = true
-                        return true
+                    MotionEvent.ACTION_MOVE -> {
+                        if (moving) return true
+                        if (far(e)) main.removeCallbacks(longPress)
+                        if (!barDrag && swipes(e)) {
+                            mine = true
+                            return true
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        main.removeCallbacks(longPress)
+                        // Lifted and let go without moving: Chat under the finger isn't opened.
+                        if (moving) return true
                     }
                 }
                 return false
@@ -366,15 +449,33 @@ object TalkBubble {
             override fun onTouchEvent(e: MotionEvent): Boolean {
                 when (e.actionMasked) {
                     MotionEvent.ACTION_MOVE -> {
+                        if (folded) {
+                            // Swiped in from the edge: it comes out.
+                            if (-away(e) > slop) unfold()
+                            return true
+                        }
+                        if (moving) {
+                            moveBar(e.rawX - downX, e.rawY - downY)
+                            return true
+                        }
+                        if (far(e)) main.removeCallbacks(longPress)
                         if (!mine && swipes(e)) mine = true
                         if (mine) {
-                            dragSample(e.rawY, e.eventTime, first = false)
-                            dragBar(e.rawY - downY - slop)
+                            dragSample(awayAt(e), e.eventTime, first = false)
+                            dragBar(away(e) - slop)
                         }
                     }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (mine) {
-                        mine = false
-                        dropBar(context, e.rawY - downY - slop, e.actionMasked == MotionEvent.ACTION_CANCEL)
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        main.removeCallbacks(longPress)
+                        val cancelled = e.actionMasked == MotionEvent.ACTION_CANCEL
+                        when {
+                            folded -> if (!cancelled && !far(e)) unfold()
+                            moving -> dropMove(context, cancelled)
+                            mine -> {
+                                mine = false
+                                dropBar(context, away(e) - slop, cancelled)
+                            }
+                        }
                     }
                 }
                 return true
@@ -399,8 +500,8 @@ object TalkBubble {
             setOnClickListener { onClick() }
         }
         chatButton = round(R.drawable.ic_bubble_chat, R.string.talk_action_chat, dp(48), 0x33FFFFFF) { chat?.let { intoChat(context, it) } }
-        // The push button: hold for voice, slide up to the lock for hands-free video, left onto Chat's place for
-        // hands-free voice.
+        // The push button: hold for voice, slide toward the screen's inside to the lock for hands-free video, onto
+        // Chat's place for hands-free voice.
         val push = FrameLayout(context).apply { clipChildren = false; clipToPadding = false }
         button = ImageView(context).apply {
             setImageResource(R.drawable.ic_bubble_mic)
@@ -412,25 +513,31 @@ object TalkBubble {
         }
         push.addView(button, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER))
         pushBox = push
-        // Hands-free: the push button's place shows a coral "■ Stop · 0:42"; a tap stops.
+        // Hands-free: the push button's place shows a coral "■ Stop · 0:42" (upright: "■" over "0:42"); a tap stops.
         stopPill = TextView(context).apply {
             visibility = View.INVISIBLE
             setTextColor(Color.WHITE)
-            textSize = 15f
+            textSize = if (upright) 13f else 15f
             gravity = Gravity.CENTER
-            maxLines = 1
+            maxLines = if (upright) 2 else 1
             ellipsize = android.text.TextUtils.TruncateAt.END
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             // Digits all one width, and the pill as wide as its widest time: the seconds don't nudge it.
             fontFeatureSettings = "tnum"
-            setPadding(dp(16), 0, dp(16), 0)
+            setPadding(if (upright) 0 else dp(16), 0, if (upright) 0 else dp(16), 0)
             stopWidth = ((paint.measureText("■  " + context.getString(R.string.talk_stop) + " · 00:00") + dp(32)).toInt() / 2 + 1) * 2
             background = GradientDrawable().apply { cornerRadius = dp(30).toFloat(); setColor(PINK) }
-            // Shown through a round frame that widens from the Push button's own circle to the whole pill.
+            // Shown through a round frame that widens (or grows taller, upright) from the Push button's own circle to
+            // the whole pill.
             outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(v: View, outline: android.graphics.Outline) {
-                    val shown = dp(60) + (v.width - dp(60)) * pillStop
-                    outline.setRoundRect(((v.width - shown) / 2).toInt(), 0, ((v.width + shown) / 2).toInt(), v.height, dp(30).toFloat())
+                    if (dock.edge.upright) {
+                        val shown = dp(60) + (v.height - dp(60)) * pillStop
+                        outline.setRoundRect(0, ((v.height - shown) / 2).toInt(), v.width, ((v.height + shown) / 2).toInt(), dp(30).toFloat())
+                    } else {
+                        val shown = dp(60) + (v.width - dp(60)) * pillStop
+                        outline.setRoundRect(((v.width - shown) / 2).toInt(), 0, ((v.width + shown) / 2).toInt(), v.height, dp(30).toFloat())
+                    }
                 }
             }
             clipToOutline = true
@@ -444,8 +551,8 @@ object TalkBubble {
         closeButton = round(R.drawable.ic_bubble_close, R.string.call_decline, dp(48), Color.RED) { closeOrDecline(context) }.apply { visibility = View.INVISIBLE }
         // The slide target, in the Chat button's own place while Push is held (2026-11-26, hen: no new target popping
         // up beside the bar): a teal microphone, "Hands-free" (voice until Stop), or, only while someone in the chat
-        // can't hear now, the red bell, "Urgent". On the left of Push on the screen in either language: a right thumb
-        // doesn't hide it.
+        // can't hear now, the red bell, "Urgent". On the left of Push on the screen in either language (above it,
+        // upright): a right thumb doesn't hide it.
         fun target(icon: Int, color: Int, ring: Int, label: Int) = ImageView(context).apply {
             setImageResource(icon)
             setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -464,20 +571,29 @@ object TalkBubble {
             background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(0xC0000000.toInt()) }
             visibility = View.INVISIBLE
         }
-        // The grab line: the bar can be swiped down.
+        // The grab line, on the side facing the screen's inside (what still shows when the bar is folded): the bar can
+        // be swiped toward its edge.
         val grab = View(context).apply { background = GradientDrawable().apply { cornerRadius = dp(2).toFloat(); setColor(0x66FFFFFF) } }
-        val left = Gravity.LEFT or Gravity.CENTER_VERTICAL
-        row.addView(grab, FrameLayout.LayoutParams(dp(26), dp(3), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(5) })
-        row.addView(chatButton, FrameLayout.LayoutParams(dp(48), dp(48), left))
-        row.addView(micHint, FrameLayout.LayoutParams(dp(48), dp(48), left))
-        row.addView(bellHint, FrameLayout.LayoutParams(dp(48), dp(48), left))
-        row.addView(push, FrameLayout.LayoutParams(dp(60), dp(60), left))
-        row.addView(stopPill, FrameLayout.LayoutParams(stopWidth, dp(60), left))
-        row.addView(closeButton, FrameLayout.LayoutParams(dp(48), dp(48), left))
-        // Under the target, over the bar's bottom edge (the window's own room below the bar).
-        row.addView(sideLabel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.LEFT or Gravity.TOP))
-        // The lock, above the push button while it is held. Its room is always there (unseen), so the window never
-        // changes size and the pill never moves when it shows.
+        val corner = Gravity.LEFT or Gravity.TOP
+        row.addView(
+            grab,
+            when (edge) {
+                DockEdge.BOTTOM -> FrameLayout.LayoutParams(dp(26), dp(3), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(5) }
+                DockEdge.TOP -> FrameLayout.LayoutParams(dp(26), dp(3), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(5) }
+                DockEdge.LEFT -> FrameLayout.LayoutParams(dp(3), dp(26), Gravity.RIGHT or Gravity.CENTER_VERTICAL).apply { rightMargin = dp(5) }
+                DockEdge.RIGHT -> FrameLayout.LayoutParams(dp(3), dp(26), Gravity.LEFT or Gravity.CENTER_VERTICAL).apply { leftMargin = dp(5) }
+            },
+        )
+        row.addView(chatButton, FrameLayout.LayoutParams(dp(48), dp(48), corner))
+        row.addView(micHint, FrameLayout.LayoutParams(dp(48), dp(48), corner))
+        row.addView(bellHint, FrameLayout.LayoutParams(dp(48), dp(48), corner))
+        row.addView(push, FrameLayout.LayoutParams(dp(60), dp(60), corner))
+        row.addView(stopPill, if (upright) FrameLayout.LayoutParams(dp(60), dp(STOP_UPRIGHT_DP), corner) else FrameLayout.LayoutParams(stopWidth, dp(60), corner))
+        row.addView(closeButton, FrameLayout.LayoutParams(dp(48), dp(48), corner))
+        // Beside the target (the window's own room around the bar).
+        row.addView(sideLabel, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, corner))
+        // The lock, on the screen's inside of the push button while it is held (above it at the bottom). Its room is
+        // always there (unseen), so the window never changes size and the pill never moves when it shows.
         lockHint = ImageView(context).apply {
             setImageResource(R.drawable.ic_bubble_lock)
             setPadding(dp(9), dp(9), dp(9), dp(9))
@@ -486,33 +602,65 @@ object TalkBubble {
         }
         val hints = FrameLayout(context).apply {
             clipChildren = false
-            addView(lockHint, FrameLayout.LayoutParams(dp(42), dp(58), Gravity.CENTER))
+            addView(lockHint, if (upright) FrameLayout.LayoutParams(dp(58), dp(42), Gravity.CENTER) else FrameLayout.LayoutParams(dp(42), dp(58), Gravity.CENTER))
         }
         val holder = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            orientation = if (upright) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+            gravity = if (upright) Gravity.CENTER_VERTICAL else Gravity.CENTER_HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
-            addView(hints, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(58)).apply { bottomMargin = dp(8) })
-            addView(row, LinearLayout.LayoutParams(dp(PILL_WINDOW_DP), dp(BAR_DP)))
-            // Room for the shadow; below, down to the screen's own bottom edge over the navigation bar, so the pill
-            // comes in from the very bottom and leaves there, never cut at the bar (2026-11-25, hen).
             clipToPadding = false
-            setPadding(dp(8), dp(8), dp(8), bars.bottom + dp(24))
+            val hintsAt = if (upright) {
+                LinearLayout.LayoutParams(dp(HINTS_DP), LinearLayout.LayoutParams.MATCH_PARENT)
+            } else {
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(HINTS_DP))
+            }
+            val rowAt = if (upright) LinearLayout.LayoutParams(dp(BAR_DP), dp(PILL_WINDOW_DP)) else LinearLayout.LayoutParams(dp(PILL_WINDOW_DP), dp(BAR_DP))
+            // The lock's room on the screen's inside of the bar.
+            when (edge) {
+                DockEdge.BOTTOM -> { hintsAt.bottomMargin = dp(8); addView(hints, hintsAt); addView(row, rowAt) }
+                DockEdge.TOP -> { hintsAt.topMargin = dp(8); addView(row, rowAt); addView(hints, hintsAt) }
+                DockEdge.LEFT -> { hintsAt.leftMargin = dp(8); addView(row, rowAt); addView(hints, hintsAt) }
+                DockEdge.RIGHT -> { hintsAt.rightMargin = dp(8); addView(hints, hintsAt); addView(row, rowAt) }
+            }
+            // Room for the shadow; at the bottom, down to the screen's own bottom edge over the navigation bar, so the
+            // pill comes in from the very bottom and leaves there, never cut at the bar (2026-11-25, hen). At the top,
+            // from the screen's top edge over the status bar.
+            when (edge) {
+                DockEdge.BOTTOM -> setPadding(dp(8), dp(8), dp(8), bars.bottom + dp(24))
+                DockEdge.TOP -> setPadding(dp(8), statusTop + dp(12), dp(8), dp(8))
+                DockEdge.LEFT -> setPadding(bars.left + dp(8), 0, dp(8), 0)
+                DockEdge.RIGHT -> setPadding(dp(8), 0, bars.right + dp(8), 0)
+            }
         }
+        edgeInset = when (edge) {
+            DockEdge.BOTTOM -> bars.bottom
+            DockEdge.TOP -> statusTop
+            DockEdge.LEFT -> bars.left
+            DockEdge.RIGHT -> bars.right
+        }
+        val screen = wm.currentWindowMetrics.bounds
         val params = WindowManager.LayoutParams(
-            // As wide as the pill gets (with Stop): the window doesn't change width, so the pill grows and shrinks
+            // As long as the pill gets (with Stop): the window doesn't change size, so the pill grows and shrinks
             // about its centre instead of the window jumping to a new one.
-            dp(PILL_WINDOW_DP),
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            if (upright) WindowManager.LayoutParams.WRAP_CONTENT else dp(PILL_WINDOW_DP),
+            if (upright) dp(PILL_WINDOW_DP) else WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // The app beneath stays usable: touches outside the pill go to it, and nothing closes on them.
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            // To the screen's bottom edge (over the navigation bar): the holder's padding keeps the pill where it was.
-            y = 0
+            when (edge) {
+                DockEdge.BOTTOM -> { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = 0 }
+                DockEdge.TOP -> { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = 0 }
+                DockEdge.LEFT, DockEdge.RIGHT -> {
+                    gravity = Gravity.TOP or (if (edge == DockEdge.LEFT) Gravity.LEFT else Gravity.RIGHT)
+                    x = 0
+                    y = (screen.height() * dock.along - dp(PILL_WINDOW_DP) / 2f).toInt()
+                        .coerceIn(statusTop, (screen.height() - bars.bottom - dp(PILL_WINDOW_DP)).coerceAtLeast(statusTop))
+                }
+            }
+            // To the screen's edge (over the system bars): the holder's padding keeps the pill where it was.
             flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
             title = "Talk pill"
@@ -520,20 +668,61 @@ object TalkBubble {
         return try {
             wm.addView(holder, params)
             pillWindow = holder
+            pillParams = params
             pill = row
             pillStop = 0f
             pillChat = 1f
             pillDecline = 0f
             barDrag = false
-            waiting = false
+            folded = false
+            barShown = 1f
+            moving = false
+            lastActive = System.currentTimeMillis()
             shapePill()
-            // Only the pill takes touches: the room kept for the lock above it is the app's beneath.
-            row.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                if (pill === row) holder.rootSurfaceControl?.setTouchableRegion(android.graphics.Region(row.left, row.top, row.right, row.bottom))
+            // Only the pill takes touches (folded: the part of it that shows): the room kept for the lock beside it is
+            // the app's beneath.
+            row.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (pill === row) touchBar() }
+            // The keyboard coming up, or an app going full screen, folds the bar (when nothing is going on in it).
+            holder.setOnApplyWindowInsetsListener { _, insets ->
+                val ime = insets.isVisible(WindowInsets.Type.ime())
+                val full = !insets.isVisible(WindowInsets.Type.statusBars())
+                if (ime != keyboardUp || full != fullScreen) {
+                    Log.i(TAG, "keyboard ${if (ime) "up" else "down"}, ${if (full) "full screen" else "status bar shows"}")
+                    val fold = (ime && !keyboardUp) || (full && !fullScreen)
+                    keyboardUp = ime
+                    fullScreen = full
+                    if (fold && pill === row && !folded && FloatDock.folds(0, ime, full, busy(), liveVideo(), ringing != null)) fold()
+                }
+                insets
             }
-            // Slides up and fades in, untouchable for a moment (OverlayArrival).
-            row.post { OverlayArrival.arrive(wm, holder, params, row, (row.height + holder.paddingBottom + dp(16)).toFloat()) { a -> row.alpha = a } }
-            Log.i(TAG, "shown")
+            if (from == null) {
+                // Slides in from its edge and fades in, untouchable for a moment (OverlayArrival).
+                row.post {
+                    val off = foldReach() + dp(16)
+                    OverlayArrival.arrive(wm, holder, params, row, 0f) { a -> row.alpha = a }
+                    row.animate().cancel()
+                    val (ax, ay) = awayDir()
+                    row.translationX = ax * off
+                    row.translationY = ay * off
+                    row.animate().translationX(0f).translationY(0f).setDuration(OverlayArrival.ENTER_MS)
+                        .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f)).start()
+                }
+            } else {
+                // Dragged here: from where it was let go into its place, in one move.
+                row.post {
+                    if (pill !== row) return@post
+                    val at = IntArray(2).also { row.getLocationOnScreen(it) }
+                    row.translationX = from[0] - (at[0] + row.width / 2f)
+                    row.translationY = from[1] - (at[1] + row.height / 2f)
+                    row.animate().translationX(0f).translationY(0f).setDuration(250)
+                        .setInterpolator(android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f))
+                        .withEndAction { touchBar() }.start()
+                }
+            }
+            // The videos may rest beside the bar ([anchorTop]).
+            holder.post { if (pillWindow === holder) anchorTop(context) }
+            Log.i(TAG, "shown at ${dock.save()}")
+            main.removeCallbacks(pulse)
             main.post(pulse)
             true
         } catch (e: Exception) {
@@ -581,6 +770,53 @@ object TalkBubble {
         val wantCamera = (warming || sendingVideo) && ringing == null
         if (wantCamera && !previewOn) preview(context, true) else if (!wantCamera && previewOn) preview(context, false)
         pickPreview()
+        showChatFace(context)
+    }
+
+    /** My press, handed to [chat]'s screen by a tap on Chat [at], until that screen takes it ([handBack]). */
+    private class PendingBack(val chat: String, val video: Boolean, val urgent: Boolean, val at: Long)
+    private var pendingBack: PendingBack? = null
+
+    /** The chat whose face [chatButton] shows. */
+    private var chatFaceOf: String? = null
+
+    /**
+     * Chat's button is the other person's face (2026-11-27, hen: "replace the chat icon with the recipient avatar"):
+     * their picture, else the first letter of the chat's name on the button's circle (a group's always).
+     */
+    private fun showChatFace(context: Context) {
+        val button = chatButton ?: return
+        val chat = chat ?: return
+        val key = "$chat|$title"
+        if (chatFaceOf == key) return
+        chatFaceOf = key
+        button.setPadding(0, 0, 0, 0)
+        button.scaleType = ImageView.ScaleType.CENTER_CROP
+        button.clipToOutline = true
+        button.setImageBitmap(letterFace(context, title))
+        if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) return
+        val app = context.applicationContext as? TalkApp ?: return
+        app.scope.launch {
+            val id = kotlinx.coroutines.withTimeoutOrNull(1_000) { com.chencohen.ptt.ui.face.Faces.ids(app).first { it.containsKey(chat) } }?.get(chat) ?: return@launch
+            val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, chat, id) }.getOrNull() ?: return@launch
+            main.post { if (chatButton === button && chatFaceOf == key) button.setImageBitmap(bitmap.asAndroidBitmap()) }
+        }
+    }
+
+    /** The first letter of [name], white on the button's circle. */
+    private fun letterFace(context: Context, name: String): android.graphics.Bitmap {
+        val size = dp(context, 48)
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val letter = name.trim().takeIf { it.isNotEmpty() }?.let { String(Character.toChars(it.codePointAt(0))).uppercase() } ?: "?"
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = size * 0.42f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+        }
+        val canvas = Canvas(bitmap)
+        canvas.drawText(letter, size / 2f, size / 2f - (paint.descent() + paint.ascent()) / 2, paint)
+        return bitmap
     }
 
     /**
@@ -650,7 +886,13 @@ object TalkBubble {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 barDrag = false
-                dragSample(e.rawY, e.eventTime, first = true)
+                lastActive = System.currentTimeMillis()
+                // Folded: Push isn't there to press; the bar comes out first.
+                if (folded) {
+                    unfold()
+                    return true
+                }
+                dragSample(awayAt(e), e.eventTime, first = true)
                 if (talking) {
                     // A tap (or the lock) started it; this one sends.
                     locked = false
@@ -672,12 +914,16 @@ object TalkBubble {
                 v.isPressed = true
             }
             MotionEvent.ACTION_MOVE -> {
-                val up = downY - e.rawY
-                // Leftward on the screen, in either language: toward the side target.
-                val side = downX - e.rawX
-                // Down: the bar is being swiped away, though the finger started on Push. What was said so far goes
-                // (a press shorter than a hold is nothing said); the microphone is off from here.
-                val down = e.rawY - downY
+                if (folded) return true
+                val dx = e.rawX - downX
+                val dy = e.rawY - downY
+                // Toward the screen's inside (up at the bottom, left at the right edge): toward the lock.
+                val up = along(dx, dy, inwardDir())
+                // Toward Chat's place, in either language (left, or up when upright): toward the side target.
+                val side = along(dx, dy, sideDir())
+                // Toward the bar's edge: the bar is being swiped, though the finger started on Push. What was said so
+                // far goes (a press shorter than a hold is nothing said); the microphone is off from here.
+                val down = -up
                 if (!barDrag && talking && !locked && !urgent && !sideVoice && down > dp(context, 16) && down > kotlin.math.abs(side)) {
                     barDrag = true
                     v.isPressed = false
@@ -685,7 +931,7 @@ object TalkBubble {
                     endTalk(context, send = System.currentTimeMillis() - talkStarted >= HOLD_MS)
                 }
                 if (barDrag) {
-                    dragSample(e.rawY, e.eventTime, first = false)
+                    dragSample(awayAt(e), e.eventTime, first = false)
                     dragBar(down - dp(context, 16))
                     return true
                 }
@@ -731,9 +977,10 @@ object TalkBubble {
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (folded) return true
                 if (barDrag) {
                     barDrag = false
-                    dropBar(context, e.rawY - downY - dp(context, 16), e.actionMasked == MotionEvent.ACTION_CANCEL)
+                    dropBar(context, -along(e.rawX - downX, e.rawY - downY, inwardDir()) - dp(context, 16), e.actionMasked == MotionEvent.ACTION_CANCEL)
                     return true
                 }
                 v.isPressed = false
@@ -768,26 +1015,35 @@ object TalkBubble {
         refreshTop(context)
     }
 
-    /** The lock above the push button while it is held. */
+    /** The lock on the screen's inside of the push button while it is held (above it at the bottom). */
     private fun showLockHint(on: Boolean) {
         val lock = lockHint ?: return
         val push = pushBox ?: return
+        val upright = dock.edge.upright
         if (on) {
-            // Over the push button, wherever it sits in the pill.
+            // Level with the push button, wherever it sits in the pill.
             val holder = pillWindow ?: return
-            val at = IntArray(2).also { push.getLocationInWindow(it) }[0] + push.width / 2
-            lock.translationX = (at - holder.width / 2).toFloat()
+            val at = IntArray(2).also { push.getLocationInWindow(it) }
+            if (upright) {
+                lock.translationX = 0f
+                lock.translationY = (at[1] + push.height / 2 - holder.height / 2).toFloat()
+            } else {
+                lock.translationX = (at[0] + push.width / 2 - holder.width / 2).toFloat()
+                lock.translationY = 0f
+            }
             lock.alpha = 0f
             lock.visibility = View.VISIBLE
             lock.animate().alpha(1f).setDuration(150).start()
             // The slide target, in Chat's place: the bell only while someone can't hear now. Chat gives way to it in the
             // same 150 ms.
             sideBell = someoneCantHear(push.context)
-            val chatAt = chatButton?.translationX ?: 0f
+            val chatX = chatButton?.translationX ?: 0f
+            val chatY = chatButton?.translationY ?: 0f
             listOf(micHint to !sideBell, bellHint to sideBell).forEach { (hint, shown) ->
                 hint ?: return@forEach
                 hint.animate().cancel()
-                hint.translationX = chatAt
+                hint.translationX = chatX
+                hint.translationY = chatY
                 hint.scaleX = 1f
                 hint.scaleY = 1f
                 hint.alpha = 0f
@@ -798,9 +1054,17 @@ object TalkBubble {
             sideLabel?.let { label ->
                 label.setText(if (sideBell) R.string.talk_urgent else R.string.talk_hands_free)
                 label.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-                // Centred under the target, 9 dp below it.
-                label.translationX = chatAt + dp(push.context, 24) - label.measuredWidth / 2f
-                label.translationY = (dp(push.context, BAR_DP) + dp(push.context, 48)) / 2f + dp(push.context, 9)
+                val c = push.context
+                if (upright) {
+                    // Above the target, centred on the bar.
+                    label.translationX = (dp(c, BAR_DP) - label.measuredWidth) / 2f
+                    label.translationY = chatY - label.measuredHeight - dp(c, 6)
+                } else {
+                    // Centred under the target, 9 dp below it (above it when the bar is at the top).
+                    label.translationX = chatX + dp(c, 24) - label.measuredWidth / 2f
+                    label.translationY = if (dock.edge == DockEdge.TOP) chatY - label.measuredHeight - dp(c, 9)
+                    else (dp(c, BAR_DP) + dp(c, 48)) / 2f + dp(c, 9)
+                }
                 label.alpha = 0f
                 label.visibility = View.VISIBLE
                 label.animate().alpha(1f).setDuration(150).start()
@@ -814,7 +1078,7 @@ object TalkBubble {
                 it?.visibility = View.INVISIBLE
             }
             chatButton?.animate()?.cancel()
-            chatButton?.alpha = pillChat
+            chatButton?.alpha = pillChat * barShown
             main.removeCallbacks(sideWatch)
         }
     }
@@ -864,30 +1128,11 @@ object TalkBubble {
         }
     }
 
-    /**
-     * Waiting for the floor looks like waiting (2026-11-25, hen): the push button dimmed inside a dashed ring, and
-     * "Waiting for Sharon…" in Stop's place when hands-free; back to its live look the moment the turn comes.
-     */
-    private fun showWaiting(context: Context) {
-        (button?.background as? GradientDrawable)?.apply {
-            if (waiting) {
-                setColor(0x66E9504F)
-                setStroke(dp(context, 2), 0xFFFFB3A8.toInt(), dp(context, 5).toFloat(), dp(context, 4).toFloat())
-            } else {
-                setColor(PINK)
-                if (talking) setStroke(dp(context, 4), 0x80FFB3A8.toInt()) else setStroke(0, Color.TRANSPARENT)
-            }
-        }
-        button?.contentDescription = if (waiting) context.getString(R.string.talk_waiting_for, title) else context.getString(if (talking) R.string.bubble_send else R.string.bubble_talk_hint)
-        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else if (urgent) URGENT else PINK)
-        updateStop()
-    }
-
     /** Hands-free: the push button's place is "■ Stop · 0:42". */
     private fun showLocked(on: Boolean) {
         stopShown = on
         // Locked on the bell: a red Stop (2026-11-26, hen).
-        (stopPill?.background as? GradientDrawable)?.setColor(if (waiting) 0x99E9504F.toInt() else if (urgent) URGENT else PINK)
+        (stopPill?.background as? GradientDrawable)?.setColor(if (urgent) URGENT else PINK)
         updateStop()
         morphPill()
     }
@@ -902,46 +1147,583 @@ object TalkBubble {
     private fun shapePill() {
         val row = pill ?: return
         val context = row.context
+        val upright = dock.edge.upright
         val pad = dp(context, 8)
         val gap = dp(context, 12)
         val side = dp(context, 48)
-        val middle = dp(context, 60) + (stopWidth - dp(context, 60)) * pillStop
+        val bar = dp(context, BAR_DP)
+        val stopLength = if (upright) dp(context, STOP_UPRIGHT_DP) else stopWidth
+        val middle = dp(context, 60) + (stopLength - dp(context, 60)) * pillStop
         val chat = (side + gap) * pillChat
         val decline = (gap + side) * pillDecline
-        val width = ((pad + chat + middle + decline + pad) / 2).toInt() * 2
+        val length = ((pad + chat + middle + decline + pad) / 2).toInt() * 2
         val lp = row.layoutParams
-        if (lp.width != width) {
-            lp.width = width
+        val (w, h) = if (upright) bar to length else length to bar
+        if (lp.width != w || lp.height != h) {
+            lp.width = w
+            lp.height = h
             row.layoutParams = lp
+        }
+        // [at] along the bar (left to right, or top to bottom upright), centred across it.
+        fun put(v: View, at: Float, across: Int) {
+            if (upright) {
+                v.translationX = (bar - across) / 2f
+                v.translationY = at
+            } else {
+                v.translationX = at
+                v.translationY = (bar - across) / 2f
+            }
         }
         val centre = pad + chat + middle / 2
         chatButton?.let {
-            it.translationX = pad.toFloat()
+            put(it, pad.toFloat(), side)
             // While Push is held the slide target has its place ([showLockHint]).
-            if (lockHint?.visibility != View.VISIBLE) it.alpha = pillChat
+            if (lockHint?.visibility != View.VISIBLE) it.alpha = pillChat * barShown
             it.visibility = if (pillChat > 0f) View.VISIBLE else View.INVISIBLE
         }
         // Stop is there in the first third of the move, over the button it grows out of.
         val stop = (pillStop * 3).coerceAtMost(1f)
         pushBox?.let {
-            it.translationX = centre - dp(context, 30)
-            it.alpha = 1f - stop
+            put(it, centre - dp(context, 30), dp(context, 60))
+            it.alpha = (1f - stop) * barShown
             it.visibility = if (stop < 1f) View.VISIBLE else View.INVISIBLE
         }
         stopPill?.let {
-            it.translationX = centre - stopWidth / 2f
-            it.alpha = stop
+            put(it, centre - stopLength / 2f, dp(context, 60))
+            it.alpha = stop * barShown
             it.visibility = if (pillStop > 0f) View.VISIBLE else View.INVISIBLE
             it.invalidateOutline()
         }
         closeButton?.let {
-            it.translationX = (width - pad - side).toFloat()
-            it.alpha = pillDecline
+            put(it, (length - pad - side).toFloat(), side)
+            it.alpha = pillDecline * barShown
             it.visibility = if (pillDecline > 0f) View.VISIBLE else View.INVISIBLE
         }
     }
 
-    /** Where the swipe is now ([y] on the screen at [at]) and how fast it moves; [first]: it starts here. */
+    // ---- Directions: everything about the bar's gestures is counted from its edge, not from the screen's bottom ----
+
+    /** [dx], [dy] along the unit [dir]. */
+    private fun along(dx: Float, dy: Float, dir: Pair<Float, Float>) = dx * dir.first + dy * dir.second
+
+    /** Toward the bar's edge (down at the bottom, left at the left edge): folding, and sending it away. */
+    private fun awayDir(): Pair<Float, Float> = when (dock.edge) {
+        DockEdge.BOTTOM -> 0f to 1f
+        DockEdge.TOP -> 0f to -1f
+        DockEdge.LEFT -> -1f to 0f
+        DockEdge.RIGHT -> 1f to 0f
+    }
+
+    /** Toward the screen's inside: the lock (hands-free video) is that way from Push. */
+    private fun inwardDir(): Pair<Float, Float> = awayDir().let { (x, y) -> -x to -y }
+
+    /** Along the bar: from Push toward Chat's place (the side target): left, or up when upright. */
+    private fun sideDir(): Pair<Float, Float> = if (dock.edge.upright) 0f to -1f else -1f to 0f
+
+    private fun acrossDir(): Pair<Float, Float> = if (dock.edge.upright) 0f to 1f else 1f to 0f
+
+    /** Where a finger is, counted toward the bar's edge (for how fast it goes that way). */
+    private fun awayAt(e: MotionEvent): Float = along(e.rawX, e.rawY, awayDir())
+
+    /** How far the bar goes into its edge to fold: all of it but [PEEK_DP] (a tab of [PEEK_SIDE_DP] at the sides). */
+    private fun foldReach(): Float {
+        val row = pill ?: return 0f
+        val holder = pillWindow ?: return 0f
+        val context = row.context
+        val across = if (dock.edge.upright) row.width else row.height
+        val pad = when (dock.edge) {
+            DockEdge.BOTTOM -> holder.paddingBottom
+            DockEdge.TOP -> holder.paddingTop
+            DockEdge.LEFT -> holder.paddingLeft
+            DockEdge.RIGHT -> holder.paddingRight
+        }
+        val peek = dp(context, if (dock.edge.upright) PEEK_SIDE_DP else PEEK_DP)
+        return (across + pad - edgeInset - peek).toFloat().coerceAtLeast(0f)
+    }
+
+    /**
+     * Only the bar takes touches, where it is now (folded: the part that shows, never the system bar it went into);
+     * the rest of the window is the app's beneath.
+     */
+    private fun touchBar() {
+        val row = pill ?: return
+        val holder = pillWindow ?: return
+        val r = android.graphics.Rect(
+            (row.left + row.translationX).toInt(), (row.top + row.translationY).toInt(),
+            (row.right + row.translationX).toInt(), (row.bottom + row.translationY).toInt(),
+        )
+        val inside = android.graphics.Rect(0, 0, holder.width, holder.height)
+        when (dock.edge) {
+            DockEdge.BOTTOM -> inside.bottom -= edgeInset
+            DockEdge.TOP -> inside.top += edgeInset
+            DockEdge.LEFT -> inside.left += edgeInset
+            DockEdge.RIGHT -> inside.right -= edgeInset
+        }
+        // Folded at a side: the tab takes touches a little further in than it shows, and Android's back gesture leaves
+        // it alone there (2026-11-27, hen: "on the edge and minimized it's hard to interact with because of the
+        // Android gesture").
+        if (folded && dock.edge.upright) {
+            val more = dp(row.context, 20)
+            if (dock.edge == DockEdge.LEFT) r.right += more else r.left -= more
+        }
+        if (!r.intersect(inside)) r.setEmpty()
+        holder.rootSurfaceControl?.setTouchableRegion(android.graphics.Region(r))
+        holder.systemGestureExclusionRects = if (dock.edge.upright && !r.isEmpty) listOf(android.graphics.Rect(r)) else emptyList()
+    }
+
+    /** Someone is talking in the bar's chat, or I am, or a call rings, or the bar is in my hand. */
+    private fun busy(): Boolean = talking || locked || stopShown || burstLive || ringing != null || moving || barDrag ||
+        outside?.let { it.theirs != LiveKind.None || it.mine != LiveKind.None } == true ||
+        groupCells.values.any { it.cell.on }
+
+    private fun liveVideo(): Boolean = burstVideo || sendingVideo || goingLive || outside?.let { it.theirs == LiveKind.Video || it.mine == LiveKind.Video } == true
+
+    /**
+     * Folds the bar into its edge (2026-11-27, hen: "auto hide in a smart way"): it slides in until only a slim handle
+     * (a tab at the sides) shows, its buttons fading in the same move, 250 ms. A tap or a swipe in brings it back.
+     */
+    private fun fold() {
+        if (folded || pill == null) return
+        folded = true
+        foldTo(1f)
+        Log.i(TAG, "folded into the ${dock.edge.name.lowercase()} edge")
+    }
+
+    /** Back out of its edge, the same move the other way. */
+    private fun unfold() {
+        if (!folded) return
+        folded = false
+        lastActive = System.currentTimeMillis()
+        foldTo(0f)
+        Log.i(TAG, "out of its edge")
+    }
+
+    private fun foldTo(to: Float) {
+        val row = pill ?: return
+        val reach = foldReach()
+        val (ax, ay) = awayDir()
+        foldMove?.cancel()
+        row.animate().cancel()
+        val fromX = row.translationX
+        val fromY = row.translationY
+        val fromShown = barShown
+        val fromAlpha = row.alpha
+        val toShown = 1f - to
+        foldMove = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 250
+            interpolator = android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)
+            addUpdateListener {
+                val f = it.animatedValue as Float
+                row.translationX = fromX + (ax * reach * to - fromX) * f
+                row.translationY = fromY + (ay * reach * to - fromY) * f
+                barShown = fromShown + (toShown - fromShown) * f
+                row.alpha = fromAlpha + (1f - fromAlpha) * f
+                shapePill()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (pill === row) touchBar()
+                }
+            })
+            start()
+        }
+    }
+
+    /** Held on the bar: it lifts, and follows the finger to another edge ([moveBar], [dropMove]). */
+    private val longPress = Runnable {
+        val row = pill ?: return@Runnable
+        val holder = pillWindow ?: return@Runnable
+        val params = pillParams ?: return@Runnable
+        if (talking || ringing != null || folded) return@Runnable
+        moving = true
+        lastActive = System.currentTimeMillis()
+        row.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        // The window put by its top left where it is now, so it can follow the finger anywhere.
+        val at = IntArray(2).also { holder.getLocationOnScreen(it) }
+        params.gravity = Gravity.TOP or Gravity.LEFT
+        params.x = at[0]
+        params.y = at[1]
+        moveFrom = at
+        runCatching { holder.context.getSystemService(WindowManager::class.java).updateViewLayout(holder, params) }
+        row.animate().scaleX(1.06f).scaleY(1.06f).setDuration(120).start()
+        guide = DockGuide.show(holder.context)
+        guide?.mark(barCentre()?.let { (x, y) -> FloatDock.nearest(x, y, floatScreen(holder.context)) })
+        Log.i(TAG, "lifted to move")
+    }
+
+    private fun barCentre(): Pair<Float, Float>? {
+        val row = pill ?: return null
+        val at = IntArray(2).also { row.getLocationOnScreen(it) }
+        return (at[0] + row.width / 2f) to (at[1] + row.height / 2f)
+    }
+
+    private fun moveBar(dx: Float, dy: Float) {
+        val holder = pillWindow ?: return
+        val params = pillParams ?: return
+        params.x = moveFrom[0] + dx.toInt()
+        params.y = moveFrom[1] + dy.toInt()
+        runCatching { holder.context.getSystemService(WindowManager::class.java).updateViewLayout(holder, params) }
+        val (x, y) = (pill ?: return).let { row ->
+            (params.x + row.left + row.width / 2f) to (params.y + row.top + row.height / 2f)
+        }
+        guide?.mark(FloatDock.nearest(x, y, floatScreen(holder.context)))
+    }
+
+    /** Let go: the bar goes to the nearest edge ([FloatDock.nearest]) and stays there next time too. */
+    private fun dropMove(context: Context, cancelled: Boolean) {
+        moving = false
+        guide?.remove()
+        guide = null
+        val row = pill ?: return
+        val params = pillParams ?: return
+        val centre = floatArrayOf(params.x + row.left + row.width / 2f, params.y + row.top + row.height / 2f)
+        val to = if (cancelled) dock else FloatDock.nearest(centre[0], centre[1], floatScreen(context))
+        dock = to
+        savePlaces(context)
+        redock(context, centre)
+    }
+
+    /** The bar's window again at [dock] (upright or not), gliding from [from] (its centre on the screen) into place. */
+    private fun redock(context: Context, from: FloatArray) {
+        val old = pillWindow ?: return
+        main.removeCallbacks(pulse)
+        main.removeCallbacks(longPress)
+        pillMorph?.cancel()
+        foldMove?.cancel()
+        pillWindow = null
+        pill = null
+        runCatching { context.getSystemService(WindowManager::class.java).removeView(old) }
+        if (!addPill(context.applicationContext, from)) remove()
+    }
+
+    /** The screen as the bar and the videos see it. */
+    private fun floatScreen(context: Context): FloatScreen {
+        val wm = context.getSystemService(WindowManager::class.java)
+        val bounds = wm.currentWindowMetrics.bounds
+        val insets = wm.currentWindowMetrics.windowInsets
+        val status = maxOf(insets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout()).top, statusBarHeight(context))
+        val nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+        return FloatScreen(bounds.width().toFloat(), bounds.height().toFloat(), (status + dp(context, 2)).toFloat(), nav.toFloat(), dp(context, 12).toFloat())
+    }
+
+    /** Where the bar and the videos rest, as last left (kept on the phone). */
+    private fun readPlaces(context: Context) {
+        if (placesRead) return
+        placesRead = true
+        val prefs = context.getSharedPreferences(PLACES, Context.MODE_PRIVATE)
+        dock = Dock.parse(prefs.getString("dock", null))
+        videoPlace = prefs.getString("videos", null)?.split(':')?.let { p ->
+            runCatching { VideoPlace(Lean.valueOf(p[0]), Height.valueOf(p[1]), p[2].toFloat()) }.getOrNull()
+        } ?: VideoPlace.DEFAULT
+    }
+
+    private fun savePlaces(context: Context) {
+        context.getSharedPreferences(PLACES, Context.MODE_PRIVATE).edit()
+            .putString("dock", dock.save())
+            .putString("videos", "${videoPlace.lean.name}:${videoPlace.height.name}:${videoPlace.top}")
+            .apply()
+    }
+
+    /** The bar's resting frame on the screen with the room its lock takes beside it (null: no bar). */
+    private fun barRest(): ScreenRect? {
+        val holder = pillWindow?.takeIf { it.isLaidOut } ?: return null
+        val row = pill ?: return null
+        if (moving) return null
+        val at = IntArray(2).also { holder.getLocationOnScreen(it) }
+        var l = (at[0] + row.left).toFloat()
+        var t = (at[1] + row.top).toFloat()
+        var r = l + row.width
+        var b = t + row.height
+        val room = dp(holder.context, HINTS_DP + 8).toFloat()
+        when (dock.edge) {
+            DockEdge.BOTTOM -> t -= room
+            DockEdge.TOP -> b += room
+            DockEdge.LEFT -> r += room
+            DockEdge.RIGHT -> l -= room
+        }
+        return ScreenRect(l, t, r, b)
+    }
+
+    /**
+     * The videos to where they rest (2026-11-27, hen: "make the videos stay at the top in original position, not
+     * attached to the bar unless they are at the same place"): [videoPlace], or beside the bar when that is the same
+     * place ([FloatDock.videosAt]). The row's window moves (its items keep their own places and moves in it), in 250 ms.
+     */
+    private fun anchorTop(context: Context, animate: Boolean = true) {
+        val window = topWindow?.takeIf { it.isLaidOut } ?: return
+        val params = topParams ?: return
+        if (topHiding || topTouch?.dragging == true) return
+        val goals = topMotion.goals.filter { !topMotion.leaving(it.key) }.values
+        if (goals.isEmpty()) return
+        val minX = goals.minOf { it.x }
+        val maxX = goals.maxOf { it.x + it.w }
+        val minY = goals.minOf { it.y }
+        var maxY = goals.maxOf { it.bottom }
+        bothChip?.takeIf { it.visibility == View.VISIBLE }?.let { maxY += dp(context, 8) + it.height }
+        val at = windowAt()
+        val left0 = at[0] + minX
+        val top0 = at[1] + restTop + minY
+        val (x, y) = FloatDock.videosAt(videoPlace, maxX - minX, maxY - minY, floatScreen(context), pillWindow?.let { dock }, barRest(), dp(context, 8).toFloat())
+        val toX = (x - left0).toInt()
+        val toY = (y - top0).toInt()
+        if (toX == params.x && toY == params.y && topMove?.isRunning != true) return
+        topMove?.cancel()
+        val wm = context.getSystemService(WindowManager::class.java)
+        if (!animate) {
+            params.x = toX
+            params.y = toY
+            runCatching { wm.updateViewLayout(window, params) }
+            return
+        }
+        val fromX = params.x
+        val fromY = params.y
+        topMove = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 250
+            interpolator = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
+            addUpdateListener {
+                if (topWindow !== window) return@addUpdateListener
+                val f = it.animatedValue as Float
+                params.x = (fromX + (toX - fromX) * f).toInt()
+                params.y = (fromY + (toY - fromY) * f).toInt()
+                runCatching { wm.updateViewLayout(window, params) }
+            }
+            start()
+        }
+    }
+
+    /**
+     * The screen edge the videos rest at, which they come in and go out through (2026-11-27, hen: "if the video is
+     * docked to any edge it should exit and enter from that edge"): the bottom when they rest there, a side when
+     * dropped against it partway down, else the top (null: the row's own way, up through the top).
+     */
+    private fun awayEdge(context: Context, window: IntArray): ((com.chencohen.ptt.ui.live.LiveRect) -> com.chencohen.ptt.ui.live.LiveRect)? {
+        val params = topParams ?: return null
+        val screen = floatScreen(context)
+        val left = (window[0] + params.x).toFloat()
+        val top = (window[1] + params.y + restTop).toFloat()
+        val pad = dp(context, 16).toFloat()
+        return when {
+            videoPlace.height == Height.BOTTOM -> { r -> r.copy(y = screen.h - top + pad) }
+            videoPlace.height == Height.FREE && videoPlace.lean == Lean.LEFT -> { r -> r.copy(x = -left - r.w - pad) }
+            videoPlace.height == Height.FREE && videoPlace.lean == Lean.RIGHT -> { r -> r.copy(x = screen.w - left + pad) }
+            else -> null
+        }
+    }
+
+    /** The videos were let go here ([at]: their frame on the screen): they rest there from now on. */
+    private fun droppedVideos(context: Context, at: ScreenRect) {
+        videoPlace = FloatDock.dropVideos(at, floatScreen(context))
+        savePlaces(context)
+        Log.i(TAG, "videos rest at ${videoPlace.lean.name.lowercase()}, ${videoPlace.height.name.lowercase()}")
+        anchorTop(context)
+    }
+
+    /** The videos' frame on the screen now (with what a drag added). */
+    private fun videosNow(): ScreenRect? {
+        val params = topParams ?: return null
+        val goals = topMotion.goals.filter { !topMotion.leaving(it.key) }.values
+        if (goals.isEmpty()) return null
+        val at = windowAt()
+        val l = at[0] + params.x + goals.minOf { it.x }
+        val t = at[1] + params.y + restTop + goals.minOf { it.y }
+        return ScreenRect(l, t, at[0] + params.x + goals.maxOf { it.x + it.w }, at[1] + params.y + restTop + goals.maxOf { it.bottom })
+    }
+
+    /**
+     * The chat's hands-free push goes on here (2026-11-27, hen: "when I'm transmitting hands-free from the chat screen
+     * and exit to the home screen it should keep transmitting with the floating layout"): the same press, taken over as
+     * it is, locked as if slid to hands-free here ([video]: my camera, kept open, through Talk's foreground service;
+     * [urgent]: the bell's). Between two presses (or when the service can't take it), the chat's is let go and a new
+     * one pressed here a moment later. False when the floating window may not show (the setting, the permission, the
+     * screen off or locked): then the push ends with the chat, as before.
+     */
+    fun takeOver(context: Context, chat: String, title: String, video: Boolean, urgent: Boolean): Boolean {
+        val app = context.applicationContext
+        if (!allowed(app)) return false
+        main.post {
+            if (pillWindow == null && !addPill(app)) return@post
+            if (this.chat != chat) setHere(app, chat)
+            this.chat = chat
+            this.title = title
+            if (talking) endTalk(app, send = true)
+            takingOverRow()
+            // Mine shows from now, in its place, through the moment between the chat's burst and this one: one item
+            // that stays, not one going up and coming back (2026-11-27, hen).
+            this.urgent = urgent
+            sideVoice = !video && !urgent
+            locked = true
+            lockSince = System.currentTimeMillis()
+            showLocked(true)
+            // My press still going on there: it goes on here as it is, the same burst, the camera and the room's
+            // track never let go (2026-11-27, hen: "the video should stay as a floating window ... without remounting
+            // the camera view"). The renewal comes when its own 55 s are up.
+            val own = messagingState(app).value.talk.own?.takeIf {
+                it.chat == chat && (it.phase == com.chencohen.ptt.talk.TalkPhase.TALKING || it.phase == com.chencohen.ptt.talk.TalkPhase.REQUESTING)
+            }
+            if (own != null && adopt(app, chat, video, own.startedAt)) {
+                if (urgent) showUrgent(app)
+                main.removeCallbacks(renew)
+                main.postDelayed(renew, (RENEW_MS - (System.currentTimeMillis() - own.startedAt)).coerceIn(1_000L, RENEW_MS))
+                refreshTop(app)
+                Log.i(TAG, "hands-free ${if (video) "video" else "voice"} taken over from the chat, the same burst")
+                return@post
+            }
+            refreshTop(app)
+            // Not taken as it is: the chat's press (if any) is let go, and a new one is pressed here a moment later.
+            if (own != null) (app as? TalkApp)?.scope?.launch { com.chencohen.ptt.talkBack(app, null, down = false, send = true) }
+            main.postDelayed({
+                if (pillWindow == null || talking || this.chat != chat || !locked) return@postDelayed
+                startTalk(app, video = video)
+                runStarted = talkStarted
+                if (urgent) {
+                    showUrgent(app)
+                    main.postDelayed({ if (talking) markUrgent(app) }, 600)
+                }
+                main.removeCallbacks(renew)
+                main.postDelayed(renew, RENEW_MS)
+                refreshTop(app)
+                Log.i(TAG, "hands-free ${if (video) "video" else "voice"} taken over from the chat")
+            }, 900)
+        }
+        return true
+    }
+
+    /**
+     * Until then, what comes into the top row is simply there in its place, not dropped in from the screen's edge: the
+     * chat's live row became this one as the chat or the app went (2026-11-27, hen: "when moving out to home screen
+     * the videos or voices should stay put, not exit and enter").
+     */
+    @Volatile private var inPlaceUntil = 0L
+
+    /** The chat or the app is going off the screen now, with what is live in it: the row takes it over in place. */
+    fun takingOverRow() {
+        inPlaceUntil = System.currentTimeMillis() + IN_PLACE_MS
+    }
+
+    /** [chat] came on screen in the app: its own buttons are there, so the floating bar for it goes. */
+    fun chatOpened(chat: String) = main.post { if (this.chat == chat && !talking && !locked) dismissNow() }
+
+    /**
+     * Where an item handed over by the chat starts in the top row: where it was in the chat's row, in this window's
+     * frames (2026-11-27, hen: "when leaving, the video should move to the new position without leaving the screen").
+     */
+    private fun fromChat(window: IntArray): ((String, LiveRect) -> LiveRect?)? {
+        if (System.currentTimeMillis() >= inPlaceUntil) return null
+        val params = topParams ?: return null
+        val rows = com.chencohen.ptt.ui.live.LiveHandoff.chat.takeIf { it.isNotEmpty() } ?: return null
+        val left = (window[0] + params.x).toFloat()
+        val top = (window[1] + params.y + restTop).toFloat()
+        return { key, t -> rows[key]?.let { s -> LiveRect(s.left - left, s.top - top, s.w, s.h, t.video) } }
+    }
+
+    /** The top row's items where they are now on the screen. */
+    private fun topOnScreen(): Map<String, ScreenRect> {
+        val params = topParams ?: return emptyMap()
+        val at = windowAt()
+        val left = (at[0] + params.x).toFloat()
+        val top = (at[1] + params.y + restTop).toFloat()
+        return topMotion.rects.filterKeys { !topMotion.leaving(it) }.mapValues { (_, r) -> ScreenRect(left + r.x, top + r.y, left + r.x + r.w, top + r.y + r.h) }
+    }
+
+    /**
+     * [chat]'s screen came to the front (2026-11-27, hen: "if I have the floating layout and enter the same user's chat
+     * screen, the floating layout should close"; "the video should move to the in-chat position, at the moment I see
+     * two camera videos"): the floating window goes at once, its items handed to the chat's row from where they are
+     * ([LiveHandoff]). My press held here goes back to the chat as it is: returned as (video, urgent), null when none.
+     * Main thread.
+     */
+    fun handBack(chat: String): Pair<Boolean, Boolean>? {
+        // Chat tapped here while my press went on: it is the chat's now.
+        pendingBack?.takeIf { it.chat == chat }?.let { back ->
+            pendingBack = null
+            if (System.currentTimeMillis() - back.at < PENDING_BACK_MS) return back.video to back.urgent
+        }
+        if (this.chat != chat || pillWindow == null) return null
+        if (QuickReplyWindow.showing(chat)) return null
+        com.chencohen.ptt.ui.live.LiveHandoff.fromFloating(topOnScreen(), System.currentTimeMillis())
+        val context = pillWindow?.context
+        val mine = if (talking && context != null) (sendingVideo to urgent).also { letGoOfPress(context) } else null
+        if (outside == null) removeTop()
+        dismissNow()
+        Log.i(TAG, "back in the chat: the floating window goes" + if (mine != null) ", my press goes on there" else "")
+        return mine
+    }
+
+    /**
+     * While the bar is lifted: the edges it can go to, dashed, the one it would go to now filled (an overlay that
+     * takes no touches).
+     */
+    private class DockGuide(context: Context) : View(context) {
+        private val density = context.resources.displayMetrics.density
+        private var nearest: Dock? = null
+        private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 2 * density
+            color = TEAL
+            pathEffect = android.graphics.DashPathEffect(floatArrayOf(8 * density, 6 * density), 0f)
+        }
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+        fun mark(dock: Dock?) {
+            if (dock == nearest) return
+            nearest = dock
+            invalidate()
+        }
+
+        fun remove() {
+            runCatching { context.getSystemService(WindowManager::class.java).removeView(this) }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val d = density
+            val r = 24 * d
+            val near = nearest
+            fun zone(edge: DockEdge, rect: RectF) {
+                val on = near?.edge == edge
+                fill.color = if (on) 0x552BB3A3 else 0x1A2BB3A3
+                canvas.drawRoundRect(rect, r, r, fill)
+                canvas.drawRoundRect(rect, r, r, line)
+            }
+            val inset = rootWindowInsets
+            val top = (inset?.getInsets(WindowInsets.Type.statusBars())?.top ?: (24 * d).toInt()) + 8 * d
+            val bottom = h - (inset?.getInsets(WindowInsets.Type.navigationBars())?.bottom ?: 0) - 8 * d
+            zone(DockEdge.TOP, RectF(w * 0.15f, top, w * 0.85f, top + 92 * d))
+            zone(DockEdge.BOTTOM, RectF(w * 0.15f, bottom - 92 * d, w * 0.85f, bottom))
+            zone(DockEdge.LEFT, RectF(8 * d, h * 0.14f, 8 * d + 92 * d, h * 0.86f))
+            zone(DockEdge.RIGHT, RectF(w - 8 * d - 92 * d, h * 0.14f, w - 8 * d, h * 0.86f))
+            // Where on the side it would rest.
+            if (near != null && near.edge.upright) {
+                val cy = h * near.along
+                val x0 = if (near.edge == DockEdge.LEFT) 8 * d else w - 8 * d - 92 * d
+                fill.color = 0x992BB3A3.toInt()
+                canvas.drawRoundRect(RectF(x0 + 8 * d, cy - 60 * d, x0 + 84 * d, cy + 60 * d), r, r, fill)
+            }
+        }
+
+        companion object {
+            fun show(context: Context): DockGuide? {
+                val view = DockGuide(context)
+                val params = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                    PixelFormat.TRANSLUCENT,
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.LEFT
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    fitInsetsTypes = 0
+                    title = "Talk dock guide"
+                }
+                return runCatching { context.getSystemService(WindowManager::class.java).addView(view, params); view }
+                    .onFailure { Log.w(TAG, "no dock guide", it) }.getOrNull()
+            }
+        }
+    }
+
+    /** Where the swipe is now ([y] toward the bar's edge, at [at]) and how fast it moves; [first]: it starts here. */
     private fun dragSample(y: Float, at: Long, first: Boolean) {
         if (!first && at > dragLastAt) dragSpeed = (y - dragLastY) / (at - dragLastAt)
         if (first) dragSpeed = 0f
@@ -949,54 +1731,58 @@ object TalkBubble {
         dragLastAt = at
     }
 
-    /**
-     * The bar follows a finger [dy] pixels down, fading a little; the live row at the top goes up by as much of its
-     * own way, the two leaving together (2026-11-26, hen's pick: "swipe the bar down").
-     */
-    private fun dragBar(dy: Float) {
+    /** The bar follows a finger [d] pixels toward its edge, fading a little. */
+    private fun dragBar(d: Float) {
         val row = pill ?: return
-        val d = dy.coerceAtLeast(0f)
-        val far = (d / row.height).coerceIn(0f, 1f)
+        val far = d.coerceAtLeast(0f)
+        val across = if (dock.edge.upright) row.width else row.height
+        val (ax, ay) = awayDir()
         row.animate().cancel()
-        row.translationY = d
-        row.alpha = 1f - 0.45f * far
-        if (outside == null) topCard?.let {
-            it.animate().cancel()
-            it.translationY = -d * 0.6f
-            it.alpha = 1f - 0.5f * far
-        }
+        foldMove?.cancel()
+        row.translationX = ax * far
+        row.translationY = ay * far
+        row.alpha = 1f - 0.45f * (far / across).coerceIn(0f, 1f)
     }
 
     /**
-     * The finger let go [dy] pixels down: past a third of the bar's height, or flung down, the bar is sent away
-     * ([swipedAway]); else (or [cancelled]) it settles back, 200 ms.
+     * The finger let go [d] pixels toward the bar's edge. Flung (2026-11-27, hen: "how to hide it completely?"): the
+     * bar is sent away ([swipedAway]), nothing left behind. Pushed past a third of its depth, slowly: it folds into its
+     * edge ([fold]). Else (or [cancelled]) it settles back, 200 ms.
      */
-    private fun dropBar(context: Context, dy: Float, cancelled: Boolean) {
+    private fun dropBar(context: Context, d: Float, cancelled: Boolean) {
         val row = pill ?: return
-        val flung = dragSpeed > 0.8f * context.resources.displayMetrics.density && dy > dp(context, 8)
-        if (!cancelled && (dy > row.height / 3f || flung)) {
+        val across = if (dock.edge.upright) row.width else row.height
+        val flung = dragSpeed > 0.8f * context.resources.displayMetrics.density && d > dp(context, 8)
+        if (!cancelled && flung) {
             swipedAway(context)
             return
         }
+        row.animate().alpha(1f).setDuration(200).start()
+        if (!cancelled && d > across / 3f) {
+            folded = false
+            fold()
+            return
+        }
         val ease = android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f)
-        row.animate().translationY(0f).alpha(1f).setDuration(200).setInterpolator(ease).start()
-        if (outside == null) topCard?.animate()?.translationY(0f)?.alpha(1f)?.setDuration(200)?.setInterpolator(ease)?.start()
+        row.animate().translationX(0f).translationY(0f).alpha(1f).setDuration(200).setInterpolator(ease).withEndAction { touchBar() }.start()
     }
 
     /**
-     * Swiped away: the bar goes on down off the screen and the live row up, both fading, one move of 200 ms; what was
-     * being said is sent first. From here that chat's texts are notifications until it goes quiet (QuickReplyQuiet).
+     * Sent away: the bar goes on off the screen through its edge and the live row up, both fading, one move of 200 ms;
+     * what was being said is sent first. It comes back when someone talks again. From here that chat's texts are
+     * notifications until it goes quiet (QuickReplyQuiet).
      */
     private fun swipedAway(context: Context) {
         val row = pill ?: return remove()
         if (talking) endTalk(context, send = true)
         chat?.let { QuickReplyWindow.dismissed(it) }
         val ease = android.view.animation.AccelerateInterpolator()
-        val below = (pillWindow?.paddingBottom ?: 0) + row.height + dp(context, 16)
-        row.animate().translationY(below.toFloat()).alpha(0f).setDuration(200).setInterpolator(ease)
+        val (ax, ay) = awayDir()
+        val off = foldReach() + dp(context, if (dock.edge.upright) PEEK_SIDE_DP else PEEK_DP) + edgeInset + dp(context, 16)
+        row.animate().translationX(ax * off).translationY(ay * off).alpha(0f).setDuration(200).setInterpolator(ease)
             .withEndAction { if (pill === row) remove() }.start()
         if (outside == null) topCard?.let { card ->
-            val up = restTop + (topMotion.rects.values.maxOfOrNull { it.bottom } ?: 0f) + dp(context, 12)
+            val up = restTop + (topMotion.rects.values.maxOfOrNull { it.bottom } ?: 0f) + dp(context, 12) + (topParams?.y ?: 0)
             card.animate().translationY(-up).alpha(0f).setDuration(200).setInterpolator(ease).start()
         }
         Log.i(TAG, "swiped away")
@@ -1039,9 +1825,12 @@ object TalkBubble {
         val stop = stopPill ?: return
         if (!stopShown) return
         val s = ((System.currentTimeMillis() - lockSince) / 1000).coerceAtLeast(0)
-        // Waiting for the floor says so, not a time that looks like sending.
-        val words = if (waiting) stop.context.getString(R.string.talk_waiting_for, android.text.BidiFormatter.getInstance().unicodeWrap(title))
-        else (if (urgent) "🔔  " else "■  ") + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
+        val upright = dock.edge.upright
+        val words = when {
+            // Upright on a side edge: the icon over the time.
+            upright -> (if (urgent) "🔔" else "■") + "\n%d:%02d".format(s / 60, s % 60)
+            else -> (if (urgent) "🔔  " else "■  ") + stop.context.getString(R.string.talk_stop) + " · %d:%02d".format(s / 60, s % 60)
+        }
         if (stop.text.toString() != words) stop.text = words
     }
 
@@ -1113,6 +1902,44 @@ object TalkBubble {
         }
     }
 
+    /**
+     * Takes over my press already going on in [chat] (begun on the chat's screen [since]): talking here from now, the
+     * service keeping the microphone (and the camera, [video]) in the background; nothing is pressed anew. False when
+     * the service can't: the caller presses anew instead.
+     */
+    private fun adopt(context: Context, chat: String, video: Boolean, since: Long): Boolean {
+        val wantVideo = video && cameraAllowed(context)
+        val ok = runCatching {
+            context.startForegroundService(
+                Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_TALK_BACK).putExtra(TalkReadyService.EXTRA_CHAT, chat)
+                    .putExtra(TalkReadyService.EXTRA_VIDEO, wantVideo).putExtra(TalkReadyService.EXTRA_ADOPT, true),
+            )
+        }.onFailure { Log.w(TAG, "can't take the chat's push over", it) }.isSuccess
+        if (!ok) return false
+        sendingVideo = wantVideo
+        goingLive = false
+        talking = true
+        talkStarted = since
+        runStarted = since
+        (button?.background as? GradientDrawable)?.apply { setColor(PINK); setStroke(dp(context, 4), 0x80FFB3A8.toInt()) }
+        button?.setImageResource(R.drawable.ic_bubble_send)
+        button?.contentDescription = context.getString(R.string.bubble_send)
+        showMode(context)
+        return true
+    }
+
+    /** My press goes on elsewhere (full screen): this window stops holding it, without letting it go. */
+    private fun letGoOfPress(context: Context) {
+        main.removeCallbacks(renew)
+        talking = false
+        locked = false
+        sendingVideo = false
+        goingLive = false
+        talkStarted = 0L
+        runStarted = 0L
+        runCatching { context.startService(Intent(context, TalkReadyService::class.java).setAction(TalkReadyService.ACTION_HAND_BACK)) }
+    }
+
     private fun endTalk(context: Context, send: Boolean, keepLock: Boolean = false) {
         if (!talking) return
         // Stop: sending ends at once, and my box goes up showing my camera live: the room's track keeps reading it for
@@ -1122,10 +1949,6 @@ object TalkBubble {
         // Kept only for the lock's video right after; a real end starts the next press anew.
         talkEndedAt = if (keepLock) System.currentTimeMillis() else 0L
         if (!keepLock) talkStarted = 0L
-        if (waiting) {
-            waiting = false
-            showWaiting(context)
-        }
         if (!keepLock) {
             locked = false
             warming = false
@@ -1203,12 +2026,12 @@ object TalkBubble {
         val theirOn = !group && (burstLive || (out != null && out.theirs != LiveKind.None)) && !topPutAway
         val theirsVideo = theirOn && theirVideoWanted() && (theirPictureReady(context) || !theirWasPill)
         // Mine stays a box from the lock to Stop, through the moment between a hands-free floor and its renewal.
-        // A press that waits for the floor sends nothing and shows nothing live (2026-11-25, hen: "only when the UI
+        // Nothing waits for a floor (2026-11-27, hen: "remove this logic"; before: "only when the UI
         // says it's transmitting, then transmit"): no pill or box of mine until its turn comes.
         // A lock from the side target is voice: my pill, staying through its renewals, never a box.
         val voiceLock = locked && (urgent || sideVoice)
-        val mine = ((sendingVideo || goingLive || (locked && !voiceLock)) && !waiting) || out?.mine == LiveKind.Video
-        val myVoice = !mine && !topPutAway && (((talking || voiceLock) && !waiting) || out?.mine == LiveKind.Voice)
+        val mine = (sendingVideo || goingLive || (locked && !voiceLock)) || out?.mine == LiveKind.Video
+        val myVoice = !mine && !topPutAway && ((talking || voiceLock) || out?.mine == LiveKind.Voice)
         main.removeCallbacks(hideSoon)
         val groupOn = members.isNotEmpty() || groupCells.values.any { it.cell.on }
         if (!theirOn && !mine && !myVoice && !groupOn) {
@@ -1246,7 +2069,8 @@ object TalkBubble {
         theirPill?.tick(0f, theirSince())
         myPill?.tick(0f, mySince())
         syncGroup(context, if (group) members else emptyList())
-        bothChip?.visibility = if (bothLive(context)) View.VISIBLE else View.GONE
+        // Full screen while both are live or a video shows.
+        bothChip?.visibility = if (bothLive(context) || theirCell?.let { it.on && it.video } == true || myCell?.let { it.on && it.video } == true) View.VISIBLE else View.GONE
         placeTop(context)
         pickPreview()
         main.removeCallbacks(topTick)
@@ -1343,12 +2167,13 @@ object TalkBubble {
         // The screen's own left edge and width, as the window sees them.
         val targets = LiveLayout.place(items, screen, gap, topRtl, left = -window[0].toFloat())
         // From above the screen's top edge, the shadow too.
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat())
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil, away = awayEdge(context, window), from = fromChat(window))
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (screen ${screen.toInt()}, window at ${window[0]},${window[1]}, ${if (topRtl) "right to left" else "left to right"})")
         showTop()
         touchTop()
         if (topMotion.running) frames()
+        anchorTop(context)
     }
 
     /**
@@ -1394,12 +2219,13 @@ object TalkBubble {
             if (cell.video) size(cell.box, bw.toInt(), bh.toInt())
         }
         val targets = LiveGroupLayout.place(slots, width, gap, topHeight(context).toFloat(), myShape, topRtl, left = -window[0].toFloat() + margin, chip = chipSize)
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat())
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil, away = awayEdge(context, window), from = fromChat(window))
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "group row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} y=${r.y.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (${hidden.size} more; ${if (topRtl) "right to left" else "left to right"})")
         showTop()
         touchTop()
         if (topMotion.running) frames()
+        anchorTop(context)
     }
 
     /** Each cell where the motion has it now, and the chip under them. */
@@ -1624,6 +2450,7 @@ object TalkBubble {
     @SuppressLint("ClickableViewAccessibility", "RtlHardcoded")
     private fun addTop(context: Context): Boolean {
         if (topWindow != null) return true
+        readPlaces(context)
         val wm = context.getSystemService(WindowManager::class.java)
         fun dp(v: Int) = dp(context, v)
         val bars = wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
@@ -1699,33 +2526,32 @@ object TalkBubble {
             addView(theirItem.view, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.LEFT))
             addView(myItem.view, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.LEFT))
         }
-        // Both live: "You're both live · Make it a call" under the boxes; a tap starts a video call.
+        // "⤢ Full screen" under the boxes (2026-11-27, hen: it's not "make it a call", two people talking already is
+        // one; "'Full screen' is enough"): a tap opens the same live talk full screen in the app, nothing dialled, me
+        // muted there; shrinking it brings this floating layout back.
         val chip = TextView(context).apply {
             visibility = View.GONE
-            text = context.getString(R.string.talk_both_live) + " · " + context.getString(R.string.talk_make_call)
+            text = "⤢  " + context.getString(R.string.talk_full_screen)
             setTextColor(Color.WHITE)
             textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(dp(14), dp(8), dp(14), dp(8))
-            background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), PINK) }
+            background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), TEAL) }
             setOnClickListener {
                 val chat = rowChat() ?: return@setOnClickListener
-                // The talk room becomes the call (2026-11-25, hen: "it's calling the recipient instead of opening the
-                // call seamlessly"): no ringing; the chat opens with the call in it. Without a room to turn, a short
-                // word, never a ringing call.
-                val video = sendingVideo || outside?.mine == LiveKind.Video || theirVideoWanted()
-                if (talking) {
+                // Live now: the same press goes on in full screen, my microphone (and camera) still on (2026-11-27,
+                // hen); this window only stops holding it.
+                val mic = talking && this@TalkBubble.chat == chat
+                val camera = mic && sendingVideo
+                if (mic) letGoOfPress(context)
+                else if (talking) {
                     locked = false
                     endTalk(context, send = true)
                 }
-                startRoomCall(context, chat, video) { ok ->
-                    if (ok) {
-                        openChat(context, chat)
-                        if (outside != null) QuickReplyWindow.close(context)
-                        dismissNow()
-                    } else {
-                        android.widget.Toast.makeText(context, R.string.talk_call_no_room, android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
+                com.chencohen.ptt.ui.calls.LiveFull.open(chat, fromFloating = true, mic = mic, camera = camera)
+                openChat(context, chat)
+                if (outside != null) QuickReplyWindow.close(context)
+                dismissNow()
             }
         }
         stage.addView(chip, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
@@ -1816,7 +2642,11 @@ object TalkBubble {
         return true
     }
 
-    /** Drag moves the row; a swipe up puts it away (until their next burst); a tap opens the chat. */
+    /**
+     * Drag moves the videos, and where they are let go they stay ([droppedVideos]: the top, the bottom, or where they
+     * were, beside the bar when that is its place; 2026-11-27, hen: "make the video also to be dragged"); a swipe up at
+     * the top puts them away (until their next burst); a tap opens the chat.
+     */
     private class TopTouch(val context: Context, val wm: WindowManager, val window: View, val params: WindowManager.LayoutParams) : View.OnTouchListener {
         private var x0 = 0f
         private var y0 = 0f
@@ -1824,6 +2654,9 @@ object TalkBubble {
         private var py = 0
         private var moved = false
         private var t0 = 0L
+        private var atTop = false
+        /** A drag is moving the window now: nothing else moves it meanwhile. */
+        var dragging = false
 
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -1832,31 +2665,39 @@ object TalkBubble {
                 MotionEvent.ACTION_DOWN -> {
                     x0 = e.rawX
                     y0 = e.rawY
+                    topMove?.cancel()
                     px = params.x
                     py = params.y
                     moved = false
                     t0 = System.currentTimeMillis()
+                    atTop = (videosNow()?.top ?: 0f) < floatScreen(context).topInset + dp(context, 40)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - x0
                     val dy = e.rawY - y0
-                    if (!moved && kotlin.math.hypot(dx, dy) > slop) moved = true
+                    if (!moved && kotlin.math.hypot(dx, dy) > slop) {
+                        moved = true
+                        dragging = true
+                    }
                     if (moved) {
                         params.x = px + dx.toInt()
-                        params.y = (py + dy.toInt()).coerceAtLeast(0)
+                        params.y = py + dy.toInt()
                         runCatching { wm.updateViewLayout(window, params) }
                     }
                 }
-                MotionEvent.ACTION_UP -> {
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     val dy = e.rawY - y0
                     val fast = System.currentTimeMillis() - t0 < 400
+                    dragging = false
+                    val now = videosNow()
                     when {
-                        !moved -> rowChat()?.let { intoChat(context, it) }
-                        // Up and quick, or dragged up past the top: put away.
-                        (fast && dy < -dp(context, 40)) || py + dy < -dp(context, 24) -> {
+                        !moved -> if (e.actionMasked == MotionEvent.ACTION_UP) rowChat()?.let { intoChat(context, it) }
+                        // Flicked up from the top, or dragged up past the screen's top: put away.
+                        (atTop && fast && dy < -dp(context, 40)) || (now != null && now.top < floatScreen(context).topInset - dp(context, 24)) -> {
                             topPutAway = true
                             hideTop()
                         }
+                        now != null -> droppedVideos(context, now)
                     }
                 }
             }
@@ -2165,19 +3006,25 @@ object TalkBubble {
             }.coerceIn(0f, 1f)
             val density = context.resources.displayMetrics.density
             val active = talking || theirs != null || ringing != null
+            // Folding (2026-11-27, hen: "auto hide in a smart way"): out of its edge the moment anyone talks (the tab
+            // glows with their voice as it comes), into it once nobody has for a while; never while Push is held,
+            // video is live or a call rings.
+            val now = System.currentTimeMillis()
+            val busy = busy() || theirs != null
+            if (busy) lastActive = now
+            // Out when talk starts (folded by hand while someone talks, it stays in until the next).
+            val started = busy && !wasBusy
+            wasBusy = busy
+            if (folded && started) unfold()
+            else if (!folded && !moving && !barDrag && foldMove?.isRunning != true &&
+                FloatDock.folds(now - lastActive, keyboard = false, fullScreen = false, holding = busy, liveVideo = liveVideo(), ringing = ringing != null)
+            ) fold()
             // The voice's ring on the bar's face; at rest, its light rim.
             if (active) barFace?.setStroke((density * (1.5f + 4 * level)).toInt().coerceAtLeast(rimPx(context)), if (ringing != null) HERE else TEAL)
             else barFace?.setStroke(rimPx(context), RIM)
-            val scale = 1f + 0.15f * (if (talking && !waiting) level else 0f)
+            val scale = 1f + 0.15f * (if (talking) level else 0f)
             button?.scaleX = scale
             button?.scaleY = scale
-            // My press waits for the floor, or its turn came: the button and the row say which.
-            val waits = talking && state.talk.own?.takeIf { it.chat == chat }?.phase == com.chencohen.ptt.talk.TalkPhase.WAITING
-            if (waits != waiting) {
-                waiting = waits
-                showWaiting(context)
-                refreshTop(context)
-            }
             updateStop()
             main.postDelayed(this, 60)
         }
@@ -2218,8 +3065,23 @@ object TalkBubble {
      * moves there), and the top box grows a little and fades into it (200 ms) instead of sliding away.
      */
     private fun intoChat(context: Context, chat: String) {
-        // My push from here ends first (sent): the microphone is on only while a red Push shows.
-        if (talking) {
+        // My push in this chat goes on in the chat's screen as it is (2026-11-27, hen: "when returning from floating to
+        // the chat screen the stream turned off, it should stay on"); one in another chat ends (sent).
+        if (talking && this.chat == chat) {
+            com.chencohen.ptt.ui.live.LiveHandoff.fromFloating(topOnScreen(), System.currentTimeMillis())
+            val back = PendingBack(chat, sendingVideo, urgent, System.currentTimeMillis())
+            pendingBack = back
+            letGoOfPress(context)
+            // Not taken by the chat after all (it didn't open): let go, so nothing goes on unseen.
+            val app = context.applicationContext as? TalkApp
+            main.postDelayed({
+                if (pendingBack === back) {
+                    pendingBack = null
+                    Log.i(TAG, "the chat didn't take my press back: let go")
+                    app?.scope?.launch { com.chencohen.ptt.talkBack(app, null, down = false, send = true) }
+                }
+            }, PENDING_BACK_MS)
+        } else if (talking) {
             locked = false
             endTalk(context, send = true)
         }
@@ -2242,7 +3104,7 @@ object TalkBubble {
             row.getLocationOnScreen(at)
             QuickReplyWindow.growFrom(
                 context, chat, at[0], at[1] + row.translationY.toInt().coerceAtMost(0), at[0] + row.width, at[1] + row.height,
-                radius = row.height / 2f, color = BAR,
+                radius = minOf(row.width, row.height) / 2f, color = BAR,
             )
         }
         if (!grows) openChat(context, chat)
@@ -2276,9 +3138,11 @@ object TalkBubble {
         val row = pill ?: return remove()
         // The floating chat's row stays while that chat is live.
         if (outside == null) hideTop()
-        // Off the screen's very bottom edge, past the navigation bar.
-        val below = (pillWindow?.paddingBottom ?: 0) + row.height + dp(row.context, 16)
-        row.animate().translationY(below.toFloat()).setDuration(SLIDE_MS)
+        // Off the screen's very edge, past the system bar.
+        val (ax, ay) = awayDir()
+        val off = foldReach() + dp(row.context, if (dock.edge.upright) PEEK_SIDE_DP else PEEK_DP) + edgeInset + dp(row.context, 16)
+        foldMove?.cancel()
+        row.animate().translationX(ax * off).translationY(ay * off).setDuration(SLIDE_MS)
             .setInterpolator(android.view.animation.AccelerateInterpolator())
             .withEndAction { if (pill === row) remove() }
             .start()
@@ -2292,6 +3156,15 @@ object TalkBubble {
         if (window == null || context == null) return
         pillWindow = null
         pill = null
+        pillParams = null
+        main.removeCallbacks(longPress)
+        foldMove?.cancel()
+        foldMove = null
+        folded = false
+        barShown = 1f
+        moving = false
+        guide?.remove()
+        guide = null
         main.removeCallbacks(pulse)
         main.removeCallbacks(renew)
         main.removeCallbacks(burstOver)
@@ -2301,6 +3174,7 @@ object TalkBubble {
         previewOn = false
         ringing = null
         chatButton = null
+        chatFaceOf = null
         button = null
         closeButton = null
         pushBox = null
@@ -2317,7 +3191,6 @@ object TalkBubble {
         pillMorph?.cancel()
         pillMorph = null
         stopShown = false
-        waiting = false
         talking = false
         locked = false
         sendingVideo = false
@@ -2495,5 +3368,7 @@ object TalkBubble {
     /** How far sideways from Push the bell is, and the slide that reaches it. */
     private const val URGENT_DP = 56
     private const val TEAL = 0xFF2BB3A3.toInt()
+    /** Where the bar and the videos rest (SharedPreferences). */
+    private const val PLACES = "talk_bubble_places"
     private const val HERE = 0xFF34C759.toInt()
 }

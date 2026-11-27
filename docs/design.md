@@ -8,6 +8,10 @@ https://claude.ai/artifact/CPewKaHcVw4FeLyKthu2Cm; this page only keeps what the
 
 - **"Talk" is a placeholder name** (`app_name`, `Theme.Talk`, `TalkTheme`, the launcher icon). The package and
   applicationId, `com.chencohen.ptt`, stay when the app gets its own name.
+- **The launcher icon is "One roof"** (hen chose it 2026-11-27): two speech bubbles, white with a voice and mint,
+  under one teal roof, on Talk's coral. Its layers are PNGs per density (`drawable-*/ic_launcher_foreground`,
+  `_background`, `_monochrome` for themed icons), rendered from `docs/screens/mocks/app-icon-one-roof.html` (the soft
+  shadows need a raster; a vector drawable can't blur). Re-render from that file to change it.
 - **iOS is stubbed.** `sharedLogic` keeps its iOS targets, so common code stays Swift-friendly, but `iosMain` has only
   the actuals common code expects (`resolveIpv4`). There is no `iosApp` until phase 6.
 - **Strings are in English and Hebrew** (`values/strings.xml`, `values-iw/strings.xml`), screens right to left in
@@ -320,7 +324,8 @@ what was shown (the server sends HIGH only to phones that registered notificatio
   so a voice at arm's length is heard: communication mode with the built-in speaker as the communication device,
   only for the press, then back to the normal mode so playback stays media; not with a headset or during a phone
   call; logcat `TalkCapture` logs the first second's level) and
-  `TalkStart` (a new 32-hex burst id, the conversation) goes on `/ws`. What is recorded before the answer is kept
+  `TalkStart` (a new 32-hex burst id, the conversation) goes on `/ws`, once my last burst has let go of its floor
+  (up to 3 s: a renewal or a handover would otherwise find my own floor still held). What is recorded before the answer is kept
   and sent first, so nothing of the start is lost. **GRANTED**: the burst is kept in the chat (`Clip`, kind BURST),
   its key goes in an encrypted "clip start" message (`Content.clip`, `ClipContent`, with PUSH_TALK), and each 200 ms
   segment (ten packets) goes as a `ClipSegment`. Release sends the last segment (`last`), which ends the floor.
@@ -679,9 +684,9 @@ what goes out are one thing:
 
 - A press is live (pill or box, Stop) from the moment its sound goes into the talk room, and the room's microphone and
   camera are unmuted only while it is live.
-- Waiting for someone else's floor (TalkPhase.WAITING) is shown as waiting: nothing is recorded, nothing is sent, the
-  room's microphone is muted. When their floor ends, the press goes live at that moment and sends from then on.
-- Let go while waiting, offline, or with no answer to the floor: nothing of it is kept or sent (it used to be kept as a
+- Nothing waits for a floor (2026-11-27, hen: "remove this logic"; TalkPhase.WAITING is gone): a Busy with my own
+  floor asks again after letting go of my recent bursts, a Busy from anyone else ends the press as busy.
+- Let go offline, or with no answer to the floor: nothing of it is kept or sent (it used to be kept as a
   voice message, which put 0:01 bubbles in the chat). Only the composer's voice message button records to keep.
 - A burst that was live and then lost the connection keeps what went out as its clip.
 

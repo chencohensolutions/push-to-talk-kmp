@@ -150,6 +150,15 @@ class ConversationActions(
     val sendLiveWaiting: ((Boolean) -> Unit)? = null,
     /** Both live: turn it into a video call inside the chat; null: no calls here. */
     val callInChat: (() -> Unit)? = null,
+    /** The live talk full screen (2026-11-27, hen: instead of "Make it a call"); null: not here. */
+    val fullScreen: ((mic: Boolean, camera: Boolean) -> Unit)? = null,
+    /** This chat came on screen: the floating window for it goes; my press it held, back here as (video, urgent). */
+    val takeBack: (() -> Pair<Boolean, Boolean>?)? = null,
+    /**
+     * My hands-free push goes on in the floating window ([video], [urgent]) as the chat goes off the screen; false when
+     * it can't show (the push then ends here). Null: not here.
+     */
+    val handOver: ((video: Boolean, urgent: Boolean) -> Boolean)? = null,
 )
 
 /** A video call shown inside the chat (2026-11-24, hen): theirs under the header, mine with the call's bar at the bottom. */
@@ -401,13 +410,11 @@ private fun ConversationScreenIn(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             )
         }
-        // Live in the chat (2026-11-24, hen): what this phone sends with its camera, hands-free, and standby (below).
+        // Live in the chat (2026-11-24, hen): what this phone sends with its camera, and hands-free (below).
         val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
         var handsFree by remember(user) { mutableStateOf(false) }
         // Hands-free on the urgent bell (2026-11-26, hen): voice, urgent, until Stop; each renewal urgent again.
         var urgentHandsFree by remember(user) { mutableStateOf(false) }
-        var standby by remember(user) { mutableStateOf(false) }
-        var standbySince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
         var sliding by remember(user) { mutableStateOf(false) }
         // Get camera ready while talking (2026-11-24, hen, on by default): the camera opens, unseen, as the finger goes
         // down on Push (the slide-up-to-video target shows then), and closes as soon as it lifts without sliding up
@@ -419,6 +426,7 @@ private fun ConversationScreenIn(
         // Both live, and the call it can become: worked out further down, shown here under the panel.
         var bothLiveNow by remember(user) { mutableStateOf(false) }
         val makeCallNow = remember(user) { arrayOf<() -> Unit>({}) }
+        val fullScreenNow = remember(user) { arrayOf<() -> Unit>({}) }
         // Slid up to the lock: the voice burst ends and the video one starts a moment later; meanwhile the pill is
         // already becoming the box (2026-11-25, hen: "the voice pill should transition to video, not leave the screen
         // and enter again").
@@ -434,17 +442,8 @@ private fun ConversationScreenIn(
                 goingLive = false
             }
         }
-        // A press that waits for the floor (queued behind theirs, or standing by while they hold it) is shown as
-        // waiting, never as live (2026-11-25, hen: "only when the UI says it's transmitting, then transmit"): no pill
-        // or box of mine in the row and no "both live"; the Push button says "Waiting for Sharon…". Mine comes into
-        // the row the moment its turn does (REQUESTING, TALKING).
-        val waitingFor: String? = when {
-            standby -> contact?.name ?: user
-            else -> talk.own?.takeIf { it.chat == user && it.phase == TalkPhase.WAITING }?.let { o ->
-                if (group == null) contact?.name ?: user else o.busyWith?.takeIf { b -> b.isNotEmpty() } ?: group.name
-            }
-        }
-        val myPanel = waitingFor == null && (sendingVideo != null || goingLive)
+        // Nothing waits for anyone's floor (2026-11-27, hen: "remove this logic"): a press is live at once.
+        val myPanel = sendingVideo != null || goingLive
         // One run of mine (voice, then video after the slide up, and its hands-free renewals): one time that keeps
         // counting.
         val ownActive = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
@@ -513,7 +512,7 @@ private fun ConversationScreenIn(
             val voicesNow = listOfNotNull(theirVoiceNow, myVoice)
             val theirVideo = (theirClip != null && fullVideo == null) || pretend == LiveKind.Video
             val theirSinceNow = theirSince.takeIf { it > 0 } ?: System.currentTimeMillis()
-            val mySinceNow = runSince.takeIf { it > 0 } ?: sendingVideo?.startedAt ?: standbySince.takeIf { it > 0 } ?: System.currentTimeMillis()
+            val mySinceNow = runSince.takeIf { it > 0 } ?: sendingVideo?.startedAt ?: System.currentTimeMillis()
             val theirUser = talk.talkers[user]?.user ?: theirs?.from ?: user
             val theirName = (talk.talkers[user]?.user ?: theirs?.from)?.let { u -> if (group != null) u else contact?.name ?: u } ?: contact?.name ?: user
             // "You're both live" only while both sides' items really show here (2026-11-25, hen: "sometimes it says that
@@ -551,12 +550,12 @@ private fun ConversationScreenIn(
                     pretendMine == LiveKind.Voice -> GroupTalker(com.chencohen.ptt.ui.live.LiveLayout.MINE, "", me, false, mySinceNow, mine = true)
                     else -> null
                 }
-                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), null, myUrgent = myUrgent)
+                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), myUrgent = myUrgent)
             } else {
                 if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) LivePanel(
                     theirVideo, if (group != null) (theirs?.from ?: talker?.user) else null, theirSinceNow,
                     myPanel, mySinceNow,
-                    null, handsFree,
+                    handsFree,
                     theirIdentity = talk.talkers[user]?.let { "${it.user}.${it.device}" } ?: LivePretend.IDENTITY.takeIf { pretend != LiveKind.None },
                     theirUser = theirUser,
                     theirName = theirName,
@@ -564,7 +563,11 @@ private fun ConversationScreenIn(
                     voices = voicesNow,
                     myUrgent = myUrgent,
                 )
-                BothLiveChip(bothShown && actions.callInChat != null) { makeCallNow[0]() }
+                // Full screen (2026-11-27, hen: "'Full screen' is enough"): while their video or both of us are live; my
+                // push ends (full screen starts muted).
+                FullScreenChip((bothShown || theirVideo) && actions.fullScreen != null) {
+                    fullScreenNow[0]()
+                }
             }
             if (liveRow == null) {
                 // Who can hear me while I push (2026-11-25, hen): under my pill, from what they told of this push, else
@@ -783,8 +786,7 @@ private fun ConversationScreenIn(
         // (Or pretended to, in a test build: TestBubble.)
         val pretendTheirs by LivePretend.theirs.collectAsState()
         // One to one, both talk at once (2026-11-25, hen: "both parties to be able to transmit simultaneously"): a press
-        // while they talk starts at once, no standing by. (An older server still answers Busy: that is shown as waiting.)
-        val theyHold = false
+        // while they talk starts at once, nothing waits (2026-11-27, hen: "remove this logic").
         // Stop is final (TalkRun): what a press set going may start a burst only while its run is the current one.
         val runs = remember(user) { TalkRun() }
         fun say(what: String) = android.util.Log.i(CHAT_TALK, what)
@@ -796,12 +798,11 @@ private fun ConversationScreenIn(
         val ownNow by androidx.compose.runtime.rememberUpdatedState(ownHere)
         // Each change of this phone's own burst here, in the log: what is sent, against what the buttons did.
         LaunchedEffect(ownHere?.clip, ownHere?.phase) {
-            say("own: " + (ownHere?.let { "${it.phase} ${it.clip.takeLast(6)}" } ?: "none") + " (run ${runs.now}, hands-free $handsFree, standby $standby)")
+            say("own: " + (ownHere?.let { "${it.phase} ${it.clip.takeLast(6)}" } ?: "none") + " (run ${runs.now}, hands-free $handsFree)")
         }
         LaunchedEffect(handsFree, ownHere?.clip, ownHere?.phase) {
             if (!handsFree) return@LaunchedEffect
             val o = ownHere
-            if (o == null && standby) return@LaunchedEffect
             if (o == null) {
                 // Its floor went (refused, or this phone's own end): hands-free ends unless a new press took it.
                 delay(2_500)
@@ -847,69 +848,75 @@ private fun ConversationScreenIn(
                 }
             }
         }
-        androidx.compose.runtime.DisposableEffect(user) { onDispose { if (handsFreeNow) actions.finishVoice(true) } }
-        // Kept open while live hands-free or in standby (2026-11-24: after a minute untouched it was let go, so the next
+        // Hands-free and the chat goes off the screen (the app to the back, or another page): the push goes on in the
+        // floating window (2026-11-27, hen), which takes the floor once this one is let go; else it ends here.
+        val pushVideoNow by androidx.compose.runtime.rememberUpdatedState(pushVideo)
+        val urgentNow by androidx.compose.runtime.rememberUpdatedState(urgentHandsFree)
+        // [keep]: when the floating window can't take it (the screen went off), it goes on here as before.
+        fun handOverOrEnd(why: String, keep: Boolean) {
+            if (!handsFreeNow) return
+            val video = pushVideoNow && !urgentNow
+            val taken = actions.handOver?.invoke(video, urgentNow) == true
+            say("$why while hands-free: " + if (taken) "goes on in the floating window" else if (keep) "goes on here" else "ends")
+            if (!taken && keep) return
+            handsFree = false
+            runs.end()
+            // Taken over: the same press goes on there, not let go here (2026-11-27, hen: "without remounting the
+            // camera"); the floating window lets it go when it can't take it as it is.
+            if (!taken) actions.finishVoice(true)
+        }
+        androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { handOverOrEnd("app left", keep = true) }
+        // On screen (opened, or the app back in front): the floating window for this chat goes, and my hands-free press
+        // it held goes on here as it is (2026-11-27, hen: "at the moment I see two camera videos").
+        androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
+            val back = actions.takeBack?.invoke() ?: return@LifecycleEventEffect
+            val (video, urgent) = back
+            say("back from the floating window: hands-free goes on here (${if (video) "video" else "voice"}${if (urgent) ", urgent" else ""})")
+            if (video) actions.setPushVideo?.invoke(true)
+            urgentHandsFree = urgent
+            handsFree = true
+        }
+        androidx.compose.runtime.DisposableEffect(user) { onDispose { handOverOrEnd("chat left", keep = false) } }
+        // Kept open while live hands-free (2026-11-24: after a minute untouched it was let go, so the next
         // renewal went out as voice only).
         // Hands-free video (2026-11-24, hen): the camera opens as the finger starts sliding up from the Talk button, so the
         // video starts fast at the lock.
-        com.chencohen.ptt.ui.talk.WarmCamera(user, canWrite && !chatLive.anyCall && (sliding || cameraHeld || chatLive.roomCallCamera || (pushVideo && (handsFree || standby || talkingHere))), warmCamera)
+        com.chencohen.ptt.ui.talk.WarmCamera(user, canWrite && !chatLive.anyCall && (sliding || cameraHeld || chatLive.roomCallCamera || (pushVideo && (handsFree || talkingHere))), warmCamera)
         // Push is voice, except hands-free (slid up to the lock): this chat's video setting is set for it and back.
-        LaunchedEffect(handsFree, standby, pushVideo, talk.own?.chat) { if (!handsFree && !standby && pushVideo && talk.own?.chat != user) actions.setPushVideo?.invoke(false) }
-        // Their floor ended while I'm live in standby: mine starts.
-        LaunchedEffect(standby, theyHold) {
-            if (standby && !theyHold) {
-                val run = runs.now
-                delay(300)
-                if (standby && talk.talkers[user] == null) {
-                    val may = runs.may(run)
-                    say("standby: their floor ended, mine " + (if (may) "starts" else "doesn't start") + " (run $run of ${runs.now})")
-                    standby = false
-                    if (may || !ENFORCE_RUNS) actions.startVoice()
-                }
-            }
-        }
-        // Both live: I'm live and waiting for their floor (standby, or a queued burst), or they are for mine.
-        val waitingLive = standby || (handsFree && ownHere?.phase == TalkPhase.WAITING)
-        var saidWaiting by remember(user) { mutableStateOf(false) }
-        LaunchedEffect(waitingLive) {
-            if (waitingLive || saidWaiting) actions.sendLiveWaiting?.invoke(waitingLive)
-            saidWaiting = waitingLive
-        }
+        LaunchedEffect(handsFree, pushVideo, talk.own?.chat) { if (!handsFree && pushVideo && talk.own?.chat != user) actions.setPushVideo?.invoke(false) }
         // Both talking at once (2026-11-25: one to one, both can): I'm live and so are they, so the room can become the
         // call (hen: "how to make it a video call?").
         val theyTalkToo = group == null && talk.talkers[user]?.let { t -> talk.own?.clip != t.clip } == true
-        val bothLive = chatLive.call == null && (waitingLive || ((handsFree || talkingHere) && (theyTalkToo || chatLive.liveWaiting.isNotEmpty())))
+        val bothLive = chatLive.call == null && (handsFree || talkingHere) && (theyTalkToo || chatLive.liveWaiting.isNotEmpty())
         val makeCall: () -> Unit = {
             runs.end()
             handsFree = false
-            standby = false
             if (ownNow != null) actions.finishVoice(true)
             actions.callInChat?.invoke()
+        }
+        val goFullScreen: () -> Unit = {
+            // Live now: the same press goes on there, my microphone (and camera) still on (2026-11-27, hen: "when
+            // transmitting my camera or only voice and entering full screen my camera or microphone should stay on").
+            val live = ownNow?.takeIf { it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING }
+            runs.end()
+            handsFree = false
+            if (ownNow != null && live == null) actions.finishVoice(true)
+            actions.fullScreen?.invoke(live != null, live != null && pushVideo)
         }
         androidx.compose.runtime.SideEffect {
             bothLiveNow = bothLive
             makeCallNow[0] = makeCall
+            fullScreenNow[0] = goFullScreen
         }
-        // A press in a one-to-one chat that the server still queued behind their floor (it came just as theirs
-        // started, or a hands-free renewal): not queued, standby instead (2026-11-24, hen, "a").
-        LaunchedEffect(ownHere?.phase) {
-            if (group == null && ownHere?.phase == TalkPhase.WAITING) {
-                say("queued behind their floor: standby instead (run ${runs.now})")
-                actions.finishVoice(false)
-                standby = true
-                standbySince = System.currentTimeMillis()
-            }
-        }
-        // A call in this chat (the room's or the usual): hands-free and standby end, the call carries the media now.
+        // A call in this chat (the room's or the usual): hands-free ends, the call carries the media now.
         LaunchedEffect(chatLive.call != null) {
             if (chatLive.call != null) {
                 runs.end()
                 handsFree = false
-                standby = false
             }
         }
         // Home takes a video call from this chat at once while I'm live here (either side tapped Make it a call).
-        LaunchedEffect(handsFree, standby) { chatLive.onBothLive(handsFree || standby) }
+        LaunchedEffect(handsFree) { chatLive.onBothLive(handsFree) }
         LaunchedEffect(bothLive, chatLive.autoCall) {
             if (bothLive && chatLive.autoCall && actions.callInChat != null) {
                 delay(10_000)
@@ -1046,6 +1053,15 @@ private fun ConversationScreenIn(
                         Text(dayLabel(day), color = LibraryColors.Muted, style = LibraryType.Tiny)
                     }
                 }
+                // A group sender's name only on the first of their messages in a row, until someone else's comes
+                // (2026-11-27, hen).
+                val nameShown = if (group == null) emptySet() else buildSet {
+                    var prev: TextMessage? = null
+                    for (m in messages) {
+                        if (!m.outgoing && (prev == null || prev.outgoing || prev.author != m.author)) add(m.id)
+                        prev = m
+                    }
+                }
                 messages.asReversed().forEach { message ->
                     val day = dayOf(message.at)
                     newerDay?.let { if (it != day) divider(it) }
@@ -1056,7 +1072,7 @@ private fun ConversationScreenIn(
                             val mineOf = if (earlier.outgoing) earlier else message
                             val faces = marks[mineOf.id].orEmpty()
                             Column(Modifier.animateItem(ease, move, ease).zIndex(if (faces.isEmpty()) 0f else 1f)) {
-                                Box(Modifier.graphicsLayer { alpha = seeThrough }) { VideoPair(earlier, message) { m -> MemberHue(if (m.outgoing) null else m.author) { Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, reach = reaches[m.id], compact = true) } } }
+                                Box(Modifier.graphicsLayer { alpha = seeThrough }) { VideoPair(earlier, message) { m -> MemberHue(if (m.outgoing) null else m.author) { Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = m.id in nameShown, group = group != null, reach = reaches[m.id], compact = true) } } }
                                 if (mineOf.outgoing) MarkGap(mineOf.id, faces, homes, marksAcross, nameOfMark)
                             }
                         }
@@ -1125,7 +1141,7 @@ private fun ConversationScreenIn(
                                 // A playing video stays solid while the window arrives (never drawn see-through).
                                 MemberHue(if (message.outgoing) null else message.author) {
                                 Bubble(
-                                    message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, reach = reaches[message.id], held = slot, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
+                                    message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = message.id in nameShown, group = group != null, reach = reaches[message.id], held = slot, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
                                     // Send's slot: kept unseen while the draft flies into it; where it lies, whole (not as
                                     // clipped while it grows in).
                                     bubbleModifier = if (slot) Modifier.onGloballyPositioned { flight.to = androidx.compose.ui.geometry.Rect(it.positionInWindow(), androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat())) }.graphicsLayer { alpha = 0f }
@@ -1305,14 +1321,13 @@ private fun ConversationScreenIn(
                             }
                             ChatButtons(
                                 false, talkingHere, recordingVoice, actions, video = false, handsFree = handsFree,
-                                waitingFor = waitingFor,
                                 pushTo = pushTo,
                                 urgent = talk.own?.let { it.chat == user && it.urgent } == true,
                                 cantHear = someoneCantHear,
                                 // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.
                                 lock = {
                                     val run = runs.now
-                                    say("lock: hands-free video (run $run, standby $standby)")
+                                    say("lock: hands-free video (run $run)")
                                     // The camera is another app's: voice only, and said so (2026-11-25, hen: don't take it).
                                     if (com.chencohen.ptt.talkVideoCapture?.cameraBusy?.value == true) {
                                         android.widget.Toast.makeText(lockContext, cameraBusyNote, android.widget.Toast.LENGTH_SHORT).show()
@@ -1321,8 +1336,7 @@ private fun ConversationScreenIn(
                                     goingLive = true
                                     actions.setPushVideo?.invoke(true)
                                     handsFree = true
-                                    val wasStandby = standby
-                                    if (!wasStandby) actions.finishVoice(true)
+                                    actions.finishVoice(true)
                                     chainScope.launch {
                                         var waited = 0
                                         while (ownNow != null && waited < 3_000) {
@@ -1331,8 +1345,8 @@ private fun ConversationScreenIn(
                                         }
                                         delay(100)
                                         val may = runs.may(run)
-                                        say("after the lock: the video " + (if (handsFreeNow && !standby && may) "starts" else "doesn't start") + " (run $run of ${runs.now}, hands-free $handsFreeNow, standby $standby)")
-                                        if (handsFreeNow && !standby && (may || !ENFORCE_RUNS)) actionsNow.startVoice()
+                                        say("after the lock: the video " + (if (handsFreeNow && may) "starts" else "doesn't start") + " (run $run of ${runs.now}, hands-free $handsFreeNow)")
+                                        if (handsFreeNow && (may || !ENFORCE_RUNS)) actionsNow.startVoice()
                                     }
                                 },
                                 sliding = { sliding = it },
@@ -1345,7 +1359,6 @@ private fun ConversationScreenIn(
                                     val stoppedRun = runs.now
                                     handsFree = false
                                     urgentHandsFree = false
-                                    standby = false
                                     // Always: a burst whose start is still on its way shows no own yet, and was left
                                     // running (2026-11-25: 20 s of voice after Stop).
                                     actions.finishVoice(true)
@@ -1359,16 +1372,11 @@ private fun ConversationScreenIn(
                                 },
                                 press = {
                                     val run = runs.fingerDown()
-                                    say("finger down (run $run): " + (if (theyHold) "standby, they hold the floor" else "starts") + " (hands-free $handsFree, own ${ownNow?.phase})")
-                                    if (theyHold) {
-                                        standby = true
-                                        standbySince = System.currentTimeMillis()
-                                    } else {
-                                        actions.startVoice()
-                                    }
+                                    say("finger down (run $run): starts (hands-free $handsFree, own ${ownNow?.phase})")
+                                    actions.startVoice()
                                 },
                                 release = { lock ->
-                                    say("finger up (run ${runs.now}, lock $lock, standby $standby, own ${ownNow?.phase})")
+                                    say("finger up (run ${runs.now}, lock $lock, own ${ownNow?.phase})")
                                     when {
                                         // Let go on the side target (2026-11-26, hen): the voice push goes on until Stop;
                                         // on the bell (someone can't hear now) it is urgent, and so are its renewals.
@@ -1377,10 +1385,6 @@ private fun ConversationScreenIn(
                                             handsFree = true
                                             urgentHandsFree = lock == PushLock.URGENT
                                             if (lock == PushLock.URGENT) actions.markUrgent()
-                                        }
-                                        standby -> {
-                                            standby = false
-                                            runs.end()
                                         }
                                         else -> {
                                             actions.finishVoice(true)
@@ -1437,7 +1441,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage, markUrgent = a.markUrgent,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
-    sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat,
+    sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
 )
 
 
@@ -1680,7 +1684,7 @@ private fun lastSeen(at: Long): String {
 }
 
 @Composable
-private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, reach: ReadMarks.Reach? = null, liveVideo: Boolean = false, liveSince: Long? = null, compact: Boolean = false, bubbleModifier: Modifier = Modifier,
+private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, group: Boolean = false, reach: ReadMarks.Reach? = null, liveVideo: Boolean = false, liveSince: Long? = null, compact: Boolean = false, bubbleModifier: Modifier = Modifier,
     /** Their text being edited live: its text as it stands (null: hidden), shown in place with a soft mark. */
     liveEdit: com.chencohen.ptt.messaging.LiveEdit? = null,
     /** Mine: a double tap edits it, the caret at the tapped character ([Int] the bubble's width now, in pixels). */
@@ -1811,6 +1815,8 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                     color = when {
                         message.status == MessageStatus.FAILED && mine -> LibraryColors.Warning
                         mine -> LibraryColors.OnMineMuted
+                        // In a group: the same colour as the sender's name above (2026-11-27, hen).
+                        group -> LibraryColors.OnTheirs
                         else -> LibraryColors.OnTheirsMuted
                     },
                     style = LibraryType.Tiny,
@@ -2165,14 +2171,14 @@ private fun SelectionBar(count: Int, close: () -> Unit, edit: (() -> Unit)?, inf
         }
         Text(stringResource(R.string.chat_selected, count), color = LibraryColors.OnBackground, style = LibraryType.RowTitle, modifier = Modifier.weight(1f).padding(start = 4.dp))
         @Composable
-        fun action(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = LibraryColors.OnBackground, onClick: () -> Unit) =
+        fun action(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = LibraryColors.OnBackground, key: Color? = null, onClick: () -> Unit) =
             Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = label, onClick = onClick), contentAlignment = Alignment.Center) {
-                Icon(icon, label, tint = tint)
+                com.chencohen.ptt.ui.style.FineIcon(icon, label, tint = tint, key = key)
             }
         androidx.compose.animation.AnimatedVisibility(edit != null) { action(LibraryIcons.Edit, stringResource(R.string.chat_edit)) { edit?.invoke() } }
         androidx.compose.animation.AnimatedVisibility(save != null) { action(LibraryIcons.Download, stringResource(R.string.kept_save)) { save?.invoke() } }
         androidx.compose.animation.AnimatedVisibility(info != null) { action(LibraryIcons.Info, stringResource(R.string.chat_info)) { info?.invoke() } }
-        action(LibraryIcons.Trash, stringResource(R.string.chat_delete), LibraryColors.Warning, delete)
+        action(LibraryIcons.Trash, stringResource(R.string.chat_delete), LibraryColors.Warning, key = LibraryColors.Error, onClick = delete)
     }
 }
 

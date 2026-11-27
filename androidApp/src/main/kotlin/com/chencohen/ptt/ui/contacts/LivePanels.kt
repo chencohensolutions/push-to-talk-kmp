@@ -55,6 +55,8 @@ import com.chencohen.ptt.ui.live.LiveItem
 import com.chencohen.ptt.ui.live.LiveLayout
 import com.chencohen.ptt.ui.live.LiveSlot
 import com.chencohen.ptt.ui.live.LiveMotion
+import com.chencohen.ptt.ui.live.LiveRect
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryType
 import com.chencohen.ptt.ui.talk.clipLength
@@ -177,13 +179,12 @@ internal val LocalLiveBoxHeight = androidx.compose.runtime.compositionLocalOf<an
  * bars), with only their own rounded shape and a soft shadow: nothing behind them, the chat scrolls on beneath.
  * Where each rests and how they move is LiveLayout and LiveMotion's (one move for everything; docs/screens/style.md,
  * "Motion"): a side comes down from under the header's edge and goes back up under it, the other glides aside or
- * back to the centre meanwhile, and "the pill becomes the video" as one frame growing about its centre. [waitingFor]:
- * mine queued behind someone else's floor (a group).
+ * back to the centre meanwhile, and "the pill becomes the video" as one frame growing about its centre.
  */
 @Composable
 internal fun LivePanel(
     theirs: Boolean, who: String?, theirSince: Long,
-    mine: Boolean, mySince: Long, waitingFor: String?, @Suppress("UNUSED_PARAMETER") handsFree: Boolean,
+    mine: Boolean, mySince: Long, @Suppress("UNUSED_PARAMETER") handsFree: Boolean,
     /** The talker's "user.device": their video through the talk room, when it comes (LiveTalkVideo). */
     theirIdentity: String? = null,
     /** How far behind the clip path's picture plays (the test builds' readout). */
@@ -259,6 +260,7 @@ internal fun LivePanel(
         sides,
         boxHeight = LocalLiveBoxHeight.current ?: (screen * LIVE_VIDEO_SHARE),
         ring = { if (it.key == LiveLayout.MINE) myRing else teal },
+        handoff = true,
         pill = { side ->
             val voice = last[if (side.key == LiveLayout.MINE) 1 else 0]
             if (voice != null) VoicePillRow(voice, if (voice.mine) myRing else LibraryColors.Accent)
@@ -269,7 +271,6 @@ internal fun LivePanel(
         val tag = when {
             // Who only, no time, at the box's top centre (2026-11-25, hen).
             !isMine -> who ?: voice.name
-            waitingFor != null -> stringResource(R.string.talk_waiting_for, waitingFor)
             else -> me
         }
         LiveBoxInside(voice, tag, w, h, p, pictured = side.video && pictured[if (isMine) 1 else 0]) { box ->
@@ -297,7 +298,7 @@ internal fun LivePanel(
  * face (the clip path's one decoder can't show several). All of it moves as one (LiveStage, LiveMotion).
  */
 @Composable
-internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?, myUrgent: Boolean = false) {
+internal fun GroupLivePanel(talkers: List<GroupTalker>, myUrgent: Boolean = false) {
     val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsState()
     val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsState()
     val localPicture by com.chencohen.ptt.talk.LiveTalkVideo.localPicture.collectAsState()
@@ -331,6 +332,7 @@ internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?, myU
         sides,
         boxHeight = LocalLiveBoxHeight.current ?: (screen * LIVE_VIDEO_SHARE),
         ring = { if (it.key == LiveLayout.MINE) myRing else teal },
+        handoff = true,
         group = true,
         groupShape = myShape,
         chip = newest?.let { n ->
@@ -350,7 +352,6 @@ internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?, myU
         val voice = VoiceSide(if (t.mine) "" else t.user, if (t.mine) me else t.name, t.mine, t.since)
         val tag = when {
             !t.mine -> t.name
-            waitingFor != null -> stringResource(R.string.talk_waiting_for, waitingFor)
             else -> me
         }
         val room = if (t.mine) null else arriving[t.key]
@@ -400,6 +401,11 @@ internal fun LiveStage(
     group: Boolean = false,
     groupShape: Float = 3f / 4f,
     chip: (@Composable () -> Unit)? = null,
+    /**
+     * The chat's own row: where its items are on the screen is kept for the floating window that takes them over as
+     * the chat goes, and items the floating window hands back come from where they were there ([LiveHandoff]).
+     */
+    handoff: Boolean = false,
     /** A box's inside, drawn in the frame: its picture's full size [w] × [h], and how far it is a box by now, 0 to 1. */
     box: @Composable androidx.compose.foundation.layout.BoxScope.(side: LiveSide, w: Dp, h: Dp, p: Float) -> Unit,
 ) {
@@ -417,7 +423,17 @@ internal fun LiveStage(
     val frame = remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val running = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
-    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
+    // The stage's top left on the screen.
+    val origin = remember { FloatArray(2) }
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier.fillMaxWidth().then(
+            if (handoff) Modifier.onGloballyPositioned { c ->
+                val p = c.localToScreen(androidx.compose.ui.geometry.Offset.Zero)
+                origin[0] = p.x
+                origin[1] = p.y
+            } else Modifier,
+        ),
+    ) {
         val width = constraints.maxWidth.toFloat()
         val side = with(density) { 12.dp.toPx() }
         val top = with(density) { 8.dp.toPx() }
@@ -434,7 +450,7 @@ internal fun LiveStage(
             }
             motion.target(
                 LiveGroupLayout.place(slots, width - 2 * side, gap, full, groupShape, rtl, left = side, chip = chipSize?.let { it.width.toFloat() to it.height.toFloat() }),
-                offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() },
+                offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() }, from = handedBack(handoff, origin, top),
             )
         } else if (!group && sides.all { it.video || pills[it.key] != null }) {
             val h = LiveLayout.boxHeight(
@@ -446,9 +462,10 @@ internal fun LiveStage(
                 else pills.getValue(s.key).let { LiveItem(s.key, it.width.toFloat(), it.height.toFloat(), false) }
             }
             // From above the stage's top edge, the shadow too.
-            motion.target(LiveLayout.place(items, width, gap, rtl), offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() })
+            motion.target(LiveLayout.place(items, width, gap, rtl), offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() }, from = handedBack(handoff, origin, top))
         }
         androidx.compose.runtime.SideEffect {
+            if (handoff) com.chencohen.ptt.ui.live.LiveHandoff.chatRow(origin[0], origin[1] + top, motion.goals.filterKeys { !motion.leaving(it) })
             if (motion.running && running[0]?.isActive != true) {
                 running[0] = scope.launch {
                     // The system's animation speed (Remove animations: at once), as the app's other animations.
@@ -530,6 +547,17 @@ internal fun LiveStage(
             }
         }
     }
+}
+
+/**
+ * Where an item the floating window just handed back starts in the chat's stage (its top left on the screen [origin],
+ * its items' resting top [top]): where it was in the floating window (2026-11-27, hen: back in the chat "the video
+ * should move to the in-chat position").
+ */
+private fun handedBack(handoff: Boolean, origin: FloatArray, top: Float): ((String, LiveRect) -> LiveRect?)? {
+    if (!handoff) return null
+    val back = com.chencohen.ptt.ui.live.LiveHandoff.recentFloating(System.currentTimeMillis()).takeIf { it.isNotEmpty() } ?: return null
+    return { key, t -> back[key]?.let { s -> LiveRect(s.left - origin[0], s.top - origin[1] - top, s.w, s.h, t.video) } }
 }
 
 /**
@@ -662,6 +690,28 @@ internal fun BothLiveChip(shown: Boolean, makeCall: () -> Unit) {
     }
 }
 
+/** "⤢ Full screen" (2026-11-27, hen), just under the top panel, in its own space: the live talk full screen. */
+@Composable
+internal fun FullScreenChip(shown: Boolean, open: () -> Unit) {
+    AnimatedVisibility(shown, enter = fadeIn(tween(200)) + expandVertically(tween(200)), exit = fadeOut(tween(150)) + shrinkVertically(tween(150))) {
+        Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+            Row(
+                Modifier.shadow(6.dp, CircleShape).background(LibraryColors.Inverse, CircleShape)
+                    .clickable(role = Role.Button, onClick = open)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Icon(com.chencohen.ptt.ui.style.LibraryIcons.Expand, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(16.dp))
+                Text(
+                    stringResource(R.string.talk_full_screen), color = LibraryColors.OnInverse,
+                    style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
+    }
+}
+
 /**
  * A push-to-talk burst the chat doesn't keep (2026-11-24, hen: its "Keep voice / videos in chat" off): one muted,
  * centred line once it ends, "Sharon sent live video · 0:07"; nothing to play. A run of them is a [TalkSession].
@@ -731,7 +781,7 @@ internal fun StopLive(size: Dp, stop: () -> Unit, urgent: Boolean = false) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (urgent) androidx.compose.material3.Icon(com.chencohen.ptt.ui.style.LibraryIcons.Bell, null, tint = Color.White, modifier = Modifier.size(size * 0.3f))
+            if (urgent) com.chencohen.ptt.ui.style.IconsOnAccent { androidx.compose.material3.Icon(com.chencohen.ptt.ui.style.LibraryIcons.Bell, null, tint = Color.White, modifier = Modifier.size(size * 0.3f)) }
             else Box(Modifier.size(size * 0.26f).background(Color.White, RoundedCornerShape(4.dp)))
             Text(label, color = Color.White, style = LibraryType.Tiny, modifier = Modifier.padding(top = 4.dp))
         }
@@ -775,18 +825,18 @@ internal fun RoomCallBottom(call: com.chencohen.ptt.messaging.RoomCall, end: () 
             )
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp).navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            RoundToggle(if (call.microphone) com.chencohen.ptt.ui.style.LibraryIcons.Mic else com.chencohen.ptt.ui.style.LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute)) { media(!call.microphone, call.camera) }
-            RoundToggle(if (call.camera) com.chencohen.ptt.ui.style.LibraryIcons.Video else com.chencohen.ptt.ui.style.LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on)) { media(call.microphone, !call.camera) }
+            RoundToggle(if (call.microphone) com.chencohen.ptt.ui.style.LibraryIcons.Mic else com.chencohen.ptt.ui.style.LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute), if (call.microphone) com.chencohen.ptt.ui.style.IconLive else null) { media(!call.microphone, call.camera) }
+            RoundToggle(if (call.camera) com.chencohen.ptt.ui.style.LibraryIcons.Video else com.chencohen.ptt.ui.style.LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on), if (call.camera) com.chencohen.ptt.ui.style.IconLive else null) { media(call.microphone, !call.camera) }
         }
     }
 }
 
 @Composable
-private fun RoundToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun RoundToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, key: Color? = null, onClick: () -> Unit) {
     Box(
         Modifier.size(48.dp).background(LibraryColors.Raised, CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { androidx.compose.material3.Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(22.dp)) }
+    ) { com.chencohen.ptt.ui.style.FineIcon(icon, label, Modifier.size(22.dp), tint = LibraryColors.OnBackground, key = key) }
 }
 
 /** Text in the layout's own direction (not its first letter's): Hebrew lines stay right to left with a Latin name. */
