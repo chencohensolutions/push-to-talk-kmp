@@ -2467,7 +2467,7 @@ object TalkBubble {
                 val chat = rowChat() ?: return@setOnClickListener
                 // Live now: the same press goes on in full screen, my microphone (and camera) still on (2026-11-27,
                 // hen); this window only stops holding it.
-                val mic = talking && this.chat == chat
+                val mic = talking && this@TalkBubble.chat == chat
                 val camera = mic && sendingVideo
                 if (mic) letGoOfPress(context)
                 else if (talking) {
