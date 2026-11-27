@@ -268,7 +268,10 @@ analytics are off. `Push.register` gives the server the FCM token and whether no
 (`registerPush`, only when one of them changed, kept as `PttSettings.pushRegistered`): when the app comes to the
 front, after enrolling, and when FCM makes a new token. `TalkMessagingService.onMessageReceived` gets only
 `{"kind": …}` and calls `Messaging.wake`: open `/ws` unless the app is on screen, take the queue, send the outbox and
-pending receipts, close again (at most ~20 s). The texts it took show as **notifications**
+pending receipts, close again (at most ~20 s). A wake-up that ends while another still holds the connection (a
+burst playing, its reply time, a warm room) leaves it open: the last one closes it (2026-11-27: the server also
+pushes a connected phone that is slow to say it plays a burst, so a run of pushes left a line of wake-ups, and each
+closed `/ws` under the one before, 15 times in 25 seconds in the server's log). The texts it took show as **notifications**
 ([screens/notifications.md](screens/notifications.md)) through `MessageNotifier`, which the app sets on the hub; a
 conversation on screen reads them instead. The hub (`AndroidPtt.hub`) is one per process, shared by the screens
 and the push service.

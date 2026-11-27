@@ -687,6 +687,32 @@ class TalkTest {
     }
 
     @Test
+    fun aSecondWakeUpLeavesTheConnectionTheFirstStillHolds() = runTest {
+        val (_, hen, dana) = paired()
+        dana.controller.stop()
+        advanceUntilIdle()
+        hen.work.launch { hen.talk.press("dana") }
+        advanceUntilIdle()
+        hen.mic.say(0, 30)
+        // Woken for the burst while it goes on: this wake-up keeps the connection for it and for the reply after.
+        dana.work.launch { dana.messaging.wake() }
+        advanceTimeBy(3_000)
+        hen.work.launch { hen.talk.release() }
+        advanceTimeBy(3_000)
+        assertFalse(dana.talk.busy, "the burst is over: only its reply time holds the connection now")
+        assertEquals(com.chencohen.ptt.relay.SocketState.Live, dana.state.socket)
+        // A second push for the same burst (the server's, for a phone slow to say it plays): it has nothing to wait
+        // for, and is done within seconds.
+        dana.work.launch { dana.messaging.wake() }
+        advanceTimeBy(5_000)
+        assertEquals(com.chencohen.ptt.relay.SocketState.Live, dana.state.socket, "the first wake-up still holds the connection")
+        advanceUntilIdle()
+        assertEquals(com.chencohen.ptt.relay.SocketState.Stopped, dana.state.socket, "closed once, when the last wake-up is done")
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun aPushThatCameTooLateToPlayIsAMissedPush() = runTest {
         val (_, hen, dana) = paired()
         dana.controller.stop()

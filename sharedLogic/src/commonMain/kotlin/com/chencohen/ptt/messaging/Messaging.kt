@@ -956,6 +956,23 @@ internal class Messaging(
      */
     suspend fun wake(limit: Long = 20_000) {
         if (foreground || device() == null) return
+        waking++
+        try {
+            wakeNow(limit)
+        } finally {
+            waking--
+        }
+    }
+
+    /**
+     * The wake-ups running now. A second push while one is still held (a burst playing, its reply time, a warm room)
+     * runs its own beside it and ends within seconds: it must not close the connection the first still uses
+     * (2026-11-27: a push to a connected phone that is slow to say it plays also sends it a talk push, so a run of
+     * pushes left a line of wake-ups, and each closed /ws and the next opened it again, 15 times in 25 seconds).
+     */
+    private var waking = 0
+
+    private suspend fun wakeNow(limit: Long) {
         open()
         kotlinx.coroutines.withTimeoutOrNull(limit) {
             socket.state.first { it is SocketState.Live || it is SocketState.Revoked || it is SocketState.Replaced }
@@ -979,6 +996,8 @@ internal class Messaging(
         // Warmed (someone has this chat open): the connection and the room stay, quietly, until they leave it, its
         // refresh stops coming, or nobody talks for 10 minutes.
         while (!foreground && live.warmFor() > now()) kotlinx.coroutines.delay(1_000)
+        // Another wake-up still holds the connection: it closes it when it is done.
+        if (waking > 1) return
         host?.warm(null, false)
         if (!foreground && !stayConnected) socket.stop()
     }
