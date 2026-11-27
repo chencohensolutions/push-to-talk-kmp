@@ -496,7 +496,7 @@ messages** and **Their messages**, each Default (A) or one of six hues, in one r
 Each shows by the theme (hen first: "in light theme white text on dark color, in dark theme black text on bright
 color", then "reverse the colors of light and dark"): in the light theme its bright shade with black text (#FA7D00,
 #6AD400, #00D86C, #48A4FF, #C284FF, #FF6BB5), in the dark theme its deep shade with white text at 4.6:1 (#B85C00,
-#428500, #008744, #0073E5, #9E3DFF, #E50072); the picker's circles too. Thin lines (outlines, the writing box, rings)
+#428500, #008744, #0073E5, #9E3DFF, #C30061; the pink darker than the others for white text, 6:1, 2026-11-27, hen: "the pink is a bit too bright for white text"); the picker's circles too. Thin lines (outlines, the writing box, rings)
 are the deep shade in both themes, so they stay seen on the light page. A pick stored from the earlier twelve shows as its hue; the chosen one ringed (200 ms). Kept on this phone only. In
 the chat, the floating window and the Talk tab's chat: the whole way, in its colour (2026-11-27, hen: "respect the sending
 rectangle border colors and also the new message textbox border colors"): my bubble's outline while sending (dashed,
