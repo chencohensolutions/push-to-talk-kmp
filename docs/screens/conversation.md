@@ -491,10 +491,12 @@ the buttons only", and "make the banner smaller, the red button smaller".
 ## Chat colours (2026-11-27, hen: "customize the two colors of a chat screen messages, from the contact settings screen")
 
 On a contact's page and a group's page, **Chat colours**: two bubbles showing them as the chat will, then **My
-messages** and **Their messages**, each Default (A) or one of six (2026-11-27, hen: RGB (1, 0.5, 0), (1, 0, 0.5),
-(0, 0.5, 1), (0, 1, 0.5), (0.5, 1, 0), (0.5, 0, 1), each darkened in lightness only until white text on it reaches
-4.5:1: #BA5D00, #E50073, #0074E8, #008744, #428500, #8000FF); then the same six bright with black text (hen: "brighter with black text"), lightened in lightness
-only until black text reaches 7:1: #FF8000, #FF52A8, #3098FF, #00FF80, #80FF00, #BA75FF; the chosen one ringed (200 ms). Kept on this phone only. In
+messages** and **Their messages**, each Default (A) or one of twelve (2026-11-27, hen: "spread the colors evenly"): six hues
+around the wheel (orange, lime, green, blue, violet, pink), each deep with white text at 4.6:1 (#B85C00, #428500,
+#008744, #0073E5, #9E3DFF, #E50072) and bright with black text at 11:1 (#FFA852, #6AD400, #00D86C, #82C1FF, #D4AAFF,
+#FF9DCE), every shade in a row the same lightness. Two rows in the picker: Default and the deep six, then the bright
+six under their twins. On the light theme a bright colour's outlines (sending, the writing box) use its deep twin so a
+thin line stays seen; on the dark theme the bright colour itself; the chosen one ringed (200 ms). Kept on this phone only. In
 the chat, the floating window and the Talk tab's chat: the whole way, in its colour (2026-11-27, hen: "respect the sending
 rectangle border colors and also the new message textbox border colors"): my bubble's outline while sending (dashed,
 then whole), its fill once every phone has it, the read faces' rings, and the writing bubble (its dashed outline at

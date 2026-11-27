@@ -68,11 +68,11 @@ internal class LibraryPalette(
      * then whole), its fill, the writing bubble's outline and my draft's in [mine]; their bubbles and their live draft's
      * outline in [theirs]. Text on them is light or dark by the colour.
      */
-    fun withChatColors(mine: Color?, theirs: Color?) = LibraryPalette(
+    fun withChatColors(mine: Color?, theirs: Color?, mineLine: Color? = mine, theirLine: Color? = theirs) = LibraryPalette(
         Background, Raised, OnBackground, Muted, Accent, Inverse, OnInverse, OnInverseMuted, Warning, Error,
-        mine ?: Mine, mine?.let { inkOn(it) } ?: OnMine, mine ?: MineLine,
+        mine ?: Mine, mine?.let { inkOn(it) } ?: OnMine, mineLine ?: MineLine,
         theirs ?: Theirs, theirs?.let { inkOn(it) } ?: OnTheirs,
-        mine ?: Writing, theirs ?: TheirLine,
+        mineLine ?: Writing, theirLine ?: TheirLine,
     )
 
     val OnTheirsMuted: Color get() = OnTheirs.copy(alpha = 0.6f)
@@ -145,24 +145,39 @@ internal fun inkOn(c: Color): Color {
 }
 
 /**
- * The chat colours one can pick (2026-11-27, hen: exactly these six, in RGB (1, 0.5, 0), (1, 0, 0.5), (0, 0.5, 1),
- * (0, 1, 0.5), (0.5, 1, 0), (0.5, 0, 1)), each darkened in lightness only (hue and saturation kept) until white text on
- * it reaches 4.5:1: orange, rose, azure, spring green, chartreuse and violet. Used for the fill, the outlines and the
- * writing box. -1 is the default (my green, their raised page colour).
+ * The chat colours one can pick (2026-11-27, hen: six hues spread evenly around the wheel, each deep with white text and
+ * bright with black text). Used for the fill, the outlines and the writing box. -1 is the default (my green, their
+ * raised page colour).
  */
 internal val ChatSwatches = listOf(
-    Color(0xFFBA5D00), Color(0xFFE50073), Color(0xFF0074E8), Color(0xFF008744), Color(0xFF428500), Color(0xFF8000FF),
-    // The same six bright, with black text (2026-11-27, hen: "same colors but brighter with black text to stand out"):
-    // lightened in lightness only until black text reaches 7:1 (the pure colour where it already does).
-    Color(0xFFFF8000), Color(0xFFFF52A8), Color(0xFF3098FF), Color(0xFF00FF80), Color(0xFF80FF00), Color(0xFFBA75FF),
+    // Deep, white text at 4.6:1, around the wheel (2026-11-27, hen: "spread the colors evenly"): orange, lime, green,
+    // blue, violet, pink, each with the same lightness.
+    Color(0xFFB85C00), Color(0xFF428500), Color(0xFF008744), Color(0xFF0073E5), Color(0xFF9E3DFF), Color(0xFFE50072),
+    // The same six bright, with black text at 11:1, in the same order (hen: "brighter with black text to stand out").
+    Color(0xFFFFA852), Color(0xFF6AD400), Color(0xFF00D86C), Color(0xFF82C1FF), Color(0xFFD4AAFF), Color(0xFFFF9DCE),
 )
+
+/** How many of ChatSwatches are deep (white text); the rest are their bright twins, in the same order. */
+internal const val DEEP_SWATCHES = 6
+
+/**
+ * The outline colour for swatch [i]: itself, but on a light page a bright one's deep twin, so a thin line stays seen
+ * (2026-11-27, hen's mock).
+ */
+internal fun swatchLine(i: Int, lightPage: Boolean): Color? {
+    val c = ChatSwatches.getOrNull(i) ?: return null
+    return if (lightPage && i >= DEEP_SWATCHES) ChatSwatches[i - DEEP_SWATCHES] else c
+}
 
 /** [content] with a chat's colours ([mine], [theirs]: ChatSwatches indexes, -1 the default). */
 @Composable
 internal fun ChatColors(mine: Int, theirs: Int, content: @Composable () -> Unit) {
     if (mine < 0 && theirs < 0) return content()
     val base = LocalLibraryPalette.current
-    val palette = androidx.compose.runtime.remember(base, mine, theirs) { base.withChatColors(ChatSwatches.getOrNull(mine), ChatSwatches.getOrNull(theirs)) }
+    val palette = androidx.compose.runtime.remember(base, mine, theirs) {
+        val light = base.Background.luminance() > 0.5f
+        base.withChatColors(ChatSwatches.getOrNull(mine), ChatSwatches.getOrNull(theirs), swatchLine(mine, light), swatchLine(theirs, light))
+    }
     CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
 }
 

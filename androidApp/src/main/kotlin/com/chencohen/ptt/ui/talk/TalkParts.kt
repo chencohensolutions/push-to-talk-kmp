@@ -573,12 +573,22 @@ internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.Talk
 private fun SwatchRow(title: String, chosen: Int, choose: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Text(title, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+        // Two rows (2026-11-27, hen's mock): Default and the deep six (white text), then the bright six (black text) under
+        // their twins.
+        val deep = com.chencohen.ptt.ui.style.DEEP_SWATCHES
+        val all = com.chencohen.ptt.ui.style.ChatSwatches.indices
+        listOf(listOf(-1) + all.filter { it < deep }, listOf(-2) + all.filter { it >= deep }).forEach { rowItems ->
         Row(
-            Modifier.fillMaxWidth().padding(top = 8.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+            Modifier.fillMaxWidth().padding(top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             val defaultLabel = stringResource(R.string.chat_colors_default)
-            (listOf(-1) + com.chencohen.ptt.ui.style.ChatSwatches.indices).forEach { i ->
+            rowItems.forEach { i ->
+                if (i == -2) {
+                    // Under Default: room kept, so each bright one is under its deep twin.
+                    Spacer(Modifier.size(40.dp))
+                    return@forEach
+                }
                 val on = i == chosen
                 val ring by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, androidx.compose.animation.core.tween(200), label = "swatch")
                 Box(
@@ -597,6 +607,7 @@ private fun SwatchRow(title: String, chosen: Int, choose: (Int) -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }
