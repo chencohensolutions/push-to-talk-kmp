@@ -85,6 +85,8 @@ class LiveKitTalkTransport(
                 discardFrameWhenCryptorNotReady = true,
             )
             provider.setKey(encode(ownKey), identity, ownIndex)
+            // No press is on: a communication-mode request left behind would make the room sound like a phone call.
+            SpeakerphoneMic.settle(appContext)
             val asCall = TalkAudio.playAsCall()
             joinedAsCall = asCall
             if (asCall) Log.i(TAG, "joining with the room's audio as call audio (no background media rights)")
@@ -149,6 +151,7 @@ class LiveKitTalkTransport(
     override fun leave() {
         speakerphone.end()
         if (joinedAsCall) callSpeaker(false)
+        SpeakerphoneMic.settle(appContext)
         silenced.clear()
         MicGuard.roomClosed()
         sampleCapture.detach()
@@ -203,6 +206,7 @@ class LiveKitTalkTransport(
 
     init {
         MicGuard.init(appContext)
+        TalkAudio.roomHearing = { room?.let(::othersLive) == true }
         // Another app (or a call) takes the microphone while ours is open and idle: ours goes at once, and comes back
         // once it is free and still wanted (2026-11-25, hen: "don't hijack it").
         MicGuard.onChange {
@@ -224,6 +228,14 @@ class LiveKitTalkTransport(
             }
         }
     }
+
+    /** The gain on what the room plays: Boost voice, and always while it plays as call audio (TalkSound.boost). */
+    private fun roomGain(): Double =
+        if (TalkSound.boost(TalkAudio.boost(), if (joinedAsCall) TalkSound.Kind.Call else TalkSound.Kind.Media)) VoiceBoost.GAIN else 1.0
+
+    /** Someone else's microphone is live in the room now (their press; it is muted otherwise). */
+    private fun othersLive(room: Room): Boolean =
+        room.remoteParticipants.values.any { p -> p.audioTrackPublications.any { (pub, _) -> !pub.muted } }
 
     /** The microphone can't be had now (a call, another app): a press is refused, not taken. */
     override fun micBusy(): Boolean = mic == null && MicGuard.busy() || mic != null && !talkingNow && MicGuard.takenFromIdle()
@@ -293,10 +305,11 @@ class LiveKitTalkTransport(
             muting?.cancel()
             talkingNow = true
             prepareMic(room, press = true) ?: return
-            // Not while someone else is live here: communication mode lowers what the room plays (2026-11-27, hen:
-            // "sometimes sound very low", both talking at once).
-            val othersLive = room.remoteParticipants.values.any { p -> p.audioTrackPublications.any { (pub, _) -> !pub.muted } }
-            if (othersLive) Log.i(TAG, "someone is live here: no speakerphone tuning for this press") else speakerphone.begin()
+            // Not while someone else is live here: communication mode makes what the room plays sound like a phone
+            // call (2026-11-27, hen: "sometimes sound very low", both talking at once; TalkSound.micTuning). One who
+            // goes live during the press ends it (onEvent, TrackUnmuted).
+            if (othersLive(room)) Log.i(TAG, "someone is live here: no speakerphone tuning for this press")
+            speakerphone.begin()
             publication()?.muted = false
             Log.i(TAG, "microphone live in the room")
         } else {
@@ -500,7 +513,7 @@ class LiveKitTalkTransport(
     override fun unsilence(identity: String) {
         if (!silenced.remove(identity)) return
         val room = room ?: return
-        val volume = if (TalkAudio.boost()) VoiceBoost.GAIN else 1.0
+        val volume = roomGain()
         room.remoteParticipants.values.filter { it.identity?.value == identity }.forEach { p ->
             p.audioTrackPublications.forEach { (_, track) -> (track as? RemoteAudioTrack)?.setVolume(volume) }
         }
@@ -563,8 +576,11 @@ class LiveKitTalkTransport(
                 val who = event.participant.identity?.value ?: return
                 // Boost voice: WebRTC's own gain for their voice (its mixer saturates, no soft limiter there).
                 (event.track as? RemoteAudioTrack)?.let {
-                    if (TalkAudio.boost()) it.setVolume(VoiceBoost.GAIN)
-                    volumes[who] = if (TalkAudio.boost()) VoiceBoost.GAIN else 1.0
+                    // Live already as they are first heard here, during this phone's own press: as media too.
+                    if (!event.publication.muted) SpeakerphoneMic.yieldToTalk(appContext)
+                    val gain = roomGain()
+                    if (gain != 1.0) it.setVolume(gain)
+                    volumes[who] = gain
                 }
                 (event.track as? io.livekit.android.room.track.VideoTrack)?.let {
                     // The full layer for the box on screen (2026-11-25, hen: "very blocky": the low one, 180×240, shown
@@ -586,6 +602,11 @@ class LiveKitTalkTransport(
             is RoomEvent.TrackMuted -> {
                 val who = event.participant.identity?.value
                 if (who != null && event.participant != room?.localParticipant && event.publication.kind == Track.Kind.AUDIO) listener?.stopped(who)
+            }
+            // Their microphone went live during this phone's own press (both talking, hands-free): the press's
+            // communication mode goes, so they are heard as media on the loudspeaker (SpeakerphoneMic).
+            is RoomEvent.TrackUnmuted -> {
+                if (event.participant != room?.localParticipant && event.publication.kind == Track.Kind.AUDIO) SpeakerphoneMic.yieldToTalk(appContext)
             }
             // "Still pushing" (TalkBeat), sealed with their room key.
             is RoomEvent.DataReceived -> if (event.topic == TalkBeat.TOPIC) {

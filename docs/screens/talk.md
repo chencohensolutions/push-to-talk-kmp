@@ -290,3 +290,28 @@ The floating window's bottom pill is a bar that stands out over any app, and is 
   (2026-11-27: Android mutes an app's sound in the background without one, "AudioHardening background playback
   muted"; it used to be asked only once the room's sound was already playing). When Android mutes one of the app's
   players anyway, the log says so (TalkMuteWatch): which sound, why, and whether the app was on screen.
+
+## Always loud, like a speaker (2026-11-27, hen: "sometimes i hear it as low as a phone call and sometimes loud as audio from the speaker. it suppose always to be loud as a speaker")
+
+The rule (`TalkSound`, tested): incoming talk plays as media on the loudspeaker at the media volume (a headset when
+one is on) in every state: on screen, in the back, the screen off, the Talk tab, the floating window, live through the
+room or as a clip, hands-free, both talking.
+
+- What made it sound like a phone call: a press switches the phone to communication mode for the speakerphone's
+  microphone tuning, and the request stayed behind when the press ended (Android already read "normal" because the
+  microphone had just stopped, so it wasn't taken back). From then on the phone went into communication mode at each
+  later press, with no speaker chosen, and the room played on the earpiece. A press's end now always takes the request
+  back, and joining or leaving a room does too.
+- Communication mode is only for a press during which nothing is heard: not begun while someone is live in the room
+  or a clip plays, and dropped the moment one starts (both talking, hands-free), for the rest of that press. The
+  microphone then has the phone's normal tuning; the room's own gain control makes up for it.
+- Off screen talk is media whenever Android lets it sound: under Talk is ready (with its rights) or Stay connected,
+  for the room as for clips. Only with neither (after a restart or an update, until the app is opened once; or Talk
+  is ready stopped) does it play in the talk session, as the call's voice, because nothing else may sound then. The
+  session is kept on the loudspeaker for as long as it lasts and its voice is boosted in the app (Boost voice's gain,
+  whatever the setting). The call volume is also raised to the Talk volume's share (the media volume's, with Talk
+  volume off; never lowered) and put back at the end, where Android allows: Android 17 ignores it from off screen
+  ("AudioHardening volume control ignored"), so there the call volume is the one last set with the volume keys
+  during a session.
+- Opening the app ends a talk session still waiting for a reply (after the clip playing in it), so what plays on
+  screen is media again.
