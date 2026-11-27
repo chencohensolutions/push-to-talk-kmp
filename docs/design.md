@@ -8,6 +8,10 @@ https://claude.ai/artifact/CPewKaHcVw4FeLyKthu2Cm; this page only keeps what the
 
 - **"Talk" is a placeholder name** (`app_name`, `Theme.Talk`, `TalkTheme`, the launcher icon). The package and
   applicationId, `com.chencohen.ptt`, stay when the app gets its own name.
+- **The launcher icon is "One roof"** (hen chose it 2026-11-27): two speech bubbles, white with a voice and mint,
+  under one teal roof, on Talk's coral. Its layers are PNGs per density (`drawable-*/ic_launcher_foreground`,
+  `_background`, `_monochrome` for themed icons), rendered from `docs/screens/mocks/app-icon-one-roof.html` (the soft
+  shadows need a raster; a vector drawable can't blur). Re-render from that file to change it.
 - **iOS is stubbed.** `sharedLogic` keeps its iOS targets, so common code stays Swift-friendly, but `iosMain` has only
   the actuals common code expects (`resolveIpv4`). There is no `iosApp` until phase 6.
 - **Strings are in English and Hebrew** (`values/strings.xml`, `values-iw/strings.xml`), screens right to left in
