@@ -69,6 +69,9 @@ interface TalkTransport {
     /** [identity]'s current live audio isn't played (its clip plays instead); its next burst is heard again. */
     fun silence(identity: String)
 
+    /** [identity]'s next burst started: its live audio is played again if it was silenced ([silence]). */
+    fun unsilence(identity: String) {}
+
     /** A sealed "still pushing" beat to the room's others (TalkBeat), over its data channel. */
     suspend fun sendBeat(bytes: ByteArray) {}
 
@@ -335,6 +338,14 @@ internal class LiveTalk(
     /** The clip of [identity]'s burst plays: its live audio, if it comes late, isn't played over it. */
     fun silence(chat: String, identity: String) {
         if (audio && _state.value.room == chat) transport?.silence(identity)
+    }
+
+    /**
+     * [identity]'s new burst in [chat] starts: what silenced their last one is undone, so this one is heard
+     * (2026-11-27, hen: "audio not always working": a silenced talker stayed silent for every later push in the room).
+     */
+    fun unsilence(chat: String, identity: String) {
+        if (audio && _state.value.room == chat) transport?.unsilence(identity)
     }
 
     /** A call in [chat]'s room (both live became one): its media stay open; false when not in that room. */

@@ -1222,6 +1222,8 @@ internal class Talk(
         // In the conversation's room the talker may be heard live already (their phone doesn't wait for the grant).
         if (fresh && burst.announced && live?.audio == true && live?.state?.value?.room == burst.chat) {
             val identity = "${burst.from}.${burst.device}"
+            // Their last burst may have been silenced (its clip played instead): this one is heard again.
+            live?.unsilence(burst.chat, identity)
             var waited = 0L
             while (live?.hearsLive(burst.chat, identity) != true && waited < LIVE_WAIT) {
                 delay(50)

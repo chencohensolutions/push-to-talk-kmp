@@ -122,6 +122,7 @@ class LiveKitTalkTransport(
             LiveTalkVideo.room = room
             keys = provider
             events = scope.launch { room.events.events.collect { onEvent(it) } }
+            probe = scope.launch { probeAudio(room) }
             try {
                 room.connect(url, token)
                 // Who is in the room already (the chat header's ring).
@@ -129,6 +130,7 @@ class LiveKitTalkTransport(
                 // Joined listen-only (2026-11-25, hen: "don't open microphone if the user entered the room in the
                 // background"): no microphone or camera track until this phone's chat is on screen (prepareAudio).
                 Log.i(TAG, "in the room, listening only")
+                if (asCall) callSpeaker(true)
                 true
             } catch (e: CancellationException) {
                 throw e
@@ -146,6 +148,8 @@ class LiveKitTalkTransport(
 
     override fun leave() {
         speakerphone.end()
+        if (joinedAsCall) callSpeaker(false)
+        silenced.clear()
         MicGuard.roomClosed()
         sampleCapture.detach()
         mic = null
@@ -165,6 +169,9 @@ class LiveKitTalkTransport(
         LiveTalkVideo.room = null
         events?.cancel()
         events = null
+        probe?.cancel()
+        probe = null
+        volumes.clear()
         room?.let { r ->
             runCatching { r.disconnect() }
             runCatching { r.release() }
@@ -286,7 +293,10 @@ class LiveKitTalkTransport(
             muting?.cancel()
             talkingNow = true
             prepareMic(room, press = true) ?: return
-            speakerphone.begin()
+            // Not while someone else is live here: communication mode lowers what the room plays (2026-11-27, hen:
+            // "sometimes sound very low", both talking at once).
+            val othersLive = room.remoteParticipants.values.any { p -> p.audioTrackPublications.any { (pub, _) -> !pub.muted } }
+            if (othersLive) Log.i(TAG, "someone is live here: no speakerphone tuning for this press") else speakerphone.begin()
             publication()?.muted = false
             Log.i(TAG, "microphone live in the room")
         } else {
@@ -297,6 +307,8 @@ class LiveKitTalkTransport(
                 if (talkingNow) return@launch
                 publication()?.muted = true
                 speakerphone.end()
+                // Its clearing took the call audio's speaker too.
+                if (joinedAsCall && this@LiveKitTalkTransport.room != null) callSpeaker(true)
             }
         }
     }
@@ -432,10 +444,93 @@ class LiveKitTalkTransport(
         room.localParticipant.publishData(bytes, io.livekit.android.room.track.DataPublishReliability.RELIABLE, TalkBeat.TOPIC)
     }
 
+    /** The volume set on each talker's audio track here (WebRTC's own gain: 0 silenced, 1, or the boost). */
+    private val volumes = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    private var probe: kotlinx.coroutines.Job? = null
+
+    /**
+     * The room's audio as numbers, in the log every 2 s while it flows (2026-11-27, hen: "check the microphone and
+     * audio"): for each talker heard, the packets that came, their level and energy, what was concealed, and the
+     * volume set on their track; for this phone, the packets sent and the microphone's level.
+     */
+    private suspend fun probeAudio(room: io.livekit.android.room.Room) {
+        val last = mutableMapOf<String, Double>()
+        while (true) {
+            kotlinx.coroutines.delay(2_000)
+            fun num(s: livekit.org.webrtc.RTCStats, k: String) = (s.members[k] as? Number)?.toDouble()
+            room.remoteParticipants.values.forEach { p ->
+                val who = p.identity?.value ?: return@forEach
+                p.audioTrackPublications.forEach { (pub, track) ->
+                    val t = track as? RemoteAudioTrack ?: return@forEach
+                    val report = runCatching { t.getRTCStats() }.getOrNull() ?: return@forEach
+                    report.statsMap.values.filter { it.type == "inbound-rtp" }.forEach { s ->
+                        val packets = num(s, "packetsReceived") ?: 0.0
+                        val delta = packets - (last.put("in:$who", packets) ?: packets)
+                        if (delta > 0) {
+                            Log.i(PROBE, "in $who: +${delta.toInt()} packets, level ${num(s, "audioLevel")}, energy ${num(s, "totalAudioEnergy")}, concealed ${num(s, "concealedSamples")}, muted ${pub.muted}, volume ${volumes[who] ?: 1.0}${if (who in silenced) " (silenced)" else ""}")
+                        }
+                    }
+                }
+            }
+            room.localParticipant.audioTrackPublications.forEach { (pub, track) ->
+                val t = track as? io.livekit.android.room.track.LocalAudioTrack ?: return@forEach
+                val report = runCatching { t.getRTCStats() }.getOrNull() ?: return@forEach
+                val out = report.statsMap.values.firstOrNull { it.type == "outbound-rtp" } ?: return@forEach
+                val source = report.statsMap.values.firstOrNull { it.type == "media-source" }
+                val packets = num(out, "packetsSent") ?: 0.0
+                val delta = packets - (last.put("out", packets) ?: packets)
+                if (delta > 0 && !pub.muted) Log.i(PROBE, "out: +${delta.toInt()} packets, microphone level ${source?.let { num(it, "audioLevel") }}")
+            }
+        }
+    }
+
+    /** Talkers whose live audio is silenced now (their clip plays instead), until their next burst. */
+    private val silenced = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     override fun silence(identity: String) {
         val room = room ?: return
+        silenced += identity
         room.remoteParticipants.values.filter { it.identity?.value == identity }.forEach { p ->
             p.audioTrackPublications.forEach { (_, track) -> (track as? RemoteAudioTrack)?.setVolume(0.0) }
+        }
+        volumes[identity] = 0.0
+        Log.i(TAG, "$identity: live audio silenced (its clip plays)")
+    }
+
+    override fun unsilence(identity: String) {
+        if (!silenced.remove(identity)) return
+        val room = room ?: return
+        val volume = if (TalkAudio.boost()) VoiceBoost.GAIN else 1.0
+        room.remoteParticipants.values.filter { it.identity?.value == identity }.forEach { p ->
+            p.audioTrackPublications.forEach { (_, track) -> (track as? RemoteAudioTrack)?.setVolume(volume) }
+        }
+        volumes[identity] = volume
+        Log.i(TAG, "$identity: live audio heard again")
+    }
+
+    /**
+     * Joined as call audio (from the background, no media rights): it plays as a voice call, which in the normal mode
+     * goes to the earpiece, hardly heard (2026-11-27, hen: "sometimes sound very low"); the built-in speaker is made
+     * the communication device for it while the room is so joined, as long as no headset is on.
+     */
+    private fun callSpeaker(on: Boolean) {
+        if (android.os.Build.VERSION.SDK_INT < 31) return
+        val audio = appContext.getSystemService(android.media.AudioManager::class.java) ?: return
+        runCatching {
+            if (on) {
+                val headset = audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).any {
+                    it.type in setOf(
+                        android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET, android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                        android.media.AudioDeviceInfo.TYPE_USB_HEADSET, android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                        android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, android.media.AudioDeviceInfo.TYPE_BLE_HEADSET,
+                    )
+                }
+                if (headset) return
+                val speaker = audio.availableCommunicationDevices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER } ?: return
+                if (audio.setCommunicationDevice(speaker)) Log.i(TAG, "call audio to the speaker")
+            } else {
+                audio.clearCommunicationDevice()
+            }
         }
     }
 
@@ -467,7 +562,10 @@ class LiveKitTalkTransport(
             is RoomEvent.TrackSubscribed -> {
                 val who = event.participant.identity?.value ?: return
                 // Boost voice: WebRTC's own gain for their voice (its mixer saturates, no soft limiter there).
-                (event.track as? RemoteAudioTrack)?.let { if (TalkAudio.boost()) it.setVolume(VoiceBoost.GAIN) }
+                (event.track as? RemoteAudioTrack)?.let {
+                    if (TalkAudio.boost()) it.setVolume(VoiceBoost.GAIN)
+                    volumes[who] = if (TalkAudio.boost()) VoiceBoost.GAIN else 1.0
+                }
                 (event.track as? io.livekit.android.room.track.VideoTrack)?.let {
                     // The full layer for the box on screen (2026-11-25, hen: "very blocky": the low one, 180×240, shown
                     // large); the server still drops to a lower one when the link can't carry it.
@@ -622,6 +720,7 @@ class LiveKitTalkTransport(
     }
 
     private companion object {
+        const val PROBE = "TalkAudioProbe"
         const val TAG = "LiveKitTalk"
 
         /** How much of the moment before a press the clip starts with (as the app's own warm microphone). */

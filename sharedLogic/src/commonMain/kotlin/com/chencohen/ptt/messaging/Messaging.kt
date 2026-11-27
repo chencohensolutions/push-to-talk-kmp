@@ -724,7 +724,8 @@ internal class Messaging(
         foreground = true
         updateViewing()
         // Back in front on a chat: its room again, and the others warmed again.
-        openChat?.let { chat ->
+        // The Talk tab's chosen chat counts as on screen too (its room joined again as media if it was call audio).
+        (openChat ?: hereFrom[HERE_SCREEN])?.let { chat ->
             if (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO) live.show(chat)
             if (warmSent != chat) sendWarm(chat, true)
         }
@@ -1846,6 +1847,9 @@ internal class Messaging(
     fun setHere(chat: String?, from: String = HERE_SCREEN) {
         // A Talk screen and the bubble each say what they show; the screen wins while both do.
         if (chat == null) hereFrom.remove(from) else hereFrom[from] = chat
+        // The Talk tab's chosen chat (2026-11-27): its room is the one on screen, as a chat's is (joined, as media when
+        // the app is in front, the microphone ready), unless a chat itself is open.
+        if (from == HERE_SCREEN && openChat == null && (LIVE_TALK_AUDIO || LIVE_TALK_VIDEO)) live.show(chat)
         val target = (hereFrom[HERE_SCREEN] ?: hereFrom[HERE_BUBBLE])?.takeIf { Group.idOf(it) == null }
         if (target == hereChat) return
         val old = hereChat
