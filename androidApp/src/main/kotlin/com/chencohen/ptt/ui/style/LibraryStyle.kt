@@ -157,7 +157,7 @@ internal fun inkOn(c: Color): Color {
  * color"). Used for the fill, the outlines and the writing box. -1 is the default (my green, their raised page colour).
  */
 internal val ChatHuesDeep = listOf(
-    Color(0xFFB85C00), Color(0xFF428500), Color(0xFF008744), Color(0xFF0073E5), Color(0xFF9E3DFF), Color(0xFFE50072),
+    Color(0xFFB85C00), Color(0xFF428500), Color(0xFF008744), Color(0xFF0073E5), Color(0xFF9E3DFF), Color(0xFFC30061),
 )
 internal val ChatHuesBright = listOf(
     // Orange, blue, violet and pink at black 8:1 (hen: "the red is too close to white"); lime and green at 11:1.
