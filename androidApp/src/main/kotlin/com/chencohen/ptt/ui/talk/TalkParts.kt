@@ -1,6 +1,7 @@
 package com.chencohen.ptt.ui.talk
 
 import android.Manifest
+import androidx.compose.ui.graphics.luminance
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -571,35 +572,25 @@ internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.Talk
     com.chencohen.ptt.ui.style.PageNote(stringResource(if (global) R.string.chat_colors_global_body else R.string.chat_colors_body), top = 6)
 }
 
-/** A row of colours to pick from: Default (a ring with a slash), then ChatSwatches; the chosen one ringed. */
+/** A row of colours to pick from: A, then the six hues in this theme's shade; the chosen one ringed. Scrolls sideways. */
 @Composable
 private fun SwatchRow(title: String, chosen: Int, global: Boolean, choose: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Text(title, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
-        // Two rows (2026-11-27, hen's mock): Default and the deep six (white text), then the bright six (black text) under
-        // their twins.
-        val deep = com.chencohen.ptt.ui.style.DEEP_SWATCHES
-        val all = com.chencohen.ptt.ui.style.ChatSwatches.indices
-        // Both rows scroll sideways together (2026-11-27, hen: "it suppose to be scrollable"), so a bright one stays under
-        // its twin and nothing is cut at the edge of a narrow screen.
-        Column(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState())) {
-        listOf(listOf(-1) + all.filter { it < deep }, listOf(-2) + all.filter { it >= deep }).forEach { rowItems ->
+        val light = LibraryColors.Background.luminance() > 0.5f
+        // A stored pick from the twelve shows as its hue.
+        val picked = if (chosen < 0) -1 else chosen % com.chencohen.ptt.ui.style.ChatHuesDeep.size
         Row(
-            Modifier.padding(top = 8.dp, end = 4.dp),
+            Modifier.fillMaxWidth().padding(top = 8.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // A: on a chat's page "like everyone" (Settings' colours), on Settings' card the default look.
             val defaultLabel = stringResource(if (global) R.string.chat_colors_default else R.string.chat_colors_like_everyone)
-            rowItems.forEach { i ->
-                if (i == -2) {
-                    // Under Default: room kept, so each bright one is under its deep twin.
-                    Spacer(Modifier.size(40.dp))
-                    return@forEach
-                }
-                val on = i == chosen
+            (listOf(-1) + com.chencohen.ptt.ui.style.ChatHuesDeep.indices).forEach { i ->
+                val on = i == picked
                 val ring by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, androidx.compose.animation.core.tween(200), label = "swatch")
                 Box(
-                    Modifier.size(40.dp)
+                    Modifier.size(44.dp)
                         .border(2.dp, LibraryColors.OnBackground.copy(alpha = ring), CircleShape)
                         .padding(4.dp)
                         .clickable(role = Role.RadioButton, onClickLabel = if (i < 0) defaultLabel else null) { choose(i) },
@@ -610,12 +601,10 @@ private fun SwatchRow(title: String, chosen: Int, global: Boolean, choose: (Int)
                             Text("A", color = LibraryColors.Muted, style = LibraryType.Tiny)
                         }
                     } else {
-                        Box(Modifier.fillMaxSize().background(com.chencohen.ptt.ui.style.ChatSwatches[i], CircleShape))
+                        Box(Modifier.fillMaxSize().background(com.chencohen.ptt.ui.style.chatHue(i, light)!!, CircleShape))
                     }
                 }
             }
-        }
-        }
         }
     }
 }

@@ -151,40 +151,34 @@ internal fun inkOn(c: Color): Color {
 }
 
 /**
- * The chat colours one can pick (2026-11-27, hen: six hues spread evenly around the wheel, each deep with white text and
- * bright with black text). Used for the fill, the outlines and the writing box. -1 is the default (my green, their
- * raised page colour).
+ * The chat colours one can pick (2026-11-27, hen): six hues spread evenly around the wheel (orange, lime, green, blue,
+ * violet, pink), each shown by the theme: in the light theme its deep shade with white text (4.6:1), in the dark theme
+ * its bright shade with black text ("in light theme white text on dark color, in dark theme black text on bright
+ * color"). Used for the fill, the outlines and the writing box. -1 is the default (my green, their raised page colour).
  */
-internal val ChatSwatches = listOf(
-    // Deep, white text at 4.6:1, around the wheel (2026-11-27, hen: "spread the colors evenly"): orange, lime, green,
-    // blue, violet, pink, each with the same lightness.
+internal val ChatHuesDeep = listOf(
     Color(0xFFB85C00), Color(0xFF428500), Color(0xFF008744), Color(0xFF0073E5), Color(0xFF9E3DFF), Color(0xFFE50072),
-    // The same six bright, with black text, in the same order (hen: "brighter with black text to stand out"). Orange,
-    // blue, violet and pink at black 8:1 (2026-11-27, hen: "the red is too close to white": the paler ones looked
-    // washed out); lime and green as they were (11:1), already strong.
+)
+internal val ChatHuesBright = listOf(
+    // Orange, blue, violet and pink at black 8:1 (hen: "the red is too close to white"); lime and green at 11:1.
     Color(0xFFFA7D00), Color(0xFF6AD400), Color(0xFF00D86C), Color(0xFF48A4FF), Color(0xFFC284FF), Color(0xFFFF6BB5),
 )
 
-/** How many of ChatSwatches are deep (white text); the rest are their bright twins, in the same order. */
-internal const val DEEP_SWATCHES = 6
-
-/**
- * The outline colour for swatch [i]: itself, but on a light page a bright one's deep twin, so a thin line stays seen
- * (2026-11-27, hen's mock).
- */
-internal fun swatchLine(i: Int, lightPage: Boolean): Color? {
-    val c = ChatSwatches.getOrNull(i) ?: return null
-    return if (lightPage && i >= DEEP_SWATCHES) ChatSwatches[i - DEEP_SWATCHES] else c
+/** Chat hue [i] as this theme shows it ([lightPage]: deep, else bright); a stored pick from the twelve maps to its hue. */
+internal fun chatHue(i: Int, lightPage: Boolean): Color? {
+    if (i < 0) return null
+    val h = i % ChatHuesDeep.size
+    return if (lightPage) ChatHuesDeep[h] else ChatHuesBright[h]
 }
 
-/** [content] with a chat's colours ([mine], [theirs]: ChatSwatches indexes, -1 the default). */
+/** [content] with a chat's colours ([mine], [theirs]: chat hue indexes, -1 the default), in this theme's shade. */
 @Composable
 internal fun ChatColors(mine: Int, theirs: Int, content: @Composable () -> Unit) {
     if (mine < 0 && theirs < 0) return content()
     val base = LocalLibraryPalette.current
     val palette = androidx.compose.runtime.remember(base, mine, theirs) {
         val light = base.Background.luminance() > 0.5f
-        base.withChatColors(ChatSwatches.getOrNull(mine), ChatSwatches.getOrNull(theirs), swatchLine(mine, light), swatchLine(theirs, light))
+        base.withChatColors(chatHue(mine, light), chatHue(theirs, light))
     }
     CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
 }
