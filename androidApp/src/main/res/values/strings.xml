@@ -629,6 +629,8 @@
     <string name="quick_talk_empty">No quick talk chats yet. Turn on Quick talk on a contact’s or group’s page.</string>
     <string name="quick_talk_open_chats">Open Chats</string>
     <string name="quick_talk_page">Page %1$d of %2$d</string>
+    <string name="chat_colors_darkness">Bubble darkness (light theme)</string>
+    <string name="chat_colors_brightness">Bubble brightness</string>
     <string name="chat_colors_like_everyone">Like everyone</string>
     <string name="chat_colors_global_body">For every chat on this phone. A contact\'s or group\'s own colours, on its page, come first.</string>
     <string name="chat_colors">Chat colours</string>
