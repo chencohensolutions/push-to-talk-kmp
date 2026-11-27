@@ -268,8 +268,8 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         started = true
         onScreen = true
-        // On screen: the reply bubble isn't needed.
-        TalkBubble.dismiss()
+        // On screen: the reply bubble isn't needed, unless someone is live in another chat than the one on screen.
+        TalkPlaying.cameToFront(application as TalkApp)
         // On screen talk is media on the loudspeaker: a talk session still open from a woken push (its 20 s for a
         // reply) would keep the phone in a call, and what plays here would sound like one (TalkSound).
         // A clip playing in it now ends first (AndroidTalkHost.idle ends the session then).

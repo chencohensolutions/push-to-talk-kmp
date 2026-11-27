@@ -796,10 +796,17 @@ fun HomeApp(
                         com.chencohen.ptt.QuickReplyWindow.chatOpened(user)
                         onPauseOrDispose { }
                     }
+                    val app = LocalContext.current.applicationContext as? com.chencohen.ptt.TalkApp
                     DisposableEffect(user) {
                         messaging.openChat(user)
                         messaging.refreshPresence()
-                        onDispose { messaging.openChat(null) }
+                        // Its own buttons are here: the floating bar for it goes; leaving it while someone is live in
+                        // it, the floating bar shows them (2026-11-27, hen).
+                        com.chencohen.ptt.TalkBubble.chatOpened(user)
+                        onDispose {
+                            messaging.openChat(null)
+                            app?.let { com.chencohen.ptt.TalkPlaying.leftChat(it, user) }
+                        }
                     }
                     LaunchedEffect(messagingState.unread[user]) { if ((messagingState.unread[user] ?: 0) > 0) messaging.openChat(user) }
                     ChatScreenFor(user)
