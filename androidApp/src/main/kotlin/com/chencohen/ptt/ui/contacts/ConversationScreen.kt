@@ -1061,6 +1061,15 @@ private fun ConversationScreenIn(
                         Text(dayLabel(day), color = LibraryColors.Muted, style = LibraryType.Tiny)
                     }
                 }
+                // A group sender's name only on the first of their messages in a row, until someone else's comes
+                // (2026-11-27, hen).
+                val nameShown = if (group == null) emptySet() else buildSet {
+                    var prev: TextMessage? = null
+                    for (m in messages) {
+                        if (!m.outgoing && (prev == null || prev.outgoing || prev.author != m.author)) add(m.id)
+                        prev = m
+                    }
+                }
                 messages.asReversed().forEach { message ->
                     val day = dayOf(message.at)
                     newerDay?.let { if (it != day) divider(it) }
@@ -1071,7 +1080,7 @@ private fun ConversationScreenIn(
                             val mineOf = if (earlier.outgoing) earlier else message
                             val faces = marks[mineOf.id].orEmpty()
                             Column(Modifier.animateItem(ease, move, ease).zIndex(if (faces.isEmpty()) 0f else 1f)) {
-                                Box(Modifier.graphicsLayer { alpha = seeThrough }) { VideoPair(earlier, message) { m -> MemberHue(if (m.outgoing) null else m.author) { Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, reach = reaches[m.id], compact = true) } } }
+                                Box(Modifier.graphicsLayer { alpha = seeThrough }) { VideoPair(earlier, message) { m -> MemberHue(if (m.outgoing) null else m.author) { Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = m.id in nameShown, group = group != null, reach = reaches[m.id], compact = true) } } }
                                 if (mineOf.outgoing) MarkGap(mineOf.id, faces, homes, marksAcross, nameOfMark)
                             }
                         }
@@ -1140,7 +1149,7 @@ private fun ConversationScreenIn(
                                 // A playing video stays solid while the window arrives (never drawn see-through).
                                 MemberHue(if (message.outgoing) null else message.author) {
                                 Bubble(
-                                    message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, reach = reaches[message.id], held = slot, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
+                                    message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = message.id in nameShown, group = group != null, reach = reaches[message.id], held = slot, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
                                     // Send's slot: kept unseen while the draft flies into it; where it lies, whole (not as
                                     // clipped while it grows in).
                                     bubbleModifier = if (slot) Modifier.onGloballyPositioned { flight.to = androidx.compose.ui.geometry.Rect(it.positionInWindow(), androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat())) }.graphicsLayer { alpha = 0f }
@@ -1695,7 +1704,7 @@ private fun lastSeen(at: Long): String {
 }
 
 @Composable
-private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, reach: ReadMarks.Reach? = null, liveVideo: Boolean = false, liveSince: Long? = null, compact: Boolean = false, bubbleModifier: Modifier = Modifier,
+private fun Bubble(message: TextMessage, actions: ConversationActions, playing: NowPlaying?, live: Boolean = false, showAuthor: Boolean = false, group: Boolean = false, reach: ReadMarks.Reach? = null, liveVideo: Boolean = false, liveSince: Long? = null, compact: Boolean = false, bubbleModifier: Modifier = Modifier,
     /** Their text being edited live: its text as it stands (null: hidden), shown in place with a soft mark. */
     liveEdit: com.chencohen.ptt.messaging.LiveEdit? = null,
     /** Mine: a double tap edits it, the caret at the tapped character ([Int] the bubble's width now, in pixels). */
@@ -1826,6 +1835,8 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                     color = when {
                         message.status == MessageStatus.FAILED && mine -> LibraryColors.Warning
                         mine -> LibraryColors.OnMineMuted
+                        // In a group: the same colour as the sender's name above (2026-11-27, hen).
+                        group -> LibraryColors.OnTheirs
                         else -> LibraryColors.OnTheirsMuted
                     },
                     style = LibraryType.Tiny,

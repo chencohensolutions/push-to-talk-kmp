@@ -68,10 +68,10 @@ internal class LibraryPalette(
      * then whole), its fill, the writing bubble's outline and my draft's in [mine]; their bubbles and their live draft's
      * outline in [theirs]. Text on them is light or dark by the colour.
      */
-    fun withChatColors(mine: Color?, theirs: Color?, mineLine: Color? = mine, theirLine: Color? = theirs) = LibraryPalette(
+    fun withChatColors(mine: Color?, theirs: Color?, mineLine: Color? = mine, theirLine: Color? = theirs, ink: Color? = null) = LibraryPalette(
         Background, Raised, OnBackground, Muted, Accent, Inverse, OnInverse, OnInverseMuted, Warning, Error,
-        mine ?: Mine, mine?.let { inkOn(it) } ?: OnMine, mineLine ?: MineLine,
-        theirs ?: Theirs, theirs?.let { inkOn(it) } ?: OnTheirs,
+        mine ?: Mine, mine?.let { ink ?: inkOn(it) } ?: OnMine, mineLine ?: MineLine,
+        theirs ?: Theirs, theirs?.let { ink ?: inkOn(it) } ?: OnTheirs,
         mineLine ?: Writing, theirLine ?: TheirLine,
     )
 
@@ -147,7 +147,7 @@ internal fun inkOn(c: Color): Color {
     val l = c.luminance()
     val black = (l + 0.05f) / 0.05f
     val white = 1.05f / (l + 0.05f)
-    return if (black > white * 2f) Color(0xFF17201F) else Color.White
+    return if (black > white * 1.15f) Color(0xFF17201F) else Color.White
 }
 
 /**
@@ -172,7 +172,61 @@ internal val ChatHuesBright = listOf(
 internal fun chatHue(i: Int, lightPage: Boolean): Color? {
     if (i < 0) return null
     val h = i % ChatHuesDeep.size
-    return if (lightPage) ChatHuesBright[h] else ChatHuesDeep[h]
+    val base = if (lightPage) ChatHuesBright[h] else ChatHuesDeep[h]
+    return shaded(base, lightPage, if (lightPage) ChatShade.light else ChatShade.dark)
+}
+
+/**
+ * The bubbles' brightness (2026-11-27, hen: "make it from white to black slider, the brightness, default at center"),
+ * each 0..1 for its theme, from Settings' chat colours: 0.5 the colour as it is, towards 0 lighter up to near white,
+ * towards 1 darker down to near black. The text on it turns white or black, whichever reads.
+ */
+internal object ChatShade {
+    /** TalkSettings.colorsFor's key for it: [light, dark] in hundredths. */
+    const val KEY = "*bright"
+
+    private var taken: List<Int>? = listOf(-1)
+
+    fun take(saved: List<Int>?) {
+        // Only when the saved values changed: a slider being moved isn't put back meanwhile.
+        if (saved == taken) return
+        taken = saved
+        light = (saved?.getOrNull(0) ?: 50) / 100f
+        dark = (saved?.getOrNull(1) ?: 50) / 100f
+    }
+
+    private val lightState = androidx.compose.runtime.mutableFloatStateOf(0.5f)
+    private val darkState = androidx.compose.runtime.mutableFloatStateOf(0.5f)
+    var light: Float
+        get() = lightState.floatValue
+        set(v) { lightState.floatValue = v }
+    var dark: Float
+        get() = darkState.floatValue
+        set(v) { darkState.floatValue = v }
+}
+
+/** [base] lighter (t under 0.5, up to near white) or darker (over 0.5, down to near black), its hue and saturation kept. */
+@Suppress("UNUSED_PARAMETER")
+internal fun shaded(base: Color, lightPage: Boolean, t: Float): Color {
+    val (h, s, l) = toHsl(base)
+    val v = t.coerceIn(0f, 1f)
+    val to = if (v < 0.5f) l + (0.95f - l) * (0.5f - v) * 2f else l - (l - 0.08f) * (v - 0.5f) * 2f
+    return Color.hsl(h, s, to.coerceIn(0f, 1f))
+}
+
+private fun toHsl(c: Color): Triple<Float, Float, Float> {
+    val r = c.red; val g = c.green; val b = c.blue
+    val max = maxOf(r, g, b); val min = minOf(r, g, b)
+    val l = (max + min) / 2f
+    if (max == min) return Triple(0f, 0f, l)
+    val d = max - min
+    val s = if (l > 0.5f) d / (2f - max - min) else d / (max + min)
+    val h = when (max) {
+        r -> ((g - b) / d + (if (g < b) 6f else 0f))
+        g -> ((b - r) / d + 2f)
+        else -> ((r - g) / d + 4f)
+    } * 60f
+    return Triple(h, s, l)
 }
 
 /** Hue [i]'s thin lines (outlines, the writing box, rings): its deep shade in both themes, so a line stays seen. */
@@ -183,7 +237,7 @@ internal fun chatHueLine(i: Int): Color? = if (i < 0) null else ChatHuesDeep[i %
 internal fun ChatColors(mine: Int, theirs: Int, content: @Composable () -> Unit) {
     if (mine < 0 && theirs < 0) return content()
     val base = LocalLibraryPalette.current
-    val palette = androidx.compose.runtime.remember(base, mine, theirs) {
+    val palette = androidx.compose.runtime.remember(base, mine, theirs, ChatShade.light, ChatShade.dark) {
         val light = base.Background.luminance() > 0.5f
         base.withChatColors(chatHue(mine, light), chatHue(theirs, light), chatHueLine(mine), chatHueLine(theirs))
     }
@@ -194,8 +248,9 @@ internal fun ChatColors(mine: Int, theirs: Int, content: @Composable () -> Unit)
 @Composable
 internal fun TheirHue(i: Int, content: @Composable () -> Unit) {
     val base = LocalLibraryPalette.current
-    val palette = androidx.compose.runtime.remember(base, i) {
-        base.withChatColors(null, chatHue(i, base.Background.luminance() > 0.5f), null, chatHueLine(i))
+    val palette = androidx.compose.runtime.remember(base, i, ChatShade.light, ChatShade.dark) {
+        val light = base.Background.luminance() > 0.5f
+        base.withChatColors(null, chatHue(i, light), null, chatHueLine(i))
     }
     CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
 }
