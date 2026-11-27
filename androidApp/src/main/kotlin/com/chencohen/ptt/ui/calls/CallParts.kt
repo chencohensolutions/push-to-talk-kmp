@@ -264,6 +264,12 @@ fun CallScreen(
     canSave: Boolean = false,
     /** Call settings › Advanced › Show video stats: a Stats button here shows each video's fps, bit rate and size. */
     statsAllowed: Boolean = false,
+    /** Full screen's live talk: its room's videos instead of [transport]'s. */
+    live: LiveVideos? = null,
+    /** Full screen: the chevron at the top that goes back to the floating layout or the chat. */
+    minimize: (() -> Unit)? = null,
+    /** Flip shows while the camera is on (the talk room's camera has none). */
+    canFlip: Boolean = true,
 ) {
     if (compact) {
         CompactCall(call, title, transport)
@@ -272,8 +278,8 @@ fun CallScreen(
     val room by (transport?.room ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
     val changes by (transport?.changes ?: kotlinx.coroutines.flow.MutableStateFlow(0)).collectAsStateWithLifecycle()
     Box(Modifier.fillMaxSize().background(Color(0xFF0F1413))) {
-        val r = room
-        val remote = if (r != null && call.phase == CallPhase.ACTIVE) remoteVideo(r, changes) else emptyList()
+        val r = live?.room ?: room
+        val remote = if (live != null) live.remote else if (r != null && call.phase == CallPhase.ACTIVE) remoteVideo(r, changes) else emptyList()
         val context = LocalContext.current
         val prefs = remember { context.getSharedPreferences("call_view", android.content.Context.MODE_PRIVATE) }
         // Two layouts (2026-11-23, hen, from the approved mockup), kept for next time. Maximized: their video covers the
@@ -315,7 +321,7 @@ fun CallScreen(
                 prefs.edit().putFloat("face_at", faceAt).apply()
             }
         }
-        val own = r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
+        val own = if (live != null) live.own?.takeIf { call.camera } else r?.let { ownVideo(it, changes) }?.takeIf { call.camera }
         val ownShape = call.ownAspect.takeIf { it > 0f } ?: (if (landscape) 4f / 3f else 3f / 4f)
         // Their pictures' shapes, from their frames: Normal sizes their video by it.
         val shapes = remember { androidx.compose.runtime.mutableStateMapOf<String, Float>() }
@@ -528,6 +534,15 @@ fun CallScreen(
                         }
                     }
                 }
+                // Full screen: back to the floating layout (or the chat), the live talk going on.
+                if (minimize != null) {
+                    Box(
+                        Modifier.align(Alignment.TopStart).statusBarsPadding().displayCutoutPadding().padding(12.dp).size(48.dp)
+                            .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                            .clickable(role = Role.Button, onClick = minimize),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(LibraryIcons.ChevronDown, stringResource(R.string.talk_minimize), tint = Color.White, modifier = Modifier.size(24.dp)) }
+                }
                 // Save or Stop, and the call's buttons, over a soft shade: along the bottom upright; on its side, a
                 // column along the edge away from the camera (2026-11-23, hen).
                 val side = landscape && call.phase != CallPhase.ENDED
@@ -577,7 +592,7 @@ fun CallScreen(
                                 stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on),
                                 Color.White.copy(alpha = 0.18f),
                             ) { actions.setCamera(!call.camera) }
-                            if (call.camera) RoundButton(LibraryIcons.Flip, stringResource(R.string.call_flip), Color.White.copy(alpha = 0.18f), actions.switchCamera)
+                            if (call.camera && canFlip) RoundButton(LibraryIcons.Flip, stringResource(R.string.call_flip), Color.White.copy(alpha = 0.18f), actions.switchCamera)
                             RoundButton(LibraryIcons.Call, stringResource(R.string.call_hang_up), LibraryColors.Error, actions.hangUp)
                         }
                     }
@@ -1201,12 +1216,15 @@ object LiveFull {
     }
 }
 
+/** The live talk room's videos, for the call screen as Full screen: the room, theirs by user, and mine. */
+class LiveVideos(val room: Room, val remote: List<Pair<String, VideoTrack>>, val own: VideoTrack?)
+
 /**
- * The live talk with [chat], full screen: the same room, nothing dialled and nothing ringing. Their video fills it
- * (else their face), mine in a corner while my camera is on. I start muted, shown as in a call (2026-11-27, hen:
- * "don't encourage to open the mic; in full screen show that I am muted, with an icon, just like in a call"): the
- * microphone button with its line through it. [open] unmutes ([camera]: with my video) and mutes again; [minimize]
- * (the chevron, or Back) goes back to the floating layout or the chat.
+ * The live talk with [chat], full screen: the call screen itself (2026-11-27, hen: "the layout should be exactly as
+ * the call screen layout, with end call button"; "use the same screen"), over the same room, nothing dialled and
+ * nothing ringing. I start muted unless I was already sending. Mute and Camera open and close my press ([setOpen]);
+ * Hang up ([end]) lets go and goes to the chat; the chevron or Back ([minimize]) goes back to the floating layout or
+ * the chat, the room kept.
  */
 @Composable
 internal fun LiveFullScreen(
@@ -1216,71 +1234,36 @@ internal fun LiveFullScreen(
     open: Boolean,
     camera: Boolean,
     since: Long,
+    nameOf: (String) -> String,
+    statsAllowed: Boolean,
     setOpen: (microphone: Boolean, camera: Boolean) -> Unit,
     minimize: () -> Unit,
+    end: () -> Unit,
 ) {
     val arriving by com.chencohen.ptt.talk.LiveTalkVideo.arriving.collectAsStateWithLifecycle()
-    val theirs = arriving.values.firstOrNull { it.identity.substringBeforeLast('.') != me }
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(1_000)
-        }
-    }
-    Box(Modifier.fillMaxSize().background(Color(0xFF0F1413)).pointerInput(Unit) { detectTapGestures { } }) {
-        if (theirs != null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                com.chencohen.ptt.ui.talk.RoomVideoView(theirs, Modifier.fillMaxWidth().aspectRatio(theirs.aspect.coerceIn(0.3f, 3f)))
-            }
-        }
-        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 24.dp, start = 64.dp, end = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (theirs == null) {
-                Spacer(Modifier.height(48.dp))
-                com.chencohen.ptt.ui.contacts.Avatar(chat, size = 96.dp, name = title)
-                Spacer(Modifier.height(12.dp))
-            }
-            Text(title, color = LibraryColors.PhotoText, style = LibraryType.PageTitle, textAlign = TextAlign.Center)
-            Text(clipLength((now - since).coerceAtLeast(0)), color = LibraryColors.PhotoTextMuted, style = LibraryType.Body, textAlign = TextAlign.Center)
-        }
-        // Back to the floating layout (or the chat).
-        Box(
-            Modifier.align(Alignment.TopStart).statusBarsPadding().padding(12.dp).size(48.dp)
-                .background(Color.Black.copy(alpha = 0.35f), CircleShape)
-                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = minimize),
-            contentAlignment = Alignment.Center,
-        ) { Icon(LibraryIcons.ChevronDown, stringResource(R.string.talk_minimize), tint = Color.White, modifier = Modifier.size(24.dp)) }
-        if (open && camera) {
-            val shape = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH
-            val (w, h) = ownWindowDp(shape)
-            Box(
-                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 120.dp, end = 16.dp)
-                    .size(w.dp, h.dp).clip(RoundedCornerShape(12.dp)),
-            ) { com.chencohen.ptt.ui.talk.PushVideoPreview(Modifier.fillMaxSize(), cover = true) }
-        }
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f))))
-                .navigationBarsPadding().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            // Muted, said in words too, as a call says it.
-            if (!open) {
-                Text(stringResource(R.string.talk_you_are_muted), color = LibraryColors.PhotoTextMuted, style = LibraryType.Small)
-                Spacer(Modifier.height(12.dp))
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                RoundButton(
-                    if (open) LibraryIcons.Mic else LibraryIcons.MicOff,
-                    stringResource(if (open) R.string.call_mute else R.string.call_unmute),
-                    if (open) Color(0xFF2BB3A3) else Color.White.copy(alpha = 0.18f),
-                ) { setOpen(!open, camera && !open) }
-                RoundButton(
-                    if (open && camera) LibraryIcons.Video else LibraryIcons.VideoOff,
-                    stringResource(if (open && camera) R.string.call_camera_off else R.string.call_camera_on),
-                    if (open && camera) Color(0xFF2BB3A3) else Color.White.copy(alpha = 0.18f),
-                ) { if (open && camera) setOpen(true, false) else setOpen(true, true) }
-            }
-        }
-    }
+    val local by com.chencohen.ptt.talk.LiveTalkVideo.local.collectAsStateWithLifecycle()
+    val room = com.chencohen.ptt.talk.LiveTalkVideo.room
+    val theirs = arriving.values.filter { it.identity.substringBeforeLast('.') != me }
+    val call = CallUi(
+        id = "live:$chat", chat = chat, caller = me, incoming = false, video = true, phase = CallPhase.ACTIVE,
+        startedAt = since, connectedAt = since,
+        others = theirs.map { it.identity.substringBeforeLast('.') }.distinct().ifEmpty { listOf(chat) },
+        microphone = open, camera = open && camera,
+        ownAspect = com.chencohen.ptt.talk.AndroidTalkVideoCapture.HEIGHT.toFloat() / com.chencohen.ptt.talk.AndroidTalkVideoCapture.WIDTH,
+    )
+    CallScreen(
+        call = call,
+        title = title,
+        nameOf = nameOf,
+        transport = null,
+        actions = CallActions(
+            hangUp = end,
+            setMicrophone = { on -> setOpen(on, on && camera) },
+            setCamera = { on -> setOpen(true, on) },
+        ),
+        statsAllowed = statsAllowed,
+        live = room?.let { r -> LiveVideos(r, theirs.map { it.identity.substringBeforeLast('.') to it.track }, local) },
+        minimize = minimize,
+        canFlip = false,
+    )
 }

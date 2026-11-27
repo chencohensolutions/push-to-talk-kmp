@@ -96,8 +96,10 @@ object TalkBubble {
     /** The room kept beside the bar for the lock while Push is held. */
     private const val HINTS_DP = 58
     /** Folded into its edge, this much of the bar still shows: a handle at the top or bottom, a tab at the sides. */
-    private const val PEEK_DP = 14
+    private const val PEEK_DP = 20
     private const val PEEK_SIDE_DP = 24
+    /** Folded, the handle or tab takes touches this much further in than it shows. */
+    private const val PEEK_TOUCH_DP = 20
 
     // ---- Where the bar rests, and folding (2026-11-27, hen: "drag the floating bar ... along the edges", "auto hide in
     // a smart way", "if docked to the side edges ... hide and be able to return with a gesture") ----
@@ -376,7 +378,7 @@ object TalkBubble {
         readPlaces(context)
         val edge = dock.edge
         val upright = edge.upright
-        val bars = wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.navigationBars())
+        val bars = navGestureInsets(wm.currentWindowMetrics.windowInsets)
         val statusTop = maxOf(
             wm.currentWindowMetrics.windowInsets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout()).top,
             statusBarHeight(context),
@@ -1259,12 +1261,17 @@ object TalkBubble {
             DockEdge.LEFT -> inside.left += edgeInset
             DockEdge.RIGHT -> inside.right -= edgeInset
         }
-        // Folded at a side: the tab takes touches a little further in than it shows, and Android's back gesture leaves
-        // it alone there (2026-11-27, hen: "on the edge and minimized it's hard to interact with because of the
-        // Android gesture").
-        if (folded && dock.edge.upright) {
-            val more = dp(row.context, 20)
-            if (dock.edge == DockEdge.LEFT) r.right += more else r.left -= more
+        // Folded: the tab or handle takes touches a little further in than it shows, and at a side Android's back
+        // gesture leaves it alone there (2026-11-27, hen: "on the edge and minimized it's hard to interact with because
+        // of the Android gesture"; "when floating layout on bottom it is hard to drag it or to close it").
+        if (folded) {
+            val more = dp(row.context, PEEK_TOUCH_DP)
+            when (dock.edge) {
+                DockEdge.LEFT -> r.right += more
+                DockEdge.RIGHT -> r.left -= more
+                DockEdge.BOTTOM -> r.top -= more
+                DockEdge.TOP -> r.bottom += more
+            }
         }
         if (!r.intersect(inside)) r.setEmpty()
         holder.rootSurfaceControl?.setTouchableRegion(android.graphics.Region(r))
@@ -1397,12 +1404,22 @@ object TalkBubble {
     }
 
     /** The screen as the bar and the videos see it. */
+    /**
+     * The navigation bar and Android's own gesture area together: at the bottom, a touch that starts in the home and
+     * back swipe's area goes to the system, not the bar (2026-11-27, hen: "when floating layout on bottom it is hard to
+     * drag it or to close it"), so the bar rests above both.
+     */
+    private fun navGestureInsets(insets: WindowInsets): android.graphics.Insets = android.graphics.Insets.max(
+        insets.getInsets(WindowInsets.Type.navigationBars()),
+        android.graphics.Insets.of(0, 0, 0, insets.getInsets(WindowInsets.Type.mandatorySystemGestures()).bottom),
+    )
+
     private fun floatScreen(context: Context): FloatScreen {
         val wm = context.getSystemService(WindowManager::class.java)
         val bounds = wm.currentWindowMetrics.bounds
         val insets = wm.currentWindowMetrics.windowInsets
         val status = maxOf(insets.getInsets(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout()).top, statusBarHeight(context))
-        val nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+        val nav = navGestureInsets(insets).bottom
         return FloatScreen(bounds.width().toFloat(), bounds.height().toFloat(), (status + dp(context, 2)).toFloat(), nav.toFloat(), dp(context, 12).toFloat())
     }
 
@@ -1688,7 +1705,7 @@ object TalkBubble {
             }
             val inset = rootWindowInsets
             val top = (inset?.getInsets(WindowInsets.Type.statusBars())?.top ?: (24 * d).toInt()) + 8 * d
-            val bottom = h - (inset?.getInsets(WindowInsets.Type.navigationBars())?.bottom ?: 0) - 8 * d
+            val bottom = h - (inset?.let { navGestureInsets(it).bottom } ?: 0) - 8 * d
             zone(DockEdge.TOP, RectF(w * 0.15f, top, w * 0.85f, top + 92 * d))
             zone(DockEdge.BOTTOM, RectF(w * 0.15f, bottom - 92 * d, w * 0.85f, bottom))
             zone(DockEdge.LEFT, RectF(8 * d, h * 0.14f, 8 * d + 92 * d, h * 0.86f))

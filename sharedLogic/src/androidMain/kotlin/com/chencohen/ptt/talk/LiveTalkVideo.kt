@@ -31,7 +31,9 @@ object LiveTalkVideo {
     /** By "user.device": whose video comes through the room now (a frame in the last second). */
     val arriving: StateFlow<Map<String, Live>> = _arriving.asStateFlow()
 
-    @Volatile internal var room: Room? = null
+    /** The talk room while this phone is in it (the call screen draws its videos as Full screen). */
+    @Volatile var room: Room? = null
+        internal set
 
     /** Others' camera shapes as they said with their keys ("user.device" to width per 1000 of height): a box grows straight to it. */
     val shapes = MutableStateFlow<Map<String, Int>>(emptyMap())

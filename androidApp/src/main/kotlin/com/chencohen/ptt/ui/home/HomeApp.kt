@@ -1045,6 +1045,8 @@ fun HomeApp(
                     open = open,
                     camera = camera,
                     since = since,
+                    nameOf = nameOf,
+                    statsAllowed = messagingState.talkSettings.videoStats,
                     setOpen = { mic, cam ->
                         if (mic) {
                             callPermissions(cam) { allowed ->
@@ -1057,6 +1059,13 @@ fun HomeApp(
                         }
                     },
                     minimize = minimize,
+                    // Hang up: my press let go, and the chat (the floating window closes as its chat opens).
+                    end = {
+                        if (open) messaging.releaseTalk(true)
+                        open = false
+                        com.chencohen.ptt.ui.calls.LiveFull.chat.value = null
+                        if (stack.lastOrNull() != "chat/$live") push("chat/$live")
+                    },
                 )
             }
             // A push turned into a call (the talk room's own), over everything like any call.
