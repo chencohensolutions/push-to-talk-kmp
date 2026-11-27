@@ -164,12 +164,19 @@ internal val ChatHuesBright = listOf(
     Color(0xFFFA7D00), Color(0xFF6AD400), Color(0xFF00D86C), Color(0xFF48A4FF), Color(0xFFC284FF), Color(0xFFFF6BB5),
 )
 
-/** Chat hue [i] as this theme shows it ([lightPage]: deep, else bright); a stored pick from the twelve maps to its hue. */
+/**
+ * Chat hue [i] as this theme shows it (2026-11-27, hen: "reverse the colors of light and dark"): in the light theme its
+ * bright shade with black text, in the dark theme its deep shade with white text. A stored pick from the twelve maps to
+ * its hue.
+ */
 internal fun chatHue(i: Int, lightPage: Boolean): Color? {
     if (i < 0) return null
     val h = i % ChatHuesDeep.size
-    return if (lightPage) ChatHuesDeep[h] else ChatHuesBright[h]
+    return if (lightPage) ChatHuesBright[h] else ChatHuesDeep[h]
 }
+
+/** Hue [i]'s thin lines (outlines, the writing box, rings): its deep shade in both themes, so a line stays seen. */
+internal fun chatHueLine(i: Int): Color? = if (i < 0) null else ChatHuesDeep[i % ChatHuesDeep.size]
 
 /** [content] with a chat's colours ([mine], [theirs]: chat hue indexes, -1 the default), in this theme's shade. */
 @Composable
@@ -178,7 +185,17 @@ internal fun ChatColors(mine: Int, theirs: Int, content: @Composable () -> Unit)
     val base = LocalLibraryPalette.current
     val palette = androidx.compose.runtime.remember(base, mine, theirs) {
         val light = base.Background.luminance() > 0.5f
-        base.withChatColors(chatHue(mine, light), chatHue(theirs, light))
+        base.withChatColors(chatHue(mine, light), chatHue(theirs, light), chatHueLine(mine), chatHueLine(theirs))
+    }
+    CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
+}
+
+/** [content] with their colour as hue [i] (a group member's), in this theme's shade; mine as it is. */
+@Composable
+internal fun TheirHue(i: Int, content: @Composable () -> Unit) {
+    val base = LocalLibraryPalette.current
+    val palette = androidx.compose.runtime.remember(base, i) {
+        base.withChatColors(null, chatHue(i, base.Background.luminance() > 0.5f), null, chatHueLine(i))
     }
     CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
 }

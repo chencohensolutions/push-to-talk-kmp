@@ -216,6 +216,32 @@ data class TalkSettings(
         return (if (own.first >= 0) own.first else all.first) to (if (own.second >= 0) own.second else all.second)
     }
 
+    /**
+     * Each member's colour in group [chat] (2026-11-27, hen: "in group chat there should be color for every contact"):
+     * the "their messages" colour chosen on that contact's page; else the group's own; else one of the [hues] picked
+     * for them, steady while the group's members stay, different from the others' where it can be, and not the one my
+     * messages have.
+     */
+    fun memberHues(chat: String, members: List<String>, hues: Int = 6): Map<String, Int> {
+        val groupTheirs = ownColorsOf(chat).second
+        // My green by default is the third hue.
+        val mine = colorsOf(chat).first.let { if (it >= 0) it % hues else 2 }
+        val sorted = members.distinct().sorted()
+        // Those already taken (chosen on a contact's page) aren't given to another member, while there are others left.
+        val chosen = sorted.map { ownColorsOf(it).second }.filter { it >= 0 }.map { it % hues }.toSet()
+        val free = (0 until hues).filter { it != mine && it !in chosen }.ifEmpty { (0 until hues).filter { it != mine } }
+        val start = (chat.hashCode() and 0x7fffffff) % free.size
+        var next = 0
+        return sorted.associateWith { m ->
+            val own = ownColorsOf(m).second
+            when {
+                own >= 0 -> own % hues
+                groupTheirs >= 0 -> groupTheirs % hues
+                else -> free[(start + next++) % free.size]
+            }
+        }
+    }
+
     /** With [chat]'s colours set (both default takes them out). */
     fun withColors(chat: String, mine: Int, theirs: Int): TalkSettings =
         copy(colorsFor = if (mine < 0 && theirs < 0) colorsFor - chat else colorsFor + (chat to listOf(mine, theirs)))

@@ -493,10 +493,11 @@ the buttons only", and "make the banner smaller, the red button smaller".
 On a contact's page and a group's page, **Chat colours**: two bubbles showing them as the chat will, then **My
 messages** and **Their messages**, each Default (A) or one of six hues, in one row that scrolls sideways
 (2026-11-27, hen: "spread the colors evenly", then "only 6 instead of 12"): orange, lime, green, blue, violet, pink.
-Each shows by the theme (hen: "in light theme white text on dark color, in dark theme black text on bright color"):
-in the light theme its deep shade with white text at 4.6:1 (#B85C00, #428500, #008744, #0073E5, #9E3DFF, #E50072), in
-the dark theme its bright shade with black text (#FA7D00, #6AD400, #00D86C, #48A4FF, #C284FF, #FF6BB5); the picker's
-circles too. A pick stored from the earlier twelve shows as its hue; the chosen one ringed (200 ms). Kept on this phone only. In
+Each shows by the theme (hen first: "in light theme white text on dark color, in dark theme black text on bright
+color", then "reverse the colors of light and dark"): in the light theme its bright shade with black text (#FA7D00,
+#6AD400, #00D86C, #48A4FF, #C284FF, #FF6BB5), in the dark theme its deep shade with white text at 4.6:1 (#B85C00,
+#428500, #008744, #0073E5, #9E3DFF, #E50072); the picker's circles too. Thin lines (outlines, the writing box, rings)
+are the deep shade in both themes, so they stay seen on the light page. A pick stored from the earlier twelve shows as its hue; the chosen one ringed (200 ms). Kept on this phone only. In
 the chat, the floating window and the Talk tab's chat: the whole way, in its colour (2026-11-27, hen: "respect the sending
 rectangle border colors and also the new message textbox border colors"): my bubble's outline while sending (dashed,
 then whole), its fill once every phone has it, the read faces' rings, and the writing bubble (its dashed outline at
@@ -512,3 +513,13 @@ its own.
 The header's face takes their colour too (2026-11-27, hen: "respect colors also in the avatar in the header"): a
 letter circle (theirs, or a group's) filled with it and its letter light or dark by it, and the presence ring (dashed,
 then whole) in it; so do the other faces in the chat. A photo face keeps its picture, its ring in their colour.
+
+In a group every member has a colour (2026-11-27, hen: "in group chat there should be color for every contact"): their
+bubbles, their name over them, their faces and their live drafts. It is the "their messages" colour chosen on that
+contact's page; else the group's own; else one of the six picked for them, steady while the members stay, different
+from the other members' where it can be, and never the one my messages have. Mine keep my colour. The same light and
+dark shades as in a one-to-one chat.
+
+The small faces between messages take their person's colour too (2026-11-27, hen: "the small avatar between messages
+should respect the colors"): the dashed circle (their phone has it) and the whole ring (read) in their colour, a letter
+face filled with it once read; in a group each member's own. Without chosen colours they stay green as before.

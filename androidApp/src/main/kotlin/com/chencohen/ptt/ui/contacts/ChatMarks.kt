@@ -391,14 +391,17 @@ private fun MarkFace(mark: ReadMarks.Mark, host: String, slot: Int, homes: MarkH
                 scaleY = 0.6f + 0.4f * g
                 alpha = if (drawn) g else 0f
             },
-    ) { MarkPicture(mark.who, mark.read) }
+    ) { MemberHue(mark.who) { MarkPicture(mark.who, mark.read) } }
 }
 
 /** The face itself: with a whole green ring (read up to here), or faint in a dashed circle (their phone has up to here). */
 @Composable
 private fun MarkPicture(who: String, read: Boolean) {
     val face = com.chencohen.ptt.ui.face.faceOf(who)
-    val line = if (read) LibraryColors.MineLine else LibraryColors.Muted
+    // In their colour when the chat gives them one (2026-11-27, hen: "the small avatar between messages should respect
+    // the colors"); else the green ring and the green letter as before.
+    val theirs = LibraryColors.TheirLine != LibraryColors.Accent
+    val line = if (theirs) LibraryColors.TheirLine.copy(alpha = if (read) 1f else 0.8f) else if (read) LibraryColors.MineLine else LibraryColors.Muted
     val page = LibraryColors.Background
     Box(
         Modifier.size(MARK_FACE).drawBehind {
@@ -419,11 +422,11 @@ private fun MarkPicture(who: String, read: Boolean) {
             )
         } else {
             Box(
-                Modifier.size(MARK_FACE - 5.dp).background(if (read) LibraryColors.Mine else Color.Transparent, CircleShape),
+                Modifier.size(MARK_FACE - 5.dp).background(if (read) (if (theirs) LibraryColors.Theirs else LibraryColors.Mine) else Color.Transparent, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    who.take(1).uppercase(), color = if (read) LibraryColors.OnMine else LibraryColors.Muted,
+                    who.take(1).uppercase(), color = if (read) (if (theirs) LibraryColors.OnTheirs else LibraryColors.OnMine) else if (theirs) LibraryColors.TheirLine else LibraryColors.Muted,
                     style = LibraryType.Tiny.copy(fontSize = androidx.compose.ui.unit.TextUnit(9f, androidx.compose.ui.unit.TextUnitType.Sp)), maxLines = 1,
                 )
             }

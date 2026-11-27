@@ -32,6 +32,25 @@ class ChatColorsTest {
     }
 
     @Test
+    fun everyGroupMemberHasAColour() {
+        var s = TalkSettings()
+        val members = listOf("testbot", "testbot2", "testbot3")
+        val auto = s.memberHues("g:test", members)
+        // Each its own, never my green (hue 2), and the same each time.
+        assertEquals(3, auto.values.toSet().size)
+        kotlin.test.assertTrue(2 !in auto.values)
+        assertEquals(auto, s.memberHues("g:test", members.reversed()))
+        // A colour chosen on testbot2's page wins.
+        s = s.withColors("testbot2", -1, 4)
+        assertEquals(4, s.memberHues("g:test", members)["testbot2"])
+        // And nobody else gets that one automatically.
+        assertEquals(1, s.memberHues("g:test", members).values.count { it == 4 })
+        // My messages in blue (hue 3): no member gets blue automatically.
+        s = TalkSettings().withColors("g:test", 3, -1)
+        kotlin.test.assertTrue(3 !in s.memberHues("g:test", members).values)
+    }
+
+    @Test
     fun versionsAsSaved() {
         val saved = mapOf("testbot" to mapOf("1" to listOf("1.4.28", "1000"), "2" to listOf("1.4.27"), "x" to listOf("1.0")))
         val v = versionsOf(saved)

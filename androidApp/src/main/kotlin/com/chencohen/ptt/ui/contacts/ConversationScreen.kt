@@ -209,13 +209,17 @@ internal fun ConversationScreen(
     writeOpens: (() -> Unit)? = null,
     /** This chat's colours (TalkSettings.colorsOf): mine and theirs, ChatSwatches indexes, -1 the default. */
     colors: Pair<Int, Int> = -1 to -1,
+    /** A group's members' colours (TalkSettings.memberHues): their bubbles, faces, names and live drafts. */
+    memberHues: Map<String, Int> = emptyMap(),
 ) {
     val phone = androidx.compose.ui.platform.LocalLayoutDirection.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
     ) {
         com.chencohen.ptt.ui.style.ChatColors(colors.first, colors.second) {
+          androidx.compose.runtime.CompositionLocalProvider(LocalMemberHues provides memberHues) {
             ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage, pushTo, writeHint, writeOpens)
+          }
         }
     }
 }
@@ -1024,7 +1028,8 @@ private fun ConversationScreenIn(
                     // A draft that comes grows in from nothing as it fades in, so the messages above slide up by its height
                     // in the same 200 ms (2026-11-26, hen: "calm, one move"); the list stays pinned to its end.
                     // (Only a draft grows in: the message it became, scrolled away and back, comes whole.)
-                    Box(Modifier.animateItem(ease, move, ease).growIn(line is LiveLine.Draft).graphicsLayer { alpha = seeThrough }) { LiveBubble(line, if (group == null) user else null) }
+                    val who = (line as? LiveLine.Draft)?.who ?: (line as? LiveLine.Message)?.who
+                    Box(Modifier.animateItem(ease, move, ease).growIn(line is LiveLine.Draft).graphicsLayer { alpha = seeThrough }) { MemberHue(who) { LiveBubble(line, if (group == null) user else null) } }
                 }
                 val oneDraft = if (group == null) shownDrafts.firstOrNull() else null
                 if (group == null) {
@@ -1051,7 +1056,7 @@ private fun ConversationScreenIn(
                             val mineOf = if (earlier.outgoing) earlier else message
                             val faces = marks[mineOf.id].orEmpty()
                             Column(Modifier.animateItem(ease, move, ease).zIndex(if (faces.isEmpty()) 0f else 1f)) {
-                                Box(Modifier.graphicsLayer { alpha = seeThrough }) { VideoPair(earlier, message) { m -> Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, reach = reaches[m.id], compact = true) } }
+                                Box(Modifier.graphicsLayer { alpha = seeThrough }) { VideoPair(earlier, message) { m -> MemberHue(if (m.outgoing) null else m.author) { Bubble(m, actions, talk.playing, live = talk.talkers[user]?.clip == m.id || talk.own?.clip == m.id, showAuthor = group != null, reach = reaches[m.id], compact = true) } } }
                                 if (mineOf.outgoing) MarkGap(mineOf.id, faces, homes, marksAcross, nameOfMark)
                             }
                         }
@@ -1118,6 +1123,7 @@ private fun ConversationScreenIn(
                                 // Live video shows in the panels now (2026-11-24, hen), not in its bubble.
                                 val liveVideo = false
                                 // A playing video stays solid while the window arrives (never drawn see-through).
+                                MemberHue(if (message.outgoing) null else message.author) {
                                 Bubble(
                                     message, actions, talk.playing, live = talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id, showAuthor = group != null, reach = reaches[message.id], held = slot, liveVideo = liveVideo, liveSince = talk.own?.takeIf { it.clip == message.id }?.startedAt,
                                     // Send's slot: kept unseen while the draft flies into it; where it lies, whole (not as
@@ -1131,6 +1137,7 @@ private fun ConversationScreenIn(
                                     select = { if (message.id in selected) selected.remove(message.id) else selected.add(message.id) },
                                     selecting = selected.isNotEmpty(),
                                 )
+                                }
                             }
                           }
                           if (message.outgoing) MarkGap(message.id, faces, homes, marksAcross, nameOfMark)
@@ -1648,8 +1655,11 @@ private fun MemberFaces(members: List<String>, here: Set<String>, inRoom: Set<St
             shown.forEachIndexed { i, member ->
                 androidx.compose.runtime.key(member) {
                     val x by androidx.compose.animation.core.animateDpAsState(step * i, androidx.compose.animation.core.tween(300), label = "face $member")
+                    // Each member's face and ring in their own colour (2026-11-27, hen).
+                    MemberHue(member) {
                     Box(Modifier.offset(x = x).size(face + 4.dp).faceRing(if (member in here) 2 else if (member in inRoom) 1 else 0), contentAlignment = Alignment.Center) {
                         com.chencohen.ptt.ui.talk.HearFace(member, face - 2.dp) { Avatar(member, face - 2.dp) }
+                    }
                     }
                 }
             }
@@ -1747,7 +1757,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
         ) {
           com.chencohen.ptt.ui.style.MineInk(if (look != null && !isFace) look.ink() else LibraryColors.OnMine) {
             if (showAuthor && !mine && message.author != null) {
-                Text(message.author!!, color = LibraryColors.Accent, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
+                Text(message.author!!, color = if (LocalMemberHues.current.isEmpty()) LibraryColors.Accent else LibraryColors.OnTheirs, style = LibraryType.Small, modifier = Modifier.padding(bottom = 2.dp))
             }
             if (message.deleted) {
                 // Deleted by its author: only a faint mark is left.
@@ -2632,3 +2642,13 @@ class ChatLive(
      */
     val liveRow: ((LiveNow) -> Unit)? = null,
 )
+
+/** A group's members' colours (hue indexes by user), for their bubbles, faces, names and live drafts. */
+internal val LocalMemberHues = androidx.compose.runtime.compositionLocalOf<Map<String, Int>> { emptyMap() }
+
+/** [content] in member [who]'s colour, when the chat gives them one (a group). */
+@Composable
+internal fun MemberHue(who: String?, content: @Composable () -> Unit) {
+    val hue = who?.let { LocalMemberHues.current[it] }
+    if (hue == null) content() else com.chencohen.ptt.ui.style.TheirHue(hue, content)
+}
