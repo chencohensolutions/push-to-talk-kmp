@@ -2391,11 +2391,14 @@ object TalkBubble {
             background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), TEAL) }
             setOnClickListener {
                 val chat = rowChat() ?: return@setOnClickListener
+                // What I send now goes on there (2026-11-27, hen): the full screen takes it over, my camera too.
+                val sending = talking
+                val withCamera = talking && sendingVideo
                 if (talking) {
                     locked = false
                     endTalk(context, send = true)
                 }
-                com.chencohen.ptt.ui.calls.LiveFull.open(chat, fromFloating = true)
+                com.chencohen.ptt.ui.calls.LiveFull.open(chat, fromFloating = true, microphone = sending, camera = withCamera)
                 openChat(context, chat)
                 if (outside != null) QuickReplyWindow.close(context)
                 dismissNow()

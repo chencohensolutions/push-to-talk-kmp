@@ -1185,9 +1185,17 @@ internal fun RoomCallScreen(
 object LiveFull {
     val chat = androidx.compose.runtime.mutableStateOf<String?>(null)
     @Volatile var fromFloating = false
+    /**
+     * What I was sending as it opened (2026-11-27, hen: "when transmitting my camera or only voice and entering full
+     * screen my camera or microphone should stay on"): it opens with my microphone, and my camera, still on.
+     */
+    @Volatile var microphone = false
+    @Volatile var camera = false
 
-    fun open(chat: String, fromFloating: Boolean) {
+    fun open(chat: String, fromFloating: Boolean, microphone: Boolean = false, camera: Boolean = false) {
         this.fromFloating = fromFloating
+        this.microphone = microphone
+        this.camera = microphone && camera
         this.chat.value = chat
     }
 }

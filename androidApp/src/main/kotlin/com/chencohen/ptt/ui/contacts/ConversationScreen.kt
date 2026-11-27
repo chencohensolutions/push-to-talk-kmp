@@ -151,7 +151,8 @@ class ConversationActions(
     /** Both live: turn it into a video call inside the chat; null: no calls here. */
     val callInChat: (() -> Unit)? = null,
     /** The live talk full screen (2026-11-27, hen: instead of "Make it a call"); null: not here. */
-    val fullScreen: (() -> Unit)? = null,
+    /** Full screen; [microphone] and [camera]: what I was sending, kept on there. */
+    val fullScreen: ((microphone: Boolean, camera: Boolean) -> Unit)? = null,
     /**
      * My hands-free push goes on in the floating window ([video], [urgent]) as the chat goes off the screen; false when
      * it can't show (the push then ends here). Null: not here.
@@ -916,11 +917,14 @@ private fun ConversationScreenIn(
             actions.callInChat?.invoke()
         }
         val goFullScreen: () -> Unit = {
+            // What I send now goes on there (2026-11-27, hen): the full screen takes it over, my camera too.
+            val sending = ownNow?.let { it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING } == true
+            val withCamera = sending && pushVideo
             runs.end()
             handsFree = false
             standby = false
             if (ownNow != null) actions.finishVoice(true)
-            actions.fullScreen?.invoke()
+            actions.fullScreen?.invoke(sending, withCamera)
         }
         androidx.compose.runtime.SideEffect {
             bothLiveNow = bothLive

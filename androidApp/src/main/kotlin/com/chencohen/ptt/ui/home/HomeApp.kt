@@ -411,7 +411,7 @@ fun HomeApp(
                 micDenied = { messages.post(resources.getString(R.string.talk_mic_denied)) },
                 call = { video -> call(user, video) },
                 sendLiveWaiting = { waiting -> messaging.sendLiveWaiting(user, waiting) },
-                fullScreen = { com.chencohen.ptt.ui.calls.LiveFull.open(user, fromFloating = false) },
+                fullScreen = { mic, cam -> com.chencohen.ptt.ui.calls.LiveFull.open(user, fromFloating = false, microphone = mic, camera = cam) },
                 handOver = { video, urgent -> com.chencohen.ptt.TalkBubble.takeOver(context, user, chatName(user), video, urgent) },
                 callInChat = {
                     // In the talk room already: it becomes the call at once. Without a room to turn, a
@@ -991,8 +991,9 @@ fun HomeApp(
             // The live talk full screen (2026-11-27, hen): the same room, I start muted; the chevron or Back goes back to
             // the floating layout (the app to the back) or the chat it came from.
             com.chencohen.ptt.ui.calls.LiveFull.chat.value?.let { live ->
-                var open by remember(live) { mutableStateOf(false) }
-                var camera by remember(live) { mutableStateOf(false) }
+                // Muted, unless I was sending as it opened: then my microphone (and camera) stay on.
+                var open by remember(live) { mutableStateOf(com.chencohen.ptt.ui.calls.LiveFull.microphone) }
+                var camera by remember(live) { mutableStateOf(com.chencohen.ptt.ui.calls.LiveFull.camera) }
                 val since = remember(live) { System.currentTimeMillis() }
                 val minimize = {
                     if (open) messaging.releaseTalk(true)
