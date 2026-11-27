@@ -297,6 +297,7 @@ object QuickReplyWindow {
         return try {
             wm.addView(frame, params)
             view = frame
+            TalkBubble.sheetOpen(true)
             o.start()
             frame
         } catch (e: Exception) {
@@ -344,6 +345,7 @@ object QuickReplyWindow {
         if (leaving != null && !answered) notifications?.unanswered(leaving)
         Log.i(TAG, "closed $leaving (answered $answered)")
         view = null
+        TalkBubble.sheetOpen(false)
         // Someone still live in it: the floating window takes over, its row at the top staying as it is.
         (app as? TalkApp)?.let { TalkPlaying.windowClosed(it) }
         v.animate().translationY(v.height.toFloat()).setDuration(SLIDE_MS).setInterpolator(android.view.animation.AccelerateInterpolator())
@@ -354,6 +356,7 @@ object QuickReplyWindow {
     private fun gone(app: Context, v: android.view.View) {
         runCatching { app.getSystemService(WindowManager::class.java).removeView(v) }
         if (view === v) view = null
+        if (view == null) TalkBubble.sheetOpen(false)
         owner?.stop()
         owner = null
         layout = null

@@ -711,6 +711,7 @@ object TalkBubble {
             moving = false
             lastActive = System.currentTimeMillis()
             shapePill()
+            applySheet()
             // A new Chat button (the bar moved to another edge, or shown again): the chat's face on it again (2026-11-27,
             // hen: "when dragging the bar there is the chat icon instead of the avatar").
             chatFaceOf = null
@@ -1319,7 +1320,7 @@ object TalkBubble {
                 DockEdge.TOP -> r.bottom += more
             }
         }
-        if (!r.intersect(inside)) r.setEmpty()
+        if (!r.intersect(inside) || sheetOpen) r.setEmpty()
         holder.rootSurfaceControl?.setTouchableRegion(android.graphics.Region(r))
         holder.systemGestureExclusionRects = if (dock.edge.upright && !r.isEmpty) listOf(android.graphics.Rect(r)) else emptyList()
     }
@@ -1457,6 +1458,29 @@ object TalkBubble {
         if (!addPill(context.applicationContext, from)) remove()
         // Moved while talking hands-free: Stop again as it was.
         else if (stopShown) morphPill()
+    }
+
+    /**
+     * The floating chat is open: the bar is out of sight and takes no touches until it closes (2026-11-27, hen: "when
+     * using the floating chat, don't show the bar"). Its window stays, at no opacity, so nothing it holds is lost.
+     */
+    @Volatile private var sheetOpen = false
+
+    fun sheetOpen(open: Boolean) = main.post {
+        if (sheetOpen == open) return@post
+        sheetOpen = open
+        applySheet()
+    }
+
+    private fun applySheet() {
+        val holder = pillWindow ?: return
+        val params = pillParams ?: return
+        val alpha = if (sheetOpen) 0f else 1f
+        if (params.alpha != alpha) {
+            params.alpha = alpha
+            runCatching { holder.context.getSystemService(WindowManager::class.java).updateViewLayout(holder, params) }
+        }
+        touchBar()
     }
 
     private var edgeX = 0f

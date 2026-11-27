@@ -128,6 +128,9 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     camera videos"): that chat coming on screen (opened, or the app back in front on it) closes the floating window
     at once (`TalkBubble.handBack`); its items are handed to the chat's row from where they were (`LiveHandoff.floating`),
     and my hands-free press it held goes on in the chat as it is (hands-free there again, video or urgent as it was).
+  - **Out of the floating chat's way** (2026-11-27, hen: "when using the floating chat, don't show the bar"): while the
+    floating chat (`QuickReplyWindow`) is open the bar is out of sight and takes no touches (`TalkBubble.sheetOpen`);
+    it comes back as it closes. The chat has its own Push.
   - **Touches around it reach the screen** (2026-11-27, hen: "on floating layout I can't touch anywhere the same
     height on the screen"): Android drops a touch that reaches another app through an overlay window's frame, even
     outside the part that takes touches, so the videos' window is cut down to its items with room for their shadows
