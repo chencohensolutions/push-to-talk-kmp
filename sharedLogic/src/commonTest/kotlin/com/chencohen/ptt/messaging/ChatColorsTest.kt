@@ -19,6 +19,19 @@ class ChatColorsTest {
     }
 
     @Test
+    fun everyChatTakesTheGlobalColoursUnlessItHasItsOwn() {
+        var s = TalkSettings().withColors(GLOBAL_COLORS, 2, 7)
+        assertEquals(2 to 7, s.colorsOf("testbot"))
+        s = s.withColors("testbot", 4, -1)
+        // Its own for mine, everyone's for theirs.
+        assertEquals(4 to 7, s.colorsOf("testbot"))
+        assertEquals(4 to -1, s.ownColorsOf("testbot"))
+        assertEquals(2 to 7, s.colorsOf("testbot2"))
+        s = s.withColors(GLOBAL_COLORS, -1, -1)
+        assertEquals(4 to -1, s.colorsOf("testbot"))
+    }
+
+    @Test
     fun versionsAsSaved() {
         val saved = mapOf("testbot" to mapOf("1" to listOf("1.4.28", "1000"), "2" to listOf("1.4.27"), "x" to listOf("1.0")))
         val v = versionsOf(saved)

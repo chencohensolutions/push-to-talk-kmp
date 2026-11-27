@@ -503,3 +503,8 @@ then whole), its fill once every phone has it, the read faces' rings, and the wr
 rest, its outline, caret and Send while writing, my draft as it flies); their bubbles and their live draft's outline
 and label in theirs. The motion is the same. Default keeps green, coral and teal as before. Text on a bubble is
 near-white or near-black by the colour.
+
+For every chat (2026-11-27, hen: "add this as global settings for all contacts chat color bubbles"): the same card in
+**Settings**, above Talk, with Default (A) as the current look. On a contact's or group's page A is now **Like
+everyone**, the default: that chat takes Settings' colours; a colour chosen there overrides them, each of the two on
+its own.

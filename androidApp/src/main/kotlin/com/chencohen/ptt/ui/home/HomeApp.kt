@@ -501,6 +501,7 @@ fun HomeApp(
                         linkPhone = { push("devices") },
                         openPicture = { push("picture") },
                         openTalk = { push("talksettings") },
+                        chatColors = { com.chencohen.ptt.ui.talk.ChatColorsCard(com.chencohen.ptt.messaging.GLOBAL_COLORS, messagingState.talkSettings, onTalkSettings) },
                         openCalls = { push("callsettings") },
                         updates = updates,
                         checkUpdates = { com.chencohen.ptt.AppUpdates.check(app) },

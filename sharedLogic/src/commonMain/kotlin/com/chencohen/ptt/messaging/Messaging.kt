@@ -203,8 +203,18 @@ data class TalkSettings(
     /** [chat]'s direction (ChatDirection). */
     fun directionOf(chat: String): Int = directionFor[chat] ?: ChatDirection.FOLLOW
 
-    /** [chat]'s colours: my bubbles' and theirs, ChatColors swatch indexes (-1 the default). */
-    fun colorsOf(chat: String): Pair<Int, Int> = colorsFor[chat]?.let { (it.getOrNull(0) ?: -1) to (it.getOrNull(1) ?: -1) } ?: (-1 to -1)
+    /** [chat]'s own colours as chosen on its page ([GLOBAL_COLORS]: Settings' for every chat); -1 is "like everyone". */
+    fun ownColorsOf(chat: String): Pair<Int, Int> = colorsFor[chat]?.let { (it.getOrNull(0) ?: -1) to (it.getOrNull(1) ?: -1) } ?: (-1 to -1)
+
+    /**
+     * [chat]'s colours as shown: its own, each one "like everyone" (-1) taking Settings' for every chat (2026-11-27,
+     * hen: "add this as global settings for all contacts"); -1 left means the default look.
+     */
+    fun colorsOf(chat: String): Pair<Int, Int> {
+        val own = ownColorsOf(chat)
+        val all = ownColorsOf(GLOBAL_COLORS)
+        return (if (own.first >= 0) own.first else all.first) to (if (own.second >= 0) own.second else all.second)
+    }
 
     /** With [chat]'s colours set (both default takes them out). */
     fun withColors(chat: String, mine: Int, theirs: Int): TalkSettings =
@@ -230,6 +240,9 @@ data class TalkSettings(
 /** A draft written live by someone ([MessagingState.drafts]): its text and when it last changed. */
 /** A contact's phone's app version as it told it, and when (ms). */
 data class DeviceVersion(val version: String, val at: Long)
+
+/** TalkSettings.colorsFor's key for Settings' chat colours, for every chat. */
+const val GLOBAL_COLORS = "*"
 
 internal fun versionsOf(saved: Map<String, Map<String, List<String>>>): Map<String, Map<Int, DeviceVersion>> =
     saved.mapValues { (_, devices) ->

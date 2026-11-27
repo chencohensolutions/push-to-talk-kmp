@@ -131,7 +131,8 @@ internal fun ComposeBubble(
     // past 6 lines it scrolls inside with the caret in view.
     // Never narrower than its resting words (2026-11-24: "Write a message…" was cut to "Write a" in English).
     val width = maxOf(draftWidth(text, style, chrome = 14.dp + 8.dp + 8.dp + 36.dp), draftWidth(hint, style, chrome = 14.dp + 8.dp + 8.dp + 36.dp))
-    val dash = LibraryColors.Muted.copy(alpha = 0.6f)
+    // Resting, a muted dashed outline; with a chat colour for my messages, dashed in that colour (2026-11-27, hen).
+    val dash = if (coral == com.chencohen.ptt.ui.style.Pink) LibraryColors.Muted.copy(alpha = 0.6f) else coral.copy(alpha = 0.85f)
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     Box(modifier.fillMaxWidth(), contentAlignment = MySide) {
         Row(

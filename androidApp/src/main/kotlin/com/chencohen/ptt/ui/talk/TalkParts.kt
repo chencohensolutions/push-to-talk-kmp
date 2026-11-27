@@ -542,11 +542,14 @@ internal fun Here(chat: String, setHere: (String?) -> Unit) {
  */
 @Composable
 internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.TalkSettings, set: (com.chencohen.ptt.messaging.TalkSettings) -> Unit) {
-    val (mine, theirs) = talk.colorsOf(chat)
+    // Its own choice in the rows (A: like everyone, or on Settings' card the default look); the preview as it will show.
+    val global = chat == com.chencohen.ptt.messaging.GLOBAL_COLORS
+    val (mine, theirs) = talk.ownColorsOf(chat)
+    val (shownMine, shownTheirs) = talk.colorsOf(chat)
     com.chencohen.ptt.ui.style.SectionTitle(stringResource(R.string.chat_colors))
     com.chencohen.ptt.ui.style.SettingsCard {
         // The preview: theirs at the start side, mine at the end, as in the chat.
-        com.chencohen.ptt.ui.style.ChatColors(mine, theirs) {
+        com.chencohen.ptt.ui.style.ChatColors(shownMine, shownTheirs) {
             Column(Modifier.fillMaxWidth().background(LibraryColors.Background).padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                     Text(
@@ -562,15 +565,15 @@ internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.Talk
                 }
             }
         }
-        SwatchRow(stringResource(R.string.chat_colors_mine), mine) { set(talk.withColors(chat, it, theirs)) }
-        SwatchRow(stringResource(R.string.chat_colors_theirs), theirs) { set(talk.withColors(chat, mine, it)) }
+        SwatchRow(stringResource(R.string.chat_colors_mine), mine, global) { set(talk.withColors(chat, it, theirs)) }
+        SwatchRow(stringResource(R.string.chat_colors_theirs), theirs, global) { set(talk.withColors(chat, mine, it)) }
     }
-    com.chencohen.ptt.ui.style.PageNote(stringResource(R.string.chat_colors_body), top = 6)
+    com.chencohen.ptt.ui.style.PageNote(stringResource(if (global) R.string.chat_colors_global_body else R.string.chat_colors_body), top = 6)
 }
 
 /** A row of colours to pick from: Default (a ring with a slash), then ChatSwatches; the chosen one ringed. */
 @Composable
-private fun SwatchRow(title: String, chosen: Int, choose: (Int) -> Unit) {
+private fun SwatchRow(title: String, chosen: Int, global: Boolean, choose: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
         Text(title, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
         // Two rows (2026-11-27, hen's mock): Default and the deep six (white text), then the bright six (black text) under
@@ -582,7 +585,8 @@ private fun SwatchRow(title: String, chosen: Int, choose: (Int) -> Unit) {
             Modifier.fillMaxWidth().padding(top = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val defaultLabel = stringResource(R.string.chat_colors_default)
+            // A: on a chat's page "like everyone" (Settings' colours), on Settings' card the default look.
+            val defaultLabel = stringResource(if (global) R.string.chat_colors_default else R.string.chat_colors_like_everyone)
             rowItems.forEach { i ->
                 if (i == -2) {
                     // Under Default: room kept, so each bright one is under its deep twin.

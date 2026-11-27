@@ -308,11 +308,14 @@ private fun ConversationScreenIn(
     var headerTop by remember(user) { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var leaving by remember(user) { mutableStateOf(false) }
     val riseScope = androidx.compose.runtime.rememberCoroutineScope()
-    androidx.activity.compose.BackHandler(enabled = talkMove != null && !leaving) {
-        leaving = true
-        riseScope.launch {
-            rise.animateTo(0f, androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing))
-            actions.back()
+    // Only in the app: the floating window has no Back dispatcher, and a BackHandler there crashes it even when off.
+    if (talkMove != null) {
+        androidx.activity.compose.BackHandler(enabled = !leaving) {
+            leaving = true
+            riseScope.launch {
+                rise.animateTo(0f, androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                actions.back()
+            }
         }
     }
     val allMessages = messages
