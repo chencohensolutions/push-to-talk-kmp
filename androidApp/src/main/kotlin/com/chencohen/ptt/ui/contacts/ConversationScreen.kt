@@ -152,6 +152,8 @@ class ConversationActions(
     val callInChat: (() -> Unit)? = null,
     /** The live talk full screen (2026-11-27, hen: instead of "Make it a call"); null: not here. */
     val fullScreen: ((mic: Boolean, camera: Boolean) -> Unit)? = null,
+    /** This chat came on screen: the floating window for it goes; my press it held, back here as (video, urgent). */
+    val takeBack: (() -> Pair<Boolean, Boolean>?)? = null,
     /**
      * My hands-free push goes on in the floating window ([video], [urgent]) as the chat goes off the screen; false when
      * it can't show (the push then ends here). Null: not here.
@@ -878,6 +880,16 @@ private fun ConversationScreenIn(
             if (!taken) actions.finishVoice(true)
         }
         androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { handOverOrEnd("app left", keep = true) }
+        // On screen (opened, or the app back in front): the floating window for this chat goes, and my hands-free press
+        // it held goes on here as it is (2026-11-27, hen: "at the moment I see two camera videos").
+        androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_START) {
+            val back = actions.takeBack?.invoke() ?: return@LifecycleEventEffect
+            val (video, urgent) = back
+            say("back from the floating window: hands-free goes on here (${if (video) "video" else "voice"}${if (urgent) ", urgent" else ""})")
+            if (video) actions.setPushVideo?.invoke(true)
+            urgentHandsFree = urgent
+            handsFree = true
+        }
         androidx.compose.runtime.DisposableEffect(user) { onDispose { handOverOrEnd("chat left", keep = false) } }
         // Kept open while live hands-free or in standby (2026-11-24: after a minute untouched it was let go, so the next
         // renewal went out as voice only).
@@ -1488,7 +1500,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playClip = a.playClip, saveClip = a.saveClip, stopClip = a.stopClip, startVoice = a.startVoice, startVoiceMessage = a.startVoiceMessage, markUrgent = a.markUrgent,
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
-    sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver,
+    sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
 )
 
 

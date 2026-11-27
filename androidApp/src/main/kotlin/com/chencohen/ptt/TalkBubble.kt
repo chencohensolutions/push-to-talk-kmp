@@ -95,7 +95,7 @@ object TalkBubble {
     private const val HINTS_DP = 58
     /** Folded into its edge, this much of the bar still shows: a handle at the top or bottom, a tab at the sides. */
     private const val PEEK_DP = 14
-    private const val PEEK_SIDE_DP = 18
+    private const val PEEK_SIDE_DP = 24
 
     // ---- Where the bar rests, and folding (2026-11-27, hen: "drag the floating bar ... along the edges", "auto hide in
     // a smart way", "if docked to the side edges ... hide and be able to return with a gesture") ----
@@ -771,6 +771,49 @@ object TalkBubble {
         val wantCamera = (warming || sendingVideo) && ringing == null
         if (wantCamera && !previewOn) preview(context, true) else if (!wantCamera && previewOn) preview(context, false)
         pickPreview()
+        showChatFace(context)
+    }
+
+    /** The chat whose face [chatButton] shows. */
+    private var chatFaceOf: String? = null
+
+    /**
+     * Chat's button is the other person's face (2026-11-27, hen: "replace the chat icon with the recipient avatar"):
+     * their picture, else the first letter of the chat's name on the button's circle (a group's always).
+     */
+    private fun showChatFace(context: Context) {
+        val button = chatButton ?: return
+        val chat = chat ?: return
+        val key = "$chat|$title"
+        if (chatFaceOf == key) return
+        chatFaceOf = key
+        button.setPadding(0, 0, 0, 0)
+        button.scaleType = ImageView.ScaleType.CENTER_CROP
+        button.clipToOutline = true
+        button.setImageBitmap(letterFace(context, title))
+        if (com.chencohen.ptt.messaging.Group.idOf(chat) != null) return
+        val app = context.applicationContext as? TalkApp ?: return
+        app.scope.launch {
+            val id = kotlinx.coroutines.withTimeoutOrNull(1_000) { com.chencohen.ptt.ui.face.Faces.ids(app).first { it.containsKey(chat) } }?.get(chat) ?: return@launch
+            val bitmap = runCatching { com.chencohen.ptt.ui.face.Faces.load(app, chat, id) }.getOrNull() ?: return@launch
+            main.post { if (chatButton === button && chatFaceOf == key) button.setImageBitmap(bitmap.asAndroidBitmap()) }
+        }
+    }
+
+    /** The first letter of [name], white on the button's circle. */
+    private fun letterFace(context: Context, name: String): android.graphics.Bitmap {
+        val size = dp(context, 48)
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val letter = name.trim().takeIf { it.isNotEmpty() }?.let { String(Character.toChars(it.codePointAt(0))).uppercase() } ?: "?"
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = size * 0.42f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+        }
+        val canvas = Canvas(bitmap)
+        canvas.drawText(letter, size / 2f, size / 2f - (paint.descent() + paint.ascent()) / 2, paint)
+        return bitmap
     }
 
     /**
@@ -1232,8 +1275,16 @@ object TalkBubble {
             DockEdge.LEFT -> inside.left += edgeInset
             DockEdge.RIGHT -> inside.right -= edgeInset
         }
+        // Folded at a side: the tab takes touches a little further in than it shows, and Android's back gesture leaves
+        // it alone there (2026-11-27, hen: "on the edge and minimized it's hard to interact with because of the
+        // Android gesture").
+        if (folded && dock.edge.upright) {
+            val more = dp(row.context, 20)
+            if (dock.edge == DockEdge.LEFT) r.right += more else r.left -= more
+        }
         if (!r.intersect(inside)) r.setEmpty()
         holder.rootSurfaceControl?.setTouchableRegion(android.graphics.Region(r))
+        holder.systemGestureExclusionRects = if (dock.edge.upright && !r.isEmpty) listOf(android.graphics.Rect(r)) else emptyList()
     }
 
     /** Someone is talking in the bar's chat, or I am, or a call rings, or the bar is in my hand. */
@@ -1567,6 +1618,47 @@ object TalkBubble {
 
     /** [chat] came on screen in the app: its own buttons are there, so the floating bar for it goes. */
     fun chatOpened(chat: String) = main.post { if (this.chat == chat && !talking && !locked) dismissNow() }
+
+    /**
+     * Where an item handed over by the chat starts in the top row: where it was in the chat's row, in this window's
+     * frames (2026-11-27, hen: "when leaving, the video should move to the new position without leaving the screen").
+     */
+    private fun fromChat(window: IntArray): ((String, LiveRect) -> LiveRect?)? {
+        if (System.currentTimeMillis() >= inPlaceUntil) return null
+        val params = topParams ?: return null
+        val rows = com.chencohen.ptt.ui.live.LiveHandoff.chat.takeIf { it.isNotEmpty() } ?: return null
+        val left = (window[0] + params.x).toFloat()
+        val top = (window[1] + params.y + restTop).toFloat()
+        return { key, t -> rows[key]?.let { s -> LiveRect(s.left - left, s.top - top, s.w, s.h, t.video) } }
+    }
+
+    /** The top row's items where they are now on the screen. */
+    private fun topOnScreen(): Map<String, ScreenRect> {
+        val params = topParams ?: return emptyMap()
+        val at = windowAt()
+        val left = (at[0] + params.x).toFloat()
+        val top = (at[1] + params.y + restTop).toFloat()
+        return topMotion.rects.filterKeys { !topMotion.leaving(it) }.mapValues { (_, r) -> ScreenRect(left + r.x, top + r.y, left + r.x + r.w, top + r.y + r.h) }
+    }
+
+    /**
+     * [chat]'s screen came to the front (2026-11-27, hen: "if I have the floating layout and enter the same user's chat
+     * screen, the floating layout should close"; "the video should move to the in-chat position, at the moment I see
+     * two camera videos"): the floating window goes at once, its items handed to the chat's row from where they are
+     * ([LiveHandoff]). My press held here goes back to the chat as it is: returned as (video, urgent), null when none.
+     * Main thread.
+     */
+    fun handBack(chat: String): Pair<Boolean, Boolean>? {
+        if (this.chat != chat || pillWindow == null) return null
+        if (QuickReplyWindow.showing(chat)) return null
+        com.chencohen.ptt.ui.live.LiveHandoff.fromFloating(topOnScreen(), System.currentTimeMillis())
+        val context = pillWindow?.context
+        val mine = if (talking && context != null) (sendingVideo to urgent).also { letGoOfPress(context) } else null
+        if (outside == null) removeTop()
+        dismissNow()
+        Log.i(TAG, "back in the chat: the floating window goes" + if (mine != null) ", my press goes on there" else "")
+        return mine
+    }
 
     /**
      * While the bar is lifted: the edges it can go to, dashed, the one it would go to now filled (an overlay that
@@ -2093,7 +2185,7 @@ object TalkBubble {
         // The screen's own left edge and width, as the window sees them.
         val targets = LiveLayout.place(items, screen, gap, topRtl, left = -window[0].toFloat())
         // From above the screen's top edge, the shadow too.
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil, away = awayEdge(context, window))
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil, away = awayEdge(context, window), from = fromChat(window))
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (screen ${screen.toInt()}, window at ${window[0]},${window[1]}, ${if (topRtl) "right to left" else "left to right"})")
         showTop()
@@ -2145,7 +2237,7 @@ object TalkBubble {
             if (cell.video) size(cell.box, bw.toInt(), bh.toInt())
         }
         val targets = LiveGroupLayout.place(slots, width, gap, topHeight(context).toFloat(), myShape, topRtl, left = -window[0].toFloat() + margin, chip = chipSize)
-        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil, away = awayEdge(context, window))
+        val moved = topMotion.target(targets, (restTop + window[1] + dp(context, 12)).toFloat(), dp(context, 16).toFloat(), inPlace = System.currentTimeMillis() < inPlaceUntil, away = awayEdge(context, window), from = fromChat(window))
         topRoom.intValue = if (targets.isEmpty()) 0 else window[1] + restTop + targets.values.maxOf { it.bottom }.toInt() + dp(context, 8)
         if (moved) Log.i(TAG, "group row: " + targets.entries.joinToString { (k, r) -> "$k ${if (r.video > 0f) "video" else "voice"} x=${r.x.toInt()} y=${r.y.toInt()} w=${r.w.toInt()} h=${r.h.toInt()}" } + " (${hidden.size} more; ${if (topRtl) "right to left" else "left to right"})")
         showTop()
@@ -3092,6 +3184,7 @@ object TalkBubble {
         previewOn = false
         ringing = null
         chatButton = null
+        chatFaceOf = null
         button = null
         closeButton = null
         pushBox = null

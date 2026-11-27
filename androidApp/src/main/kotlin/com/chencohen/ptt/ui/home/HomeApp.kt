@@ -413,6 +413,7 @@ fun HomeApp(
                 sendLiveWaiting = { waiting -> messaging.sendLiveWaiting(user, waiting) },
                 fullScreen = { mic, cam -> com.chencohen.ptt.ui.calls.LiveFull.open(user, fromFloating = false, mic = mic, camera = cam) },
                 handOver = { video, urgent -> com.chencohen.ptt.TalkBubble.takeOver(context, user, chatName(user), video, urgent) },
+                takeBack = { com.chencohen.ptt.TalkBubble.handBack(user) },
                 callInChat = {
                     // In the talk room already: it becomes the call at once. Without a room to turn, a
                     // short word, never a ringing call (2026-11-25, hen: "it's calling the recipient

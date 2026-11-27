@@ -55,6 +55,8 @@ import com.chencohen.ptt.ui.live.LiveItem
 import com.chencohen.ptt.ui.live.LiveLayout
 import com.chencohen.ptt.ui.live.LiveSlot
 import com.chencohen.ptt.ui.live.LiveMotion
+import com.chencohen.ptt.ui.live.LiveRect
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryType
 import com.chencohen.ptt.ui.talk.clipLength
@@ -259,6 +261,7 @@ internal fun LivePanel(
         sides,
         boxHeight = LocalLiveBoxHeight.current ?: (screen * LIVE_VIDEO_SHARE),
         ring = { if (it.key == LiveLayout.MINE) myRing else teal },
+        handoff = true,
         pill = { side ->
             val voice = last[if (side.key == LiveLayout.MINE) 1 else 0]
             if (voice != null) VoicePillRow(voice, if (voice.mine) myRing else LibraryColors.Accent)
@@ -331,6 +334,7 @@ internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?, myU
         sides,
         boxHeight = LocalLiveBoxHeight.current ?: (screen * LIVE_VIDEO_SHARE),
         ring = { if (it.key == LiveLayout.MINE) myRing else teal },
+        handoff = true,
         group = true,
         groupShape = myShape,
         chip = newest?.let { n ->
@@ -400,6 +404,11 @@ internal fun LiveStage(
     group: Boolean = false,
     groupShape: Float = 3f / 4f,
     chip: (@Composable () -> Unit)? = null,
+    /**
+     * The chat's own row: where its items are on the screen is kept for the floating window that takes them over as
+     * the chat goes, and items the floating window hands back come from where they were there ([LiveHandoff]).
+     */
+    handoff: Boolean = false,
     /** A box's inside, drawn in the frame: its picture's full size [w] × [h], and how far it is a box by now, 0 to 1. */
     box: @Composable androidx.compose.foundation.layout.BoxScope.(side: LiveSide, w: Dp, h: Dp, p: Float) -> Unit,
 ) {
@@ -417,7 +426,17 @@ internal fun LiveStage(
     val frame = remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val running = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
-    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
+    // The stage's top left on the screen.
+    val origin = remember { FloatArray(2) }
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier.fillMaxWidth().then(
+            if (handoff) Modifier.onGloballyPositioned { c ->
+                val p = c.localToScreen(androidx.compose.ui.geometry.Offset.Zero)
+                origin[0] = p.x
+                origin[1] = p.y
+            } else Modifier,
+        ),
+    ) {
         val width = constraints.maxWidth.toFloat()
         val side = with(density) { 12.dp.toPx() }
         val top = with(density) { 8.dp.toPx() }
@@ -434,7 +453,7 @@ internal fun LiveStage(
             }
             motion.target(
                 LiveGroupLayout.place(slots, width - 2 * side, gap, full, groupShape, rtl, left = side, chip = chipSize?.let { it.width.toFloat() to it.height.toFloat() }),
-                offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() },
+                offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() }, from = handedBack(handoff, origin, top),
             )
         } else if (!group && sides.all { it.video || pills[it.key] != null }) {
             val h = LiveLayout.boxHeight(
@@ -446,9 +465,10 @@ internal fun LiveStage(
                 else pills.getValue(s.key).let { LiveItem(s.key, it.width.toFloat(), it.height.toFloat(), false) }
             }
             // From above the stage's top edge, the shadow too.
-            motion.target(LiveLayout.place(items, width, gap, rtl), offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() })
+            motion.target(LiveLayout.place(items, width, gap, rtl), offTop = top + with(density) { 12.dp.toPx() }, small = with(density) { 16.dp.toPx() }, from = handedBack(handoff, origin, top))
         }
         androidx.compose.runtime.SideEffect {
+            if (handoff) com.chencohen.ptt.ui.live.LiveHandoff.chatRow(origin[0], origin[1] + top, motion.goals.filterKeys { !motion.leaving(it) })
             if (motion.running && running[0]?.isActive != true) {
                 running[0] = scope.launch {
                     // The system's animation speed (Remove animations: at once), as the app's other animations.
@@ -530,6 +550,17 @@ internal fun LiveStage(
             }
         }
     }
+}
+
+/**
+ * Where an item the floating window just handed back starts in the chat's stage (its top left on the screen [origin],
+ * its items' resting top [top]): where it was in the floating window (2026-11-27, hen: back in the chat "the video
+ * should move to the in-chat position").
+ */
+private fun handedBack(handoff: Boolean, origin: FloatArray, top: Float): ((String, LiveRect) -> LiveRect?)? {
+    if (!handoff) return null
+    val back = com.chencohen.ptt.ui.live.LiveHandoff.recentFloating(System.currentTimeMillis()).takeIf { it.isNotEmpty() } ?: return null
+    return { key, t -> back[key]?.let { s -> LiveRect(s.left - origin[0], s.top - origin[1] - top, s.w, s.h, t.video) } }
 }
 
 /**
