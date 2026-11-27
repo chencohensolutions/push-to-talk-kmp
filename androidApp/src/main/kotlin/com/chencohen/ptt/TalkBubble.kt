@@ -1865,7 +1865,8 @@ object TalkBubble {
         theirPill?.tick(0f, theirSince())
         myPill?.tick(0f, mySince())
         syncGroup(context, if (group) members else emptyList())
-        bothChip?.visibility = if (bothLive(context)) View.VISIBLE else View.GONE
+        // Full screen while both are live or a video shows.
+        bothChip?.visibility = if (bothLive(context) || theirCell?.let { it.on && it.video } == true || myCell?.let { it.on && it.video } == true) View.VISIBLE else View.GONE
         placeTop(context)
         pickPreview()
         main.removeCallbacks(topTick)
@@ -2321,33 +2322,27 @@ object TalkBubble {
             addView(theirItem.view, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.LEFT))
             addView(myItem.view, FrameLayout.LayoutParams(0, 0, Gravity.TOP or Gravity.LEFT))
         }
-        // Both live: "You're both live · Make it a call" under the boxes; a tap starts a video call.
+        // "⤢ Full screen" under the boxes (2026-11-27, hen: it's not "make it a call", two people talking already is
+        // one; "'Full screen' is enough"): a tap opens the same live talk full screen in the app, nothing dialled, me
+        // muted there; shrinking it brings this floating layout back.
         val chip = TextView(context).apply {
             visibility = View.GONE
-            text = context.getString(R.string.talk_both_live) + " · " + context.getString(R.string.talk_make_call)
+            text = "⤢  " + context.getString(R.string.talk_full_screen)
             setTextColor(Color.WHITE)
             textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(dp(14), dp(8), dp(14), dp(8))
-            background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), PINK) }
+            background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(0xF2191D1C.toInt()); setStroke(dp(1), TEAL) }
             setOnClickListener {
                 val chat = rowChat() ?: return@setOnClickListener
-                // The talk room becomes the call (2026-11-25, hen: "it's calling the recipient instead of opening the
-                // call seamlessly"): no ringing; the chat opens with the call in it. Without a room to turn, a short
-                // word, never a ringing call.
-                val video = sendingVideo || outside?.mine == LiveKind.Video || theirVideoWanted()
                 if (talking) {
                     locked = false
                     endTalk(context, send = true)
                 }
-                startRoomCall(context, chat, video) { ok ->
-                    if (ok) {
-                        openChat(context, chat)
-                        if (outside != null) QuickReplyWindow.close(context)
-                        dismissNow()
-                    } else {
-                        android.widget.Toast.makeText(context, R.string.talk_call_no_room, android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
+                com.chencohen.ptt.ui.calls.LiveFull.open(chat, fromFloating = true)
+                openChat(context, chat)
+                if (outside != null) QuickReplyWindow.close(context)
+                dismissNow()
             }
         }
         stage.addView(chip, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL))

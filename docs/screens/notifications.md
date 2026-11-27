@@ -76,7 +76,9 @@ Three channels, so each can be tuned or hidden on its own in Android's settings:
     250 ms; a swipe up sends it back out the same way): 23.6% of the screen high and as wide as
     the picture's own shape (no crop, no bars), rounded 18 dp with a thin teal outline, "Name · 0:04" inside its
     bottom-start corner. While I send video my camera shows the same way (coral outline, "● You · LIVE 0:03", one line),
-    side by side with theirs when both are live, and "You're both live · Make it a call" under them (a tap turns
+    side by side with theirs when both are live, and (since 2026-11-27) "⤢ Full screen" under them while a video
+    shows or both are live, which opens the live talk full screen in the app (docs/screens/calls.md); before that
+    "You're both live · Make it a call" under them (a tap turns
     the talk room into the call, no ringing, and opens the chat with it; without a room to turn, a short word). Drag moves it; a swipe up puts it away until their next burst; a tap opens the chat.
   - **The row's places and moves** (2026-11-25, hen: "every combined animation in one move"; his phone is in Hebrew,
     where items came in at the wrong side and moved in steps). The row's window is as wide as the screen and as tall
