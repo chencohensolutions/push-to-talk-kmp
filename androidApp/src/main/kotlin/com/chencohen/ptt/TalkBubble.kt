@@ -1489,7 +1489,7 @@ object TalkBubble {
         if (!animate) {
             params.x = toX
             params.y = toY
-            runCatching { wm.updateViewLayout(window, params) }
+            layoutTop()
             return
         }
         val fromX = params.x
@@ -1502,7 +1502,7 @@ object TalkBubble {
                 val f = it.animatedValue as Float
                 params.x = (fromX + (toX - fromX) * f).toInt()
                 params.y = (fromY + (toY - fromY) * f).toInt()
-                runCatching { wm.updateViewLayout(window, params) }
+                layoutTop()
             }
             start()
         }
@@ -2120,7 +2120,8 @@ object TalkBubble {
         val window = topWindow?.takeIf { it.isAttachedToWindow } ?: return intArrayOf(0, 0)
         val at = IntArray(2).also { window.getLocationOnScreen(it) }
         val params = topParams ?: return at
-        return intArrayOf(at[0] - params.x, at[1] - params.y)
+        val crop = topCrop
+        return intArrayOf(at[0] - params.x - (crop?.left ?: 0), at[1] - params.y - (crop?.top ?: 0))
     }
 
     /**
@@ -2298,8 +2299,10 @@ object TalkBubble {
     }
 
     /**
-     * The window is as wide as the screen, but only the items in it take touches (where they are and where they are
-     * going, and the chip): the rest goes to the app beneath, which stays usable.
+     * Only the items take touches (where they are and where they are going, and the chip), and the window is only as
+     * big as they need: the rest goes to the app beneath, which stays usable. Android drops a touch that reaches
+     * another app through an overlay's frame, whatever region it takes touches in (2026-11-27, hen: "on floating
+     * layout I can't touch anywhere the same height on the screen"), so the window is cut down to the items ([cropTop]).
      */
     private fun touchTop() {
         val window = topWindow?.takeIf { it.isAttachedToWindow } ?: return
@@ -2308,15 +2311,68 @@ object TalkBubble {
             region.union(android.graphics.Rect(r.x.toInt(), (restTop + r.y).toInt().coerceAtLeast(0), (r.x + r.w).toInt() + 1, (restTop + r.bottom).toInt().coerceAtLeast(0) + 1))
         }
         // The group's "+N talking" chip is one of the rects (LiveGroupLayout.MORE), so it takes touches already.
-        bothChip?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }?.let { chip ->
+        val chipAt = bothChip?.takeIf { it.width > 0 }?.let { chip ->
             val top = chip.top + chip.translationY.toInt()
-            region.union(android.graphics.Rect(chip.left, top, chip.right, top + chip.height))
+            android.graphics.Rect(chip.left, top, chip.right, top + chip.height)
         }
+        if (chipAt != null && bothChip?.visibility == View.VISIBLE) region.union(chipAt)
+        val crop = cropTop(window.context, region, chipAt)
+        val inWindow = android.graphics.Region(region).also { it.translate(-crop.left, -crop.top) }
         // Only when it changed: setting it asks the window for a layout.
-        if (region == touchable) return
-        touchable = region
-        window.rootSurfaceControl?.setTouchableRegion(region)
+        if (inWindow == touchable) return
+        touchable = inWindow
+        window.rootSurfaceControl?.setTouchableRegion(inWindow)
     }
+
+    /**
+     * The part of the row's full frame the window keeps: what [region] and the chip need, with room for shadows. While
+     * items move it only grows (their goals are in [region] from the move's start, so it holds the whole way); at rest
+     * it shrinks to them, once.
+     */
+    private fun cropTop(context: Context, region: android.graphics.Region, chip: android.graphics.Rect?): android.graphics.Rect {
+        val full = topFull ?: return android.graphics.Rect()
+        val pad = dp(context, 24)
+        val want = android.graphics.Rect(region.bounds)
+        if (chip != null) want.union(chip)
+        if (want.isEmpty) want.set(0, 0, 1, 1) else want.inset(-pad, -pad)
+        if (!want.intersect(full)) want.set(0, 0, 1, 1)
+        val now = topCrop
+        val next = when {
+            now == null -> want
+            topMotion.running || topTouch?.dragging == true -> android.graphics.Rect(now).also { it.union(want) }
+            // At rest: down to the items, unless that only saves a little.
+            now.contains(want) && now.width() - want.width() < pad / 3 && now.height() - want.height() < pad / 3 -> now
+            else -> want
+        }
+        if (next != now) {
+            topCrop = next
+            layoutTop()
+        }
+        return next
+    }
+
+    /** The row's window where [topParams] puts its full frame, cut to [topCrop] ([topShift] keeps the items in place). */
+    private fun layoutTop() {
+        val window = topWindow ?: return
+        val params = topParams ?: return
+        val real = topReal ?: return
+        val full = topFull ?: return
+        val crop = topCrop ?: full
+        real.x = params.x + crop.left
+        real.y = params.y + crop.top
+        real.width = crop.width()
+        real.height = crop.height()
+        topShift?.let {
+            it.translationX = -crop.left.toFloat()
+            it.translationY = -crop.top.toFloat()
+        }
+        runCatching { window.context.getSystemService(WindowManager::class.java).updateViewLayout(window, real) }
+    }
+
+    private var topReal: WindowManager.LayoutParams? = null
+    private var topShift: FrameLayout? = null
+    private var topFull: android.graphics.Rect? = null
+    private var topCrop: android.graphics.Rect? = null
 
     private var touchable: android.graphics.Region? = null
 
@@ -2589,10 +2645,18 @@ object TalkBubble {
             }
         }
         stage.addView(more, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.LEFT))
-        val holder = FrameLayout(context).apply {
+        // The row as wide as the screen in [shift], which the window shows only the part of that holds the items
+        // ([cropTop]).
+        val fullHeight = restTop + statusTop + topHeight(context) + dp(176)
+        val shift = FrameLayout(context).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
             addView(stage, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+        val holder = FrameLayout(context).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            clipChildren = false
+            addView(shift, FrameLayout.LayoutParams(wm.currentWindowMetrics.bounds.width(), fullHeight, Gravity.TOP or Gravity.LEFT))
         }
         val params = WindowManager.LayoutParams(
             // As wide as the screen and tall enough for the tallest row, once: nothing that shows in it moves or
@@ -2600,7 +2664,7 @@ object TalkBubble {
             // items). Only the items take touches ([touchTop]).
             WindowManager.LayoutParams.MATCH_PARENT,
             // A group's: the boxes' row, the pills' and the chip under them.
-            restTop + statusTop + topHeight(context) + dp(176),
+            fullHeight,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -2617,13 +2681,18 @@ object TalkBubble {
         topTouch = touch
         theirItem.view.setOnTouchListener(touch)
         myItem.view.setOnTouchListener(touch)
+        val real = WindowManager.LayoutParams().apply { copyFrom(params) }
         try {
-            wm.addView(holder, params)
+            wm.addView(holder, real)
         } catch (e: Exception) {
             Log.w(TAG, "can't show the top row", e)
             return false
         }
         topParams = params
+        topReal = real
+        topShift = shift
+        topFull = android.graphics.Rect(0, 0, wm.currentWindowMetrics.bounds.width(), fullHeight)
+        topCrop = null
         topWindow = holder
         topCard = stage
         theirCell = theirItem
@@ -2641,7 +2710,7 @@ object TalkBubble {
         holder.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             if (topWindow !== holder || (left == oldLeft && top == oldTop && right == oldRight && bottom == oldBottom)) return@addOnLayoutChangeListener
             val at = IntArray(2).also { holder.getLocationOnScreen(it) }
-            val low = statusTop + dp(2) - (at[1] - params.y + restTop)
+            val low = statusTop + dp(2) - (at[1] - params.y - (topCrop?.top ?: 0) + restTop)
             if (low > 0) restTop += low
             Log.i(TAG, "top row: window at ${at[0]},${at[1]}, ${right - left} wide, rests at ${at[1] + restTop}, status bar $statusTop, ${if (rtl) "right to left" else "left to right"}")
             holder.post { if (topWindow === holder && !topHiding) placeTop(context) }
@@ -2699,7 +2768,7 @@ object TalkBubble {
                     if (moved) {
                         params.x = px + dx.toInt()
                         params.y = py + dy.toInt()
-                        runCatching { wm.updateViewLayout(window, params) }
+                        layoutTop()
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -2886,6 +2955,10 @@ object TalkBubble {
         roomLive = null
         topCard = null
         topParams = null
+        topReal = null
+        topShift = null
+        topFull = null
+        topCrop = null
         theirCell = null
         myCell = null
         theirBox = null
