@@ -12,6 +12,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -50,9 +51,31 @@ internal class LibraryPalette(
     val Mine: Color = Color(0xFF23774A),
     val OnMine: Color = Color(0xFFF2FBF5),
     val MineLine: Color = Color(0xFF32A066),
+    /** Their chat bubbles and the text on them (2026-11-27, hen: a chat's two colours can be chosen; the page's raised by default). */
+    val Theirs: Color = Raised,
+    val OnTheirs: Color = OnBackground,
+    /** The writing bubble's outline, caret and Send, and my draft's (coral by default; a chat's own colour for mine). */
+    val Writing: Color = Color(0xFFE9504F),
+    /** Their live draft's outline and its "writing" label (teal by default; a chat's own colour for theirs). */
+    val TheirLine: Color = Accent,
 ) {
     /** The same palette with [ink] as the text on my bubbles (an outline bubble's text is the page's). */
-    fun withOnMine(ink: Color) = LibraryPalette(Background, Raised, OnBackground, Muted, Accent, Inverse, OnInverse, OnInverseMuted, Warning, Error, Mine, ink, MineLine)
+    fun withOnMine(ink: Color) = LibraryPalette(Background, Raised, OnBackground, Muted, Accent, Inverse, OnInverse, OnInverseMuted, Warning, Error, Mine, ink, MineLine, Theirs, OnTheirs, Writing, TheirLine)
+
+    /**
+     * A chat's own colours ([mine], [theirs]; null keeps the default), the whole way (2026-11-27, hen: "respect the
+     * sending rectangle border colors and also the new message textbox border colors"): my bubble's outline (dashed,
+     * then whole), its fill, the writing bubble's outline and my draft's in [mine]; their bubbles and their live draft's
+     * outline in [theirs]. Text on them is light or dark by the colour.
+     */
+    fun withChatColors(mine: Color?, theirs: Color?, mineLine: Color? = mine, theirLine: Color? = theirs) = LibraryPalette(
+        Background, Raised, OnBackground, Muted, Accent, Inverse, OnInverse, OnInverseMuted, Warning, Error,
+        mine ?: Mine, mine?.let { inkOn(it) } ?: OnMine, mineLine ?: MineLine,
+        theirs ?: Theirs, theirs?.let { inkOn(it) } ?: OnTheirs,
+        mineLine ?: Writing, theirLine ?: TheirLine,
+    )
+
+    val OnTheirsMuted: Color get() = OnTheirs.copy(alpha = 0.6f)
 
     val OnMineMuted: Color get() = OnMine.copy(alpha = 0.6f)
     val BadgeScrim = Color(0x990F1413)
@@ -112,6 +135,68 @@ private val LocalLibraryPalette = staticCompositionLocalOf { DarkLibraryPalette 
 internal fun MineInk(ink: Color, content: @Composable () -> Unit) {
     val base = LocalLibraryPalette.current
     val palette = androidx.compose.runtime.remember(base, ink) { if (ink == base.OnMine) base else base.withOnMine(ink) }
+    CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
+}
+
+/**
+ * Text on [c]: white on a dark colour, near-black on a light one (2026-11-27, hen: "white on dark or dark on white").
+ * The deep chat colours are made for white text (4.6:1), where black reads about the same; white is kept unless black
+ * clearly stands out more (the bright ones: 11:1 against about 2).
+ */
+internal fun inkOn(c: Color): Color {
+    val l = c.luminance()
+    val black = (l + 0.05f) / 0.05f
+    val white = 1.05f / (l + 0.05f)
+    return if (black > white * 2f) Color(0xFF17201F) else Color.White
+}
+
+/**
+ * The chat colours one can pick (2026-11-27, hen): six hues spread evenly around the wheel (orange, lime, green, blue,
+ * violet, pink), each shown by the theme: in the light theme its deep shade with white text (4.6:1), in the dark theme
+ * its bright shade with black text ("in light theme white text on dark color, in dark theme black text on bright
+ * color"). Used for the fill, the outlines and the writing box. -1 is the default (my green, their raised page colour).
+ */
+internal val ChatHuesDeep = listOf(
+    Color(0xFFB85C00), Color(0xFF428500), Color(0xFF008744), Color(0xFF0073E5), Color(0xFF9E3DFF), Color(0xFFC30061),
+)
+internal val ChatHuesBright = listOf(
+    // Orange, blue, violet and pink at black 8:1 (hen: "the red is too close to white"); lime and green at 11:1.
+    Color(0xFFFA7D00), Color(0xFF6AD400), Color(0xFF00D86C), Color(0xFF48A4FF), Color(0xFFC284FF), Color(0xFFFF6BB5),
+)
+
+/**
+ * Chat hue [i] as this theme shows it (2026-11-27, hen: "reverse the colors of light and dark"): in the light theme its
+ * bright shade with black text, in the dark theme its deep shade with white text. A stored pick from the twelve maps to
+ * its hue.
+ */
+internal fun chatHue(i: Int, lightPage: Boolean): Color? {
+    if (i < 0) return null
+    val h = i % ChatHuesDeep.size
+    return if (lightPage) ChatHuesBright[h] else ChatHuesDeep[h]
+}
+
+/** Hue [i]'s thin lines (outlines, the writing box, rings): its deep shade in both themes, so a line stays seen. */
+internal fun chatHueLine(i: Int): Color? = if (i < 0) null else ChatHuesDeep[i % ChatHuesDeep.size]
+
+/** [content] with a chat's colours ([mine], [theirs]: chat hue indexes, -1 the default), in this theme's shade. */
+@Composable
+internal fun ChatColors(mine: Int, theirs: Int, content: @Composable () -> Unit) {
+    if (mine < 0 && theirs < 0) return content()
+    val base = LocalLibraryPalette.current
+    val palette = androidx.compose.runtime.remember(base, mine, theirs) {
+        val light = base.Background.luminance() > 0.5f
+        base.withChatColors(chatHue(mine, light), chatHue(theirs, light), chatHueLine(mine), chatHueLine(theirs))
+    }
+    CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
+}
+
+/** [content] with their colour as hue [i] (a group member's), in this theme's shade; mine as it is. */
+@Composable
+internal fun TheirHue(i: Int, content: @Composable () -> Unit) {
+    val base = LocalLibraryPalette.current
+    val palette = androidx.compose.runtime.remember(base, i) {
+        base.withChatColors(null, chatHue(i, base.Background.luminance() > 0.5f), null, chatHueLine(i))
+    }
     CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
 }
 

@@ -46,6 +46,8 @@ internal fun SettingsScreen(
     linkPhone: () -> Unit = {},
     /** Settings › Talk. */
     openTalk: () -> Unit = {},
+    /** Chat colours for every chat (2026-11-27, hen), the same card as a contact's page. */
+    chatColors: @Composable () -> Unit = {},
     openCalls: () -> Unit = {},
     /** Show when I'm online: on, off, or null while it is being changed. */
     presenceVisible: Boolean? = true,
@@ -204,6 +206,7 @@ internal fun SettingsScreen(
             RowDivider()
             ChoiceRow(stringResource(R.string.settings_message_sound_phone), stringResource(R.string.settings_message_sound_phone_body), !softMessage) { setSoftMessage(false) }
         }
+        chatColors()
         SectionTitle(stringResource(R.string.settings_talk_title))
         SettingsCard {
             InfoRow(stringResource(R.string.settings_talk_title), stringResource(R.string.settings_talk_body), onClick = openTalk)

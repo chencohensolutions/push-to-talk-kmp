@@ -68,6 +68,8 @@ data class MessagingState(
     val liveEdits: Map<String, LiveEdit> = emptyMap(),
     /** Contacts whose Talk screen or reply bubble for this chat is open now (HereContent): until when. */
     val here: Map<String, Long> = emptyMap(),
+    /** Each contact's phones' app versions, as they told them (AboutContent): user → device → version and when. */
+    val versions: Map<String, Map<Int, DeviceVersion>> = emptyMap(),
     /**
      * Contacts (a group's members: "chat/author") who have the chat with this user open and in view now, so what this
      * user sends is read at once (ViewingContent; 2026-11-24, hen: the read circle): until when.
@@ -182,6 +184,11 @@ data class TalkSettings(
      */
     val directionFor: Map<String, Int> = emptyMap(),
     /**
+     * Chat colours per contact or group (2026-11-27, hen: "customize the two colors of a chat screen messages"): my
+     * bubbles' and theirs, as ChatColors swatch indexes ([mine, theirs], -1 the default). This phone's only; never sent.
+     */
+    val colorsFor: Map<String, List<Int>> = emptyMap(),
+    /**
      * Push-to-talk kept in the chat as messages (2026-11-24, hen): voice and video each per chat, off by default; off,
      * a burst leaves only a muted line once it ends. Voice messages from the mic button always stay.
      */
@@ -195,6 +202,49 @@ data class TalkSettings(
 
     /** [chat]'s direction (ChatDirection). */
     fun directionOf(chat: String): Int = directionFor[chat] ?: ChatDirection.FOLLOW
+
+    /** [chat]'s own colours as chosen on its page ([GLOBAL_COLORS]: Settings' for every chat); -1 is "like everyone". */
+    fun ownColorsOf(chat: String): Pair<Int, Int> = colorsFor[chat]?.let { (it.getOrNull(0) ?: -1) to (it.getOrNull(1) ?: -1) } ?: (-1 to -1)
+
+    /**
+     * [chat]'s colours as shown: its own, each one "like everyone" (-1) taking Settings' for every chat (2026-11-27,
+     * hen: "add this as global settings for all contacts"); -1 left means the default look.
+     */
+    fun colorsOf(chat: String): Pair<Int, Int> {
+        val own = ownColorsOf(chat)
+        val all = ownColorsOf(GLOBAL_COLORS)
+        return (if (own.first >= 0) own.first else all.first) to (if (own.second >= 0) own.second else all.second)
+    }
+
+    /**
+     * Each member's colour in group [chat] (2026-11-27, hen: "in group chat there should be color for every contact"):
+     * the "their messages" colour chosen on that contact's page; else the group's own; else one of the [hues] picked
+     * for them, steady while the group's members stay, different from the others' where it can be, and not the one my
+     * messages have.
+     */
+    fun memberHues(chat: String, members: List<String>, hues: Int = 6): Map<String, Int> {
+        val groupTheirs = ownColorsOf(chat).second
+        // My green by default is the third hue.
+        val mine = colorsOf(chat).first.let { if (it >= 0) it % hues else 2 }
+        val sorted = members.distinct().sorted()
+        // Those already taken (chosen on a contact's page) aren't given to another member, while there are others left.
+        val chosen = sorted.map { ownColorsOf(it).second }.filter { it >= 0 }.map { it % hues }.toSet()
+        val free = (0 until hues).filter { it != mine && it !in chosen }.ifEmpty { (0 until hues).filter { it != mine } }
+        val start = (chat.hashCode() and 0x7fffffff) % free.size
+        var next = 0
+        return sorted.associateWith { m ->
+            val own = ownColorsOf(m).second
+            when {
+                own >= 0 -> own % hues
+                groupTheirs >= 0 -> groupTheirs % hues
+                else -> free[(start + next++) % free.size]
+            }
+        }
+    }
+
+    /** With [chat]'s colours set (both default takes them out). */
+    fun withColors(chat: String, mine: Int, theirs: Int): TalkSettings =
+        copy(colorsFor = if (mine < 0 && theirs < 0) colorsFor - chat else colorsFor + (chat to listOf(mine, theirs)))
 
     /** With [chat]'s direction set ([ChatDirection.FOLLOW] takes it out). */
     fun withDirection(chat: String, direction: Int): TalkSettings =
@@ -214,6 +264,17 @@ data class TalkSettings(
 }
 
 /** A draft written live by someone ([MessagingState.drafts]): its text and when it last changed. */
+/** A contact's phone's app version as it told it, and when (ms). */
+data class DeviceVersion(val version: String, val at: Long)
+
+/** TalkSettings.colorsFor's key for Settings' chat colours, for every chat. */
+const val GLOBAL_COLORS = "*"
+
+internal fun versionsOf(saved: Map<String, Map<String, List<String>>>): Map<String, Map<Int, DeviceVersion>> =
+    saved.mapValues { (_, devices) ->
+        devices.mapNotNull { (d, v) -> d.toIntOrNull()?.let { n -> v.getOrNull(0)?.let { n to DeviceVersion(it, v.getOrNull(1)?.toLongOrNull() ?: 0L) } } }.toMap()
+    }
+
 /** A chat's layout direction (TalkSettings.directionFor). */
 object ChatDirection {
     const val FOLLOW = 0
@@ -495,6 +556,11 @@ internal class Messaging(
     // The Talk tab's chosen chat counts too (2026-11-26: its row shows them live, so the floating window doesn't).
     val chatInFront: String? get() = (openChat ?: hereFrom[HERE_SCREEN])?.takeIf { foreground }
     private val _state = MutableStateFlow(MessagingState())
+
+    init {
+        // The contacts' app versions as last told (AboutContent).
+        _state.update { it.copy(versions = runCatching { versionsOf(settings.contactVersions) }.getOrDefault(emptyMap())) }
+    }
     val state: StateFlow<MessagingState> = _state.asStateFlow()
 
     private val keys = KeyUploader(engine, api, store, now)
@@ -730,6 +796,14 @@ internal class Messaging(
             if (warmSent != chat) sendWarm(chat, true)
         }
         open()
+        // Once a run: this phone's app version to contacts not told it yet.
+        if (!aboutShared) {
+            aboutShared = true
+            scope.launch {
+                socket.state.first { it is SocketState.Live }
+                shareAbout()
+            }
+        }
         // Once a run: this user's email to contacts (some paired since it was last said).
         if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET || store.pictureId("") != null)) {
             profileShared = true
@@ -741,6 +815,38 @@ internal class Messaging(
     }
 
     private var profileShared = false
+    private var aboutShared = false
+
+    /** This phone's app version ("1.4.28"), told to contacts (AboutContent); "" when the platform didn't set it. */
+    var appVersion: String = ""
+
+    /** Tells each paired contact this phone's app version, when it isn't the one last told them. */
+    internal fun shareAbout() {
+        val version = appVersion.ifEmpty { return }
+        val told = settings.versionToldTo
+        val contacts = store.contacts().filter { it.paired && !it.blocked && told[it.user] != version }
+        if (contacts.isEmpty()) return
+        scope.launch {
+            for (c in contacts) {
+                try {
+                    sender.send(c.user, Content(about = AboutContent(version)), pushKind = PushKind.NONE)
+                    settings.versionToldTo = settings.versionToldTo + (c.user to version)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    /** [user]'s phone [device] runs [version] (it said so now). */
+    internal fun takeAbout(user: String, device: Int, version: String) {
+        val v = version.trim().take(32).ifEmpty { return }
+        val all = settings.contactVersions
+        val mine = all[user].orEmpty() + (device.toString() to listOf(v, now().toString()))
+        settings.contactVersions = all + (user to mine)
+        _state.update { it.copy(versions = versionsOf(settings.contactVersions)) }
+    }
 
     /** The app went to the back. */
     fun stop() {
@@ -829,6 +935,7 @@ internal class Messaging(
         lowBatteryNoWake = settings.lowBatteryNoWake,
         videoFor = settings.videoFor,
         directionFor = settings.directionFor,
+        colorsFor = settings.colorsFor,
         keepVoice = settings.keepVoiceChats,
         keepVideo = settings.keepVideoChats,
         bothLiveCall = settings.bothLiveCallChats,
@@ -872,6 +979,7 @@ internal class Messaging(
         settings.lowBatteryNoWake = talk.lowBatteryNoWake
         if (talk.videoFor != before.videoFor) settings.videoFor = talk.videoFor
         if (talk.directionFor != before.directionFor) settings.directionFor = talk.directionFor
+        if (talk.colorsFor != before.colorsFor) settings.colorsFor = talk.colorsFor
         settings.keepVoiceChats = talk.keepVoice
         settings.keepVideoChats = talk.keepVideo
         settings.bothLiveCallChats = talk.bothLiveCall
@@ -2266,6 +2374,7 @@ internal class Messaging(
             }
         }
         content.reaction?.let { takeReaction(contact.user, contact.user, it) }
+        content.about?.let { takeAbout(contact.user, envelope.senderDevice, it.version) }
         content.profile?.let { profile ->
             if (profile.needPicture) {
                 // They don't have this user's picture after all: it goes again.

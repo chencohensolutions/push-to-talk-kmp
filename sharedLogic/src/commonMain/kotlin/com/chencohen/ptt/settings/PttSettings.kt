@@ -288,6 +288,21 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_LIVE_TYPING_KNOWN)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
         set(value) = store.putString(KEY_LIVE_TYPING_KNOWN, json.encodeToString(value.sorted()))
 
+    /** Chat colours per contact or group (TalkSettings.colorsFor): [mine, theirs] swatch indexes, -1 the default. */
+    var colorsFor: Map<String, List<Int>>
+        get() = store.getString(KEY_COLORS_FOR)?.let { runCatching { json.decodeFromString<Map<String, List<Int>>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_COLORS_FOR, json.encodeToString(value))
+
+    /** Each contact's phones' app versions as they told them: user → device → [version, when (ms)]. */
+    var contactVersions: Map<String, Map<String, List<String>>>
+        get() = store.getString(KEY_CONTACT_VERSIONS)?.let { runCatching { json.decodeFromString<Map<String, Map<String, List<String>>>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_CONTACT_VERSIONS, json.encodeToString(value))
+
+    /** The app version this phone last told each contact. */
+    var versionToldTo: Map<String, String>
+        get() = store.getString(KEY_VERSION_TOLD)?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_VERSION_TOLD, json.encodeToString(value))
+
     /** Chat direction per contact or group (TalkSettings.directionFor). */
     var directionFor: Map<String, Int>
         get() = store.getString(KEY_DIRECTION_FOR)?.let { runCatching { json.decodeFromString<Map<String, Int>>(it) }.getOrNull() }.orEmpty()
@@ -327,6 +342,9 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_PUSH_VIDEO = "talk_push_video"
         private const val KEY_VIDEO_FOR = "talk_video_for"
         private const val KEY_DIRECTION_FOR = "chat_direction_for"
+        private const val KEY_COLORS_FOR = "chat_colors_for"
+        private const val KEY_CONTACT_VERSIONS = "contact_versions"
+        private const val KEY_VERSION_TOLD = "version_told_to"
         private const val KEY_LIVE_TYPING = "live_typing"
         private const val KEY_LIVE_TYPING_FOR = "live_typing_for"
         private const val KEY_MY_GENDER = "my_gender"

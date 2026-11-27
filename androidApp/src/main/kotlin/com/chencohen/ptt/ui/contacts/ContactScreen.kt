@@ -67,7 +67,7 @@ class ContactActions(
  * safety number to accept, the safety number, block and remove. The conversation itself is ConversationScreen.
  */
 @Composable
-internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActions, notifyOnly: Boolean = false, quickTalk: Boolean = false, liveTyping: Boolean = false, direction: Int = 0, urgentThroughDnd: Boolean = false, inChat: @Composable () -> Unit = {}) {
+internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActions, notifyOnly: Boolean = false, quickTalk: Boolean = false, liveTyping: Boolean = false, direction: Int = 0, urgentThroughDnd: Boolean = false, inChat: @Composable () -> Unit = {}, versions: Map<Int, com.chencohen.ptt.messaging.DeviceVersion> = emptyMap()) {
     SettingsScaffold(title = user, back = actions.back, imePadding = true) {
         if (contact == null) {
             EmptyState(stringResource(R.string.contact_gone))
@@ -147,6 +147,25 @@ internal fun ContactScreen(user: String, contact: Contact?, actions: ContactActi
                     androidx.compose.material3.TextButton(onClick = { renaming = false }) { Text(stringResource(R.string.contact_rename_cancel)) }
                 },
             )
+        }
+        // Their app's version on each of their phones, as they told it (2026-11-27, hen).
+        if (contact.paired) {
+            SectionTitle(stringResource(R.string.contact_version))
+            SettingsCard {
+                if (versions.isEmpty()) {
+                    InfoRow(stringResource(R.string.contact_version_unknown), stringResource(R.string.contact_version_unknown_body), onClick = null)
+                } else {
+                    versions.entries.sortedBy { it.key }.forEachIndexed { i, (device, v) ->
+                        if (i > 0) RowDivider()
+                        val seen = if (v.at > 0) android.text.format.DateUtils.getRelativeTimeSpanString(v.at, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString() else ""
+                        InfoRow(
+                            stringResource(R.string.contact_version_line, v.version),
+                            listOfNotNull(stringResource(R.string.contact_version_phone, device).takeIf { versions.size > 1 }, seen.ifEmpty { null }).joinToString(" · ").ifEmpty { null },
+                            onClick = null,
+                        )
+                    }
+                }
+            }
         }
         SectionTitle(stringResource(R.string.contact_safety))
         SettingsCard {

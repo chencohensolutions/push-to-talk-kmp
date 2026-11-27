@@ -30,6 +30,7 @@ class TalkApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        TalkMuteWatch.start(this)
         Notifications.createChannel(this)
         TalkNotifications.createChannels(this)
         val notifications = Notifications(this)
@@ -43,8 +44,15 @@ class TalkApp : Application() {
         // LiteRT from Play services for the car's speech detector (Android Auto); Silero in Kotlin without it.
         com.chencohen.ptt.talk.LiteRtSpeechDetector.initialize(this)
         setCallHost(this, AndroidCallHost(this))
-        // The room heard from the background without media rights: as call audio (TalkAudio.playAsCall).
-        com.chencohen.ptt.talk.TalkAudio.playAsCall = { !TalkReadyService.appOnScreen() && !TalkReadyService.withRights }
+        // The room heard from the background without media rights: as call audio (TalkAudio.playAsCall). The same
+        // rule as for clips (AndroidTalkHost.prepareToPlay): media whenever Android lets it sound (TalkSound.kind).
+        com.chencohen.ptt.talk.TalkAudio.playAsCall = {
+            com.chencohen.ptt.talk.TalkSound.kind(
+                onScreen = TalkReadyService.appOnScreen(),
+                readyWithRights = TalkReadyService.running && TalkReadyService.withRights,
+                stayConnected = StayConnectedService.running,
+            ) == com.chencohen.ptt.talk.TalkSound.Kind.Call
+        }
         com.chencohen.ptt.talk.TalkAudio.boost = { messagingState(this).value.talkSettings.boostVoice }
         // The silent warm-up (2026-11-24, hen): someone opened a chat with this user; the room is joined quietly, the
         // process kept by Talk's quiet service (its notification is the least important and silent; nothing lights).
