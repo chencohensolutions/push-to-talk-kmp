@@ -2,7 +2,7 @@
 
 Journal's look, copied from journal-client-kmp's `docs/screens/style.md` and cut down to what this app has. New
 screens follow these rules; a screen that breaks one is a bug. Android code is in `ui/style/`: `LibraryStyle.kt`
-(colors, type, shapes, icons), `LibraryButtons.kt` (buttons), `LibraryPages.kt` (pages, empty and loading states),
+(colors, type, shapes), `LibraryIcons.kt` (icons), `LibraryButtons.kt` (buttons), `LibraryPages.kt` (pages, empty and loading states),
 `LibraryMessages.kt` (the message bar) and `LibraryChrome.kt` (the Offline pill, the tabs, cards and rows). The names
 stay Journal's so the two apps can be compared side by side.
 
@@ -122,10 +122,31 @@ The same paddings everywhere (32 dp).
 
 ## Icons
 
-Line icons in `LibraryIcons` (24 dp, stroke 2): no typed characters as icons, no Material icon set, and no Signal
-icon or artwork. Person (the profile circle before the server says who this is), Chat and Call (the tabs' empty
-states), Edit (the new-chat pencil), Scan (scan a QR code), Shield (a verified safety number) and Block were added
-for this app.
+Icons in `LibraryIcons` (`ui/style/LibraryIcons.kt`, 24 dp): no typed characters as icons, no Material icon set,
+and no Signal icon or artwork. Person (the profile circle before the server says who this is), Chat and Call (the
+tabs' empty states), Edit (the new-chat pencil), Scan (scan a QR code), Shield (a verified safety number) and Block
+were added for this app; the enrollment wizard's own (Server, QrCode, Paste, Error, ArrowBack) live there too.
+
+The fine style (2026-11-27, hen: "make all icons in the app with the fine details as the app icon"; the approved
+sheet is `docs/screens/mocks/ui-icons/ui-icons-fine.html` on `ux/fine-icons-spec`, its layers in `build.js`). Like the
+app icon (a front shape, a softer one behind, a thin light edge, one solid part), each icon is ONE tint, the one
+`Icon(tint = …)` gives it, at a few strengths:
+
+- **Line.** 1.75 wide (1.5 for small marks), round ends and joins, corners 2.5.
+- **Soft fill.** Every closed body is filled with the tint at 8% (light page), 10% (dark), 14% white on coral
+  (`IconsOnAccent { }`, around white icons on coral or other strong fills: the Push button, a call's round buttons).
+  The strength follows the page by itself (`IconStrength`, `LocalIconStrength`).
+- **Solid part and inner edge.** One small part may be solid (the mic's head, the camera's lens, the bell's clapper,
+  the server's lights, the pencil's tip), and a 1-unit line runs inside the body, top left, at 30% / 35% / 40%.
+- **Off.** A crossed-out icon has no solid part and a gap around its bar.
+- **Plain ones stay plain.** Arrows, chevrons, Close, Plus, Check, Expand and Flip only got the new weight.
+- **Second colour, six icons** (`FineIcon(icon, …, key = colour)`): only the solid part takes it, only where it means
+  something. Mic and Video teal while on in a call (`IconLive`: #1F5F5B light, #5CC1B5 dark); Trash's lid red in the
+  chat's delete bar; Talk and Call teal while live, Bell coral for an urgent push, where such a place shows them on
+  a plain page. Everywhere else they are one tint like the rest.
+
+The floating bubble's and the widget's icons (`res/drawable/ic_bubble_*.xml`, `ic_widget_mic.xml`) are the same
+layers in white at the on-coral strengths; `ic_notification` stays a flat silhouette (the status bar draws only alpha).
 
 QR codes (`ui/Qr.kt`, ZXing, as journal) are drawn black on white in both themes, on a white tile with 8 dp corners;
 they are scanned with Google's code scanner from Play services (no camera permission).

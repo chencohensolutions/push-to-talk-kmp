@@ -507,7 +507,7 @@ internal fun ChatButtons(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f))
+                    com.chencohen.ptt.ui.style.IconsOnAccent { Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f)) }
                 }
                 // The side target, left of Push while it is held: it fills as the thumb nears it. The microphone
                 // turns into the bell (and back) in one move when someone stops hearing while it is held.

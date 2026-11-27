@@ -1,5 +1,6 @@
 package com.chencohen.ptt.ui
 
+import com.chencohen.ptt.ui.style.LibraryIcons
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.text.style.TextDirection
 import android.content.ClipboardManager
@@ -173,7 +174,7 @@ internal fun EnrollmentContent(state: EnrollmentState, actions: EnrollmentAction
 private fun ColumnScope.WelcomeStep(actions: EnrollmentActions) {
     StepBody {
         Spacer(Modifier.height(40.dp))
-        Badge(Icons.Shield, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        Badge(LibraryIcons.Shield, MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
         Title(stringResource(R.string.enroll_welcome_title), Modifier.padding(top = 32.dp))
         Body(stringResource(R.string.enroll_welcome_body), Modifier.padding(top = 16.dp))
         Column(Modifier.padding(top = 32.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -202,8 +203,8 @@ private fun ColumnScope.EnterCodeStep(state: EnrollmentState, step: EnrollmentSt
         )
         // One above the other: side by side, "Scan QR code" wraps on a phone.
         Column(Modifier.fillMaxWidth().padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            com.chencohen.ptt.ui.style.SecondaryButton(stringResource(R.string.enroll_scan), actions.scan, Modifier.fillMaxWidth().heightIn(min = 56.dp), enabled = !step.checking, icon = Icons.QrCode)
-            com.chencohen.ptt.ui.style.SecondaryButton(stringResource(R.string.enroll_paste), actions.paste, Modifier.fillMaxWidth().heightIn(min = 56.dp), enabled = !step.checking, icon = Icons.Paste)
+            com.chencohen.ptt.ui.style.SecondaryButton(stringResource(R.string.enroll_scan), actions.scan, Modifier.fillMaxWidth().heightIn(min = 56.dp), enabled = !step.checking, icon = LibraryIcons.QrCode)
+            com.chencohen.ptt.ui.style.SecondaryButton(stringResource(R.string.enroll_paste), actions.paste, Modifier.fillMaxWidth().heightIn(min = 56.dp), enabled = !step.checking, icon = LibraryIcons.Paste)
         }
         OutlinedTextField(
             value = state.serverAddress,
@@ -253,11 +254,11 @@ private fun ColumnScope.ConfirmStep(state: EnrollmentState, step: EnrollmentStep
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
         ) {
             Column {
-                DetailRow(Icons.Server, stringResource(R.string.enroll_server), state.serverAddress.removePrefix("https://"),
+                DetailRow(LibraryIcons.Server, stringResource(R.string.enroll_server), state.serverAddress.removePrefix("https://"),
                     state.serverId?.let { stringResource(R.string.enroll_server_verified_id, shortServerId(it)) }
                         ?: stringResource(R.string.enroll_server_verified))
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                DetailRow(Icons.Person, stringResource(R.string.enroll_account), step.user,
+                DetailRow(LibraryIcons.Person, stringResource(R.string.enroll_account), step.user,
                     stringResource(R.string.enroll_code_expires, state.code.uppercase(), step.minutesLeft), highlight = false)
             }
         }
@@ -277,7 +278,7 @@ private fun ColumnScope.ConfirmStep(state: EnrollmentState, step: EnrollmentStep
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         ) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Lock, contentDescription = null, modifier = Modifier.size(20.dp))
+                Icon(LibraryIcons.Lock, contentDescription = null, modifier = Modifier.size(20.dp))
                 Text(stringResource(R.string.enroll_key_notice), style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -320,7 +321,7 @@ private fun ColumnScope.InviteCodeStep(state: EnrollmentState, step: EnrollmentS
             shape = com.chencohen.ptt.ui.style.LibraryShapes.Card,
             modifier = Modifier.fillMaxWidth().padding(top = 24.dp),
         ) {
-            DetailRow(Icons.Server, stringResource(R.string.enroll_server), state.serverAddress.removePrefix("https://"),
+            DetailRow(LibraryIcons.Server, stringResource(R.string.enroll_server), state.serverAddress.removePrefix("https://"),
                 state.serverId?.let { stringResource(R.string.enroll_server_verified_id, shortServerId(it)) }
                     ?: stringResource(R.string.enroll_server_verified))
         }
@@ -395,7 +396,7 @@ private fun ColumnScope.InviteCodeStep(state: EnrollmentState, step: EnrollmentS
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         ) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Lock, contentDescription = null, modifier = Modifier.size(20.dp))
+                Icon(LibraryIcons.Lock, contentDescription = null, modifier = Modifier.size(20.dp))
                 Text(stringResource(R.string.enroll_key_notice), style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -443,7 +444,7 @@ private fun ColumnScope.EnrolledStep(step: EnrollmentStep.Enrolled, actions: Enr
             Modifier.size(96.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(48.dp))
+            Icon(LibraryIcons.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(48.dp))
         }
         Title(stringResource(R.string.enroll_done_title), Modifier.padding(top = 28.dp), TextAlign.Center)
         Body(stringResource(R.string.enroll_done_body, step.user), Modifier.padding(top = 8.dp), TextAlign.Center)
@@ -470,7 +471,7 @@ private fun ColumnScope.EnrolledStep(step: EnrollmentStep.Enrolled, actions: Enr
 private fun ColumnScope.FailedStep(state: EnrollmentState, step: EnrollmentStep.Failed, actions: EnrollmentActions) {
     StepBody {
         Spacer(Modifier.height(64.dp))
-        Badge(Icons.Error, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
+        Badge(LibraryIcons.Error, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer)
         val title = if (step.error == EnrollmentError.InvalidCode) R.string.enroll_failed_code_title else R.string.enroll_failed_title
         Title(stringResource(title), Modifier.padding(top = 28.dp))
         if (state.invite != null) {
@@ -583,7 +584,7 @@ private fun WizardHeader(stepNumber: Int, label: Int, onBack: (() -> Unit)?) {
     ) {
         if (onBack != null) {
             IconButton(onClick = onBack) {
-                Icon(Icons.ArrowBack, contentDescription = stringResource(R.string.enroll_back))
+                Icon(LibraryIcons.ArrowBack, contentDescription = stringResource(R.string.enroll_back))
             }
         }
         Text(
@@ -692,7 +693,7 @@ private fun ProgressRow(title: String, detail: String, state: Int, last: Boolean
                         Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+                        Icon(LibraryIcons.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
                     }
                     state == 0 -> CircularProgressIndicator(strokeWidth = 3.dp, modifier = Modifier.size(24.dp))
                     else -> Box(Modifier.size(20.dp).border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape))
@@ -707,41 +708,6 @@ private fun ProgressRow(title: String, detail: String, state: Int, last: Boolean
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-}
-
-/** Line icons used by the wizard (Material icons are not a dependency of this app). */
-private object Icons {
-    /** [mirrored] icons point along the reading direction, so they flip in right-to-left layouts (Hebrew). */
-    private fun icon(name: String, vararg paths: String, mirrored: Boolean = false) =
-        ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f, autoMirror = mirrored).apply {
-            paths.forEach { data ->
-                addPath(
-                    pathData = PathParser().parsePathString(data).toNodes(),
-                    stroke = SolidColor(Color.Black),
-                    strokeLineWidth = 2f,
-                    strokeLineCap = StrokeCap.Round,
-                    strokeLineJoin = StrokeJoin.Round,
-                )
-            }
-        }.build()
-
-    val ArrowBack = icon("ArrowBack", "M19 12H5", "M11 6l-6 6 6 6", mirrored = true)
-    val Check = icon("Check", "M5 12l5 5 9-10")
-    val Shield = icon("Shield", "M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z", "M12 9a2 2 0 1 0 0.01 0", "M12 13v3")
-    val Lock = icon("Lock", "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z", "M8 11V8a4 4 0 0 1 8 0v3")
-    val Server = icon("Server", "M5 4h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", "M5 13h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2z", "M7 7.5h0.01", "M7 16.5h0.01")
-    val Person = icon("Person", "M12 4a4 4 0 1 0 0.01 0", "M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5")
-    val QrCode = icon(
-        "QrCode",
-        "M4 4h6v6H4z", "M14 4h6v6h-6z", "M4 14h6v6H4z",
-        "M14 14h2v2h-2z", "M18 18h2v2h-2z", "M14 18v2", "M18 14h2",
-    )
-    val Paste = icon(
-        "Paste",
-        "M9 4h6v3H9z", "M9 5.5H7a2 2 0 0 0-2 2V19a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5a2 2 0 0 0-2-2h-2",
-        "M9 12h6", "M9 16h4",
-    )
-    val Error = icon("Error", "M12 3a9 9 0 1 0 0.01 0", "M12 7.5v5.5", "M12 16.5h0.01")
 }
 
 @Preview(showBackground = true)

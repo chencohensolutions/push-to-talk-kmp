@@ -119,7 +119,7 @@ internal fun TalkCircle(live: Boolean, someoneTalking: Boolean, press: () -> Uni
     ) {
         // The icon only (2026-11-22, hen); the label is for TalkBack.
         // A camera when the press sends video too (Voice | Video above it).
-        Icon(if (video) LibraryIcons.Video else LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp))
+        com.chencohen.ptt.ui.style.IconsOnAccent { Icon(if (video) LibraryIcons.Video else LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(64.dp)) }
     }
 }
 
@@ -383,7 +383,7 @@ internal fun VoiceButton(recording: OwnTalk?, start: () -> Unit, finish: (send: 
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(22.dp))
+            com.chencohen.ptt.ui.style.IconsOnAccent { Icon(LibraryIcons.Mic, null, tint = LibraryColors.OnInverse, modifier = Modifier.size(22.dp)) }
         }
     }
 }

@@ -2191,14 +2191,14 @@ private fun SelectionBar(count: Int, close: () -> Unit, edit: (() -> Unit)?, inf
         }
         Text(stringResource(R.string.chat_selected, count), color = LibraryColors.OnBackground, style = LibraryType.RowTitle, modifier = Modifier.weight(1f).padding(start = 4.dp))
         @Composable
-        fun action(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = LibraryColors.OnBackground, onClick: () -> Unit) =
+        fun action(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = LibraryColors.OnBackground, key: Color? = null, onClick: () -> Unit) =
             Box(Modifier.size(48.dp).clickable(role = Role.Button, onClickLabel = label, onClick = onClick), contentAlignment = Alignment.Center) {
-                Icon(icon, label, tint = tint)
+                com.chencohen.ptt.ui.style.FineIcon(icon, label, tint = tint, key = key)
             }
         androidx.compose.animation.AnimatedVisibility(edit != null) { action(LibraryIcons.Edit, stringResource(R.string.chat_edit)) { edit?.invoke() } }
         androidx.compose.animation.AnimatedVisibility(save != null) { action(LibraryIcons.Download, stringResource(R.string.kept_save)) { save?.invoke() } }
         androidx.compose.animation.AnimatedVisibility(info != null) { action(LibraryIcons.Info, stringResource(R.string.chat_info)) { info?.invoke() } }
-        action(LibraryIcons.Trash, stringResource(R.string.chat_delete), LibraryColors.Warning, delete)
+        action(LibraryIcons.Trash, stringResource(R.string.chat_delete), LibraryColors.Warning, key = LibraryColors.Error, onClick = delete)
     }
 }
 

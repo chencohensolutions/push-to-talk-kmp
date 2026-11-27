@@ -753,7 +753,7 @@ internal fun StopLive(size: Dp, stop: () -> Unit, urgent: Boolean = false) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (urgent) androidx.compose.material3.Icon(com.chencohen.ptt.ui.style.LibraryIcons.Bell, null, tint = Color.White, modifier = Modifier.size(size * 0.3f))
+            if (urgent) com.chencohen.ptt.ui.style.IconsOnAccent { androidx.compose.material3.Icon(com.chencohen.ptt.ui.style.LibraryIcons.Bell, null, tint = Color.White, modifier = Modifier.size(size * 0.3f)) }
             else Box(Modifier.size(size * 0.26f).background(Color.White, RoundedCornerShape(4.dp)))
             Text(label, color = Color.White, style = LibraryType.Tiny, modifier = Modifier.padding(top = 4.dp))
         }
@@ -797,18 +797,18 @@ internal fun RoomCallBottom(call: com.chencohen.ptt.messaging.RoomCall, end: () 
             )
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp).navigationBarsPadding(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            RoundToggle(if (call.microphone) com.chencohen.ptt.ui.style.LibraryIcons.Mic else com.chencohen.ptt.ui.style.LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute)) { media(!call.microphone, call.camera) }
-            RoundToggle(if (call.camera) com.chencohen.ptt.ui.style.LibraryIcons.Video else com.chencohen.ptt.ui.style.LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on)) { media(call.microphone, !call.camera) }
+            RoundToggle(if (call.microphone) com.chencohen.ptt.ui.style.LibraryIcons.Mic else com.chencohen.ptt.ui.style.LibraryIcons.MicOff, stringResource(if (call.microphone) R.string.call_mute else R.string.call_unmute), if (call.microphone) com.chencohen.ptt.ui.style.IconLive else null) { media(!call.microphone, call.camera) }
+            RoundToggle(if (call.camera) com.chencohen.ptt.ui.style.LibraryIcons.Video else com.chencohen.ptt.ui.style.LibraryIcons.VideoOff, stringResource(if (call.camera) R.string.call_camera_off else R.string.call_camera_on), if (call.camera) com.chencohen.ptt.ui.style.IconLive else null) { media(call.microphone, !call.camera) }
         }
     }
 }
 
 @Composable
-private fun RoundToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun RoundToggle(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, key: Color? = null, onClick: () -> Unit) {
     Box(
         Modifier.size(48.dp).background(LibraryColors.Raised, CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { androidx.compose.material3.Icon(icon, label, tint = LibraryColors.OnBackground, modifier = Modifier.size(22.dp)) }
+    ) { com.chencohen.ptt.ui.style.FineIcon(icon, label, Modifier.size(22.dp), tint = LibraryColors.OnBackground, key = key) }
 }
 
 /** Text in the layout's own direction (not its first letter's): Hebrew lines stay right to left with a Latin name. */

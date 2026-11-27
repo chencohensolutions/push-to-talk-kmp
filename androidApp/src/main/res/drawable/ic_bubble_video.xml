@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Video. The fine style (docs/screens/style.md, Icons), white on the coral bubble. Made from the same layers as LibraryIcons.Video. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:pathData="M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
-    <path android:pathData="M17 10l5-3v10l-5-3" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M5 6h8.5a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5h-8.5a2.5 2.5 0 0 1-2.5-2.5v-7a2.5 2.5 0 0 1 2.5-2.5z" android:fillColor="#FFFFFFFF" android:fillAlpha="0.14" />
+    <path android:pathData="M5 6h8.5a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1-2.5 2.5h-8.5a2.5 2.5 0 0 1-2.5-2.5v-7a2.5 2.5 0 0 1 2.5-2.5z" android:strokeColor="#FFFFFFFF" android:strokeWidth="1.75" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M4.5 10.6V9.4A1.4 1.4 0 0 1 5.9 8h2.5" android:strokeColor="#FFFFFFFF" android:strokeWidth="1" android:strokeAlpha="0.4" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M17.9 10.5l3.2-2.1a.6.6 0 0 1 .9.5v6.2a.6.6 0 0 1-.9.5l-3.2-2.1z" android:fillColor="#FFFFFFFF" />
+    <path android:pathData="M17.9 10.5l3.2-2.1a.6.6 0 0 1 .9.5v6.2a.6.6 0 0 1-.9.5l-3.2-2.1z" android:strokeColor="#FFFFFFFF" android:strokeWidth="1" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
 </vector>
