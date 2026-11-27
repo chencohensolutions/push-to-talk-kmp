@@ -167,6 +167,9 @@ private const val LIVE_ROW = "LiveRow"
 /** One side of the live row: [key] whose it is (LiveLayout.THEIRS, MINE), a video box [shape] wide for 1 high or a voice pill. */
 internal data class LiveSide(val key: String, val video: Boolean, val shape: Float)
 
+/** The Talk tab's stage (2026-11-26, hen): a video box as tall as the stage gives, in place of a share of the screen. */
+internal val LocalLiveBoxHeight = androidx.compose.runtime.compositionLocalOf<androidx.compose.ui.unit.Dp?> { null }
+
 /**
  * Live in the chat, floating over it just below the header (2026-11-24, hen: "the video and pills should be floating,
  * not inside black box"; 2026-11-25: "just below the header"): for each side, theirs at the language's start side and
@@ -254,7 +257,7 @@ internal fun LivePanel(
     val teal = LibraryColors.Accent
     LiveStage(
         sides,
-        boxHeight = screen * LIVE_VIDEO_SHARE,
+        boxHeight = LocalLiveBoxHeight.current ?: (screen * LIVE_VIDEO_SHARE),
         ring = { if (it.key == LiveLayout.MINE) myRing else teal },
         pill = { side ->
             val voice = last[if (side.key == LiveLayout.MINE) 1 else 0]
@@ -326,7 +329,7 @@ internal fun GroupLivePanel(talkers: List<GroupTalker>, waitingFor: String?, myU
     val teal = LibraryColors.Accent
     LiveStage(
         sides,
-        boxHeight = screen * LIVE_VIDEO_SHARE,
+        boxHeight = LocalLiveBoxHeight.current ?: (screen * LIVE_VIDEO_SHARE),
         ring = { if (it.key == LiveLayout.MINE) myRing else teal },
         group = true,
         groupShape = myShape,

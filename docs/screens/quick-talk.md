@@ -3,16 +3,32 @@
 The app opens on **Talk**, the first home tab, before Chats and Calls (2026-11-22, hen: the main screen is push to
 talk). It is `ui/talk/QuickTalkHome.kt`; the list and its order are `talk/QuickTalk` in sharedLogic.
 
-- **Which chats:** the contacts and groups with **Quick talk** on, one page each, in the order they were marked
-  (`TalkSettings.quickTalk`, kept on this phone, not synced to the user's other phones). A contact that is no longer
-  paired, a blocked one, a group that is gone or that this user can't read yet is skipped.
-- **A page:** the chat's letter circle (or the group's picture) and name in PageTitle; a tap opens the
-  [conversation](conversation.md). Under it, what the floor is doing, the same line as [Talk mode](talk.md) ("Hold
-  the button to talk", "Live", "Dana is talking", "Busy"…), in teal while someone talks. In the middle the
-  hold-to-talk circle in ink (pink), 220 dp, with a teal ring while live, as in Talk mode.
-- **Swipe** left or right for the next chat. While the button is held (asking for the floor or live) the pages don't
-  move. Dots under the pages say which one (only with two or more), the current one in ink.
-- **The page shown last** is where the tab opens next time (`TalkSettings.quickTalkPage`); else the first.
+- **Made simple** (2026-11-26, hen: "its too complicated", "only chats marked as quick chat should appear there, its
+  not many", "the video and voice do not integrate nicely", "the chat ux and animation should resemble the chat
+  screen"; option A of `docs/screens/mocks/talk-live-list-review.png`, in place of the live list tried the same day).
+  Three rules: touch a name to choose it, hold Push to talk, touch the writing bubble to write.
+- **The header:** "Talk" beside my profile circle, and **+** at the other end: every contact and group with a switch;
+  on, it's a row here (the same Quick talk switch as on its page).
+- **The rows:** only the Quick talk chats, in the order they were marked, never re-sorted. Each: the face (56 dp) with
+  its presence ring (solid: on that chat's screen; dashed: in its talk room; none: away) and can't-hear badge, the
+  name (16 sp), one line (13 sp, its last message or push; in ink while unread) and the unread count. The chosen one
+  is a raised card (200 ms); touching it again opens its chat.
+- **The bottom is the chosen chat's own** (its screen is under the tab): its writing bubble, resting, reading "Message
+  to testbot", which is the only "to whom" sign; a touch opens that chat with the bubble already writing. Under it
+  the strip as in the chat: Push 64 dp and its slides, Voice message beside it, Stop while hands-free.
+- **Live in the rows, not over them:** someone talking: their face's ring is whole and glows, their name and line turn
+  teal ("testbot2 is talking"); nothing moves. Their video grows out of their face inside their row, top edge still,
+  the rows under it moving down (one move, 300 ms), and the row scrolls whole into view; it shrinks back the same
+  way. My push in the chosen row: my pill "You · 0:03" at its end; my hands-free video's box at its end (one time
+  for the whole run, kept over a renewal's gap); who can't hear me under the name. The floating window doesn't show
+  for the chosen chat while the tab is in front. "Make it a call" and the chat's other chips stay at the bottom.
+- **Whoever starts talking** is chosen (Push answers them), unless my push runs.
+- **Opening the chat from here** (touching the chosen row, or its writing bubble): the chat comes up from the row: its
+  header starts where the row was and rises into place while the messages fade in from a little below, 380 ms, the
+  writing bubble and the strip not moving. Back from it goes the same way down, then the tab.
+- **None marked yet:** one line ("No one here yet. Add the people and groups you talk with most.") and **Add**, which
+  opens the same list as +. No Push and no writing bubble. Nothing is said before the chats have come (2 s at most).
+- **The chat chosen last** is chosen next time (`TalkSettings.quickTalkPage`); else the first.
 - **None yet:** "No quick talk chats yet. Turn on Quick talk on a contact’s or group’s page." with **Open Chats**.
 - **Quick talk switch:** on a [contact's page](contacts.md) and a [group's page](groups.md), above When I’m away:
   "Quick talk", "A page on the Talk tab: swipe to it and hold to talk." Turning it on adds the chat as the last page;
@@ -20,6 +36,10 @@ talk). It is `ui/talk/QuickTalkHome.kt`; the list and its order are `talk/QuickT
 
 The top bar is home's (the profile circle, "Talk", Offline); the cards (Register again, pair requests, linking) stay
 on Chats. Talk mode from a conversation is unchanged.
+
+## Before the faces row (until 2026-11-26)
+
+The page as it was, kept for its history; the stage above replaced it.
 
 - **Chat, Voice call, Video call** (2026-11-22, hen): three round buttons under the name: the conversation (back to it
   when the Talk screen came from it), and a voice or video call there.

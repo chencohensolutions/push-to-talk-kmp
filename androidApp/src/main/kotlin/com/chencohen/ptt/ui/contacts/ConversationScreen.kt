@@ -196,12 +196,23 @@ internal fun ConversationScreen(
     live: ChatLive = ChatLive(),
     embeddedFull: Boolean = false,
     embeddedCalm: Boolean = false,
+    /**
+     * The Talk tab's stage (2026-11-26, hen: the Talk tab "in resemblance of the chat app"): drawn where the messages
+     * are, with [embeddedHeader] (its row of faces) in place of the header, and no writing bubble. The bottom strip,
+     * the live pills and video and the who-can't-hear chips are the chat's own.
+     */
+    stage: (@Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit)? = null,
+    /** Who Push goes to, said beside it (the Talk tab's list: "To testbot"). */
+    pushTo: String? = null,
+    /** The Talk tab (2026-11-26): the writing bubble says "Message to testbot" and a tap on it opens the chat. */
+    writeHint: String? = null,
+    writeOpens: (() -> Unit)? = null,
 ) {
     val phone = androidx.compose.ui.platform.LocalLayoutDirection.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.ui.platform.LocalLayoutDirection provides com.chencohen.ptt.ui.talk.chatLayout(direction, phone),
     ) {
-        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm)
+        ConversationScreenIn(user, contact, messages, header, actions, group, talk, talkLine, drafts, pushVideo, warmCamera, presences, embeddedHeader, seeThrough, draftCarets, viewing, liveEdits, live, embeddedFull, embeddedCalm, stage, pushTo, writeHint, writeOpens)
     }
 }
 
@@ -244,6 +255,12 @@ private fun ConversationScreenIn(
     embeddedFull: Boolean = false,
     /** The floating chat is growing or shrinking: the keyboard goes and the draft rests, as the app's chat will show it. */
     embeddedCalm: Boolean = false,
+    stage: (@Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit)? = null,
+    /** Who Push goes to, said beside it (the Talk tab's list: "To testbot"). */
+    pushTo: String? = null,
+    /** The Talk tab (2026-11-26): the writing bubble says "Message to testbot" and a tap on it opens the chat. */
+    writeHint: String? = null,
+    writeOpens: (() -> Unit)? = null,
 ) {
     // In the floating window, as it floats: its header, no status bar room.
     val embedded = embeddedHeader != null && !embeddedFull
@@ -280,6 +297,20 @@ private fun ConversationScreenIn(
         selected.clear()
         sheet = null
     }
+    // Opened from the Talk tab's row (TalkTabMove): the row rises into the header, the messages come in, the bottom stays.
+    val talkMove = remember(user) { if (embeddedHeader == null) TalkTabMove.take(user) else null }
+    val rise = remember(user) { androidx.compose.animation.core.Animatable(if (talkMove != null) 0f else 1f) }
+    LaunchedEffect(user) { if (talkMove != null) rise.animateTo(1f, androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+    var headerTop by remember(user) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var leaving by remember(user) { mutableStateOf(false) }
+    val riseScope = androidx.compose.runtime.rememberCoroutineScope()
+    androidx.activity.compose.BackHandler(enabled = talkMove != null && !leaving) {
+        leaving = true
+        riseScope.launch {
+            rise.animateTo(0f, androidx.compose.animation.core.tween(380, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+            actions.back()
+        }
+    }
     val allMessages = messages
     @Suppress("NAME_SHADOWING")
     val messages = remember(messages, pendingDelete) { pendingDelete?.let { d -> messages.filter { it.id !in d.ids } } ?: messages }
@@ -308,6 +339,8 @@ private fun ConversationScreenIn(
                     .using(androidx.compose.animation.SizeTransform(clip = false))
             },
             label = "header or selection",
+            modifier = Modifier.onGloballyPositioned { headerTop = it.positionInWindow().y }
+                .graphicsLayer { if (talkMove != null) translationY = (talkMove - headerTop) * (1f - rise.value) },
         ) { selecting ->
             if (selecting) {
                 val chosen = selected.mapNotNull { id -> allMessages.firstOrNull { it.id == id } }
@@ -507,9 +540,9 @@ private fun ConversationScreenIn(
                     pretendMine == LiveKind.Voice -> GroupTalker(com.chencohen.ptt.ui.live.LiveLayout.MINE, "", me, false, mySinceNow, mine = true)
                     else -> null
                 }
-                GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), null, myUrgent = myUrgent)
+                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), null, myUrgent = myUrgent)
             } else {
-                LivePanel(
+                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) LivePanel(
                     theirVideo, if (group != null) (theirs?.from ?: talker?.user) else null, theirSinceNow,
                     myPanel, mySinceNow,
                     null, handsFree,
@@ -698,6 +731,8 @@ private fun ConversationScreenIn(
                 keyboard?.hide()
                 draft.editing = false
                 if (landing.draft.isNotBlank()) draft.text = landing.draft
+                // From the Talk tab's writing bubble: writing at once.
+                if (landing.write) draft.editing = true
                 list.scrollToItem(0)
             }
         }
@@ -763,6 +798,9 @@ private fun ConversationScreenIn(
                     say("hands-free ends: no floor for 2.5 s (run ${runs.now})")
                     handsFree = false
                     runs.end()
+                    // A press already on its way (the video after the lock, asked late on a slow network) would get
+                    // the floor after this and go on with no Stop (2026-11-26, seen on testbot): it is let go too.
+                    actionsNow.finishVoice(true)
                 }
                 return@LaunchedEffect
             }
@@ -929,8 +967,12 @@ private fun ConversationScreenIn(
         }
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { autoplay.viewport = it.boundsInWindow() }) {
           androidx.compose.runtime.CompositionLocalProvider(LocalVideoAutoplay provides autoplay) {
+            // The Talk tab: its stage where the messages are, clear of the strip.
+            // Live video there fills the stage, and the pills and video are drawn in it, not over the top.
+            if (stage != null) Box(Modifier.fillMaxSize().padding(bottom = floatingRoom)) { stage(videoPanel || myPanel) { liveOverlay() } } else
             LazyColumn(
                 Modifier.fillMaxSize()
+                    .graphicsLayer { if (talkMove != null) { alpha = rise.value; translationY = 40.dp.toPx() * (1f - rise.value) } }
                     .pointerInput(Unit) {
                     // A tap on the chat puts the keyboard away (the draft stays).
                     detectTapGestures(onTap = {
@@ -1165,7 +1207,7 @@ private fun ConversationScreenIn(
             // (2026-11-25, hen: "just below the header"; they come out from under its edge.)
             // The live pills and boxes, floating over the chat under the header.
             // (2026-11-25, hen: "just below the header"; they come out from under its edge.)
-            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) { liveOverlay() }
+            if (stage == null) Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) { liveOverlay() }
             // Floating at the bottom: this phone's draft (or a voice message's recording), then the buttons.
             // How far the keyboard is open, 0 to 1, as it animates: the button row folds away by the same amount.
             val imeNow = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
@@ -1208,7 +1250,7 @@ private fun ConversationScreenIn(
                             transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
                             label = "draft or recording",
                         ) { recording ->
-                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions, writing = { edits.abort() }) { body, from -> flight.start(body, from, newest?.id) }
+                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions, writing = { edits.abort() }, hint = writeHint, opens = writeOpens) { body, from -> flight.start(body, from, newest?.id) }
                         }
                     }
                 }
@@ -1250,6 +1292,7 @@ private fun ConversationScreenIn(
                             ChatButtons(
                                 false, talkingHere, recordingVoice, actions, video = false, handsFree = handsFree,
                                 waitingFor = waitingFor,
+                                pushTo = pushTo,
                                 urgent = talk.own?.let { it.chat == user && it.urgent } == true,
                                 cantHear = someoneCantHear,
                                 // At the lock: the voice so far is sent, and a video burst follows, hands-free until Stop.
@@ -1476,7 +1519,7 @@ private val HEADER_HEIGHT = 48.dp
  * close into the whole ring ([morphRing], the line my bubble's outline is drawn with).
  */
 @Composable
-private fun Modifier.faceRing(ring: Int): Modifier = morphRing(ring, LibraryColors.Accent)
+internal fun Modifier.faceRing(ring: Int): Modifier = morphRing(ring, LibraryColors.Accent)
 
 /**
  * The header's own edge (2026-11-25, hen chose "A · Hairline"; 2026-11-26, hen: only while messages are scrolled under
@@ -2458,6 +2501,8 @@ private fun PinnedDraft(
     actions: ConversationActions,
     /** The writing bubble was tapped or took the focus: an edit in progress ends unchanged. */
     writing: () -> Unit = {},
+    hint: String? = null,
+    opens: (() -> Unit)? = null,
     sent: (String, androidx.compose.ui.geometry.Rect?) -> Unit,
 ) {
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
@@ -2512,9 +2557,13 @@ private fun PinnedDraft(
     Box(Modifier.weight(1f)) {
     ComposeBubble(
         draft.text, draft.editing, focus, {
-            writing()
-            draft.editing = true
+            if (opens != null) opens() else {
+                writing()
+                draft.editing = true
+            }
         },
+        hint = hint,
+        opens = opens != null,
         focused = writing,
         modifier = Modifier.graphicsLayer {
             alpha = appear.value

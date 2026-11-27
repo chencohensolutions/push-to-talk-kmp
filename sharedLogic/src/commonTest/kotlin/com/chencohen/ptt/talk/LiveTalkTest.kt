@@ -44,6 +44,8 @@ class LiveTalkTest {
         override suspend fun setTalking(on: Boolean) { talking = on }
         override fun hears(identity: String) = identity in heard
         override fun silence(identity: String) { silenced += identity }
+        val unsilenced = mutableListOf<String>()
+        override fun unsilence(identity: String) { unsilenced += identity }
     }
 
     private class Setup(val scope: TestScope, liveOn: Boolean = true) {
@@ -176,6 +178,22 @@ class LiveTalkTest {
         assertEquals(listOf("sharon.1"), s.transport.silenced)
         assertTrue(s.live.captureFor("sharon") != null)
         assertNull(s.live.captureFor("other"))
+    }
+
+    @Test
+    fun aSilencedTalkerIsHeardAgainAtTheirNextBurst() = runTest {
+        // 2026-11-27, hen: "audio not always working": silenced once (its clip played), every later push from them in
+        // the room stayed silent.
+        val s = Setup(this)
+        s.live.show("testbot")
+        runCurrent()
+        s.live.silence("testbot", "testbot.1")
+        assertEquals(listOf("testbot.1"), s.transport.silenced)
+        s.live.unsilence("testbot", "testbot.1")
+        assertEquals(listOf("testbot.1"), s.transport.unsilenced)
+        // Not for another room's talker.
+        s.live.unsilence("other", "testbot.1")
+        assertEquals(1, s.transport.unsilenced.size)
     }
 
     @Test

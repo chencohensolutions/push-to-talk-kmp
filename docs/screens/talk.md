@@ -273,3 +273,16 @@ The floating window's bottom pill is a bar that stands out over any app, and is 
 - **Chat grows into the chat**: a tap on Chat grows the bar itself, from its place, shape and colour, over the whole
   screen into the conversation ([conversation.md](conversation.md), "From floating to the chat, one move").
 - Debug builds: `adb shell am broadcast -n com.chencohen.ptt/.DebugTriggers -a bubble --es chat <user>` shows the bar.
+
+## Heard every time, and loud enough (2026-11-27, hen: "audio not always working and sometimes sound very low")
+
+- A talker whose live audio was silenced for one push (it wasn't confirmed in time, so its clip played; or it was
+  saved for Do Not Disturb) is heard again at their next push. It used to stay silenced for every later push in that
+  room, until the room was joined again.
+- A room joined as call audio (in the background, without the right to play media) plays on the built-in speaker
+  (as the communication device) instead of the earpiece, unless a headset is on; the Talk tab's chosen chat counts as
+  on screen, so coming back to the app there joins its room again as media.
+- A press while someone else is live in the room keeps the normal audio mode (no speakerphone tuning), so what the
+  room plays isn't lowered by communication mode.
+- The log has the room's audio as numbers every 2 s while it flows (TalkAudioProbe): packets, level, energy,
+  concealed samples and the volume set, per talker; packets and microphone level for this phone.
