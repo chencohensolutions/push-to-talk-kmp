@@ -487,3 +487,12 @@ the buttons only", and "make the banner smaller, the red button smaller".
   Undo pill.
 - Geometry is the same in Hebrew and in English (full-width strip and lines; the buttons were already unmirrored).
 - `ConversationScreen` (HeaderHairline, `strip`, `underStrip`), `ChatComposer` (ChatButtons, the draft's fill).
+
+## Chat colours (2026-11-27, hen: "customize the two colors of a chat screen messages, from the contact settings screen")
+
+On a contact's page and a group's page, **Chat colours**: two bubbles showing them as the chat will, then **My
+messages** and **Their messages**, each Default (A) or one of ten colours that read in light and dark (green, teal,
+blue, indigo, violet, pink, red, orange, yellow, slate); the chosen one ringed (200 ms). Kept on this phone only. In
+the chat, the floating window and the Talk tab's chat: their bubbles take their colour, mine fill with mine once every
+phone has them; my bubble's outline before that stays the green line (dashed, then whole), so the read state reads the
+same in any colour. Text on a bubble is near-white or near-black by the colour.

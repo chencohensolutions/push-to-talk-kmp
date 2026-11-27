@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -292,7 +293,7 @@ internal fun talkLine(chat: String, talk: TalkUiState, nameOf: (String) -> Strin
 internal fun ClipContent(message: TextMessage, playing: NowPlaying?, live: Boolean, play: (String) -> Unit, stop: () -> Unit, onInverse: Boolean, save: ((String) -> Unit)? = null) {
     val clip = message.clip ?: return
     val now = playing?.clip == message.id
-    val ink = if (onInverse) LibraryColors.OnMine else LibraryColors.OnBackground
+    val ink = if (onInverse) LibraryColors.OnMine else LibraryColors.OnTheirs
     val muted = if (onInverse) LibraryColors.OnMineMuted else LibraryColors.Muted
     Row(
         // A long press saves it as a file (2026-11-23, hen).
@@ -529,5 +530,73 @@ internal fun Here(chat: String, setHere: (String?) -> Unit) {
     androidx.lifecycle.compose.LifecycleStartEffect(chat) {
         setHere(chat)
         onStopOrDispose { setHere(null) }
+    }
+}
+
+
+/**
+ * A chat's two colours (2026-11-27, hen: "customize the two colors of a chat screen messages, from the contact settings
+ * screen"): my bubbles and theirs, each Default or one of ChatSwatches, with two bubbles showing them as the chat will.
+ * Kept on this phone only. My bubble's outline stays the green line (sent, on the server), only its fill and theirs
+ * change; their text is light or dark by the colour.
+ */
+@Composable
+internal fun ChatColorsCard(chat: String, talk: com.chencohen.ptt.messaging.TalkSettings, set: (com.chencohen.ptt.messaging.TalkSettings) -> Unit) {
+    val (mine, theirs) = talk.colorsOf(chat)
+    com.chencohen.ptt.ui.style.SectionTitle(stringResource(R.string.chat_colors))
+    com.chencohen.ptt.ui.style.SettingsCard {
+        // The preview: theirs at the start side, mine at the end, as in the chat.
+        com.chencohen.ptt.ui.style.ChatColors(mine, theirs) {
+            Column(Modifier.fillMaxWidth().background(LibraryColors.Background).padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                    Text(
+                        stringResource(R.string.chat_colors_sample_theirs), color = LibraryColors.OnTheirs, style = LibraryType.Message,
+                        modifier = Modifier.background(LibraryColors.Theirs, com.chencohen.ptt.ui.style.LibraryShapes.Card).padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+                Box(Modifier.fillMaxWidth().padding(top = 6.dp), contentAlignment = Alignment.CenterEnd) {
+                    Text(
+                        stringResource(R.string.chat_colors_sample_mine), color = LibraryColors.OnMine, style = LibraryType.Message,
+                        modifier = Modifier.background(LibraryColors.Mine, com.chencohen.ptt.ui.style.LibraryShapes.Card).padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
+        SwatchRow(stringResource(R.string.chat_colors_mine), mine) { set(talk.withColors(chat, it, theirs)) }
+        SwatchRow(stringResource(R.string.chat_colors_theirs), theirs) { set(talk.withColors(chat, mine, it)) }
+    }
+    com.chencohen.ptt.ui.style.PageNote(stringResource(R.string.chat_colors_body), top = 6)
+}
+
+/** A row of colours to pick from: Default (a ring with a slash), then ChatSwatches; the chosen one ringed. */
+@Composable
+private fun SwatchRow(title: String, chosen: Int, choose: (Int) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Text(title, color = LibraryColors.OnBackground, style = LibraryType.RowTitle)
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val defaultLabel = stringResource(R.string.chat_colors_default)
+            (listOf(-1) + com.chencohen.ptt.ui.style.ChatSwatches.indices).forEach { i ->
+                val on = i == chosen
+                val ring by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, androidx.compose.animation.core.tween(200), label = "swatch")
+                Box(
+                    Modifier.size(40.dp)
+                        .border(2.dp, LibraryColors.OnBackground.copy(alpha = ring), CircleShape)
+                        .padding(4.dp)
+                        .clickable(role = Role.RadioButton, onClickLabel = if (i < 0) defaultLabel else null) { choose(i) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (i < 0) {
+                        Box(Modifier.fillMaxSize().border(1.5.dp, LibraryColors.Muted, CircleShape), contentAlignment = Alignment.Center) {
+                            Text("A", color = LibraryColors.Muted, style = LibraryType.Tiny)
+                        }
+                    } else {
+                        Box(Modifier.fillMaxSize().background(com.chencohen.ptt.ui.style.ChatSwatches[i], CircleShape))
+                    }
+                }
+            }
+        }
     }
 }

@@ -72,7 +72,13 @@ internal data class Content(
      * (HeardStatus). To the talker only, live only. Older apps skip it.
      */
     @ProtoNumber(26) val talkHeard: TalkHeardContent? = null,
+    /** The sender's phone's app version (2026-11-27, hen: "see what version the contact uses"). Older apps send none. */
+    @ProtoNumber(27) val about: AboutContent? = null,
 )
+
+/** About the sending phone: its app's version ("1.4.28"). */
+@Serializable
+internal data class AboutContent(@ProtoNumber(1) val version: String = "")
 
 /** A push's fate at one listener: [burstId] and one of HeardStatus. */
 @Serializable
