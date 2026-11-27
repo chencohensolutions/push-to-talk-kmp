@@ -640,6 +640,10 @@
     <string name="chat_colors_sample_theirs">On my way</string>
     <string name="chat_colors_sample_mine">Great, see you soon</string>
     <string name="chat_colors_body">Only on this phone. Your messages, their outline while sending and the writing box take your colour; their messages and their live writing take theirs.</string>
+    <string name="chat_colors_body_contact">Shared with them, so each of you shows in the same colour on both phones: your messages\' colour is yours there too. The brightness stays on this phone.</string>
+    <string name="chat_colors_body_group">Shared with the group: the colour of your messages is yours on every member\'s phone, and their messages\' colour goes to the members who have none of their own. The brightness stays on this phone.</string>
+    <string name="chat_colors_respect_synced">Respect synced colours</string>
+    <string name="chat_colors_respect_synced_body">The colours they chose for your chat show here when they chose last. Off, your own choices stay; they still go to them.</string>
     <string name="contact_version">Their app</string>
     <string name="contact_version_line">Talk %1$s</string>
     <string name="contact_version_phone">Phone %1$d</string>
