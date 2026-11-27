@@ -269,6 +269,8 @@ class LiveKitTalkTransport(
             ),
         )
         Log.i(TAG, "microphone in the room: echo cancelling and noise suppression on (WebRTC's own, the room's playback as reference)")
+        // Test phones without a microphone (debug builds, turned on with adb): a test tune in its place.
+        if (FakeMic.enabled(appContext)) track.setAudioBufferCallback(FakeMic.callback())
         sampleCapture.attach(track)
         if (!local.publishAudioTrack(track)) {
             Log.w(TAG, "the microphone wasn't published")
