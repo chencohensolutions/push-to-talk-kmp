@@ -138,8 +138,11 @@ internal fun MineInk(ink: Color, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalLibraryPalette provides palette, content = content)
 }
 
-/** Text on [c]: near-white on a dark colour, near-black on a light one. */
-internal fun inkOn(c: Color): Color = if (c.luminance() > 0.45f) Color(0xFF17201F) else Color(0xFFF7FAF9)
+/** Text on [c]: near-white or near-black, whichever stands out more on it. */
+internal fun inkOn(c: Color): Color {
+    val l = c.luminance()
+    return if ((l + 0.05f) / 0.05f > 1.05f / (l + 0.05f)) Color(0xFF17201F) else Color(0xFFF7FAF9)
+}
 
 /**
  * The chat colours one can pick (2026-11-27, hen: exactly these six, in RGB (1, 0.5, 0), (1, 0, 0.5), (0, 0.5, 1),
@@ -149,6 +152,9 @@ internal fun inkOn(c: Color): Color = if (c.luminance() > 0.45f) Color(0xFF17201
  */
 internal val ChatSwatches = listOf(
     Color(0xFFBA5D00), Color(0xFFE50073), Color(0xFF0074E8), Color(0xFF008744), Color(0xFF428500), Color(0xFF8000FF),
+    // The same six bright, with black text (2026-11-27, hen: "same colors but brighter with black text to stand out"):
+    // lightened in lightness only until black text reaches 7:1 (the pure colour where it already does).
+    Color(0xFFFF8000), Color(0xFFFF52A8), Color(0xFF3098FF), Color(0xFF00FF80), Color(0xFF80FF00), Color(0xFFBA75FF),
 )
 
 /** [content] with a chat's colours ([mine], [theirs]: ChatSwatches indexes, -1 the default). */
