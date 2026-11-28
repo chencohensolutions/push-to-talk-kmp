@@ -2,6 +2,7 @@ package com.chencohen.ptt.ui.media
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateDecay
 import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -242,7 +243,7 @@ internal class PhotoZoom(private val scope: CoroutineScope, private var restorin
     private fun fling(velocity: Offset) {
         animation?.cancel()
         animation = scope.launch {
-            Animatable(offset, Offset.VectorConverter).animateDecay(velocity, exponentialDecay(frictionMultiplier = 1.6f)) {
+            androidx.compose.animation.core.AnimationState(Offset.VectorConverter, offset, velocity).animateDecay(exponentialDecay(frictionMultiplier = 1.6f)) {
                 val before = offset
                 offset = clamp(value, scale)
                 // Held at the edges, nothing moves any more: stop.
