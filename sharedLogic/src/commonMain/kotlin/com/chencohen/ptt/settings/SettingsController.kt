@@ -1,5 +1,6 @@
 package com.chencohen.ptt.settings
 
+import com.chencohen.ptt.util.logFailures
 import com.chencohen.ptt.connection.ConnectionState
 import com.chencohen.ptt.connection.ObservationHandle
 import com.chencohen.ptt.connection.ServerHealth
@@ -41,7 +42,7 @@ class SettingsController internal constructor(
     private val connection: StateFlow<ConnectionState>,
     dispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher + logFailures)
     private val _state = MutableStateFlow(read(connection.value))
     val state: StateFlow<SettingsState> = _state.asStateFlow()
 

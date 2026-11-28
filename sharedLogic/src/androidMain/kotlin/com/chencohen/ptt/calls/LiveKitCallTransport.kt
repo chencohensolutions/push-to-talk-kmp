@@ -1,5 +1,6 @@
 package com.chencohen.ptt.calls
 
+import com.chencohen.ptt.util.logFailures
 import android.content.Context
 import android.util.Base64
 import android.util.Log
@@ -42,7 +43,7 @@ class LiveKitCallTransport(
     private val okHttp: () -> OkHttpClient,
 ) : CallTransport {
     private val appContext = context.applicationContext
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + logFailures)
 
     override var listener: CallTransportListener? = null
 

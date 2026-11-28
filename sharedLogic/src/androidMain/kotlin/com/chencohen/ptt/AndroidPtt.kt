@@ -1,5 +1,6 @@
 package com.chencohen.ptt
 
+import com.chencohen.ptt.util.logFailures
 import android.content.Context
 import android.os.Build
 import com.chencohen.ptt.connection.ConnectionController
@@ -79,6 +80,9 @@ fun createSettingsController(context: Context, connection: ConnectionController)
 @OptIn(ExperimentalCoroutinesApi::class)
 private val messagingWork = Dispatchers.IO.limitedParallelism(1)
 
+/** Work nobody waits for, on Messaging's thread (a notification's action, the floating window's): a failure is logged. */
+private val background = CoroutineScope(SupervisorJob() + messagingWork + logFailures)
+
 /** The encrypted database: one per process, opened on [messagingWork] at first use. */
 private var secureStore: SqlCipherStore? = null
 
@@ -120,7 +124,7 @@ private fun hub(context: Context): Messaging {
         store = MessagingStore(store),
         api = ApolloMessagingApi(http),
         connector = KtorFrameConnector { http.client() },
-        scope = CoroutineScope(SupervisorJob() + messagingWork),
+        scope = CoroutineScope(SupervisorJob() + messagingWork + logFailures),
         now = { System.currentTimeMillis() },
         // Pair, invite and link secrets, clip keys: from the system's secure generator.
         random = java.security.SecureRandom().asKotlinRandom(),
@@ -175,12 +179,12 @@ private fun hub(context: Context): Messaging {
         // Push-to-video's delay by each path (2026-11-24, hen: compare LiveKit and the clips), in the log: from the
         // server's floor start to the first picture through the room, and to the clip path's first picture.
         val messaging = it
-        CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
+        CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default + logFailures).launch {
             messaging.live.state.distinctUntilChangedBy { it.heardCount }.collect { s ->
                 if (s.heardCount > 0) android.util.Log.i("TalkDelay", "voice through the room, unmuted ${s.lastLatencyMs} ms after the burst's start came (#${s.heardCount})")
             }
         }
-        CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default).launch {
+        CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Default + logFailures).launch {
             val said = HashSet<String>()
             kotlinx.coroutines.flow.combine(messaging.state, com.chencohen.ptt.talk.LiveTalkVideo.arriving, com.chencohen.ptt.talk.AndroidTalkVideoOut.shown) { st, room, shown ->
                 Triple(st.talk.talkers.values.toList(), room, shown)
@@ -307,7 +311,7 @@ suspend fun talkButton(context: Context, down: Boolean): Boolean {
 suspend fun talkBack(context: Context, chat: String?, down: Boolean, send: Boolean = true, video: Boolean? = null) {
     val messaging = hub(context)
     // Connected for the burst (the wake-up's own /ws may have closed), without waiting for it here.
-    if (down) kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.wake() }
+    if (down) background.launch { messaging.wake() }
     withContext(messagingWork) {
         if (down) chat?.let { messaging.talk.press(it, video) } else messaging.talk.release(send)
     }
@@ -319,7 +323,7 @@ suspend fun talkBack(context: Context, chat: String?, down: Boolean, send: Boole
  */
 suspend fun carTalk(context: Context, chat: String?, capture: com.chencohen.ptt.talk.TalkCapture?, down: Boolean, send: Boolean = true) {
     val messaging = hub(context)
-    if (down) kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.wake() }
+    if (down) background.launch { messaging.wake() }
     withContext(messagingWork) {
         if (down) {
             messaging.talk.captureOverride = capture
@@ -356,7 +360,7 @@ fun warmTalkCamera(context: Context, chat: String?) = hub(context).warmCamera(ch
  */
 fun startRoomCall(context: Context, chat: String, video: Boolean, done: (Boolean) -> Unit = {}) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch {
+    background.launch {
         val ok = runCatching { messaging.startRoomCall(chat, video) }.getOrDefault(false)
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { done(ok) }
     }
@@ -379,43 +383,43 @@ fun liveState(context: Context): kotlinx.coroutines.flow.StateFlow<com.chencohen
 /** Typing to [chat] started or stopped, from outside the screens (the quick-reply window). */
 fun sendTyping(context: Context, chat: String, typing: Boolean) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.sendTyping(chat, typing) }
+    background.launch { messaging.sendTyping(chat, typing) }
 }
 
 /** Live typing from the quick-reply window: its line to [chat] is [text] now ("" when sent or emptied). */
 fun sendDraft(context: Context, chat: String, text: String, selStart: Int = -1, selEnd: Int = -1) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { if (text.isEmpty()) messaging.draftDone(chat) else messaging.draft(chat, text, selStart, selEnd) }
+    background.launch { if (text.isEmpty()) messaging.draftDone(chat) else messaging.draft(chat, text, selStart, selEnd) }
 }
 
 /** Edit my sent text from the quick-reply window (2026-11-24, hen). */
 fun editText(context: Context, id: String, body: String) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editText(id, body) }
+    background.launch { messaging.editText(id, body) }
 }
 
 /** The quick-reply window was answered in [chat] (null: it closed): what comes in there is read at once, and they're told it's in view. */
 fun setWindowChat(context: Context, chat: String?) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.windowChat = chat }
+    background.launch { messaging.windowChat = chat }
 }
 
 /** Delete messages for everyone (mine only) or for me, from the quick-reply window. */
 fun deleteMessages(context: Context, ids: List<String>, forEveryone: Boolean) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { if (forEveryone) messaging.deleteMessages(ids) else messaging.deleteForMe(ids) }
+    background.launch { if (forEveryone) messaging.deleteMessages(ids) else messaging.deleteForMe(ids) }
 }
 
 /** Editing live from the quick-reply window (null: cancelled). */
 fun editLive(context: Context, id: String, text: String?, selStart: Int = -1, selEnd: Int = -1) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.editLive(id, text, selStart, selEnd) }
+    background.launch { messaging.editLive(id, text, selStart, selEnd) }
 }
 
 /** The press going on now became urgent (the floating window's red bell; 2026-11-25, hen). */
 fun markUrgent(context: Context) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.talk.markUrgent() }
+    background.launch { messaging.talk.markUrgent() }
 }
 
 /** Changes Talk's settings from outside the screens (the reply bubble's Video). */
@@ -552,7 +556,7 @@ suspend fun pictureOf(context: Context, user: String): ByteArray? {
 /** This user's picture ([image] null: none), end to end to their contacts and groups. */
 fun setMyPicture(context: Context, image: ByteArray?) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.setMyPicture(image) }
+    background.launch { messaging.setMyPicture(image) }
 }
 
 /** [user]'s face in expression [code] (this user's own: ""); null: none (2026-11-24, hen: faces as emoticons). */
@@ -564,19 +568,19 @@ suspend fun faceImageOf(context: Context, user: String, code: Int): ByteArray? {
 /** This user's picture and its expressions, end to end to their contacts and groups. */
 fun setMyFaces(context: Context, image: ByteArray?, faces: Map<Int, ByteArray>) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.setMyPicture(image, faces) }
+    background.launch { messaging.setMyPicture(image, faces) }
 }
 
 /** Sends this user's face [code] to [user] (a contact or a group's chat), from the quick-reply window. */
 fun sendFace(context: Context, user: String, code: Int, fallback: String) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.sendFace(user, code, fallback) }
+    background.launch { messaging.sendFace(user, code, fallback) }
 }
 
 /** Reacts to message [id] with this user's face [code]; null takes it back. */
 fun react(context: Context, id: String, code: Int?) {
     val messaging = hub(context)
-    kotlinx.coroutines.CoroutineScope(messagingWork).launch { messaging.react(id, code) }
+    background.launch { messaging.react(id, code) }
 }
 
 /** The expressions this user has faces for. */

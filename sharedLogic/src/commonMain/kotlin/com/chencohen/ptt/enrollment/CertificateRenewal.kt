@@ -1,5 +1,6 @@
 package com.chencohen.ptt.enrollment
 
+import com.chencohen.ptt.util.logFailures
 import com.apollographql.apollo.ApolloClient
 import com.chencohen.ptt.connection.ConnectionStatus
 import com.chencohen.ptt.graphql.RenewCertificateMutation
@@ -85,7 +86,7 @@ class CertificateRenewal internal constructor(
     private val workDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val clock: Clock = Clock.System,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher + logFailures)
     private val mutex = Mutex()
 
     /** Renews in the background when due; [onDone] gets how it went. */

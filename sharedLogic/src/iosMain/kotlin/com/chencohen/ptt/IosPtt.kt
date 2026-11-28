@@ -1,5 +1,6 @@
 package com.chencohen.ptt
 
+import com.chencohen.ptt.util.logFailures
 import com.chencohen.ptt.connection.ConnectionController
 import com.chencohen.ptt.crypto.DeviceAddress
 import com.chencohen.ptt.crypto.IosCryptoEngine
@@ -65,6 +66,10 @@ class IosPtt(
 
     private val hub: Messaging
 
+    /** Work nobody waits for, on Messaging's thread and on the main one; a failure is logged (logFailures). */
+    private val background = CoroutineScope(SupervisorJob() + messagingWork + logFailures)
+    private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main + logFailures)
+
     /** The connection to the server: home's status, and finding the server when its address changes. */
     val connection: ConnectionController
 
@@ -113,7 +118,7 @@ class IosPtt(
             store = MessagingStore(store),
             api = ApolloMessagingApi(http),
             connector = KtorFrameConnector { http.client() },
-            scope = CoroutineScope(SupervisorJob() + messagingWork),
+            scope = CoroutineScope(SupervisorJob() + messagingWork + logFailures),
             now = { IosFolders.nowMillis() },
             // Pair, invite and link secrets, clip keys: from the system's secure generator.
             random = SecureRandom,
@@ -163,12 +168,12 @@ class IosPtt(
 
     /** Tells the server this phone's push token (null: the one kept) and whether it shows notifications. */
     fun registerPush(token: String?, notificationsEnabled: Boolean) {
-        CoroutineScope(messagingWork).launch { runCatching { hub.registerPush(token, notificationsEnabled) } }
+        background.launch { runCatching { hub.registerPush(token, notificationsEnabled) } }
     }
 
     /** Runs [block] on Messaging's thread and gives [done] its answer on the main thread. */
     private fun <T> onWork(done: (T) -> Unit, block: suspend () -> T) {
-        CoroutineScope(Dispatchers.Main).launch {
+        mainScope.launch {
             val result = withContext(messagingWork) { block() }
             done(result)
         }

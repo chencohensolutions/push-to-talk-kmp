@@ -1,5 +1,6 @@
 package com.chencohen.ptt.talk
 
+import com.chencohen.ptt.util.logFailures
 import android.content.Context
 import android.util.Base64
 import android.util.Log
@@ -51,7 +52,7 @@ class LiveKitTalkTransport(
     private val okHttp: () -> OkHttpClient,
 ) : TalkTransport {
     private val appContext = context.applicationContext
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + logFailures)
 
     override var listener: TalkTransportListener? = null
 

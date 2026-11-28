@@ -1,5 +1,6 @@
 package com.chencohen.ptt.messaging
 
+import com.chencohen.ptt.util.logFailures
 import com.chencohen.ptt.connection.ObservationHandle
 import com.chencohen.ptt.crypto.InvalidKeysException
 import com.chencohen.ptt.crypto.UntrustedIdentityException
@@ -145,7 +146,7 @@ class PairingController internal constructor(
     /** Make a new code when the shown one is about to expire (off in tests, whose clock doesn't move). */
     private val refreshCodes: Boolean = true,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + main)
+    private val scope = CoroutineScope(SupervisorJob() + main + logFailures)
     private val _state = MutableStateFlow(PairingState())
     val state: StateFlow<PairingState> = _state.asStateFlow()
 
