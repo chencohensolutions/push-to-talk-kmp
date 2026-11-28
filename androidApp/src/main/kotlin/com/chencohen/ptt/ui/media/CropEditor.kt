@@ -113,7 +113,11 @@ internal fun CropEditor(
         }
         // A reset brings the frame back to where the whole picture shows.
         var resets by remember(targets) { mutableIntStateOf(0) }
-        CropArea(target, crop, resets, preview, Modifier.weight(1f).fillMaxWidth(), ::set)
+        // The picture is laid out as it is, left to right, also in Hebrew (2026-11-28, hen: "the center point in the
+        // composition is mirrored due to right to left issues").
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
+            CropArea(target, crop, resets, preview, Modifier.weight(1f).fillMaxWidth(), ::set)
+        }
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.Center) {
             IconCircle(LibraryIcons.Expand, stringResource(R.string.crop_whole), outlined = true, onClick = {
                 set(CropContent())
