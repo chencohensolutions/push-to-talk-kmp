@@ -140,6 +140,22 @@ class MessagingController internal constructor(
     /** The preview of item [itemId] of message [messageId] for this screen, opened (JPEG XL); null: can't be had now. */
     suspend fun mediaPreview(messageId: String, itemId: String): ByteArray? = withContext(work) { messaging.media.preview(messageId, itemId) }
 
+    /** The originals asked for on this phone, by "message/item" (the viewer's progress pill). */
+    val originals: kotlinx.coroutines.flow.StateFlow<Map<String, com.chencohen.ptt.media.OriginalState>> get() = messaging.media.originals
+
+    /** Opens the original of a shared item: here at once, or fetched quietly from the phone that shared it. */
+    fun openOriginal(messageId: String, itemId: String) {
+        scope.launch { withContext(work) { messaging.media.openOriginal(messageId, itemId) } }
+    }
+
+    /** A message as kept, for the viewer. */
+    fun mediaMessage(id: String): TextMessage? = messaging.media.message(id)
+
+    /** Stops fetching an original (Cancel). */
+    fun cancelOriginal(messageId: String, itemId: String) {
+        scope.launch { withContext(work) { messaging.media.cancelOriginal(messageId, itemId) } }
+    }
+
     /** Tries a text that failed again. */
     fun retry(id: String) {
         scope.launch { withContext(work) { messaging.retry(id) } }

@@ -578,8 +578,8 @@ the chat's side padding), in its own shape (kept between 0.4 and 3 wide to high)
 for this screen's width. Over its bottom edge, small dark chips: at the start when it was taken (and, next, the place's
 name) and a video's length; at the end the time it was sent, orange when it failed (a tap tries again). A video shows its
 first picture with a Play circle until its own preview is built. A caption comes under them in a bubble of its own; a
-file is a bubble with its name, its size and the time. A long press selects it, as any message; a tap will open the
-viewer. Until the preview is there (downloading, or fetched again after the cache was cleared), the picture's shape is
+file is a bubble with its name, its size and the time. A long press selects it, as any message; a tap opens the
+viewer (docs/screens/viewer.md). Until the preview is there (downloading, or fetched again after the cache was cleared), the picture's shape is
 held in the Raised colour, so nothing moves when it comes.
 
 **The + button** (left of Voice message in the bottom row, hidden while Push is held or hands-free): Gallery picks

@@ -967,4 +967,12 @@
     <string name="media_video">Video</string>
     <string name="media_file">File</string>
     <string name="media_loading">Loading picture</string>
+    <string name="media_back">Back</string>
+    <string name="media_original_asking">Asking for the original</string>
+    <string name="media_original_coming">Getting the original · %1$s of %2$s MB</string>
+    <string name="media_original_gone">The original is no longer on their phone</string>
+    <string name="media_original_changed">The file on their phone was changed since it was shared</string>
+    <string name="media_original_failed">The original didn\'t come</string>
+    <string name="media_original_again">Try again</string>
+    <string name="media_original_stop">Stop getting the original</string>
 </resources>

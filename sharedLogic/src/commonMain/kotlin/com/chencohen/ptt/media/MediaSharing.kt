@@ -10,10 +10,25 @@ import com.chencohen.ptt.messaging.PartContent
 import com.chencohen.ptt.messaging.TextMessage
 import com.chencohen.ptt.talk.BlobApi
 import com.chencohen.ptt.talk.BlobException
+import com.chencohen.ptt.messaging.Content
+import com.chencohen.ptt.messaging.MediaPart
+import com.chencohen.ptt.messaging.MediaReplyContent
+import com.chencohen.ptt.messaging.MediaReplyStatus
+import com.chencohen.ptt.messaging.MediaRequestContent
+import com.chencohen.ptt.relay.PushKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
 
 /** One picture, video or file read on this phone, ready to share (the platform makes it: [MediaPreparer]). */
@@ -44,6 +59,44 @@ class PreparedPreview(val width: Int, val height: Int, val bytes: ByteArray, val
 interface MediaPreparer {
     /** [source] read and its previews made, one per width [widths] gives for its own width; null when it can't be read. */
     suspend fun prepare(source: String, widths: (originalWidth: Int) -> List<Int>): PreparedItem?
+
+    /** The file at [source] opened again, to send its untouched original; null when it is gone or can't be read. */
+    suspend fun open(source: String): OriginalReader? = null
+}
+
+/** A shared file read again from where it is on this phone, with its SHA-256 worked out as it is read. */
+interface OriginalReader {
+    /** Its size now (-1: not known). */
+    val size: Long
+
+    /** Up to [max] next bytes; null at its end. */
+    suspend fun read(max: Int): ByteArray?
+
+    /** The SHA-256 of what was read, once it has all been read. */
+    fun sha256(): ByteArray
+
+    fun close()
+}
+
+/** Where opening an original stands, for the viewer (2026-11-28, hen: a small progress pill and Cancel). */
+sealed interface OriginalState {
+    /** Asked the phone that shared it; waiting for its answer. */
+    data object Asking : OriginalState
+
+    /** Coming: [done] of [total] bytes here. */
+    data class Coming(val done: Long, val total: Long) : OriginalState
+
+    /** Here: [path] is a file on this phone, or (on the phone that shared it) where it is ([local], a content URI). */
+    data class Ready(val path: String, val local: Boolean = false) : OriginalState
+
+    /** The phone that shared it no longer has it. */
+    data object Gone : OriginalState
+
+    /** The file there was changed since it was shared. */
+    data object Changed : OriginalState
+
+    /** It didn't come (no answer, or the network): Try again asks again. */
+    data object Failed : OriginalState
 }
 
 /**
@@ -65,8 +118,25 @@ internal class MediaSharing(
     private val myScreen: () -> Int,
     private val publish: () -> Unit,
     private val newId: () -> String,
+    private val scope: CoroutineScope? = null,
+    /** Sends [content] in [chat]; [pushUser]: only that user's phones are woken ([pushKind]). */
+    private val send: suspend (chat: String, content: Content, pushKind: Int, pushUser: String) -> Unit = { _, _, _, _ -> },
 ) {
     var preparer: MediaPreparer? = null
+
+    private val _originals = MutableStateFlow<Map<String, OriginalState>>(emptyMap())
+
+    /** The originals asked for on this phone, by "message/item". */
+    val originals: StateFlow<Map<String, OriginalState>> = _originals.asStateFlow()
+
+    private val opening = mutableMapOf<String, Job>()
+    private val answers = mutableMapOf<String, CompletableDeferred<MediaReplyContent>>()
+
+    /** The originals this phone is uploading now, by "message/item" (a wake-up keeps the connection for them). */
+    private val uploading = mutableMapOf<String, Job>()
+
+    /** Whether this phone is sending an original someone asked for. */
+    val sending: Boolean get() = uploading.values.any { it.isActive }
 
     private val fetching = Mutex()
     private val inFlight = mutableMapOf<String, CompletableDeferred<ByteArray?>>()
@@ -211,6 +281,254 @@ internal class MediaSharing(
         return out
     }
 
+    // Originals (2026-11-28, hen): opening one quietly fetches the untouched file from the phone that shared it.
+
+    /**
+     * Opens the original of item [itemId] of message [messageId]: at once on the phone that shared it (where it is) or
+     * when it is here already, else asked of the phone that shared it and fetched as it uploads ([originals] says how
+     * it goes). A broken fetch goes on from where it stopped.
+     */
+    fun openOriginal(messageId: String, itemId: String) {
+        val scope = scope ?: return
+        val key = "$messageId/$itemId"
+        if (opening[key]?.isActive == true) return
+        val message = store.message(messageId) ?: return
+        val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return
+        store.mediaSource(messageId, itemId)?.let { return setOriginal(key, OriginalState.Ready(it, local = true)) }
+        store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.let { blob -> files.originalPath(blob)?.let { return setOriginal(key, OriginalState.Ready(it)) } }
+        opening[key] = scope.launch {
+            try {
+                fetchOriginal(message, item, key)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                setOriginal(key, OriginalState.Failed)
+            }
+        }
+    }
+
+    /** Message [id] as kept (the viewer's). */
+    fun message(id: String): TextMessage? = store.message(id)
+
+    /** Stops fetching an original (Cancel); what came is kept, and opening it again goes on from there. */
+    fun cancelOriginal(messageId: String, itemId: String) {
+        val key = "$messageId/$itemId"
+        opening.remove(key)?.cancel()
+        _originals.update { it - key }
+    }
+
+    private suspend fun fetchOriginal(message: TextMessage, item: AttachmentContent, key: String) {
+        var blob = store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")
+        if (blob == null || !uploadedRecently(message.id, item.id)) {
+            setOriginal(key, OriginalState.Asking)
+            val answer = CompletableDeferred<MediaReplyContent>()
+            answers[key] = answer
+            val owner = if (message.outgoing) "" else message.author ?: message.user
+            send(message.user, Content(mediaRequest = MediaRequestContent(message.id, item.id, MediaPart.ORIGINAL)), PushKind.MEDIA, owner)
+            val reply = withTimeoutOrNull(ANSWER_WAIT) { answer.await() }
+            answers.remove(key)
+            when (reply?.status) {
+                MediaReplyStatus.READY -> blob = reply.upload?.blob
+                MediaReplyStatus.GONE -> return setOriginal(key, OriginalState.Gone)
+                MediaReplyStatus.CHANGED -> return setOriginal(key, OriginalState.Changed)
+                else -> return setOriginal(key, OriginalState.Failed)
+            }
+        }
+        val id = blob?.takeIf { validBlob(it) } ?: return setOriginal(key, OriginalState.Failed)
+        download(id, item, key)
+    }
+
+    /** The original [blob] of [item] fetched as it grows, opened chunk by chunk into this phone's cache. */
+    private suspend fun download(blob: String, item: AttachmentContent, key: String) {
+        val partKey = MediaCrypto.partKey(item.key, blob, MediaCrypto.Part.ORIGINAL)
+        val chunks = MediaCrypto.chunkCount(item.size)
+        val lastSize = (MediaCrypto.sealedSize(item.size) - (chunks - 1) * MediaCrypto.SEALED).toInt()
+        // A broken fetch goes on from its last whole chunk.
+        var done = files.partialOriginal(blob) / MediaCrypto.CHUNK
+        if (files.partialOriginal(blob) != done * MediaCrypto.CHUNK || done >= chunks) {
+            files.deleteOriginal(blob)
+            done = 0
+        }
+        setOriginal(key, OriginalState.Coming(done * MediaCrypto.CHUNK, item.size))
+        var idle = 0
+        while (done < chunks) {
+            val before = done
+            var pending = ByteArray(0)
+            try {
+                blobs.readFrom(blob, done * MediaCrypto.SEALED, follow = true) { bytes ->
+                    pending += bytes
+                    while (done < chunks) {
+                        val last = done == chunks - 1
+                        val need = if (last) lastSize else MediaCrypto.SEALED
+                        if (pending.size < need) break
+                        val plain = MediaCrypto.openChunk(partKey, blob, done, last, pending.copyOfRange(0, need))
+                            ?: throw BlobException(0, "A piece of the original didn't open")
+                        files.appendOriginal(blob, plain)
+                        pending = pending.copyOfRange(need, pending.size)
+                        done++
+                        setOriginal(key, OriginalState.Coming(minOf(item.size, done * MediaCrypto.CHUNK), item.size))
+                    }
+                }
+            } catch (e: BlobException) {
+                if (e.status == 404) {
+                    files.deleteOriginal(blob)
+                    store.putMediaSource(key.substringBefore('/'), "${item.id}$ORIGINAL_UPLOADED", "0")
+                    return setOriginal(key, OriginalState.Failed)
+                }
+                if (e.status == 0) {
+                    files.deleteOriginal(blob)
+                    return setOriginal(key, OriginalState.Failed)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // The network: again below.
+            }
+            // The upload paused (the server follows a minute of quiet) or the network broke: again, a few times.
+            idle = if (done == before) idle + 1 else 0
+            if (done < chunks) {
+                if (idle >= FETCH_TRIES) return setOriginal(key, OriginalState.Failed)
+                delay(RETRY_WAIT * idle)
+            }
+        }
+        files.finishOriginal(blob)
+        val path = files.originalPath(blob) ?: return setOriginal(key, OriginalState.Failed)
+        setOriginal(key, OriginalState.Ready(path))
+    }
+
+    private fun setOriginal(key: String, state: OriginalState) {
+        _originals.update { it + (key to state) }
+    }
+
+    /** Whether the original was uploaded for this item within the server's media_days (so it is still there). */
+    private fun uploadedRecently(message: String, item: String): Boolean {
+        val at = store.mediaSource(message, "$item$ORIGINAL_UPLOADED")?.toLongOrNull() ?: return false
+        return at > 0 && now() - at < ORIGINAL_KEPT
+    }
+
+    /**
+     * A message about a shared original in [chat], from [author]'s device [device]: a request this phone answers when it
+     * shared the item (it keeps where the file is), or an answer to this phone's request.
+     */
+    fun took(chat: String, author: String, device: Int, content: Content) {
+        content.mediaReply?.let { reply ->
+            val message = store.message(reply.messageId)?.takeIf { it.user == chat } ?: return@let
+            val item = message.media?.items?.firstOrNull { it.id == reply.attachmentId } ?: return@let
+            val owner = if (message.outgoing) null else message.author ?: message.user
+            if (owner != null && (owner != author || (item.originDevice != 0 && item.originDevice != device))) return@let
+            if (reply.status == MediaReplyStatus.READY) {
+                val blob = reply.upload?.blob?.takeIf { validBlob(it) } ?: return@let
+                store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", blob)
+                store.putMediaSource(message.id, "${item.id}$ORIGINAL_UPLOADED", now().toString())
+            }
+            answers["${message.id}/${item.id}"]?.complete(reply)
+        }
+        content.mediaRequest?.let { request -> answer(chat, request) }
+    }
+
+    /** Answers a request for an original this phone shared: uploads it (once in media_days), or says why it can't. */
+    private fun answer(chat: String, request: MediaRequestContent) {
+        val scope = scope ?: return
+        if (request.part != MediaPart.ORIGINAL) return
+        val message = store.message(request.messageId)?.takeIf { it.user == chat && it.outgoing } ?: return
+        val item = message.media?.items?.firstOrNull { it.id == request.attachmentId } ?: return
+        val source = store.mediaSource(message.id, item.id) ?: return
+        val key = "${message.id}/${item.id}"
+        val blob = store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")
+        val reply = { status: Int, part: PartContent? -> MediaReplyContent(message.id, item.id, MediaPart.ORIGINAL, status, part) }
+        if (blob != null && (uploading[key]?.isActive == true || uploadedRecently(message.id, item.id))) {
+            scope.launch { runCatching { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(blob, item, growing = uploading[key]?.isActive == true))), PushKind.NONE, "") } }
+            return
+        }
+        uploading[key] = scope.launch {
+            val id = blobId()
+            val result = try {
+                uploadOriginal(chat, message, item, source, id) { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(id, item, growing = true))), PushKind.NONE, "") }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                blobs.delete(id)
+                null
+            }
+            when (result) {
+                MediaReplyStatus.READY -> {
+                    store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", id)
+                    store.putMediaSource(message.id, "${item.id}$ORIGINAL_UPLOADED", now().toString())
+                }
+                MediaReplyStatus.GONE, MediaReplyStatus.CHANGED -> runCatching { send(chat, Content(mediaReply = reply(result, null)), PushKind.NONE, "") }
+                else -> Unit
+            }
+        }
+    }
+
+    private fun part(blob: String, item: AttachmentContent, growing: Boolean) =
+        PartContent(blob = blob, size = item.size, width = item.width, height = item.height, mime = item.mime, growing = growing)
+
+    /**
+     * Reads the file at [source] again and uploads it sealed as blob [id], telling the chat ([started]) once its first
+     * piece is on the server, so the asker fetches it as it grows. Its last chunk goes only once the whole file is
+     * checked against the SHA-256 that was shared: a file changed since is deleted from the server. Answers a
+     * [MediaReplyStatus].
+     */
+    private suspend fun uploadOriginal(chat: String, message: TextMessage, item: AttachmentContent, source: String, id: String, started: suspend () -> Unit): Int {
+        val reader = preparer?.open(source) ?: return MediaReplyStatus.GONE
+        try {
+            if (reader.size >= 0 && reader.size != item.size) return MediaReplyStatus.CHANGED
+            val partKey = MediaCrypto.partKey(item.key, id, MediaCrypto.Part.ORIGINAL)
+            val group = Group.idOf(chat)
+            val peer = if (group == null) chat else null
+            val total = MediaCrypto.sealedSize(item.size)
+            val chunks = MediaCrypto.chunkCount(item.size)
+            var offset = 0L
+            var told = false
+            var index = 0L
+            var piece = ByteArray(0)
+            var plain = ByteArray(0)
+            suspend fun flush() {
+                if (piece.isEmpty()) return
+                var at = 0
+                var tries = 0
+                while (at < piece.size) {
+                    val bytes = piece.copyOfRange(at, piece.size)
+                    val server = try {
+                        blobs.putPiece(id, peer, group, keepMedia = true, total = total, offset = offset + at, bytes = bytes)
+                    } catch (e: BlobException) {
+                        if (e.status in 400..499 && e.status != 408 && e.status != 429 || ++tries >= FETCH_TRIES) throw e
+                        delay(RETRY_WAIT * tries)
+                        continue
+                    }
+                    at = (server - offset).toInt().coerceIn(0, piece.size)
+                }
+                offset += piece.size
+                piece = ByteArray(0)
+                if (!told) {
+                    told = true
+                    started()
+                }
+            }
+            while (true) {
+                // A full last chunk is held until the file ends: one more byte means it grew.
+                val bytes = reader.read(if (plain.size == MediaCrypto.CHUNK) 1 else MediaCrypto.CHUNK - plain.size) ?: break
+                plain += bytes
+                if (plain.size == MediaCrypto.CHUNK && index < chunks - 1) {
+                    piece += MediaCrypto.sealChunk(partKey, id, index++, false, plain)
+                    plain = ByteArray(0)
+                    if (piece.size >= PIECE) flush()
+                }
+                if (index * MediaCrypto.CHUNK + plain.size > item.size) return MediaReplyStatus.CHANGED
+            }
+            if (index != chunks - 1 || !reader.sha256().contentEquals(item.sha256)) {
+                blobs.delete(id)
+                return MediaReplyStatus.CHANGED
+            }
+            piece += MediaCrypto.sealChunk(partKey, id, index, true, plain)
+            flush()
+            return MediaReplyStatus.READY
+        } finally {
+            reader.close()
+        }
+    }
+
     private fun blobId(): String = random.nextBytes(16).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 
     /** The bytes this phone keeps of media it sent ([sent]) or got. */
@@ -223,6 +541,23 @@ internal class MediaSharing(
         const val MAX_ITEMS = 30
         const val MAX_CAPTION = 4000
         const val MAX_NAME = 200
+
+        /** How long a request for an original waits for the sharing phone's answer (it may be asleep: a push wakes it). */
+        const val ANSWER_WAIT = 90_000L
+
+        /** Tries in a row with nothing new before a fetch or an upload gives up; the wait grows with each. */
+        const val FETCH_TRIES = 4
+        const val RETRY_WAIT = 2_000L
+
+        /** An original is uploaded in pieces about this big (each one PUT). */
+        const val PIECE = 1 shl 20
+
+        /** The server keeps an original 30 days (media_days); asked again a day before that. */
+        const val ORIGINAL_KEPT = 29L * 24 * 60 * 60 * 1000
+
+        /** Where an item's original blob id and its upload time are kept beside its source (MessagingStore.mediaSource). */
+        private const val ORIGINAL_BLOB = "#original"
+        private const val ORIGINAL_UPLOADED = "#uploaded"
 
         /** A preview is fetched whole into memory; one this big isn't a preview. */
         const val MAX_PREVIEW_BYTES = 64L shl 20

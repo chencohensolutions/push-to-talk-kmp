@@ -551,7 +551,29 @@ internal class FakeServer {
             if (peer != null && setOf(device.user, peer) !in pairs) throw com.chencohen.ptt.talk.BlobException(403, "not paired")
             files[id] = bytes
         }
+
+        override suspend fun readFrom(id: String, offset: Long, follow: Boolean, onBytes: suspend (ByteArray) -> Unit) {
+            val bytes = files[id] ?: throw com.chencohen.ptt.talk.BlobException(404, "no such blob")
+            if (offset < bytes.size) onBytes(bytes.copyOfRange(offset.toInt(), bytes.size))
+        }
+
+        override suspend fun putPiece(id: String, peer: String?, group: String?, keepMedia: Boolean, total: Long, offset: Long, bytes: ByteArray): Long {
+            if (peer != null && setOf(device.user, peer) !in pairs) throw com.chencohen.ptt.talk.BlobException(403, "not paired")
+            val have = files[id] ?: ByteArray(0)
+            if (offset != have.size.toLong()) return have.size.toLong()
+            if (have.size + bytes.size > total) throw com.chencohen.ptt.talk.BlobException(413, "too large")
+            files[id] = have + bytes
+            kept[id] = keepMedia
+            return offset + bytes.size
+        }
+
+        override suspend fun delete(id: String) {
+            files.remove(id)
+        }
     }
+
+    /** Whether each blob was uploaded as a shared original (?keep=media). */
+    val kept = mutableMapOf<String, Boolean>()
 
     /** Closes [device]'s connection with [code], as the server does on 4001 and 4003. */
     fun close(device: DeviceAddress, code: Int) {

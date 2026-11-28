@@ -689,6 +689,7 @@ internal class Messaging(
 
     val groups: Groups = Groups(
         acceptMedia = { m, d -> media.accept(m, d) },
+        onMedia = { group, author, device, content -> media.took(group.chat, author, device, content) },
         engine = engine, store = store, api = api, sender = sender, send = socket::send, scope = scope, now = now, random = random,
         me = ::device, publish = ::publish,
         onText = { group, message ->
@@ -800,6 +801,11 @@ internal class Messaging(
     val media: com.chencohen.ptt.media.MediaSharing = com.chencohen.ptt.media.MediaSharing(
         store = store, files = mediaFiles, blobs = blobs, random = random, now = now,
         screens = ::screensIn, myScreen = { screenWidthPx }, publish = ::publish, newId = ::newId,
+        scope = scope,
+        send = { chat, content, pushKind, pushUser ->
+            val group = Group.idOf(chat)
+            if (group != null) groups.send(group, content, pushKind, pushUser = pushUser) else sender.send(chat, content, pushKind = pushKind, pushUser = pushUser)
+        },
     )
 
     /** The screen widths of the phones that see [chat]: this phone's, and the contact's or each member's as told. */
@@ -1034,6 +1040,8 @@ internal class Messaging(
         // Warmed (someone has this chat open): the connection and the room stay, quietly, until they leave it, its
         // refresh stops coming, or nobody talks for 10 minutes.
         while (!foreground && live.warmFor() > now()) kotlinx.coroutines.delay(1_000)
+        // Someone asked for an original this phone shared: the connection stays while it uploads.
+        kotlinx.coroutines.withTimeoutOrNull(MEDIA_WAKE_LIMIT) { while (!foreground && media.sending) kotlinx.coroutines.delay(1_000) }
         // Another wake-up still holds the connection: it closes it when it is done.
         if (waking > 1) return
         host?.warm(null, false)
@@ -2612,6 +2620,7 @@ internal class Messaging(
         content.reaction?.let { takeReaction(contact.user, contact.user, it) }
         content.about?.let { takeAbout(contact.user, envelope.senderDevice, it.version, it.screenWidthPx) }
         content.colors?.let { takeColors(contact.user, it) }
+        if (content.mediaRequest != null || content.mediaReply != null) media.took(contact.user, contact.user, envelope.senderDevice, content)
         content.profile?.let { profile ->
             if (profile.needPicture) {
                 // They don't have this user's picture after all: it goes again.
@@ -2696,6 +2705,8 @@ internal class Messaging(
 
         /** The longest a talk wake-up keeps the connection. */
         const val TALK_WAKE_LIMIT = 120_000L
+        /** How long a wake-up keeps the connection while this phone uploads an original someone asked for. */
+        const val MEDIA_WAKE_LIMIT = 30L * 60 * 1000
 
         /** How long "typing…" shows after the last typing message, unless a text or a stop comes first. */
         const val TYPING_FOR = 8_000L

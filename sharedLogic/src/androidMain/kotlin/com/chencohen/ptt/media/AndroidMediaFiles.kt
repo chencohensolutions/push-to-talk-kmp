@@ -10,6 +10,31 @@ import java.io.File
 class AndroidMediaFiles(context: Context) : MediaFiles {
     private val sentDir = File(context.noBackupFilesDir, "media-sent").apply { mkdirs() }
     private val gotDir = File(context.cacheDir, "media").apply { mkdirs() }
+    private val originalsDir = File(context.cacheDir, "media-originals").apply { mkdirs() }
+
+    private fun original(blob: String, partial: Boolean): File? =
+        blob.takeIf { MediaSharing.validBlob(it) }?.let { File(originalsDir, if (partial) "$it.part" else it) }
+
+    override fun originalPath(blob: String): String? = original(blob, false)?.takeIf { it.isFile }?.absolutePath
+
+    override fun partialOriginal(blob: String): Long = original(blob, true)?.takeIf { it.isFile }?.length() ?: 0
+
+    override fun appendOriginal(blob: String, bytes: ByteArray) {
+        val file = original(blob, true) ?: return
+        originalsDir.mkdirs()
+        java.io.FileOutputStream(file, true).use { it.write(bytes) }
+    }
+
+    override fun finishOriginal(blob: String) {
+        val partial = original(blob, true) ?: return
+        val done = original(blob, false) ?: return
+        if (!partial.renameTo(done)) partial.delete()
+    }
+
+    override fun deleteOriginal(blob: String) {
+        original(blob, true)?.delete()
+        original(blob, false)?.delete()
+    }
 
     private fun fileOf(id: String): String? = id.takeIf { MediaSharing.validBlob(it) }?.let { "$it.part" }
 
@@ -33,9 +58,10 @@ class AndroidMediaFiles(context: Context) : MediaFiles {
         File(gotDir, file).delete()
     }
 
-    override fun size(sent: Boolean): Long = ((if (sent) sentDir else gotDir).listFiles() ?: emptyArray()).sumOf { it.length() }
+    override fun size(sent: Boolean): Long = (if (sent) listOf(sentDir) else listOf(gotDir, originalsDir))
+        .sumOf { dir -> (dir.listFiles() ?: emptyArray()).sumOf { it.length() } }
 
     override fun clear(sent: Boolean) {
-        ((if (sent) sentDir else gotDir).listFiles() ?: emptyArray()).forEach { it.delete() }
+        (if (sent) listOf(sentDir) else listOf(gotDir, originalsDir)).forEach { dir -> (dir.listFiles() ?: emptyArray()).forEach { it.delete() } }
     }
 }

@@ -49,6 +49,8 @@ internal class Groups(
     /** A clip's key in a group (a burst or a voice message): from [author], at the server's time. */
     private val onClip: (group: Group, author: String, clip: ClipContent, at: Long) -> Unit = { _, _, _, _ -> },
     private val onTyping: (Group, String, TypingContent) -> Unit,
+    /** A member asked for a shared original, or answered such a request (MediaRequestContent, MediaReplyContent). */
+    private val onMedia: (group: Group, author: String, device: Int, content: Content) -> Unit = { _, _, _, _ -> },
     /** A member device's live talk key in the group's room. */
     private val onTalkKey: (identity: String, key: TalkKeyContent) -> Unit = { _, _ -> },
     /** A member told what became of a push of this phone's (TalkHeardContent). */
@@ -319,7 +321,7 @@ internal class Groups(
      * devices are kept, readers' new devices get the key over their pairwise sessions, and it goes again; a device
      * that is gone means a new key for everyone.
      */
-    suspend fun send(id: String, content: Content, pushKind: Int, ephemeral: Boolean = false) {
+    suspend fun send(id: String, content: Content, pushKind: Int, ephemeral: Boolean = false, pushUser: String = "") {
         val self = self()
         repeat(attempts) {
             var group = store.group(id) ?: throw GroupUnavailableException("No such group")
@@ -340,6 +342,7 @@ internal class Groups(
                     pushKind = pushKind,
                     ephemeral = ephemeral,
                     group = id,
+                    pushUser = pushUser,
                     groupDevices = devices.entries.sortedBy { it.key }.map { (user, numbers) ->
                         UserDevices(user, numbers.sorted().map { n -> ActiveDevice(n, group.keyHolders["$user.$n"] ?: 0) })
                     },
@@ -448,6 +451,7 @@ internal class Groups(
         content.liveWaiting?.let { onLiveWaiting(group, author, it.open) }
         content.warm?.let { onWarm(group, author, it.open) }
         content.colors?.let { onColors(group, author, it) }
+        if (content.mediaRequest != null || content.mediaReply != null) onMedia(group, author, envelope.senderDevice, content)
         // (An older app takes only the read ones: a delivered receipt is nothing to it.)
         content.receipt?.takeIf { author != self.user }?.let { if (it.read) onRead(group, author, it.ids) else onDelivered(group, author, it.ids) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }

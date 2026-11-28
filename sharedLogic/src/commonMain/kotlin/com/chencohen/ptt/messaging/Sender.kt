@@ -32,12 +32,12 @@ internal class Sender(
     private val attempts: Int = 3,
 ) {
     /** Sends [content] to [to]; [routingToken]: their pairing token, for a pair request. Answers the envelope ids. */
-    suspend fun send(to: String, content: Content, routingToken: String? = null, pushKind: Int = PushKind.SYNC, ephemeral: Boolean = false): List<String> {
+    suspend fun send(to: String, content: Content, routingToken: String? = null, pushKind: Int = PushKind.SYNC, ephemeral: Boolean = false, pushUser: String = ""): List<String> {
         val self = me() ?: throw IllegalStateException("This phone isn't registered")
         if (engine.sessionDevices(to).isEmpty()) openSessions(self, to, routingToken, only = null)
         repeat(attempts) {
             val envelopes = envelopes(self, to, content, routingToken)
-            val result = send(Send(envelopes = envelopes, pushKind = pushKind, ephemeral = ephemeral))
+            val result = send(Send(envelopes = envelopes, pushKind = pushKind, ephemeral = ephemeral, pushUser = pushUser))
             when (result.status) {
                 SendStatus.ACCEPTED -> return result.envelopeIds
                 SendStatus.STALE_DEVICES -> reconcile(self, to, result.devices, routingToken)

@@ -18,6 +18,22 @@ interface MediaFiles {
 
     /** Deletes what this phone kept of what it sent ([sent]) or got. */
     fun clear(sent: Boolean)
+
+    /**
+     * Originals this phone got (opened, so the viewer and the player read them; in the app's own cache, which only Talk
+     * can read). One being fetched grows with [appendOriginal] until [finishOriginal]; [originalPath] is only a finished one.
+     */
+    fun originalPath(blob: String): String? = null
+
+    /** How much of the original [blob] being fetched is here (0: none). */
+    fun partialOriginal(blob: String): Long = 0
+
+    fun appendOriginal(blob: String, bytes: ByteArray) = Unit
+
+    /** The original [blob] is all here and checked: it becomes [originalPath]. */
+    fun finishOriginal(blob: String) = Unit
+
+    fun deleteOriginal(blob: String) = Unit
 }
 
 class MemoryMediaFiles : MediaFiles {
@@ -37,5 +53,27 @@ class MemoryMediaFiles : MediaFiles {
 
     override fun size(sent: Boolean): Long = (if (sent) sentFiles else gotFiles).values.sumOf { it.size.toLong() }
 
-    override fun clear(sent: Boolean) = (if (sent) sentFiles else gotFiles).clear()
+    override fun clear(sent: Boolean) {
+        (if (sent) sentFiles else gotFiles).clear()
+        if (!sent) {
+            originals.clear()
+            partials.clear()
+        }
+    }
+
+    val originals = mutableMapOf<String, ByteArray>()
+    val partials = mutableMapOf<String, ByteArray>()
+
+    override fun originalPath(blob: String): String? = if (blob in originals) "memory:$blob" else null
+    override fun partialOriginal(blob: String): Long = partials[blob]?.size?.toLong() ?: 0
+    override fun appendOriginal(blob: String, bytes: ByteArray) {
+        partials[blob] = (partials[blob] ?: ByteArray(0)) + bytes
+    }
+    override fun finishOriginal(blob: String) {
+        originals[blob] = partials.remove(blob) ?: ByteArray(0)
+    }
+    override fun deleteOriginal(blob: String) {
+        originals.remove(blob)
+        partials.remove(blob)
+    }
 }

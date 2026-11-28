@@ -970,4 +970,12 @@
     <string name="media_video">סרטון</string>
     <string name="media_file">קובץ</string>
     <string name="media_loading">התמונה נטענת</string>
+    <string name="media_back">חזרה</string>
+    <string name="media_original_asking">מבקש את המקור</string>
+    <string name="media_original_coming">מקבל את המקור · %1$s מתוך %2$s MB</string>
+    <string name="media_original_gone">המקור כבר לא בטלפון שלהם</string>
+    <string name="media_original_changed">הקובץ בטלפון שלהם השתנה מאז ששותף</string>
+    <string name="media_original_failed">המקור לא הגיע</string>
+    <string name="media_original_again">נסה שוב</string>
+    <string name="media_original_stop">הפסק לקבל את המקור</string>
 </resources>

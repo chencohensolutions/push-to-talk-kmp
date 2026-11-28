@@ -53,6 +53,26 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         item
     }
 
+    override suspend fun open(source: String): OriginalReader? = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(source)
+        val input = runCatching { resolver.openInputStream(uri) }.getOrNull() ?: return@withContext null
+        val size = nameAndSize(uri).second.takeIf { it > 0 } ?: -1L
+        object : OriginalReader {
+            private val digest = MessageDigest.getInstance("SHA-256")
+            private val buffer = ByteArray(MediaCrypto.CHUNK)
+            override val size: Long = size
+
+            override suspend fun read(max: Int): ByteArray? = withContext(Dispatchers.IO) {
+                val n = input.read(buffer, 0, minOf(max, buffer.size))
+                if (n < 0) null else buffer.copyOf(n).also { digest.update(it) }
+            }
+
+            override fun sha256(): ByteArray = digest.digest()
+
+            override fun close() = runCatching { input.close() }.let { }
+        }
+    }
+
     private fun nameAndSize(uri: Uri): Pair<String, Long> {
         var name = uri.lastPathSegment.orEmpty()
         var size = -1L

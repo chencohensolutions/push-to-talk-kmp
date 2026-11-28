@@ -468,6 +468,7 @@ fun HomeApp(
                 editLive = { id, text, s, e -> messaging.editLive(id, text, s, e) },
                 delete = { ids, everyone -> messaging.deleteMessages(ids, everyone) },
                 mediaPreview = { id, item -> messaging.mediaPreview(id, item) },
+                openMedia = { id, item -> push("view/$id/$item") },
                 attach = if (writable) attachPicker else null,
             ),
             talk = messagingState.talk,
@@ -660,6 +661,25 @@ fun HomeApp(
                         if (device != null && device != linkedBefore) view = LinkPhoneView.Linked(device)
                     }
                     LinkPhoneScreen(view, back = ::pop, again = ::make)
+                }
+                name.startsWith("view/") -> {
+                    val (id, item) = name.removePrefix("view/").split('/').let { it[0] to it.getOrElse(1) { "" } }
+                    val message = remember(id) { messaging.mediaMessage(id) }
+                    val originals by messaging.originals.collectAsStateWithLifecycle()
+                    if (message == null) {
+                        LaunchedEffect(Unit) { pop() }
+                    } else {
+                        com.chencohen.ptt.ui.media.MediaViewer(
+                            message = message,
+                            startItem = item,
+                            sender = if (message.outgoing) resources.getString(R.string.group_you) else nameOf(message.author ?: message.user),
+                            originals = originals,
+                            preview = { m, i -> messaging.mediaPreview(m, i) },
+                            open = messaging::openOriginal,
+                            cancel = messaging::cancelOriginal,
+                            back = ::pop,
+                        )
+                    }
                 }
                 name == "share" -> com.chencohen.ptt.ui.media.ShareToScreen(
                     count = sharing.size,

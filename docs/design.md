@@ -721,8 +721,26 @@ https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-
   (`PreviewSpec.pick`), opens it from `MediaFiles`, else downloads it once (several asks share one download), checks
   its size and every chunk, and keeps it; a cleared cache is fetched again the same way.
 
-Still to build: originals on request, video previews (1080p HEVC at 3 Mbps, original fps and HDR), files' copies,
-albums, the viewer and its details. Journal as a source for originals that
+- **Originals on request (A3).** Opening an item (`MediaSharing.openOriginal`) shows it at once on the phone that
+  shared it (its URI) or when it came before; otherwise it sends `mediaRequest` in the chat with `PushKind.MEDIA` and
+  `push_user` = the sharer, so only that user's phones wake. The device that keeps the item's source answers
+  (`MediaSharing.took`): it reads the file again through `MediaPreparer.open` (an `OriginalReader` that works out the
+  SHA-256 as it reads), seals it in 64 KiB chunks and PUTs it in about 1 MB pieces with `?keep=media` (`BlobApi.putPiece`),
+  telling the chat `mediaReply` READY once its first piece is on the server. Its last chunk goes only after the whole
+  file matches the SHA-256 that was shared: a changed file is deleted from the server and answered CHANGED, a file that
+  is gone GONE. An upload done in the last 29 days is answered with the same blob, and a wake-up keeps the connection
+  while an upload runs (`MEDIA_WAKE_LIMIT`, 30 minutes). The asker reads the blob with `?follow=1` from its last whole
+  chunk (`BlobApi.readFrom`), opens each chunk and appends it to `media-originals` in the app's cache (opened, so the
+  viewer and the player read it; only Talk can read that folder), and `originals` says how far it got. Waiting for Wi-Fi
+  is not built yet; hen chose it off by default (2026-11-28).
+- **The viewer** (`ui/media/MediaViewer.kt`, docs/screens/viewer.md): the preview at once, the original swapped in when
+  it is here, pinch and double tap zoom, swipe between a message's items, a video's original played with ExoPlayer, a
+  file opened in an app that reads it (the FileProvider serves `media-originals`). A pill at the bottom says "Getting the
+  original · 3 of 8 MB" with ✕, or why it didn't come, with Try again.
+
+Still to build: who sent a picture (hen 2026-11-28: the name on a half bubble above the first picture, the time on
+one below the last; mock `mockups/share-media/picture-sender.png`), video previews (1080p HEVC at 3 Mbps, original
+fps and HDR), files' copies, albums, the viewer's Share, Save and Info and its details. Journal as a source for originals that
 are gone from the phone is the next phase (shed).
 
 ## Next
