@@ -137,8 +137,12 @@ internal fun MediaDraftBox(
         Column(
             Modifier.fillMaxWidth().heightIn(max = maxPictures).verticalScroll(rememberScrollState()),
         ) {
-            val several = items.size > 1
             items.forEachIndexed { index, (message, item) ->
+                // As on the message it becomes: what changed from the picture above, in a strip above it.
+                val change = if (index > 0) changeFrom(items[index - 1].second, item) else null
+                if (change != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(change) }
+                }
                 // Words above this picture: a field in a strip of the writing outline, as on the message it becomes.
                 val above = texts[item.id].orEmpty()
                 if (writingAbove == item.id || above.isNotEmpty()) {
@@ -155,7 +159,7 @@ internal fun MediaDraftBox(
                             )
                         }
                     }
-                } else if (index > 0 && takenLine(items[index - 1].second) == null) androidx.compose.foundation.layout.Spacer(Modifier.height(2.dp))
+                } else if (index > 0 && change == null) androidx.compose.foundation.layout.Spacer(Modifier.height(2.dp))
                 Box {
                     when (item.kind) {
                         MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = null) {}
@@ -185,12 +189,6 @@ internal fun MediaDraftBox(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(LibraryIcons.Crop, stringResource(R.string.media_crop), tint = Color.White, modifier = Modifier.size(18.dp))
-                    }
-                }
-                // Of several, each one's place and time under it, as on the message it becomes.
-                if (several) takenLine(item)?.let { line ->
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(line) }
                     }
                 }
             }

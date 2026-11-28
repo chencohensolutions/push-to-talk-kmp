@@ -749,8 +749,7 @@ https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-
   (docs/screens/conversation.md).
 
 Still to build: each person's download shown as a ring on their face (mock `sending-progress.png`; needs each phone
-to tell how far it got), the top half bubble's place name (hen to pick what it says), video previews (1080p HEVC at 3 Mbps, original
-fps and HDR), files' copies, albums, the viewer's Share and Save. Journal as a source for originals that
+to tell how far it got), the top half bubble's place name (hen to pick what it says), files' copies, albums, the viewer's Share and Save. Journal as a source for originals that
 are gone from the phone is the next phase (shed).
 
 ## History from contacts (2026-11-28, hen)
@@ -804,6 +803,15 @@ apps means 30 days), so a phone that got it lets its previews go from the cache,
 (`uploadAhead`; off Wi-Fi, `uploadPending` sends it on the next start on Wi-Fi), and the chat is told with a READY
 reply as if someone had asked: it then opens for anyone straight from the server, even with my phone off or the file
 gone from it.
+
+**Video clips** (2026-11-28, hen: 1080p HEVC at 3 Mbit/s flat, the video's own frame rate and HDR, autoplay muted, no
+loop). `AndroidMediaPreparer.clip` makes it with Media3 Transformer (`Presentation.createForShortSide(1080)` when the
+video is larger, `DefaultEncoderFactory` at 3 Mbit/s, HDR kept as Transformer does by default, the sound as it is) into
+an MP4, when the video fits 60 MB at that rate (about two and a half minutes; longer ones have only their first frame
+and open their original). It is sealed as `AttachmentContent.clip` (field 22, `MediaCrypto.Part.CLIP`, its own blob)
+and goes up with the previews (`uploaded`); `MediaSharing.clip` opens it (fetched and kept as a preview is, asked of the
+sharer again with `MediaPart.CLIP` when the server let it go), and `fetchPreviews` fetches it with the video's frame
+when videos come at once. The first frame stays in `previews`, so the chat, the receipt and older apps are unchanged.
 
 A preview the server has let go (404) is asked of the phone that shared it (`MediaRequestContent` with `PREVIEW` and
 the width, `askAgain`, at most once an hour for a part): that phone puts the very sealed file it keeps back on the

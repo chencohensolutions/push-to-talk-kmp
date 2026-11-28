@@ -509,6 +509,7 @@ fun HomeApp(
                 editLive = { id, text, s, e -> messaging.editLive(id, text, s, e) },
                 delete = { ids, everyone -> messaging.deleteMessages(ids, everyone) },
                 mediaPreview = { id, item -> messaging.mediaPreview(id, item) },
+                mediaClip = { id, item -> messaging.mediaClip(id, item) },
                 openMedia = { id, item -> push("view/$id/$item") },
                 mediaDraft = mediaDrafts[user]?.let { drafts ->
                     com.chencohen.ptt.ui.media.MediaDraft(

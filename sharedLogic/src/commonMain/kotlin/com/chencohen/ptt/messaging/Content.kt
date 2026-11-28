@@ -155,9 +155,9 @@ data class AttachmentContent(
     @ProtoNumber(13) val latE7: Int = 0,
     @ProtoNumber(14) val lonE7: Int = 0,
     @ProtoNumber(15) val hasPlace: Boolean = false,
-    /** Its previews: an image's, one per receiving screen width; a video's, one 1080p HEVC. */
+    /** Its previews (JPEG XL), one per receiving screen width: a picture's, or a video's first frame. */
     @ProtoNumber(16) val previews: List<PartContent> = emptyList(),
-    /** A video's first frame, a JPEG XL. */
+    /** Not sent (a video's first frame is in [previews]). */
     @ProtoNumber(17) val poster: PartContent? = null,
     /** The sender's device that holds the original: only it answers a [MediaRequestContent]. */
     @ProtoNumber(18) val originDevice: Int = 0,
@@ -170,7 +170,18 @@ data class AttachmentContent(
      * of the original, which [width] and [height] still describe; opening it shows the whole original. Null: all of it.
      */
     @ProtoNumber(21) val crop: CropContent? = null,
+    /**
+     * A video's preview (2026-11-28, hen): the whole video in 1080p HEVC at 3 Mbit/s, its own frame rate and HDR, an
+     * MP4, played muted in the chat. Null: a picture, a video too long for one, or from an older app.
+     */
+    @ProtoNumber(22) val clip: PartContent? = null,
 ) {
+    /** Every sealed file of it that a message names: the previews, the poster and the video's clip. */
+    val parts: List<PartContent> get() = previews + listOfNotNull(poster, clip)
+
+    /** What goes up with the message: the previews and the video's clip. */
+    val uploaded: List<PartContent> get() = previews + listOfNotNull(clip)
+
     /** The height of what the chat shows of it: the original's, less what [crop] trims. */
     val shownHeight: Int get() = crop?.let { (height.toLong() * it.kept / CropContent.WHOLE).toInt().coerceAtLeast(1) } ?: height
 
@@ -180,7 +191,7 @@ data class AttachmentContent(
         takenAt == other.takenAt && takenOffsetMin == other.takenOffsetMin && latE7 == other.latE7 &&
         lonE7 == other.lonE7 && hasPlace == other.hasPlace && previews == other.previews && poster == other.poster &&
         originDevice == other.originDevice && thumb.contentEquals(other.thumb) && text == other.text &&
-        crop == other.crop
+        crop == other.crop && clip == other.clip
     override fun hashCode(): Int = id.hashCode()
 }
 
@@ -277,6 +288,7 @@ object MediaPart {
     const val PREVIEW = 1
     const val ORIGINAL = 2
     const val POSTER = 3
+    const val CLIP = 4
 }
 
 /** A request for [part] of item [attachmentId] of message [messageId]; [width] for a preview, [now] from Get it now. */

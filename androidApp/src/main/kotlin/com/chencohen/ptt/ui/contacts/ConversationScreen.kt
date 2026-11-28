@@ -163,6 +163,8 @@ class ConversationActions(
     val handOver: ((video: Boolean, urgent: Boolean) -> Boolean)? = null,
     /** Shared media's preview for this screen (2026-11-28, hen): opened, or null when it can't be had now. */
     val mediaPreview: suspend (messageId: String, itemId: String) -> ByteArray? = { _, _ -> null },
+    /** A video's clip (its 1080p HEVC preview, an MP4), opened; null: none, or can't be had now. */
+    val mediaClip: suspend (messageId: String, itemId: String) -> ByteArray? = { _, _ -> null },
     /** A shared picture or video tapped: the viewer (its original comes with it). */
     val openMedia: (messageId: String, itemId: String) -> Unit = { _, _ -> },
     /** The composer's +: pick pictures and videos ([gallery]) or files to share here; null: not here. */
@@ -1502,7 +1504,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
-    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach, camera = a.camera, mediaDraft = a.mediaDraft, mediaCaption = a.mediaCaption, uploads = a.uploads, transfers = a.transfers,
+    mediaPreview = a.mediaPreview, mediaClip = a.mediaClip, openMedia = a.openMedia, attach = a.attach, camera = a.camera, mediaDraft = a.mediaDraft, mediaCaption = a.mediaCaption, uploads = a.uploads, transfers = a.transfers,
 )
 
 
@@ -1842,7 +1844,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     // Shared media (2026-11-28, hen): as wide as the screen, outside a bubble.
     if (message.media != null && !message.deleted) {
         Box(Modifier.fillMaxWidth().bleed(12.dp).then(bubbleModifier).background(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent)) {
-            androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalTransfers provides actions.transfers) { com.chencohen.ptt.ui.media.MediaMessage(
+            androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalTransfers provides actions.transfers, com.chencohen.ptt.ui.media.LocalClips provides actions.mediaClip) { com.chencohen.ptt.ui.media.MediaMessage(
                 message, actions.mediaPreview, actions.openMedia, actions.retry, select = select, selecting = selecting,
                 reach = if (message.outgoing) (if (held) ReadMarks.Reach.SENDING else reach ?: ReadMarks.Reach.RECEIVED) else null,
                 progress = uploadOf(actions.uploads, message.id),
@@ -2766,7 +2768,7 @@ private fun PinnedDraft(
     }
     // Pictures picked here: the writing bubble holds them, the caption written under them (2026-11-28, hen).
     actions.mediaDraft?.let { mediaDraft ->
-        androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalTransfers provides actions.transfers) {
+        androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalTransfers provides actions.transfers, com.chencohen.ptt.ui.media.LocalClips provides actions.mediaClip) {
             com.chencohen.ptt.ui.media.MediaDraftBox(mediaDraft, actions.mediaPreview, fly = { shot, bounds -> flyMedia(shot, bounds) })
         }
         return

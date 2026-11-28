@@ -48,6 +48,8 @@ okio = "3.16.4"
 [libraries]
 jxl-coder = { module = "io.github.awxkee:jxl-coder", version.ref = "jxl-coder" }
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
+# Shared videos' previews (2026-11-28, hen): 1080p HEVC at 3 Mbit/s, own frame rate and HDR.
+androidx-media3-transformer = { module = "androidx.media3:media3-transformer", version.ref = "media3" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }

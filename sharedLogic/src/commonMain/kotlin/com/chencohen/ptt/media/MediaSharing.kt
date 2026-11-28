@@ -55,6 +55,8 @@ class PreparedItem(
     val thumb: ByteArray = ByteArray(0),
     /** A picture's previews, one per width asked for (JPEG XL). */
     val previews: List<PreparedPreview> = emptyList(),
+    /** A video's preview: the whole video in 1080p HEVC (an MP4); null when it couldn't be made, or is too long. */
+    val clip: PreparedPreview? = null,
     /** Where it is on this phone (a content URI), to read the original when someone asks for it. */
     val source: String = "",
 )
@@ -369,7 +371,7 @@ internal class MediaSharing(
     fun revoke(message: TextMessage) {
         drop(listOf(message))
         val items = message.media?.items.orEmpty()
-        val blobsGone = items.flatMap { item -> (item.previews + listOfNotNull(item.poster)).map { it.blob } + listOfNotNull(store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")) }
+        val blobsGone = items.flatMap { item -> item.parts.map { it.blob } + listOfNotNull(store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")) }
         for (item in items) {
             uploading.remove("${message.id}/${item.id}")?.cancel()
             store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")?.let { files.deleteOriginal(it) }
@@ -385,7 +387,7 @@ internal class MediaSharing(
     fun forgetTaken(message: TextMessage) {
         for (item in message.media?.items.orEmpty()) {
             opening.remove("${message.id}/${item.id}")?.cancel()
-            for (part in item.previews + listOfNotNull(item.poster)) if (!named(part.blob, message.id)) files.delete(part.blob)
+            for (part in item.parts) if (!named(part.blob, message.id)) files.delete(part.blob)
             store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")?.let { files.deleteOriginal(it) }
         }
         _originals.update { all -> all.filterKeys { !it.startsWith("${message.id}/") } }
@@ -411,7 +413,7 @@ internal class MediaSharing(
 
     /** Whether a message other than [except] names [blob] (a picture shared to several chats: one sealed file). */
     private fun named(blob: String, except: String): Boolean =
-        (mediaMessages() + drafts.values).any { m -> m.id != except && m.media?.items.orEmpty().any { item -> (item.previews + listOfNotNull(item.poster)).any { it.blob == blob } } }
+        (mediaMessages() + drafts.values).any { m -> m.id != except && m.media?.items.orEmpty().any { item -> item.parts.any { it.blob == blob } } }
 
     /** Drafts not sent yet, by message id (their previews show while the caption is written). */
     private val drafts = mutableMapOf<String, TextMessage>()
@@ -440,7 +442,7 @@ internal class MediaSharing(
     private fun sharedHere(): List<Pair<TextMessage, AttachmentContent>> =
         mediaMessages().filter { it.outgoing }.flatMap { m -> m.media?.items.orEmpty().map { m to it } }.filter { (m, item) ->
             store.mediaSource(m.id, item.id) != null && store.mediaSource(m.id, "${item.id}$SOURCE_GONE") == null &&
-                item.previews.isNotEmpty() && (item.previews + listOfNotNull(item.poster)).all { files.has(it.blob) }
+                item.previews.isNotEmpty() && item.parts.all { files.has(it.blob) }
         }
 
     /** The item this phone shared before that is the file at [source]: the same source, else the same size and SHA-256. */
@@ -558,10 +560,10 @@ internal class MediaSharing(
      * [preview] sealed under a new blob id, and kept: with a key derived from item key [key], or (null) a random key of
      * its own, carried in the part.
      */
-    private fun sealPreview(key: ByteArray?, p: PreparedPreview): PartContent {
+    private fun sealPreview(key: ByteArray?, p: PreparedPreview, kind: MediaCrypto.Part = MediaCrypto.Part.PREVIEW): PartContent {
         val blob = blobId()
         val own = if (key == null) random.nextBytes(MediaCrypto.KEY_BYTES) else null
-        val sealed = MediaCrypto.sealAll(own ?: MediaCrypto.partKey(key!!, blob, MediaCrypto.Part.PREVIEW), blob, p.bytes)
+        val sealed = MediaCrypto.sealAll(own ?: MediaCrypto.partKey(key!!, blob, kind), blob, p.bytes)
         files.write(blob, sealed, sent = true)
         return PartContent(blob = blob, size = p.bytes.size.toLong(), width = p.width, height = p.height, mime = p.mime, key = own ?: ByteArray(0))
     }
@@ -581,6 +583,7 @@ internal class MediaSharing(
             id = itemId, text = "", originDevice = 0, key = ByteArray(0),
             previews = item.previews.map { keyed(it, MediaCrypto.Part.PREVIEW) },
             poster = item.poster?.let { keyed(it, MediaCrypto.Part.POSTER) },
+            clip = item.clip?.let { keyed(it, MediaCrypto.Part.CLIP) },
         )
     }
 
@@ -617,6 +620,7 @@ internal class MediaSharing(
             name = item.name.take(MAX_NAME), width = item.width, height = item.height, durationMs = item.durationMs,
             takenAt = item.takenAt, takenOffsetMin = item.takenOffsetMin, latE7 = item.latE7, lonE7 = item.lonE7,
             hasPlace = item.hasPlace, previews = previews, thumb = item.thumb,
+            clip = item.clip?.let { sealPreview(key, it, MediaCrypto.Part.CLIP) },
         )
     }
 
@@ -687,15 +691,15 @@ internal class MediaSharing(
     private suspend fun putPreviews(message: TextMessage) {
         val media = message.media ?: return
         val group = Group.idOf(message.user)
-        val total = media.items.sumOf { item -> item.previews.sumOf { MediaCrypto.sealedSize(it.size) } }.coerceAtLeast(1)
+        val total = media.items.sumOf { item -> item.uploaded.sumOf { MediaCrypto.sealedSize(it.size) } }.coerceAtLeast(1)
         var done = 0L
         _uploads.update { it + (message.id to 0f) }
         try {
             for (item in media.items) {
-                val itemTotal = item.previews.sumOf { MediaCrypto.sealedSize(it.size) }
+                val itemTotal = item.uploaded.sumOf { MediaCrypto.sealedSize(it.size) }
                 var itemDone = 0L
                 val reused = store.mediaSource(message.id, "${item.id}$FROM") != null
-                for (part in item.previews) {
+                for (part in item.uploaded) {
                     val mark = "${part.blob}@${message.user}"
                     // Shared before: made readable in this chat too, nothing uploaded (gone from the server: uploaded).
                     if (reused && mark !in uploaded && blobs.share(part.blob, if (group == null) message.user else null, group)) uploaded += mark
@@ -729,7 +733,7 @@ internal class MediaSharing(
     fun accept(media: MediaContent?, originDevice: Int): MediaContent? {
         media ?: return null
         val items = media.items.take(MAX_ITEMS).filter { item ->
-            val parts = item.previews + listOfNotNull(item.poster)
+            val parts = item.parts
             // A key for the item, or one of its own for every part (shared again from another chat).
             (item.key.size == MediaCrypto.KEY_BYTES || parts.all { it.key.size == MediaCrypto.KEY_BYTES }) &&
                 item.id.isNotEmpty() && item.previews.size <= PreviewSpec.MAX_PREVIEWS + 1 &&
@@ -751,7 +755,7 @@ internal class MediaSharing(
         // Only a preview that just came changes what this phone holds: one read from here as the chat scrolls tells nobody.
         val kept = files.has(part.blob)
         val got = part(item, part, MediaCrypto.Part.PREVIEW, sent = message.outgoing)
-            ?: if (part.blob in gone && !message.outgoing && message.id !in drafts && askAgain(message, item, part)) {
+            ?: if (part.blob in gone && !message.outgoing && message.id !in drafts && askAgain(message, item, part, MediaPart.PREVIEW)) {
                 part(item, part, MediaCrypto.Part.PREVIEW, sent = false)
             } else null
         return got.also {
@@ -762,13 +766,34 @@ internal class MediaSharing(
         }
     }
 
-    /** Fetches message [messageId]'s pictures' previews now (its videos' too when [videos]); those that fail come later. */
+    /**
+     * The clip of video [itemId] of message [messageId] (its 1080p HEVC preview, an MP4), opened: from what this phone
+     * keeps, else fetched from the server (asked of the sharer again when the server let it go) and kept. Null when
+     * there is none or it can't be had now.
+     */
+    suspend fun clip(messageId: String, itemId: String): ByteArray? {
+        val message = store.message(messageId) ?: drafts[messageId] ?: return null
+        val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return null
+        val part = item.clip ?: return null
+        return part(item, part, MediaCrypto.Part.CLIP, sent = message.outgoing)
+            ?: if (part.blob in gone && !message.outgoing && message.id !in drafts && askAgain(message, item, part, MediaPart.CLIP)) {
+                part(item, part, MediaCrypto.Part.CLIP, sent = false)
+            } else null
+    }
+
+    /** Whether video [itemId]'s clip is kept here (it plays at once). */
+    fun hasClip(messageId: String, itemId: String): Boolean {
+        val item = store.message(messageId)?.media?.items?.firstOrNull { it.id == itemId } ?: return false
+        return item.clip?.let { files.has(it.blob) } == true
+    }
+
+    /** Fetches message [messageId]'s pictures' previews now (its videos' too, and their clips, when [videos]); those that fail come later. */
     suspend fun fetchPreviews(messageId: String, videos: Boolean) {
         val items = store.message(messageId)?.media?.items.orEmpty()
         for (item in items) {
             if (item.kind == com.chencohen.ptt.messaging.MediaKind.VIDEO && !videos) continue
-            if (item.previews.isEmpty()) continue
-            preview(messageId, item.id)
+            if (item.previews.isNotEmpty()) preview(messageId, item.id)
+            if (item.clip != null) clip(messageId, item.id)
         }
         checkAll(messageId)
     }
@@ -831,19 +856,19 @@ internal class MediaSharing(
      * Asks the phone that shared [item] to put [part] on the server again (the server removed it to make room, oldest
      * fetched first, or lost it), and waits for its answer: true once it is there. At most once an hour for a part.
      */
-    private suspend fun askAgain(message: TextMessage, item: AttachmentContent, part: PartContent): Boolean {
+    private suspend fun askAgain(message: TextMessage, item: AttachmentContent, part: PartContent, which: Int): Boolean {
         val at = now()
         val asked = fetching.withLock {
             val last = askedAgain[part.blob]
             (last == null || at - last >= ASK_AGAIN_EVERY).also { if (it) askedAgain[part.blob] = at }
         }
         if (!asked) return false
-        val key = "${message.id}/${item.id}$PREVIEW_ANSWER"
+        val key = "${message.id}/${item.id}$PREVIEW_ANSWER$which"
         val answer = CompletableDeferred<MediaReplyContent>()
         answers[key] = answer
         val owner = message.author ?: message.user
         runCatching {
-            send(message.user, Content(mediaRequest = MediaRequestContent(message.id, item.id, MediaPart.PREVIEW, width = part.width)), PushKind.MEDIA, owner)
+            send(message.user, Content(mediaRequest = MediaRequestContent(message.id, item.id, which, width = part.width)), PushKind.MEDIA, owner)
         }.onFailure { answers.remove(key); return false }
         val reply = withTimeoutOrNull(ANSWER_WAIT) { answer.await() }
         answers.remove(key)
@@ -1143,8 +1168,8 @@ internal class MediaSharing(
             val item = message.media?.items?.firstOrNull { it.id == reply.attachmentId } ?: return@let
             val owner = if (message.outgoing) null else message.author ?: message.user
             if (owner != null && (owner != author || (item.originDevice != 0 && item.originDevice != device))) return@let
-            if (reply.part == MediaPart.PREVIEW || reply.part == MediaPart.POSTER) {
-                answers["${message.id}/${item.id}$PREVIEW_ANSWER"]?.complete(reply)
+            if (reply.part == MediaPart.PREVIEW || reply.part == MediaPart.POSTER || reply.part == MediaPart.CLIP) {
+                answers["${message.id}/${item.id}$PREVIEW_ANSWER${reply.part}"]?.complete(reply)
                 return@let
             }
             if (reply.status == MediaReplyStatus.READY) {
@@ -1176,7 +1201,7 @@ internal class MediaSharing(
      */
     private fun answer(chat: String, author: String, device: Int, request: MediaRequestContent) {
         val scope = scope ?: return
-        if (request.part == MediaPart.PREVIEW || request.part == MediaPart.POSTER) return answerPreview(chat, author, request)
+        if (request.part == MediaPart.PREVIEW || request.part == MediaPart.POSTER || request.part == MediaPart.CLIP) return answerPreview(chat, author, request)
         if (request.part != MediaPart.ORIGINAL) return
         fun log(result: Int) = logRequest(OriginalRequest(now(), chat, author, device, request.messageId.take(64), request.attachmentId.take(64), result))
         val message = store.message(request.messageId) ?: return log(RequestResult.UNKNOWN)
@@ -1262,7 +1287,7 @@ internal class MediaSharing(
         val group = Group.idOf(chat)
         if (group != null && store.group(group)?.isReader(author) != true) return
         val item = message.media?.items?.firstOrNull { it.id == request.attachmentId } ?: return
-        val part = (if (request.part == MediaPart.POSTER) item.poster else item.previews.firstOrNull { it.width == request.width }
+        val part = (if (request.part == MediaPart.POSTER) item.poster else if (request.part == MediaPart.CLIP) item.clip else item.previews.firstOrNull { it.width == request.width }
             ?: PreviewSpec.pick(item.previews, request.width.takeIf { it > 0 } ?: PreviewSpec.DEFAULT_WIDTH)) ?: return
         val reply = { status: Int, upload: PartContent? -> MediaReplyContent(message.id, item.id, request.part, status, upload) }
         if (uploading["${part.blob}$PREVIEW_ANSWER"]?.isActive == true) return
@@ -1552,7 +1577,7 @@ internal class MediaSharing(
         var shared = 0; var lost = 0
         for (message in store.messagesWith(chat).filter { it.media != null && !it.deleted }) {
             for (item in message.media?.items.orEmpty()) {
-                for (part in item.previews + listOfNotNull(item.poster)) {
+                for (part in item.parts) {
                     val size = files.sizeOf(part.blob).takeIf { it > 0 } ?: continue
                     if (message.outgoing) { mine += size; mineCount++ } else {
                         theirs += size; theirsCount++
@@ -1588,7 +1613,7 @@ internal class MediaSharing(
         for (message in store.messagesWith(chat).filter { it.media != null && !it.deleted }) {
             var touched = false
             for (item in message.media?.items.orEmpty()) {
-                if (!message.outgoing && refetchable(message)) for (part in item.previews + listOfNotNull(item.poster)) {
+                if (!message.outgoing && refetchable(message)) for (part in item.parts) {
                     if (files.has(part.blob)) { files.delete(part.blob); touched = true }
                 }
                 val blob = store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")
@@ -1637,7 +1662,7 @@ internal class MediaSharing(
         val owners = mutableMapOf<String, Pair<TextMessage, String>>()
         val lasting = mutableSetOf<String>()
         for (message in mediaMessages()) for (item in message.media?.items.orEmpty()) {
-            for (part in item.previews + listOfNotNull(item.poster)) {
+            for (part in item.parts) {
                 owners[part.blob] = message to item.id
                 if (message.outgoing || !refetchable(message)) lasting += part.blob
             }

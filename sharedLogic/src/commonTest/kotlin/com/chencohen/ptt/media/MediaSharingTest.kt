@@ -30,6 +30,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -59,7 +60,9 @@ private class FakePreparer : MediaPreparer {
         val w = widths(4000).also { asked += it }
         val original = originalOf(source).also { files["content://media/$source"] = it }
         return PreparedItem(
-            kind = MediaKind.IMAGE, mime = "image/jpeg", name = "$source.jpg", size = original.size.toLong(), width = 4000, height = 3000,
+            kind = if (source.startsWith("video")) MediaKind.VIDEO else MediaKind.IMAGE,
+            mime = if (source.startsWith("video")) "video/mp4" else "image/jpeg", name = "$source.jpg", size = original.size.toLong(), width = 4000, height = 3000,
+            clip = if (source.startsWith("video")) PreparedPreview(1440, 1080, "clip $source".encodeToByteArray(), "video/mp4") else null,
             sha256 = sha256(original),
             takenAt = 1_790_000_000_000, hasPlace = true, latE7 = 320_000_000, lonE7 = 340_000_000,
             previews = w.map { PreparedPreview(it, PreviewSpec.heightAt(4000, 3000, it), "preview $source $it".encodeToByteArray()) },
@@ -421,6 +424,30 @@ class MediaOriginalTest {
         advanceUntilIdle()
         val message = sent.await().single()
         return message.id to message.media!!.items.single().id
+    }
+
+    @Test
+    fun aVideoGoesWithItsClipWhichTheOtherPhoneOpensAndGetsBackWhenTheServerLetItGo() = runTest {
+        val (server, hen, dana) = paired()
+        val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf("video1"), "") }
+        advanceUntilIdle()
+        val message = sent.await().single()
+        val item = message.media!!.items.single()
+        val clip = assertNotNull(item.clip, "the video's clip goes with it")
+        assertEquals("video/mp4", clip.mime)
+        assertTrue(clip.blob in server.files, "uploaded with the previews")
+        val theirs = dana.store.message(message.id)!!.media!!.items.single()
+        assertEquals(clip, theirs.clip)
+        assertFalse(dana.messaging.media.hasClip(message.id, item.id))
+        assertContentEquals("clip video1".encodeToByteArray(), dana.work.async { dana.messaging.media.clip(message.id, item.id) }.also { advanceUntilIdle() }.await())
+        assertTrue(dana.messaging.media.hasClip(message.id, item.id))
+
+        // Let go on the server and on dana's phone: hen's phone puts the same sealed file back.
+        val sealed = server.files.getValue(clip.blob)
+        server.files.remove(clip.blob)
+        dana.files.delete(clip.blob)
+        assertContentEquals("clip video1".encodeToByteArray(), dana.work.async { dana.messaging.media.clip(message.id, item.id) }.also { advanceUntilIdle() }.await())
+        assertContentEquals(sealed, server.files[clip.blob])
     }
 
     @Test

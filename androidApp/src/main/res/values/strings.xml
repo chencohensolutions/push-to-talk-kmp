@@ -966,6 +966,8 @@
     <string name="chat_attach_camera">Camera</string>
     <string name="media_picture">Picture</string>
     <string name="media_video">Video</string>
+    <string name="media_clip_unmute">Sound on</string>
+    <string name="media_clip_mute">Mute</string>
     <string name="media_file">File</string>
     <string name="media_loading">Loading picture</string>
     <string name="media_back">Back</string>

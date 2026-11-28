@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
@@ -248,14 +249,20 @@ internal fun MediaMessage(
             if (author != null) Text(author, color = if (com.chencohen.ptt.ui.contacts.LocalMemberHues.current.isEmpty()) LibraryColors.Accent else LibraryColors.OnTheirs, style = LibraryType.Small)
             if (taken != null) Text(taken, color = muted, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
-        val several = media.items.size > 1
         media.items.forEachIndexed { index, item ->
+            // Said once on top for them all; above a picture only where its place or time changed from the one before,
+            // in a strip of the bubble (2026-11-28, hen: "show less redundancy about time and location"; "no chip, make
+            // the details above the image").
+            val change = if (index > 0) changeFrom(media.items[index - 1], item) else null
+            if (change != null) Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
+                PictureNote(change, color = muted)
+            }
             // Words written above this picture, in a strip of the bubble (2026-11-28, hen: "add text above any image").
             if (item.text.isNotBlank()) {
                 Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
                     Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
                 }
-            } else if (index > 0 && takenLine(media.items[index - 1]) == null) Spacer(Modifier.height(2.dp))
+            } else if (index > 0 && change == null) Spacer(Modifier.height(2.dp))
             when (item.kind) {
                 MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = select) {
                     when {
@@ -265,11 +272,6 @@ internal fun MediaMessage(
                     }
                 }
                 else -> FileRow(item) { if (!selecting) open(message.id, item.id) }
-            }
-            // Of several, each one's place and time under it, in a strip of the bubble, so the message reads as one
-            // long bubble with the pictures in it (2026-11-28, hen).
-            if (several) takenLine(item)?.let { line ->
-                Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) { PictureNote(line, color = muted) }
             }
         }
         // Mine sent before the caption: the caption box under the chat is its bottom half while I write it.
@@ -399,7 +401,23 @@ internal fun takenAndWhere(items: List<AttachmentContent>): String? {
     return listOfNotNull(where, span).joinToString(" · ").ifEmpty { null }
 }
 
-/** Under each picture of several (2026-11-28, hen: "move the date and location below each image"): its own. */
+/**
+ * What changed at [item] from [before], the picture above it: its place when that is another one, its time when 5
+ * minutes or more passed (with the day when that changed too); null when neither did.
+ */
+@Composable
+internal fun changeFrom(before: AttachmentContent, item: AttachmentContent): String? {
+    val place = placeOf(item)?.takeIf { it != placeOf(before) }
+    val time = when {
+        item.takenAt <= 0 || before.takenAt <= 0 -> null
+        kotlin.math.abs(item.takenAt - before.takenAt) < CHANGE_MS -> null
+        localDay(item) == localDay(before) -> clockOf(item)
+        else -> dayAndClock(item)
+    }
+    return listOfNotNull(place, time).joinToString(" · ").ifEmpty { null }
+}
+
+/** One picture's place and when it was taken ("Tel Aviv · Yesterday 18:40"). */
 @Composable
 internal fun takenLine(item: AttachmentContent): String? =
     listOfNotNull(placeOf(item), item.takenAt.takeIf { it > 0 }?.let { dayAndClock(item) }).joinToString(" · ").ifEmpty { null }
@@ -476,7 +494,11 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
             .onGloballyPositioned { if (it.isAttached) pictureBounds[key] = it.boundsInWindow() }.combinedClickable(onLongClick = select, onClick = onClick).semantics { contentDescription = label },
     ) {
         bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), alignment = align, contentScale = ContentScale.Crop) }
-        if (item.kind == MediaKind.VIDEO) {
+        // A video with its clip plays in place, muted, once (2026-11-28, hen: autoplay muted on screen, no loop, an
+        // unmute button); its first frame shows until the clip's does, and again with ▶ once it ended.
+        var playing by remember(key) { mutableStateOf(false) }
+        if (item.kind == MediaKind.VIDEO && item.clip != null) ClipInChat(message.id, item, onPlaying = { playing = it })
+        if (item.kind == MediaKind.VIDEO && !playing) {
             Box(Modifier.align(Alignment.Center).size(56.dp).background(Color(0x99000000), CircleShape), contentAlignment = Alignment.Center) {
                 Icon(LibraryIcons.Play, null, tint = Color.White, modifier = Modifier.size(28.dp))
             }
@@ -533,14 +555,74 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
     }
 }
 
-/** A line over a picture saying where or when it was taken, when that changed from the one before. */
+/** A video's clip, opened (MediaSharing.clip); null: none, or can't be had now. */
+internal val LocalClips = androidx.compose.runtime.staticCompositionLocalOf<suspend (messageId: String, itemId: String) -> ByteArray?> { { _, _ -> null } }
+
+/** Whether the clips in the chat play with their sound (one tap on the speaker turns them all on, until the app closes). */
+private val clipSound = mutableStateOf(false)
+
+/**
+ * [item]'s clip playing in place, muted unless the speaker was tapped, from its first frame to its end, once. Over the
+ * picture only once its first frame is drawn; [onPlaying] says while it is on.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.ClipInChat(messageId: String, item: AttachmentContent, onPlaying: (Boolean) -> Unit) {
+    val clips = LocalClips.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val bytes by produceState<ByteArray?>(null, messageId, item.id) { value = clips(messageId, item.id) }
+    val clip = bytes ?: return
+    var shown by remember(clip) { mutableStateOf(false) }
+    var ended by remember(clip) { mutableStateOf(false) }
+    val player = remember(clip) {
+        androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+            val source = androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory { androidx.media3.datasource.ByteArrayDataSource(clip) }
+                .createMediaSource(androidx.media3.common.MediaItem.fromUri("talk://clip/$messageId/${item.id}"))
+            setMediaSource(source)
+            repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
+            volume = if (clipSound.value) 1f else 0f
+            prepare()
+            playWhenReady = true
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(player) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onRenderedFirstFrame() { shown = true }
+            override fun onPlaybackStateChanged(state: Int) { if (state == androidx.media3.common.Player.STATE_ENDED) ended = true }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
+    }
+    val sound by clipSound
+    androidx.compose.runtime.LaunchedEffect(sound) { player.volume = if (sound) 1f else 0f }
+    val on = shown && !ended
+    androidx.compose.runtime.LaunchedEffect(on) { onPlaying(on) }
+    if (ended) return
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { android.view.TextureView(it).also { view -> player.setVideoTextureView(view) } },
+        modifier = Modifier.fillMaxSize().alpha(if (shown) 1f else 0f),
+    )
+    if (on) {
+        val label = stringResource(if (sound) R.string.media_clip_mute else R.string.media_clip_unmute)
+        Box(
+            Modifier.align(Alignment.TopEnd).padding(8.dp).size(36.dp).clip(CircleShape).background(Color(0x99000000))
+                .clickable(onClickLabel = label) { clipSound.value = !sound }.semantics { contentDescription = label },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(if (sound) LibraryIcons.SoundOn else LibraryIcons.SoundOff, null, tint = Color.White, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/** A strip's line above a picture saying where or when it was taken, when that changed from the picture before. */
 @Composable
 internal fun PictureNote(text: String, color: Color = LibraryColors.Muted) {
-    // Right under the picture it tells of, the room before the next one below it (2026-11-28, hen: "the time needs to
-    // be closer to the related image, to the upper image").
     Text(
         text, color = color, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 1.dp, bottom = 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 4.dp),
     )
 }
 

@@ -203,6 +203,9 @@ class MessagingController internal constructor(
     /** The preview of item [itemId] of message [messageId] for this screen, opened (JPEG XL); null: can't be had now. */
     suspend fun mediaPreview(messageId: String, itemId: String): ByteArray? = withContext(work) { messaging.media.preview(messageId, itemId) }
 
+    /** Video [itemId]'s clip (its 1080p HEVC preview, an MP4), opened; null: none, or can't be had now. */
+    suspend fun mediaClip(messageId: String, itemId: String): ByteArray? = withContext(work) { messaging.media.clip(messageId, itemId) }
+
     /** The originals asked for on this phone, by "message/item" (the viewer's progress pill). */
     val originals: kotlinx.coroutines.flow.StateFlow<Map<String, com.chencohen.ptt.media.OriginalState>> get() = messaging.media.originals
 

@@ -589,9 +589,10 @@ messages in order and hands out unchanged chats' lists again, so nothing sorts t
 other members' pictures, and where and when they were taken ("Tel Aviv · Yesterday 18:40": the place named on each phone by Android's
 Geocoder from the item's coordinates, the date from the EXIF or else the gallery's date taken). With several pictures
 the top line holds all their places (each once, in order, three then "+2") and the span from the first taken to the last
-("Yesterday 18:40 – 21:05"), and each picture's own place and time sit under it, in a strip of the bubble (its sides
-carried on, so the message reads as one long bubble with the pictures in it) (2026-11-28, hen: "move the date and
-location below each image, make the first row with time span and locations of all included images"). Words may be
+("Yesterday 18:40 – 21:05"), said once (2026-11-28, hen: "show less redundancy about time and location", chose "once
+on top, changes only", then "no chip, make the details above the image"): a picture whose place differs from the one
+above it, or taken 5 minutes or more after it, has what changed ("Jaffa · 21:05", the day too when that changed) in a
+strip of the bubble right above it (in the draft too); the others have none, and follow each other with a 2-dp gap. Words may be
 written above any picture (`AttachmentContent.text`, field 20; "Aa" on the picture in the draft opens a field in a strip
 above it), shown in a strip of the bubble above it; the caption stays under the last. The bottom one holds the caption
 and the time sent. Mine move as my text bubbles do: dashed while it goes, the dashes growing towards a whole line as
@@ -601,7 +602,11 @@ the accent colour), a small cloud (the server) in its end corner, with an arrow 
 `transfer-icon.png`, B) (hen, 2026-11-28: "i want to see upload progress and download
 progress from server"; `MediaSharing.transfers`, previews uploaded in 64 KiB pieces). Their phone fetches a message's pictures as it comes, and says it got the message (my received face) only once their
 previews are on it; a video's preview comes when the chat is opened, unless the chat has Download videos at once (its
-page, off by default), 2026-11-28, hen. A video shows its length in a chip. A file is a row with its name and size in the same frame. A long press
+page, off by default), 2026-11-28, hen. A video shows its length in a chip. A video with a clip (its 1080p HEVC preview)
+plays in place while it is in the chat's layout, muted, once from start to end (no loop), over its first frame from
+the clip's first drawn frame; a speaker button in its top end corner turns the sound on for the chat's clips (until
+the app closes); once it ended, the first frame and ▶ show again (2026-11-28, hen: "autoplay muted when on screen, no
+loop, unmute button"; `ClipInChat`). A file is a row with its name and size in the same frame. A long press
 selects it, as any message; a tap opens the viewer (docs/screens/viewer.md). Until the preview is there
 (downloading, or fetched again after the cache was cleared), the picture's shape is held in the Raised colour, so
 nothing moves when it comes.
@@ -636,8 +641,7 @@ pictures and videos and their places: the original is read again from there when
 
 Pictures in the writing bubble each have a crop icon in their bottom start corner (teal once set): it opens crop and
 focus (docs/screens/viewer.md, "Crop and focus") on the draft's pictures; their previews are made again before Send.
-A picture in the chat is drawn at its composition's shape, cut around its point of interest. Of several pictures, each
-one's place and time sit right under it, the room before the next picture below the line (2026-11-28, hen).
+A picture in the chat is drawn at its composition's shape, cut around its point of interest.
 
 The composer's + has Camera too (2026-11-28, hen: "open the native camera app ... also saved on the device"; "many in
 one go"): the phone's own camera opens. With access to all photos (asked the first time), it opens as itself, and back

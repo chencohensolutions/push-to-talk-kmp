@@ -21,7 +21,7 @@ internal object MediaCrypto {
     const val TAG = 16
     const val SEALED = CHUNK + TAG
 
-    enum class Part(val info: String) { PREVIEW("preview"), POSTER("poster"), ORIGINAL("original") }
+    enum class Part(val info: String) { PREVIEW("preview"), POSTER("poster"), ORIGINAL("original"), CLIP("clip") }
 
     /**
      * The key of one part: the item's key, the blob id and the part, through HKDF. Chunk nonces are only their index, so
