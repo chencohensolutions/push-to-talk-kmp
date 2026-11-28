@@ -612,7 +612,7 @@ private fun androidx.compose.foundation.layout.BoxScope.ClipInChat(messageId: St
                 .clickable(onClickLabel = label) { clipSound.value = !sound }.semantics { contentDescription = label },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(if (sound) LibraryIcons.SoundOn else LibraryIcons.SoundOff, null, tint = Color.White, modifier = Modifier.size(18.dp))
+            Icon(if (sound) LibraryIcons.Speaker else LibraryIcons.SpeakerOff, null, tint = Color.White, modifier = Modifier.size(18.dp))
         }
     }
 }
