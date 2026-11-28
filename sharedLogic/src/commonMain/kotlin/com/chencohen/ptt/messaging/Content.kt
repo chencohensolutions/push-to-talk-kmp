@@ -94,7 +94,7 @@ internal data class Content(
 
 /** One message of shared items: its [id] (the message's), when it was sent, a caption, and up to 30 items. */
 @Serializable
-internal data class MediaContent(
+data class MediaContent(
     @ProtoNumber(1) val id: String = "",
     @ProtoNumber(2) val sentAt: Long = 0,
     @ProtoNumber(3) val caption: String = "",
@@ -108,7 +108,7 @@ internal data class MediaContent(
  * its own language, from [latE7]/[lonE7].
  */
 @Serializable
-internal data class AttachmentContent(
+data class AttachmentContent(
     @ProtoNumber(1) val id: String = "",
     /** One of [MediaKind]. */
     @ProtoNumber(2) val kind: Int = 0,
@@ -146,7 +146,7 @@ internal data class AttachmentContent(
 }
 
 /** `AttachmentContent.kind`. */
-internal object MediaKind {
+object MediaKind {
     const val IMAGE = 1
     const val VIDEO = 2
     const val FILE = 3
@@ -157,7 +157,7 @@ internal object MediaKind {
  * codec and HDR. [growing]: still being uploaded when the message went (a video's preview, read with follow).
  */
 @Serializable
-internal data class PartContent(
+data class PartContent(
     @ProtoNumber(1) val blob: String = "",
     @ProtoNumber(2) val size: Long = 0,
     @ProtoNumber(3) val width: Int = 0,
@@ -171,20 +171,20 @@ internal data class PartContent(
 )
 
 /** `PartContent.codec`. */
-internal object MediaCodec {
+object MediaCodec {
     const val HEVC = 1
     const val H264 = 2
 }
 
 /** `PartContent.hdr`. */
-internal object MediaHdr {
+object MediaHdr {
     const val SDR = 0
     const val HLG = 1
     const val HDR10 = 2
 }
 
 /** Which part of an item ([MediaRequestContent.part], [MediaReplyContent.part]). */
-internal object MediaPart {
+object MediaPart {
     const val PREVIEW = 1
     const val ORIGINAL = 2
     const val POSTER = 3
@@ -211,7 +211,7 @@ internal data class MediaReplyContent(
 )
 
 /** `MediaReplyContent.status`. */
-internal object MediaReplyStatus {
+object MediaReplyStatus {
     /** Uploaded, or uploading (the part's growing). */
     const val READY = 1
     /** Over 50 MB and the sender's phone waits for Wi-Fi (its setting); Get it now asks again with now. */
