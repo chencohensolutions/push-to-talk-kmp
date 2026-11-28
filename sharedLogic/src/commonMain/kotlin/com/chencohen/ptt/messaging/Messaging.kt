@@ -2406,13 +2406,19 @@ internal class Messaging(
      */
     suspend fun editText(id: String, body: String): Boolean {
         val message = store.message(id)?.takeIf { it.outgoing && it.clip == null && it.call == null } ?: return false
-        val text = body.trim().take(4_000)
-        if (text.isEmpty() || text == message.body) {
+        // Pictures' caption (2026-11-28, hen: double tap to edit): it may be emptied; one not sent yet is committed.
+        val media = message.media
+        if (media?.quiet == true) return commitCaption(id, body)
+        val text = body.trim().take(if (media != null) com.chencohen.ptt.media.MediaSharing.MAX_CAPTION else 4_000)
+        if ((text.isEmpty() && media == null) || text == (media?.caption ?: message.body)) {
             editLive(id, null)
             return false
         }
         val at = now()
-        store.putMessage(message.copy(body = text, editedAt = at))
+        if (media != null) {
+            val shared = media.copy(caption = text)
+            store.putMessage(message.copy(media = shared, body = com.chencohen.ptt.media.MediaSharing.fallback(shared), editedAt = at))
+        } else store.putMessage(message.copy(body = text, editedAt = at))
         publish()
         editWanted.remove(id)
         val content = Content(edit = EditContent(id, text, at, EditContent.FINAL))
@@ -2559,9 +2565,16 @@ internal class Messaging(
         when (edit.stage) {
             EditContent.FINAL -> {
                 if (edit.notify && message.media != null) return takeCaption(chat, mine, message, edit)
-                if (edit.body.isBlank()) return
+                if (edit.body.isBlank() && message.media == null) return
                 editEnded[edit.id] = maxOf(editEnded[edit.id] ?: 0L, edit.editedAt)
-                if ((message.editedAt ?: 0L) <= edit.editedAt) store.putMessage(message.copy(body = edit.body.take(4_000), editedAt = edit.editedAt))
+                if ((message.editedAt ?: 0L) <= edit.editedAt) {
+                    val media = message.media
+                    if (media != null) {
+                        // A caption edited after it was sent: no new notification.
+                        val shared = media.copy(caption = edit.body.take(com.chencohen.ptt.media.MediaSharing.MAX_CAPTION))
+                        store.putMessage(message.copy(media = shared, body = com.chencohen.ptt.media.MediaSharing.fallback(shared), editedAt = edit.editedAt))
+                    } else store.putMessage(message.copy(body = edit.body.take(4_000), editedAt = edit.editedAt))
+                }
                 _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
                 publish()
             }

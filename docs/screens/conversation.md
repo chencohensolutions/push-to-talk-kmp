@@ -144,7 +144,10 @@ label), and ✓ takes the place of the time and its mark at the bottom, so the h
 only when the typed text no longer fits, toward the middle (the right in Hebrew), up to 85% of the row, then wraps
 (`editBoxWidth`, RtlTransitionsTest). A tap on (or focus in) the writing bubble ends the edit unchanged, the focus moving there with the keyboard staying up; a double tap on another of my texts ends the first and starts the new one (`EditSession`, EditSessionTest). ✓ saves; Back or a tap outside turn it back unchanged (no ✕). The edit goes end to end like
 a text (`EditContent` in Content field 19, kept and pushed silently, also to my other phones; in a group through the
-group's Send); every phone replaces the text and shows "edited" by the time. Only the author's edit of their own text
+group's Send); every phone replaces the text and shows "edited" by the time. The caption of my sent pictures is edited the same way (2026-11-28, hen:
+"double tap on message text to edit"): a double tap on their bottom half (or Edit with the message selected) turns
+it to the writing look in place, the caret at the character tapped, ✓ where the time was; it may be emptied, and it
+changes on every phone without a new notification (`CaptionEdit`; `Messaging.editText`). Only the author's edit of their own text
 counts; an id a phone doesn't have is ignored; older apps skip the field. While I edit, live only like live typing
 (ephemeral): with Live typing on for the chat they see that message's text change letter by letter in place, else
 only that it is being edited; either way their bubble gets a soft outline and "Editing…", and its size eases. A cancel

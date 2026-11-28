@@ -58,6 +58,9 @@ import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryType
 import kotlinx.coroutines.Dispatchers
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collectLatest
@@ -187,6 +190,13 @@ internal fun MediaMessage(
     author: String? = null,
     /** Theirs, sent before its caption: the caption as they write it (Live typing), with their caret. */
     liveEdit: com.chencohen.ptt.messaging.LiveEdit? = null,
+    /** Mine, sent: a double tap on its bottom half edits the caption, the caret at the character tapped (2026-11-28, hen). */
+    startEdit: ((caret: Int) -> Unit)? = null,
+    /** Mine, its caption being edited now: in place, in the bottom half, ✓ where the time was. */
+    edit: com.chencohen.ptt.ui.contacts.Editing? = null,
+    editChange: (androidx.compose.ui.text.input.TextFieldValue) -> Unit = {},
+    editDone: (save: Boolean) -> Unit = {},
+    editGone: () -> Unit = {},
 ) {
     val media = message.media ?: return
     val mine = message.outgoing
@@ -246,24 +256,97 @@ internal fun MediaMessage(
         }
         // Mine sent before the caption: the caption box under the chat is its bottom half while I write it.
         if (mine && media.quiet) return@Column
+        if (edit != null) {
+            CaptionEdit(edit, editChange, editDone, editGone)
+            return@Column
+        }
         // The bottom half bubble: the caption and the time.
+        var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+        val captionPlace = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(2) }
         Column(
             Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).half(top = false)
                 .then(if (failed) Modifier.clickable { retry(message.id) } else Modifier)
+                .onGloballyPositioned { captionPlace[0] = it }
+                .then(
+                    // A double tap anywhere on the bottom half (as on a text bubble, 2026-11-24): on the caption the
+                    // caret at that character, elsewhere at its end.
+                    if (startEdit != null && !selecting) Modifier.pointerInput(message.id) {
+                        detectTapGestures(
+                            onLongPress = select?.let { s -> { _: androidx.compose.ui.geometry.Offset -> s() } },
+                            onDoubleTap = { at ->
+                                val half = captionPlace[0]
+                                val text = captionPlace[1]
+                                val l = layout
+                                val caret = if (half != null && text != null && l != null && half.isAttached && text.isAttached) {
+                                    val p = text.localPositionOf(half, at)
+                                    if (p.x >= 0f && p.y >= 0f && p.x <= text.size.width && p.y <= text.size.height) l.getOffsetForPosition(p) else media.caption.length
+                                } else media.caption.length
+                                startEdit(caret)
+                            },
+                        )
+                    } else Modifier,
+                )
                 .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 7.dp),
         ) {
             val live = liveEdit?.text
-            var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
             if (live != null || media.caption.isNotBlank()) Text(
                 live ?: media.caption, color = ink, style = LibraryType.Message, onTextLayout = { layout = it },
-                modifier = if (live != null && liveEdit.selEnd >= 0) Modifier.liveCaret(layout, liveEdit.selStart, liveEdit.selEnd) else Modifier,
+                modifier = Modifier.onGloballyPositioned { captionPlace[1] = it }
+                    .then(if (live != null && liveEdit.selEnd >= 0) Modifier.liveCaret(layout, liveEdit.selStart, liveEdit.selEnd) else Modifier),
             )
-            if (liveEdit != null || (!mine && media.quiet)) Text(stringResource(R.string.chat_draft), color = muted, style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End))
+            if (liveEdit != null || (!mine && media.quiet)) Text(stringResource(if (liveEdit != null && !media.quiet) R.string.chat_editing else R.string.chat_draft), color = muted, style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End))
             else Text(
                 if (failed) stringResource(R.string.chat_status_failed) + " · " + time else time,
                 color = if (failed) LibraryColors.Warning else muted, style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End),
             )
         }
+    }
+}
+
+/**
+ * My sent caption, edited in place (2026-11-28, hen: "double tap on message text to edit"): the bottom half turns to
+ * the writing look (coral outline, open towards the pictures), the caption a field with the caret where it was tapped,
+ * ✓ where the time was. ✓ saves (an empty caption takes it off); Back or a tap outside end it unchanged.
+ */
+@Composable
+private fun CaptionEdit(edit: com.chencohen.ptt.ui.contacts.Editing, change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit, done: (save: Boolean) -> Unit, gone: () -> Unit) {
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var saving by remember(edit.id) { mutableStateOf<Boolean?>(null) }
+    androidx.compose.runtime.LaunchedEffect(edit.id) {
+        // They see it is being edited from the first moment.
+        change(edit.value)
+        runCatching { focus.requestFocus() }
+    }
+    androidx.compose.runtime.LaunchedEffect(edit.leaving) { if (edit.leaving && saving == null) saving = false }
+    androidx.compose.runtime.LaunchedEffect(saving) {
+        val save = saving ?: return@LaunchedEffect
+        done(save)
+        gone()
+    }
+    val coral = LibraryColors.Writing
+    Column(
+        Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth())
+            .background(coral.copy(alpha = 0.08f), halfShape(false))
+            .writingHalf(coral, top = false)
+            .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 7.dp),
+    ) {
+        androidx.compose.foundation.text.BasicTextField(
+            value = edit.value,
+            onValueChange = { v ->
+                if (v.text != edit.value.text) edit.changed = true
+                change(v.copy(text = v.text.take(com.chencohen.ptt.media.MediaSharing.MAX_CAPTION)))
+            },
+            textStyle = LibraryType.Message.copy(color = LibraryColors.OnBackground),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(coral),
+            maxLines = 6,
+            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+        )
+        val save = stringResource(R.string.chat_edit_save)
+        Box(
+            Modifier.align(Alignment.End).padding(top = 6.dp).size(18.dp).clip(CircleShape).background(coral, CircleShape)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = save) { if (saving == null) saving = true },
+            contentAlignment = Alignment.Center,
+        ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(12.dp)) }
     }
 }
 

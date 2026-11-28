@@ -244,6 +244,28 @@ class MediaSharingTest {
     }
 
     @Test
+    fun aSentCaptionIsEditedQuietly() = runTest {
+        val (_, hen, dana) = paired()
+        val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf("a"), "the sea") }
+        advanceUntilIdle()
+        val message = sent.await().single()
+        val edited = hen.work.async { hen.messaging.editText(message.id, " the red sea ") }
+        advanceUntilIdle()
+        assertTrue(edited.await())
+        assertEquals("the red sea", hen.store.message(message.id)?.media?.caption)
+        val there = dana.store.message(message.id)
+        assertEquals("the red sea", there?.media?.caption, "the caption changes on their phone")
+        assertNotNull(there?.editedAt)
+        assertEquals(1, there?.media?.items?.size, "the pictures stay")
+        val emptied = hen.work.async { hen.messaging.editText(message.id, "") }
+        advanceUntilIdle()
+        assertTrue(emptied.await(), "a caption may be taken off")
+        assertEquals("", dana.store.message(message.id)?.media?.caption)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun aChangedPreviewOnTheServerIsRefused() = runTest {
         val (server, hen, dana) = paired()
         val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf("a"), "") }

@@ -386,8 +386,8 @@ private fun ConversationScreenIn(
                 SelectionBar(
                     count = selected.size,
                     close = { selected.clear() },
-                    edit = one?.takeIf { it.outgoing && it.face == 0 && it.media == null && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
-                        { selected.clear(); edits.start(Editing(m.id, m.body, m.body.length, 0)) }
+                    edit = one?.takeIf { it.outgoing && it.face == 0 && it.media?.quiet != true && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
+                        { selected.clear(); val text = m.media?.caption ?: m.body; edits.start(Editing(m.id, text, text.length, 0)) }
                     },
                     info = one?.let { m -> { sheet = ChatSheet.Info(m.id) } },
                     // A burst or voice message: Save as file (it was the long press; now that selects).
@@ -1145,7 +1145,8 @@ private fun ConversationScreenIn(
                         Column(Modifier.animateItem(if (message.outgoing) null else ease, move, ease).zIndex(if (faces.isEmpty()) 0f else 1f)) {
                           Box((if (grows) Modifier.growIn(true, FLIGHT_MS) else Modifier).then(if (fresh) Modifier.fadeIn() else Modifier)) {
                             val edit = edits.of(message.id)
-                            if (edit != null) {
+                            // (A picture message's caption is edited in its own bottom half, in the Bubble.)
+                            if (edit != null && message.media == null) {
                                 EditBubble(
                                     edit,
                                     change = { v ->
@@ -1172,8 +1173,16 @@ private fun ConversationScreenIn(
                                     bubbleModifier = if (slot) Modifier.onGloballyPositioned { flight.to = androidx.compose.ui.geometry.Rect(it.positionInWindow(), androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat())) }.graphicsLayer { alpha = 0f }
                                     else Modifier.graphicsLayer { alpha = seeThrough },
                                     liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
-                                    startEdit = if (!slot && message.outgoing && message.media == null && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
+                                    startEdit = if (!slot && message.outgoing && message.media?.quiet != true && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.media?.caption ?: message.body, offset, width)) } else null,
                                     doubleTap = if (message.clip?.video == true && selected.isEmpty()) { { actions.playClip(message.id) } } else null,
+                                    mediaEdit = edit?.takeIf { message.media != null }?.let { e ->
+                                        MediaEdit(
+                                            e,
+                                            change = { v -> e.value = v; actions.editLive(message.id, v.text, v.selection.start, v.selection.end) },
+                                            done = { save -> if (save) actions.edit(message.id, e.value.text) else actions.editLive(message.id, null, -1, -1) },
+                                            gone = { edits.gone(e) },
+                                        )
+                                    },
                                     selected = message.id in selected,
                                     select = { if (message.id in selected) selected.remove(message.id) else selected.add(message.id) },
                                     selecting = selected.isNotEmpty(),
@@ -1723,6 +1732,8 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     selecting: Boolean = false,
     /** Mine, in Send's slot while the draft flies into it: shown as still on its way, so what came meanwhile is seen once it lands. */
     held: Boolean = false,
+    /** My picture message whose caption is being edited. */
+    mediaEdit: MediaEdit? = null,
 ) {
     // Shared media (2026-11-28, hen): as wide as the screen, outside a bubble.
     if (message.media != null && !message.deleted) {
@@ -1733,6 +1744,11 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 progress = actions.uploads[message.id],
                 author = if (showAuthor && !message.outgoing) message.author else null,
                 liveEdit = liveEdit,
+                startEdit = startEdit?.let { start -> { caret: Int -> start(caret, 0) } },
+                edit = mediaEdit?.edit,
+                editChange = mediaEdit?.change ?: {},
+                editDone = mediaEdit?.done ?: {},
+                editGone = mediaEdit?.gone ?: {},
             ) }
         }
         if (message.reactions.isNotEmpty()) com.chencohen.ptt.ui.face.Reactions(message.reactions, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
@@ -2290,6 +2306,14 @@ private fun ChatSheetView(sheet: ChatSheet?, messages: List<TextMessage>, group:
  * double tap, a tap or focus on the writing bubble, Back or a tap outside end the one in progress unchanged (it turns
  * back, and its cancel goes to them).
  */
+/** A picture message's caption being edited, with what its field does. */
+internal class MediaEdit(
+    val edit: Editing,
+    val change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+    val done: (save: Boolean) -> Unit,
+    val gone: () -> Unit,
+)
+
 internal class EditSession {
     var editing by mutableStateOf<Editing?>(null)
         private set

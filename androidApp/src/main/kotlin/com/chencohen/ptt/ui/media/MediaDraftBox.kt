@@ -269,7 +269,7 @@ private fun Modifier.writingSides(color: Color): Modifier = drawBehind {
 }
 
 /** A half bubble's outline in [color], open on the side the pictures touch (the writing look of myHalfBubble). */
-private fun Modifier.writingHalf(color: Color, top: Boolean, radius: Dp = 16.dp): Modifier = drawWithCache {
+internal fun Modifier.writingHalf(color: Color, top: Boolean, radius: Dp = 16.dp): Modifier = drawWithCache {
     val w = 1.5.dp.toPx()
     val r = radius.toPx()
     val h = size.height
