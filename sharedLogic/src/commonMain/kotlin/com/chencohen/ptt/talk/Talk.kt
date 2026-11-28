@@ -883,6 +883,13 @@ internal class Talk(
         _state.value.talking.forEach { (chat, list) ->
             list.filter { "${it.user}.${it.device}" == identity }.forEach { t -> loseTheirs(chat, t) }
         }
+        // Their push playing here live ends too: what came still plays, then it stops (its end, as if it had come).
+        _state.value.playing?.takeIf { it.live }?.let { p ->
+            bursts[p.clip]?.takeIf { b -> !b.ended && "${b.from}.${b.device}" == identity }?.let { b ->
+                endTheirs(b.chat, b.id)
+                watchPlayback(b)
+            }
+        }
     }
 
     /** A sign of life of [burstId]: watched from now; back on the live row if the watchdog had taken it off. */
@@ -994,6 +1001,8 @@ internal class Talk(
                 // A floor never longer than the server's limit: if its end never came (a dropped frame), it goes anyway.
                 scope.launch {
                     delay(STALE_TALKER_MS)
+                    // Still playing then: watched again, so a playback that never finishes is stopped too.
+                    bursts[s.burstId]?.takeIf { it.playing }?.let { watchPlayback(it) }
                     _state.update { st -> st.withoutTalker(s.burstId) }
                     dimmer.quiet("live:${s.burstId}")
                 }
@@ -1478,7 +1487,20 @@ internal class Talk(
         burst.quiet = scope.launch {
             delay(TalkBeat.LOST_MS + WATCH_EVERY)
             if (!burst.playing || _state.value.playing?.let { it.clip == burst.id && it.live } != true) return@launch
-            if (burst.kept || burst.lastIndex != null) return@launch
+            if (burst.kept) return@launch
+            if (burst.lastIndex != null) {
+                // Its end is known, so its playback should finish by itself once what came has played. One that never
+                // says it is done (2026-11-28: testbot showed "hen talking" for two hours after a 1 s push) is stopped
+                // once all of it had time to play, and some.
+                val since = if (burst.lastSign > 0) burst.lastSign else burst.createdAt
+                if (now() - since > burst.frames.toLong() * TalkAudioFormat.FRAME_MS + PLAYBACK_GRACE_MS) {
+                    burst.playback?.stop()
+                    done(burst.id)
+                } else {
+                    watchPlayback(burst)
+                }
+                return@launch
+            }
             // Only a push that was coming here (a talker heard only in the room has no sign: left to its floor's end).
             if (burst.lastSign == 0L || now() - burst.lastSign < TalkBeat.LOST_MS) return@launch
             // Still listed with a fresh beat (a silent hold in the room): not over.
@@ -1679,6 +1701,9 @@ internal class Talk(
 
         /** Someone's floor shown at most this long (the server's 60 s limit, and some): a lost end can't block it. */
         const val STALE_TALKER_MS = 75_000L
+
+        /** How long past its length a live playback whose end is known may go on before it is stopped. */
+        const val PLAYBACK_GRACE_MS = 10_000L
 
         /** A burst whose floor ended and that got nothing more for this long stops playing (it isn't live any more). */
         const val END_STUCK_MS = 6_000L
