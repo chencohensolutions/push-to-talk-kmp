@@ -79,21 +79,20 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
      */
     override suspend fun crop(source: String, crop: com.chencohen.ptt.messaging.CropContent, widths: (croppedWidth: Int) -> List<Int>): PreparedCrop? = withContext(Dispatchers.IO) {
         val uri = Uri.parse(source)
-        var sample = 1
+        var scale = 1.0
         val full = runCatching {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                // ImageDecoder gives it upright; its size here may still be the sensor's, so the shorter turn is safe.
                 val most = widths(info.size.width).maxOrNull() ?: info.size.width
-                sample = maxOf(1, minOf(info.size.width, info.size.height) / most.coerceAtLeast(1)).let { s -> Integer.highestOneBit(s) }
-                if (sample > 1) decoder.setTargetSampleSize(sample)
+                scale = fit(info.size.width, most)
+                if (scale < 1.0) decoder.setTargetSize((info.size.width * scale).roundToInt().coerceAtLeast(1), (info.size.height * scale).roundToInt().coerceAtLeast(1))
             }
         }.getOrNull() ?: return@withContext null
         val top = (full.height.toLong() * crop.top / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt()
         val kept = (full.height.toLong() * crop.kept / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt().coerceIn(1, full.height - top)
         val part = if (top == 0 && kept == full.height) full else Bitmap.createBitmap(full, 0, top, full.width, kept)
         val started = System.nanoTime()
-        val previews = previews(part, widths(full.width * sample))
+        val previews = previews(part, widths((full.width / scale).roundToInt()))
         if (part !== full) part.recycle()
         full.recycle()
         Log.i(TAG, "Cropped ${crop.top}/${crop.bottom}: previews " + previews.joinToString { "${it.width}px ${it.bytes.size / 1024} KB" } + " in ${(System.nanoTime() - started) / 1_000_000} ms")
@@ -139,19 +138,20 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
     private fun image(uri: Uri, mime: String, name: String, size: Long, sha: ByteArray, source: String, widths: (Int) -> List<Int>): PreparedItem? {
         val exif = runCatching { openExif(original(uri)) ?: openExif(uri) }.getOrNull()
         // Upright: ImageDecoder turns it by its EXIF orientation.
-        var sample = 1
+        // Decoded just wide enough for the widest preview, at an exact size: a sample size may be rounded by the decoder
+        // (a HEIC asked for 1/2 came at 1/3, 2026-11-28, hen: "why preview image width is 1000 shouldn't it be 1080?").
+        var scale = 1.0
         val full = runCatching {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                val turned = (exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) ?: 0) in TURNED
-                val upright = if (turned) info.size.height else info.size.width
-                val most = widths(upright).maxOrNull() ?: upright
-                sample = maxOf(1, upright / most)
-                if (sample > 1) decoder.setTargetSampleSize(sample)
+                // The size here is already upright (ImageDecoder turns it by its EXIF orientation, and says so).
+                val most = widths(info.size.width).maxOrNull() ?: info.size.width
+                scale = fit(info.size.width, most)
+                if (scale < 1.0) decoder.setTargetSize((info.size.width * scale).roundToInt().coerceAtLeast(1), (info.size.height * scale).roundToInt().coerceAtLeast(1))
             }
         }.getOrNull() ?: return null
-        val width = full.width * sample
-        val height = full.height * sample
+        val width = (full.width / scale).roundToInt()
+        val height = (full.height / scale).roundToInt()
         val previews = previews(full, widths(width))
         full.recycle()
         val taken = exif?.let(::takenAt) ?: storeTakenAt(uri)?.let { at -> at to java.util.TimeZone.getDefault().getOffset(at) / 60_000 }
@@ -224,6 +224,9 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         val m = Regex("""([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)""").find(text) ?: return null
         return (m.groupValues[1].toDoubleOrNull() ?: return null) to (m.groupValues[2].toDoubleOrNull() ?: return null)
     }
+
+    /** The scale (at most 1) that makes a picture [width] pixels wide (upright) [most] wide. */
+    private fun fit(width: Int, most: Int): Double = minOf(1.0, most.toDouble() / width.coerceAtLeast(1))
 
     /** [picture] (upright) as one JPEG XL per width, none wider than it. */
     private fun previews(picture: Bitmap, wanted: List<Int>): List<PreparedPreview> = wanted.mapNotNull { w ->
