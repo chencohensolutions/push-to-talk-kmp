@@ -349,7 +349,9 @@ private fun ItemPage(
             // The whole original is drawn: a cropped picture opens out to it.
             LaunchedEffect(full != null || sharp != null) { if (full != null || sharp != null) whole() }
             val image = sharp ?: full ?: small
-            val whole = small ?: full
+            // The minimap's picture is the whole one its outline is measured on: a cropped picture's preview is only its
+            // crop, so the original's (2026-11-28, hen: "i don't think the zoom minimap rectangle is accurate").
+            val whole = if (item.crop != null) full ?: sharp else small ?: full
             val minimapPicture = remember(whole) { whole?.asImageBitmap() }
             androidx.compose.runtime.SideEffect { zoom.picture = minimapPicture }
             val shownSide = image?.let { maxOf(it.width, it.height) } ?: 0
