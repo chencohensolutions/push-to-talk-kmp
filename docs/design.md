@@ -805,6 +805,13 @@ apps means 30 days), so a phone that got it lets its previews go from the cache,
 reply as if someone had asked: it then opens for anyone straight from the server, even with my phone off or the file
 gone from it.
 
+A preview the server has let go (404) is asked of the phone that shared it (`MediaRequestContent` with `PREVIEW` and
+the width, `askAgain`, at most once an hour for a part): that phone puts the very sealed file it keeps back on the
+server for that chat (`answerPreview`; shared again when another chat still has it), so the key in the message still
+opens it, and answers READY; the asker then fetches it. Only for an item of a message it sent in that chat, not
+deleted, to someone still in it, as for originals. With that phone gone or off, the preview stays missing until it
+answers.
+
 Every file has its own key, and a chat gets the keys of exactly the files it may read (2026-11-28, hen chose "a key
 per file, inside each chat's message" after Fable's review found that a re-share handed chat B the item key chat A
 has, which would open what is made later for B). A first share sends the item's key, from which each part's is

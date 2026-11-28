@@ -275,6 +275,10 @@ internal class MediaSharing(
     private val fetching = Mutex()
     private val inFlight = mutableMapOf<String, CompletableDeferred<ByteArray?>>()
 
+    /** Previews the server answered 404 for (removed to make room, or never there), and when each was last asked for again. */
+    private val gone = mutableSetOf<String>()
+    private val askedAgain = mutableMapOf<String, Long>()
+
     /**
      * Reads [sources] and keeps them as messages to [chat] (pending; [deliver] uploads and sends them), at most
      * [MAX_ITEMS] items each, [caption] on the first. Answers the messages; empty when nothing could be read.
@@ -704,22 +708,9 @@ internal class MediaSharing(
                     }
                     val sealed = files.read(part.blob) ?: throw MissingPreviewException()
                     val peer = if (group == null) message.user else null
-                    // In pieces, so the progress moves smoothly; whole when the server can't take pieces.
-                    var offset = 0L
-                    var stuck = 0
-                    try {
-                        while (offset < sealed.size) {
-                            val end = minOf(sealed.size.toLong(), offset + PREVIEW_PIECE).toInt()
-                            val got = blobs.putMediaPiece(part.blob, peer, group, media.keepDays, sealed.size.toLong(), offset, sealed.copyOfRange(offset.toInt(), end))
-                            stuck = if (got <= offset) stuck + 1 else 0
-                            if (stuck > 2) throw BlobException(409, "The server keeps another part")
-                            offset = got
-                            transfer(item.id, itemDone + offset, itemTotal)
-                            _uploads.update { it + (message.id to ((done + offset).toFloat() / total).coerceAtMost(1f)) }
-                        }
-                    } catch (e: BlobException) {
-                        if (e.status != 0) throw e
-                        blobs.put(part.blob, peer, group, sealed)
+                    putSealed(part.blob, peer, group, media.keepDays, sealed) { offset ->
+                        transfer(item.id, itemDone + offset, itemTotal)
+                        _uploads.update { it + (message.id to ((done + offset).toFloat() / total).coerceAtMost(1f)) }
                     }
                     uploaded += mark
                     itemDone += sealed.size
@@ -759,7 +750,11 @@ internal class MediaSharing(
         val part = PreviewSpec.pick(item.previews, myScreen().takeIf { it > 0 } ?: PreviewSpec.DEFAULT_WIDTH) ?: return null
         // Only a preview that just came changes what this phone holds: one read from here as the chat scrolls tells nobody.
         val kept = files.has(part.blob)
-        return part(item, part, MediaCrypto.Part.PREVIEW, sent = message.outgoing).also {
+        val got = part(item, part, MediaCrypto.Part.PREVIEW, sent = message.outgoing)
+            ?: if (part.blob in gone && !message.outgoing && message.id !in drafts && askAgain(message, item, part)) {
+                part(item, part, MediaCrypto.Part.PREVIEW, sent = false)
+            } else null
+        return got.also {
             if (it != null && !kept) {
                 checkAll(messageId)
                 if (message.id !in drafts) changed(message, item.id)
@@ -819,6 +814,9 @@ internal class MediaSharing(
         } catch (e: CancellationException) {
             waiter.complete(null)
             throw e
+        } catch (e: BlobException) {
+            if (e.status == 404) gone += part.blob
+            null
         } catch (_: Exception) {
             null
         } finally {
@@ -827,6 +825,48 @@ internal class MediaSharing(
         waiter.complete(plain)
         fetching.withLock { inFlight.remove(part.blob) }
         return plain
+    }
+
+    /**
+     * Asks the phone that shared [item] to put [part] on the server again (the server removed it to make room, oldest
+     * fetched first, or lost it), and waits for its answer: true once it is there. At most once an hour for a part.
+     */
+    private suspend fun askAgain(message: TextMessage, item: AttachmentContent, part: PartContent): Boolean {
+        val at = now()
+        val asked = fetching.withLock {
+            val last = askedAgain[part.blob]
+            (last == null || at - last >= ASK_AGAIN_EVERY).also { if (it) askedAgain[part.blob] = at }
+        }
+        if (!asked) return false
+        val key = "${message.id}/${item.id}$PREVIEW_ANSWER"
+        val answer = CompletableDeferred<MediaReplyContent>()
+        answers[key] = answer
+        val owner = message.author ?: message.user
+        runCatching {
+            send(message.user, Content(mediaRequest = MediaRequestContent(message.id, item.id, MediaPart.PREVIEW, width = part.width)), PushKind.MEDIA, owner)
+        }.onFailure { answers.remove(key); return false }
+        val reply = withTimeoutOrNull(ANSWER_WAIT) { answer.await() }
+        answers.remove(key)
+        return reply?.status == MediaReplyStatus.READY && reply.upload?.blob == part.blob
+    }
+
+    /** Uploads [sealed] as blob [blob]: in pieces, so the progress moves smoothly; whole when the server can't take pieces. */
+    private suspend fun putSealed(blob: String, peer: String?, group: String?, keepDays: Int, sealed: ByteArray, progress: (Long) -> Unit = {}) {
+        var offset = 0L
+        var stuck = 0
+        try {
+            while (offset < sealed.size) {
+                val end = minOf(sealed.size.toLong(), offset + PREVIEW_PIECE).toInt()
+                val got = blobs.putMediaPiece(blob, peer, group, keepDays, sealed.size.toLong(), offset, sealed.copyOfRange(offset.toInt(), end))
+                stuck = if (got <= offset) stuck + 1 else 0
+                if (stuck > 2) throw BlobException(409, "The server keeps another part")
+                offset = got
+                progress(offset)
+            }
+        } catch (e: BlobException) {
+            if (e.status != 0) throw e
+            blobs.put(blob, peer, group, sealed)
+        }
     }
 
     /** Blob [id] read whole; null when it isn't [expected] bytes (cut short, or not this part). */
@@ -842,6 +882,7 @@ internal class MediaSharing(
             progress(size, expected)
         }
         if (size != expected) return null
+        gone -= id
         val out = ByteArray(size.toInt())
         var at = 0
         for (c in chunks) {
@@ -1102,6 +1143,10 @@ internal class MediaSharing(
             val item = message.media?.items?.firstOrNull { it.id == reply.attachmentId } ?: return@let
             val owner = if (message.outgoing) null else message.author ?: message.user
             if (owner != null && (owner != author || (item.originDevice != 0 && item.originDevice != device))) return@let
+            if (reply.part == MediaPart.PREVIEW || reply.part == MediaPart.POSTER) {
+                answers["${message.id}/${item.id}$PREVIEW_ANSWER"]?.complete(reply)
+                return@let
+            }
             if (reply.status == MediaReplyStatus.READY) {
                 val blob = reply.upload?.blob?.takeIf { validBlob(it) } ?: return@let
                 // The original's own key (an item shared again from another chat has no item key here).
@@ -1131,6 +1176,7 @@ internal class MediaSharing(
      */
     private fun answer(chat: String, author: String, device: Int, request: MediaRequestContent) {
         val scope = scope ?: return
+        if (request.part == MediaPart.PREVIEW || request.part == MediaPart.POSTER) return answerPreview(chat, author, request)
         if (request.part != MediaPart.ORIGINAL) return
         fun log(result: Int) = logRequest(OriginalRequest(now(), chat, author, device, request.messageId.take(64), request.attachmentId.take(64), result))
         val message = store.message(request.messageId) ?: return log(RequestResult.UNKNOWN)
@@ -1202,6 +1248,39 @@ internal class MediaSharing(
                 }
                 else -> Unit
             }
+        }
+    }
+
+    /**
+     * Puts a preview (or poster) of an item this phone shared in [chat] on the server again, for [author] whose fetch
+     * found it gone: the same sealed blob this phone keeps, so the key in the message still opens it. Only for a message
+     * this phone sent in that very chat, not deleted, to someone still in it (as for originals; previews aren't logged).
+     */
+    private fun answerPreview(chat: String, author: String, request: MediaRequestContent) {
+        val scope = scope ?: return
+        val message = store.message(request.messageId)?.takeIf { it.user == chat && it.outgoing && !it.deleted } ?: return
+        val group = Group.idOf(chat)
+        if (group != null && store.group(group)?.isReader(author) != true) return
+        val item = message.media?.items?.firstOrNull { it.id == request.attachmentId } ?: return
+        val part = (if (request.part == MediaPart.POSTER) item.poster else item.previews.firstOrNull { it.width == request.width }
+            ?: PreviewSpec.pick(item.previews, request.width.takeIf { it > 0 } ?: PreviewSpec.DEFAULT_WIDTH)) ?: return
+        val reply = { status: Int, upload: PartContent? -> MediaReplyContent(message.id, item.id, request.part, status, upload) }
+        if (uploading["${part.blob}$PREVIEW_ANSWER"]?.isActive == true) return
+        uploading["${part.blob}$PREVIEW_ANSWER"] = scope.launch {
+            val (peer, grp) = conversationOf(chat)
+            val status = try {
+                val sealed = files.read(part.blob)
+                when {
+                    sealed == null -> MediaReplyStatus.GONE
+                    blobs.share(part.blob, peer, grp) -> MediaReplyStatus.READY // Still there for another chat.
+                    else -> MediaReplyStatus.READY.also { putSealed(part.blob, peer, grp, message.media?.keepDays ?: 0, sealed) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@launch // Not now (offline, server full): the asker times out and asks again later.
+            }
+            runCatching { send(chat, Content(mediaReply = reply(status, part.takeIf { status == MediaReplyStatus.READY })), PushKind.NONE, "") }
         }
     }
 
@@ -1594,6 +1673,8 @@ internal class MediaSharing(
 
         /** How long a request for an original waits for the sharing phone's answer (it may be asleep: a push wakes it). */
         const val ANSWER_WAIT = 90_000L
+        const val ASK_AGAIN_EVERY = 60 * 60_000L
+        const val PREVIEW_ANSWER = "#preview"
 
         /** Tries in a row with nothing new before a fetch or an upload gives up; the wait grows with each. */
         const val FETCH_TRIES = 4

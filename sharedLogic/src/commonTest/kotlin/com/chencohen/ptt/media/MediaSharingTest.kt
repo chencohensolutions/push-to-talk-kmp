@@ -424,6 +424,30 @@ class MediaOriginalTest {
     }
 
     @Test
+    fun aPreviewTheServerRemovedIsPutBackByThePhoneThatSharedIt() = runTest {
+        val (server, hen, dana) = paired()
+        val (message, item) = shared(hen)
+        val part = PreviewSpec.pick(hen.store.message(message)!!.media!!.items.single().previews, 1080)!!
+        val sealed = server.files.getValue(part.blob)
+        // Removed on the server to make room, and not on dana's phone (a new install, or cleared).
+        server.files.remove(part.blob)
+        dana.files.delete(part.blob)
+        val got = dana.work.async { dana.messaging.media.preview(message, item) }
+        advanceUntilIdle()
+        assertNotNull(got.await(), "hen's phone put it back and dana opened it")
+        assertContentEquals(sealed, server.files[part.blob], "the same sealed file, so the key in the message opens it")
+        assertTrue("dana" in server.shares[part.blob].orEmpty())
+
+        // Gone again at once: not asked again within the hour.
+        server.files.remove(part.blob)
+        dana.files.delete(part.blob)
+        val again = dana.work.async { dana.messaging.media.preview(message, item) }
+        advanceUntilIdle()
+        assertNull(again.await(), "asked at most once an hour")
+        assertNull(server.files[part.blob])
+    }
+
+    @Test
     fun openingAPictureFetchesItsUntouchedOriginalFromThePhoneThatSharedIt() = runTest {
         val (server, hen, dana) = paired()
         val (message, item) = shared(hen)
