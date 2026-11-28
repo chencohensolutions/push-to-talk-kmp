@@ -141,7 +141,40 @@ data class MediaKeeping(
     val originalElsewhere: Boolean = false,
     /** Mine, and the file it was shared from can't be read here now (deleted, changed, or no access to it). */
     val sourceUnreadable: Boolean = false,
+    /** Mine: every request for its original this phone got, oldest first. */
+    val requests: List<OriginalRequest> = emptyList(),
 )
+
+/**
+ * A request for an original this phone got (2026-11-28, hen: logged, refused ones too): when, in which [chat], from
+ * [user]'s phone [device], for item [itemId] of message [messageId], and what came of it ([result], one of
+ * [RequestResult]).
+ */
+data class OriginalRequest(val at: Long, val chat: String, val user: String, val device: Int, val messageId: String, val itemId: String, val result: Int)
+
+/** `OriginalRequest.result`. */
+object RequestResult {
+    /** Uploaded for them. */
+    const val SENT = 1
+    /** Already on the server (sent before, within media_days): told where. */
+    const val ON_SERVER = 2
+    /** The file is gone from where it was shared, or can't be read here. */
+    const val GONE = 3
+    /** The file changed since it was shared. */
+    const val CHANGED = 4
+    /** The upload broke. */
+    const val FAILED = 5
+    /** Refused: no such message here (never, or deleted). */
+    const val UNKNOWN = 6
+    /** Refused: the message is in another chat. */
+    const val OTHER_CHAT = 7
+    /** Refused: the message isn't this phone's user's. */
+    const val NOT_MINE = 8
+    /** Refused: they aren't in the group any more. */
+    const val NOT_MEMBER = 9
+
+    fun refused(result: Int) = result >= UNKNOWN
+}
 
 /**
  * What this phone keeps of a chat's shared media (bytes and how many): the previews it sent ([sent]) and got
@@ -596,6 +629,7 @@ internal class MediaSharing(
             onlyCopy = fetched != null && store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.let { files.keptOriginal(it) } == true,
             originalElsewhere = originalElsewhere(message, item),
             sourceUnreadable = unreadable,
+            requests = if (message.outgoing) originalRequests(message.user).filter { it.messageId == messageId && it.itemId == itemId } else emptyList(),
         )
     }
 
@@ -723,21 +757,34 @@ internal class MediaSharing(
             }
             answers["${message.id}/${item.id}"]?.complete(reply)
         }
-        content.mediaRequest?.let { request -> answer(chat, request) }
+        content.mediaRequest?.let { request -> answer(chat, author, device, request) }
         content.holdings?.let { holdings -> tookHoldings(chat, author, device, holdings) }
     }
 
-    /** Answers a request for an original this phone shared: uploads it (once in media_days), or says why it can't. */
-    private fun answer(chat: String, request: MediaRequestContent) {
+    /**
+     * Answers a request from [author]'s phone [device] for an original this phone shared: uploads it (once in
+     * media_days), or says why it can't. Only an item of a message this phone sent in the very chat the request came
+     * from, not deleted, to someone still in it; the file is the one kept when it was shared (nothing in a request names
+     * a file). Every request is logged ([originalRequests]), refused ones too (2026-11-28, hen: "every original image
+     * that requested will log somewhere; how can we be sure there isn't a way to download all my images").
+     */
+    private fun answer(chat: String, author: String, device: Int, request: MediaRequestContent) {
         val scope = scope ?: return
         if (request.part != MediaPart.ORIGINAL) return
-        val message = store.message(request.messageId)?.takeIf { it.user == chat && it.outgoing } ?: return
-        val item = message.media?.items?.firstOrNull { it.id == request.attachmentId } ?: return
-        val source = store.mediaSource(message.id, item.id) ?: return
+        fun log(result: Int) = logRequest(OriginalRequest(now(), chat, author, device, request.messageId.take(64), request.attachmentId.take(64), result))
+        val message = store.message(request.messageId) ?: return log(RequestResult.UNKNOWN)
+        if (message.user != chat) return log(RequestResult.OTHER_CHAT)
+        if (!message.outgoing) return log(RequestResult.NOT_MINE)
+        if (message.deleted) return log(RequestResult.UNKNOWN)
+        val group = Group.idOf(chat)
+        if (group != null && store.group(group)?.isReader(author) != true) return log(RequestResult.NOT_MEMBER)
+        val item = message.media?.items?.firstOrNull { it.id == request.attachmentId } ?: return log(RequestResult.UNKNOWN)
+        val source = store.mediaSource(message.id, item.id) ?: return log(RequestResult.GONE)
         val key = "${message.id}/${item.id}"
         val blob = store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")
         val reply = { status: Int, part: PartContent? -> MediaReplyContent(message.id, item.id, MediaPart.ORIGINAL, status, part) }
         if (blob != null && (uploading[key]?.isActive == true || uploadedRecently(message.id, item.id))) {
+            log(RequestResult.ON_SERVER)
             scope.launch { runCatching { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(blob, item, growing = uploading[key]?.isActive == true))), PushKind.NONE, "") } }
             return
         }
@@ -751,6 +798,14 @@ internal class MediaSharing(
                 blobs.delete(id)
                 null
             }
+            log(
+                when (result) {
+                    MediaReplyStatus.READY -> RequestResult.SENT
+                    MediaReplyStatus.GONE -> RequestResult.GONE
+                    MediaReplyStatus.CHANGED -> RequestResult.CHANGED
+                    else -> RequestResult.FAILED
+                },
+            )
             when (result) {
                 MediaReplyStatus.READY -> {
                     store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", id)
@@ -764,6 +819,21 @@ internal class MediaSharing(
             }
         }
     }
+
+    private fun logRequest(entry: OriginalRequest) {
+        val list = (originalRequests() + entry).takeLast(MAX_REQUESTS)
+        store.putMediaSource(REQUESTS, "", list.joinToString("\n") { r ->
+            listOf(r.at, r.chat, r.user, r.device, r.messageId, r.itemId, r.result).joinToString("|") { it.toString().replace("|", "").replace("\n", "") }
+        })
+    }
+
+    /** Every request for an original this phone got, oldest first ([chat]'s, or all), at most [MAX_REQUESTS]. */
+    fun originalRequests(chat: String? = null): List<OriginalRequest> =
+        store.mediaSource(REQUESTS, "")?.lineSequence()?.mapNotNull { line ->
+            val f = line.split('|')
+            if (f.size != 7) return@mapNotNull null
+            OriginalRequest(f[0].toLongOrNull() ?: 0, f[1], f[2], f[3].toIntOrNull() ?: 0, f[4], f[5], f[6].toIntOrNull() ?: 0)
+        }?.filter { chat == null || it.chat == chat }?.toList().orEmpty()
 
     private fun part(blob: String, item: AttachmentContent, growing: Boolean) =
         PartContent(blob = blob, size = item.size, width = item.width, height = item.height, mime = item.mime, growing = growing)
@@ -1082,6 +1152,10 @@ internal class MediaSharing(
         /** Where an item's original blob id and its upload time are kept beside its source (MessagingStore.mediaSource). */
         private const val ORIGINAL_BLOB = "#original"
         private const val ORIGINAL_UPLOADED = "#uploaded"
+
+        /** Where the log of requests for originals is kept (beside the sources, under a key no message has). */
+        private const val REQUESTS = "#requests"
+        const val MAX_REQUESTS = 2000
 
         /** Who told this phone what they hold of an item, and since when this phone's own shared file is gone. */
         private const val HOLDERS = "#holders"

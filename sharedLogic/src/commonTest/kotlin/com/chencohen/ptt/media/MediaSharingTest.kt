@@ -1,5 +1,8 @@
 package com.chencohen.ptt.media
 
+import com.chencohen.ptt.messaging.MediaPart
+import com.chencohen.ptt.messaging.MediaRequestContent
+import com.chencohen.ptt.messaging.Content
 import com.chencohen.ptt.messaging.HeldOriginal
 import com.chencohen.ptt.crypto.DeviceAddress
 import com.chencohen.ptt.discovery.KeptDiscovery
@@ -391,6 +394,44 @@ class MediaOriginalTest {
         dana.messaging.media.openOriginal(message, item)
         advanceUntilIdle()
         assertEquals(OriginalState.Gone, dana.messaging.media.originals.value["$message/$item"])
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun everyRequestForAnOriginalIsLoggedAndOnlyMineInThatChatAreAnswered() = runTest {
+        val (_, hen, dana) = paired()
+        val (message, item) = shared(hen)
+        val preparer = hen.messaging.media.preparer as FakePreparer
+        // Dana's own picture, to hen.
+        val danas = dana.work.async { dana.messaging.shareMedia("hen", listOf("b"), "") }
+        advanceUntilIdle()
+        val theirs = danas.await().single()
+        val opened = preparer.opened
+        fun ask(chat: String, author: String, messageId: String, itemId: String) {
+            hen.messaging.media.took(chat, author, 1, Content(mediaRequest = MediaRequestContent(messageId, itemId, MediaPart.ORIGINAL)))
+        }
+        ask("dana", "dana", "no-such-message", "x")
+        ask("erin", "erin", message, item) // hen's picture to dana, asked for from another chat
+        ask("dana", "dana", theirs.id, theirs.media!!.items.single().id) // dana's own, not hen's
+        ask("dana", "dana", message, "no-such-item")
+        advanceUntilIdle()
+        assertEquals(opened, preparer.opened, "no file was read for a refused request")
+        ask("dana", "dana", message, item)
+        advanceUntilIdle()
+        ask("dana", "dana", message, item)
+        advanceUntilIdle()
+        hen.messaging.deleteMessage(message)
+        advanceUntilIdle()
+        ask("dana", "dana", message, item)
+        advanceUntilIdle()
+        val log = hen.messaging.media.originalRequests()
+        assertEquals(
+            listOf(RequestResult.UNKNOWN, RequestResult.OTHER_CHAT, RequestResult.NOT_MINE, RequestResult.UNKNOWN, RequestResult.SENT, RequestResult.ON_SERVER, RequestResult.UNKNOWN),
+            log.map { it.result },
+        )
+        assertEquals(listOf("dana", "erin", "dana", "dana", "dana", "dana", "dana"), log.map { it.user })
+        assertEquals(6, hen.messaging.media.originalRequests("dana").size)
         hen.stop()
         dana.stop()
     }

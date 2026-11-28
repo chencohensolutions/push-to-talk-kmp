@@ -21,11 +21,22 @@ import kotlinx.coroutines.launch
  * previews still on the server, the originals someone else has); the only copies known stay (who holds what).
  */
 @Composable
-internal fun ChatStorageCard(chat: String, storage: suspend (String) -> ChatStorage, clear: suspend (String) -> ChatStorage) {
+internal fun ChatStorageCard(
+    chat: String,
+    storage: suspend (String) -> ChatStorage,
+    clear: suspend (String) -> ChatStorage,
+    requests: suspend (String) -> List<com.chencohen.ptt.media.OriginalRequest>,
+    names: (String) -> String,
+) {
     var now by remember(chat) { mutableStateOf<ChatStorage?>(null) }
     var cleared by remember(chat) { mutableStateOf<Long?>(null) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(chat) { now = storage(chat) }
+    var asked by remember(chat) { mutableStateOf<List<com.chencohen.ptt.media.OriginalRequest>>(emptyList()) }
+    var allAsked by remember(chat) { mutableStateOf(false) }
+    LaunchedEffect(chat) {
+        now = storage(chat)
+        asked = requests(chat)
+    }
     val s = now ?: return
     SectionTitle(stringResource(R.string.chat_storage))
     SettingsCard {
@@ -52,7 +63,26 @@ internal fun ChatStorageCard(chat: String, storage: suspend (String) -> ChatStor
             }) else null,
         )
     }
+    // Every request for one of my originals in this chat (2026-11-28, hen), newest first; refused ones too.
+    if (asked.isNotEmpty()) {
+        SectionTitle(stringResource(R.string.chat_requests))
+        SettingsCard {
+            val newest = asked.asReversed()
+            val refused = asked.count { com.chencohen.ptt.media.RequestResult.refused(it.result) }
+            InfoRow(
+                stringResource(R.string.chat_requests_count, asked.size),
+                stringResource(R.string.chat_requests_refused, refused).takeIf { refused > 0 },
+                onClick = null,
+                destructive = refused > 0,
+            )
+            (if (allAsked) newest else newest.take(REQUESTS_SHOWN)).forEach { r -> InfoRow(requestLine(r, names(r.user)), null, onClick = null) }
+            if (!allAsked && newest.size > REQUESTS_SHOWN) InfoRow(stringResource(R.string.chat_requests_all), null, onClick = { allAsked = true })
+        }
+    }
 }
+
+/** Requests shown before All. */
+private const val REQUESTS_SHOWN = 10
 
 private fun bytes(n: Long): String = when {
     n < 1_000_000 -> "${(n + 999) / 1000} KB"

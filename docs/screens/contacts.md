@@ -68,6 +68,10 @@ aren't known to be anywhere. **Clear cache** removes what can come again (previe
 someone else has) and says how much it cleared; my shared previews and the only copies stay (docs/design.md, "Who
 holds what").
 
+**Originals asked for** (after Storage, when there are any): every request in this chat for one of my originals
+(`MediaSharing.originalRequests`, kept on the phone, the last 2000), newest first, ten then Show all: whose phone, when,
+and what came of it; a count of the refused ones in red.
+
 ## Urgent pushes and the shield (2026-11-25/26, hen)
 
 - **Urgent pushes › Let urgent pushes through Do Not Disturb**: see talk.md, "Who can hear you".

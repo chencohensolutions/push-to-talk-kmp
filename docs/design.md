@@ -791,6 +791,14 @@ how many of mine are read from where I shared them, and how many originals are k
 removes only what can come again (`clearChat`): previews got that are still on the server (shared within 29 days) and
 copies of originals someone else has. My own shared previews (the others may ask for them) and the only copies stay.
 
+Every request for an original is logged on the sharing phone (2026-11-28, hen: "every original image that requested
+will log somewhere; how can we be sure there isn't a way to download all my images"), refused ones too
+(`OriginalRequest`, `RequestResult`). A request names only a message and an item; it is answered only for a message
+this phone sent in the very chat it came from, not deleted, to someone still in that chat (a group's reader), and the
+file read is the one kept when it was shared: nothing in a request names a file, and the ids are random. The original
+goes up sealed with that item's own key, which only the chat has.
+(`MediaOriginalTest.everyRequestForAnOriginalIsLoggedAndOnlyMineInThatChatAreAnswered`.)
+
 A picture deleted for everyone by its sender is gone for everyone (2026-11-28, hen: "if i delete image i sent from chat,
 the peer no longer have access to that image"): its previews, poster and uploaded original are deleted from the
 server and the sender's phone (`revoke`), the others' phones delete what they kept, the only copies too

@@ -49,5 +49,7 @@ A shared picture, video or file full screen (2026-11-28, hen), opened by a tap o
   each phone's own word replaces the guess: the original (the file shared), a copy of it, the only copy kept, a
   preview so wide, or nothing, with when it said so (a user's phones each on a line). *On this phone* also says when
   its copy is kept as the only one known, and when the original isn't known to be anywhere.
+  *Asked for its original* (mine): every request for it, newest first: whose phone, when, and what came of it (sent,
+  already on the server, gone, changed, or refused and why).
 
 Still to come: Share and Save as icons (no menu), the thumbnail strip.

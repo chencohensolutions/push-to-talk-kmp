@@ -208,6 +208,9 @@ class MessagingController internal constructor(
     /** Clears what of [chat]'s shared media can come again; answers what is kept then. */
     suspend fun clearChatStorage(chat: String): com.chencohen.ptt.media.ChatStorage = withContext(work) { messaging.media.clearChat(chat) }
 
+    /** Every request for an original this phone got in [chat], oldest first (logged, refused ones too). */
+    suspend fun originalRequests(chat: String): List<com.chencohen.ptt.media.OriginalRequest> = withContext(work) { messaging.media.originalRequests(chat) }
+
     /** Stops fetching an original (Cancel). */
     fun cancelOriginal(messageId: String, itemId: String) {
         scope.launch { withContext(work) { messaging.media.cancelOriginal(messageId, itemId) } }

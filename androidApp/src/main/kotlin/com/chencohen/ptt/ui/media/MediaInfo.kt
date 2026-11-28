@@ -163,6 +163,12 @@ internal fun MediaInfoSheet(
                 )
             }
             Muted(stringResource(R.string.media_info_who_note))
+
+            // Every request for this original (2026-11-28, hen: logged, refused ones too).
+            if (kept?.requests?.isNotEmpty() == true) {
+                Heading(stringResource(R.string.media_info_requests))
+                kept?.requests?.asReversed()?.forEach { r -> Line(requestLine(r, names(r.user))) }
+            }
         }
     }
 }
@@ -217,3 +223,24 @@ private const val INFO_REFRESH = 4_000L
 
 /** How long the server keeps an original after it is uploaded (MediaSharing's, which this module can't see). */
 private const val ORIGINAL_KEPT = 29L * 24 * 60 * 60 * 1000
+
+/** One request for an original: who, when, and what came of it. */
+@Composable
+internal fun requestLine(r: com.chencohen.ptt.media.OriginalRequest, name: String): String {
+    val R2 = com.chencohen.ptt.media.RequestResult
+    val result = stringResource(
+        when (r.result) {
+            R2.SENT -> R.string.request_sent
+            R2.ON_SERVER -> R.string.request_on_server
+            R2.GONE -> R.string.request_gone
+            R2.CHANGED -> R.string.request_changed
+            R2.FAILED -> R.string.request_failed
+            R2.OTHER_CHAT -> R.string.request_other_chat
+            R2.NOT_MINE -> R.string.request_not_mine
+            R2.NOT_MEMBER -> R.string.request_not_member
+            else -> R.string.request_unknown
+        },
+    )
+    val who = if (r.device > 0) stringResource(R.string.media_info_peer_phone, name, r.device) else name
+    return "$who · ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(r.at))} · $result"
+}
