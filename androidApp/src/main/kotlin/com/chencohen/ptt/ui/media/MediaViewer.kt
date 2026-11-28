@@ -111,15 +111,10 @@ internal fun MediaViewer(
     // How far each cropped picture has opened out to the whole original (0: its crop), once the original is drawn.
     val unfolds = remember { mutableMapOf<String, androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>>() }
     fun unfoldOf(id: String) = unfolds.getOrPut(id) { androidx.compose.animation.core.Animatable(0f) }
-    // Opening has begun: a cropped picture whose original is drawn after this opens out in a move of its own.
-    var opening by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        // A cropped picture whose original is on this phone (mine) opens straight to the whole picture, in one move
-        // (2026-11-28, hen: "preferred as one move if the full image exists"), at once: its decoding isn't waited for
-        // (hen: "why it takes a little time to open the image?"); the rest of it is drawn as soon as it is decoded.
-        val first = items.firstOrNull { it.id == startItem }
-        if (first?.crop != null && (message.outgoing || originals["${message.id}/${first.id}"] is OriginalState.Ready)) unfoldOf(first.id).snapTo(1f)
-        opening = true
+        // It starts moving at once (2026-11-28, hen: "try to start the animation instantly while waiting to load the
+        // original image"): a cropped picture heads for its crop, and as soon as its original is decoded (often within
+        // this move, for mine) it heads for the whole picture instead, the two moves blending into one.
         shown.animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease))
     }
     fun close() {
@@ -252,7 +247,7 @@ internal fun MediaViewer(
             }) {
                 ItemPage(message, item, originals["${message.id}/${item.id}"], preview, zoomOf(item.id), tap = { chrome = !chrome }, whole = {
                     zoomScope.launch {
-                        if (!opening) unfoldOf(item.id).snapTo(1f) else unfoldOf(item.id).animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease))
+                        unfoldOf(item.id).animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease))
                     }
                 })
             }
