@@ -847,6 +847,7 @@ private fun ConversationScreenIn(
         val ownHere = talk.own?.takeIf { it.chat == user }
         val ownNow by androidx.compose.runtime.rememberUpdatedState(ownHere)
         // Each change of this phone's own burst here, in the log: what is sent, against what the buttons did.
+        Isolated {
         LaunchedEffect(ownHere?.clip, ownHere?.phase) {
             say("own: " + (ownHere?.let { "${it.phase} ${it.clip.takeLast(6)}" } ?: "none") + " (run ${runs.now}, hands-free $handsFree)")
         }
@@ -898,6 +899,7 @@ private fun ConversationScreenIn(
                 }
             }
         }
+        }
         // Hands-free and the chat goes off the screen (the app to the back, or another page): the push goes on in the
         // floating window (2026-11-27, hen), which takes the floor once this one is let go; else it ends here.
         val pushVideoNow by androidx.compose.runtime.rememberUpdatedState(pushVideo)
@@ -915,6 +917,7 @@ private fun ConversationScreenIn(
             // camera"); the floating window lets it go when it can't take it as it is.
             if (!taken) actions.finishVoice(true)
         }
+        Isolated {
         androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { handOverOrEnd("app left", keep = true) }
         // On screen (opened, or the app back in front): the floating window for this chat goes, and my hands-free press
         // it held goes on here as it is (2026-11-27, hen: "at the moment I see two camera videos").
@@ -934,6 +937,7 @@ private fun ConversationScreenIn(
         com.chencohen.ptt.ui.talk.WarmCamera(user, canWrite && !chatLive.anyCall && (sliding || cameraHeld || chatLive.roomCallCamera || (pushVideo && (handsFree || talkingHere))), warmCamera)
         // Push is voice, except hands-free (slid up to the lock): this chat's video setting is set for it and back.
         LaunchedEffect(handsFree, pushVideo, talk.own?.chat) { if (!handsFree && pushVideo && talk.own?.chat != user) actions.setPushVideo?.invoke(false) }
+        }
         // Both talking at once (2026-11-25: one to one, both can): I'm live and so are they, so the room can become the
         // call (hen: "how to make it a video call?").
         val theyTalkToo = group == null && talk.talkers[user]?.let { t -> talk.own?.clip != t.clip } == true
@@ -958,6 +962,7 @@ private fun ConversationScreenIn(
             makeCallNow[0] = makeCall
             fullScreenNow[0] = goFullScreen
         }
+        Isolated {
         // A call in this chat (the room's or the usual): hands-free ends, the call carries the media now.
         LaunchedEffect(chatLive.call != null) {
             if (chatLive.call != null) {
@@ -988,35 +993,13 @@ private fun ConversationScreenIn(
                 }
             }
         }
+        }
         val pairs = remember(messages, talk.own?.clip, talk.playing?.clip) { ReadMarks.overlappingVideos(messages.filter(keeps), System.currentTimeMillis()) }
         val pairedEarlier = remember(pairs) { pairs.values.toSet() }
         val byId = remember(messages) { messages.associateBy { it.id } }
         // Push-to-talk from both sides with nothing else between, ten minutes apart at most, is one session: one quiet
         // line (2026-11-24, hen: "Push-to-talk · testbot ×5, you ×4 · 21:40–21:45"), a tap lists them.
-        val traceRuns = remember(messages, talk.own?.clip, talk.talkers[user]?.clip) {
-            val shownAt = HashMap<String, List<TextMessage>>()
-            val hidden = HashSet<String>()
-            var run = mutableListOf<TextMessage>()
-            fun close() {
-                if (run.isEmpty()) return
-                shownAt[run.last().id] = run
-                run.dropLast(1).forEach { hidden += it.id }
-                run = mutableListOf()
-            }
-            for (m in messages) {
-                val c = m.clip
-                val trace = c != null && !m.deleted && !keeps(m) && c.durationMs >= 500 && talk.own?.clip != m.id && talk.talkers[user]?.clip != m.id
-                if (!trace) {
-                    if (c == null || keeps(m) || m.deleted) close()
-                    continue
-                }
-                val prev = run.lastOrNull()
-                if (prev != null && m.at - prev.at > 10 * 60_000) close()
-                run += m
-            }
-            close()
-            shownAt to hidden
-        }
+        val traceRuns = remember(messages, talk.own?.clip, talk.talkers[user]?.clip) { traceRunsOf(messages, keeps, talk.own?.clip, talk.talkers[user]?.clip) }
         val openSessions = remember(user) { androidx.compose.runtime.mutableStateListOf<String>() }
         // The draft and the buttons float over the chat (2026-11-23, hen: no band behind them): the list scrolls
         // under them to the bottom of the screen, with room at its end so its last message clears them.
@@ -1453,6 +1436,38 @@ private fun uploadOf(uploads: androidx.compose.runtime.State<Map<String, Float>>
     val p by remember(uploads, id) { androidx.compose.runtime.derivedStateOf { uploads.value[id] } }
     return p
 }
+
+/** Push-to-talk runs (both sides, nothing else between, ten minutes apart at most): the run shown at each one's last
+ * message, and the ones folded into it. A plain function: inline in the screen it made the screen too big to compile. */
+private fun traceRunsOf(messages: List<TextMessage>, keeps: (TextMessage) -> Boolean, ownClip: String?, theirClip: String?): Pair<Map<String, List<TextMessage>>, Set<String>> {
+    val shownAt = HashMap<String, List<TextMessage>>()
+    val hidden = HashSet<String>()
+    var run = mutableListOf<TextMessage>()
+    fun close() {
+        if (run.isEmpty()) return
+        shownAt[run.last().id] = run
+        run.dropLast(1).forEach { hidden += it.id }
+        run = mutableListOf()
+    }
+    for (m in messages) {
+        val c = m.clip
+        val trace = c != null && !m.deleted && !keeps(m) && c.durationMs >= 500 && ownClip != m.id && theirClip != m.id
+        if (!trace) {
+            if (c == null || keeps(m) || m.deleted) close()
+            continue
+        }
+        val prev = run.lastOrNull()
+        if (prev != null && m.at - prev.at > 10 * 60_000) close()
+        run += m
+    }
+    close()
+    shownAt to hidden
+}
+
+/** Runs [content] as a composable of its own: a part of a big screen that compiles as its own method (ART won't compile
+ * a method over its instruction limit, so a giant one always runs interpreted), with its own recomposition scope. */
+@Composable
+private fun Isolated(content: @Composable () -> Unit) = content()
 
 /** What kind of row a message is, so the list reuses a picture's row for a picture and a text's for a text. */
 private fun rowType(message: TextMessage): String = when {
