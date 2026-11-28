@@ -146,17 +146,21 @@ internal fun PrefetchPictures(list: androidx.compose.foundation.lazy.LazyListSta
             if (lastFirst >= 0 && first != lastFirst) older = first > lastFirst
             lastFirst = first
             val all = latest.value
-            val newest = all.indexOfLast { it.id == newestKey }.takeIf { it >= 0 } ?: all.lastIndex
-            val oldest = all.indexOfFirst { it.id == oldestKey }.takeIf { it >= 0 } ?: newest
-            val from = (oldest - if (older) AHEAD else BEHIND).coerceAtLeast(0)
-            val to = (newest + if (older) BEHIND else AHEAD).coerceAtMost(all.lastIndex)
-            if (from > to) return@collectLatest
-            // Nearest first, in the scroll's direction.
-            val order = if (older) (oldest downTo from) + (newest..to) else (newest..to) + (oldest downTo from)
-            for (i in order) {
-                val message = all.getOrNull(i) ?: continue
-                message.media?.items?.forEach { item ->
-                    if (item.kind == MediaKind.IMAGE || item.kind == MediaKind.VIDEO) loadPicture(message.id, item.id, preview)
+            val goingOlder = older
+            // Which pictures, worked out off the main thread too (2026-11-28, hen: "move all logic to the background").
+            withContext(decoding) {
+                val newest = all.indexOfLast { it.id == newestKey }.takeIf { it >= 0 } ?: all.lastIndex
+                val oldest = all.indexOfFirst { it.id == oldestKey }.takeIf { it >= 0 } ?: newest
+                val from = (oldest - if (goingOlder) AHEAD else BEHIND).coerceAtLeast(0)
+                val to = (newest + if (goingOlder) BEHIND else AHEAD).coerceAtMost(all.lastIndex)
+                if (from > to) return@withContext
+                // Nearest first, in the scroll's direction.
+                val order = if (goingOlder) (oldest downTo from) + (newest..to) else (newest..to) + (oldest downTo from)
+                for (i in order) {
+                    val message = all.getOrNull(i) ?: continue
+                    message.media?.items?.forEach { item ->
+                        if (item.kind == MediaKind.IMAGE || item.kind == MediaKind.VIDEO) loadPicture(message.id, item.id, preview)
+                    }
                 }
             }
         }
@@ -228,7 +232,7 @@ internal fun MediaMessage(
     }
     Column(modifier.fillMaxWidth(), horizontalAlignment = side) {
         // The top half bubble: who, in a group; else when they were taken.
-        val taken = remember(media.items, placeNames.size) { takenAndWhere(media.items) }
+        val taken = takenAndWhere(media.items)
         Column(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).half(top = true).padding(horizontal = 14.dp, vertical = if (author != null || taken != null) 6.dp else 5.dp)) {
             if (author != null) Text(author, color = if (com.chencohen.ptt.ui.contacts.LocalMemberHues.current.isEmpty()) LibraryColors.Accent else LibraryColors.OnTheirs, style = LibraryType.Small)
             if (taken != null) Text(taken, color = muted, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -236,7 +240,7 @@ internal fun MediaMessage(
         media.items.forEachIndexed { index, item ->
             // Between the pictures only: the half bubbles touch the first and the last (2026-11-28, hen).
             if (index > 0) {
-                val note = remember(item, media.items[index - 1], placeNames.size) { changeOver(item, media.items[index - 1]) }
+                val note = changeOver(item, media.items[index - 1])
                 // Where or when the next was taken, in a strip of the bubble between them, so the message reads as one
                 // long bubble with the pictures in it (2026-11-28, hen); else a thin gap.
                 if (note != null) {
