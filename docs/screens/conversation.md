@@ -577,7 +577,8 @@ until someone else's comes; the bubble's time is in the same colour as the name 
 its own shape (kept between 0.4 and 3 wide to high), drawn from its JPEG XL preview made for this screen's width,
 between two half bubbles a bubble's widest on the sender's side in their bubble's colour (2026-11-28, hen; mock
 `mockups/share-media/picture-sender.png`, option A). The top one says who sent them, only in a group and only on
-other members' pictures, and when they were taken ("Yesterday 18:40", or a span); the bottom one holds the caption
+other members' pictures, and where and when they were taken ("Tel Aviv · Yesterday 18:40": the place named on each phone by Android's
+Geocoder from the item's coordinates, the date from the EXIF or else the gallery's date taken); the bottom one holds the caption
 and the time sent. Mine move as my text bubbles do: dashed while it goes, the dashes growing towards a whole line as
 the previews upload, whole on the server, filled once every phone has it; failed, the time turns red and a tap sends
 it again. While a picture's preview goes up to the server (mine, in the writing colour) or comes down from it (theirs, in
@@ -593,7 +594,9 @@ should be its max width of a bubble", mock `mockups/share-media/caption-in-box-v
 button, or Talk in Android's Share menu) isn't sent at once: it is laid out as the message it will become, the
 pictures edge to edge (✕ takes one out; more than half the screen scrolls) between two half bubbles outlined in the
 writing colour on my side, a bubble's widest (78% of the screen, as the sent ones). The bottom one is the text box: a
-bin (don't send), the caption and Send. Send sends them as one message with the caption, and nothing moves sideways.
+bin (don't send), the caption and Send. The top half already says where and when they were taken. Sent with a caption, the whole box (a picture of it as
+drawn) flies into the message's place in the chat, as a sent text does, and the message shows the frame it lands;
+sent first, nothing moves: the message takes the pictures' place above the caption box. Send sends them as one message with the caption, and nothing moves sideways.
 The previews start uploading as soon as they are picked (hen: "start sending the images to server before writing");
 the message that names them reaches the others only on Send, which waits for whatever is still uploading. A picture
 taken out, or the whole draft dropped, is deleted from the server too.

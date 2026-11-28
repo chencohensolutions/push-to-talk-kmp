@@ -123,8 +123,9 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         val height = full.height * sample
         val previews = previews(full, widths(width))
         full.recycle()
-        val taken = exif?.let(::takenAt)
+        val taken = exif?.let(::takenAt) ?: storeTakenAt(uri)?.let { at -> at to java.util.TimeZone.getDefault().getOffset(at) / 60_000 }
         val place = exif?.let { e -> FloatArray(2).takeIf { @Suppress("DEPRECATION") e.getLatLong(it) }?.let { doubleArrayOf(it[0].toDouble(), it[1].toDouble()) } }
+        android.util.Log.i("TalkMedia", "picked ${uri.authority}: exif ${exif != null}, taken ${taken != null}, place ${place != null}")
         return PreparedItem(
             kind = MediaKind.IMAGE, mime = mime, name = name, size = size, width = width, height = height,
             takenAt = taken?.first ?: 0, takenOffsetMin = taken?.second ?: 0,
@@ -134,7 +135,17 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         )
     }
 
-    private fun openExif(uri: Uri): ExifInterface? = resolver.openInputStream(uri)?.use { ExifInterface(it) }
+    // By file descriptor first: the framework reads HEIF (what newer cameras save) only from a seekable file, not a stream.
+    private fun openExif(uri: Uri): ExifInterface? =
+        runCatching { resolver.openFileDescriptor(uri, "r")?.use { ExifInterface(it.fileDescriptor) } }.getOrNull()
+            ?: resolver.openInputStream(uri)?.use { ExifInterface(it) }
+
+    /** When the picture was taken, as the gallery has it (a picture whose EXIF has no date, or one ExifInterface can't read). */
+    private fun storeTakenAt(uri: Uri): Long? = runCatching {
+        resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATE_TAKEN), null, null, null)?.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0).takeIf { it > 0 } else null
+        }
+    }.getOrNull()
 
     /** When it was taken (ms, UTC) and its place's offset in minutes, from the EXIF's original date and offset. */
     private fun takenAt(exif: ExifInterface): Pair<Long, Int>? {

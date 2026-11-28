@@ -34,6 +34,11 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.draw.drawWithContent
 import com.chencohen.ptt.ui.contacts.bubbleMaxWidth
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -68,7 +73,26 @@ class MediaDraft(
  * ✕ on the last one drops the draft.
  */
 @Composable
-internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: String, itemId: String) -> ByteArray?, modifier: Modifier = Modifier) {
+internal fun MediaDraftBox(
+    draft: MediaDraft,
+    preview: suspend (messageId: String, itemId: String) -> ByteArray?,
+    modifier: Modifier = Modifier,
+    /** Send: a picture of the box as drawn and where it is, so it flies into the chat as its message (2026-11-28, hen). */
+    fly: (androidx.compose.ui.graphics.ImageBitmap, androidx.compose.ui.geometry.Rect) -> Unit = { _, _ -> },
+) {
+    val layer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+    var bounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    // Sent with its caption, the whole box flies into the chat. Sent first (no caption yet) nothing flies: the pictures
+    // stay where they are, the message taking their place above the caption box that stays.
+    fun sendNow(flies: Boolean, action: () -> Unit) {
+        val at = bounds
+        if (!flies || at == null) return action()
+        scope.launch {
+            runCatching { layer.toImageBitmap() }.getOrNull()?.let { fly(it, at) }
+            action()
+        }
+    }
     var caption by rememberSaveable(draft.messages.firstOrNull()?.id) { mutableStateOf("") }
     var removed by remember(draft.messages.firstOrNull()?.id) { mutableStateOf(emptySet<String>()) }
     val focus = remember { FocusRequester() }
@@ -81,8 +105,22 @@ internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: Strin
     }
     val maxPictures = (LocalConfiguration.current.screenHeightDp * 0.45f).dp
     val width = bubbleMaxWidth()
-    Column(modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.End) {
-        Box(Modifier.padding(horizontal = 12.dp).width(width).height(10.dp).writingHalf(coral, top = true))
+    // Edge to edge: out through the side margins the writing area keeps (as the pictures in the chat).
+    Column(
+        modifier.fillMaxWidth().bleed(12.dp)
+            .onGloballyPositioned { bounds = it.boundsInWindow() }
+            .drawWithContent {
+                layer.record { this@drawWithContent.drawContent() }
+                drawLayer(layer)
+            }
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
+        // The top half: where and when they were taken, as on the message it becomes.
+        val taken = takenAndWhere(items.map { it.second })
+        Box(Modifier.padding(horizontal = 12.dp).width(width).heightIn(min = 10.dp).writingHalf(coral, top = true).padding(horizontal = 14.dp, vertical = if (taken != null) 6.dp else 0.dp)) {
+            if (taken != null) Text(taken, color = LibraryColors.Muted, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
         Column(
             Modifier.fillMaxWidth().heightIn(max = maxPictures).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -120,7 +158,7 @@ internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: Strin
                 )
             }
             Box(
-                Modifier.size(40.dp).clip(CircleShape).background(coral).clickable { if (caption.isBlank()) draft.sendFirst(removed) else draft.send(caption, removed) },
+                Modifier.size(40.dp).clip(CircleShape).background(coral).clickable { sendNow(caption.isNotBlank()) { if (caption.isBlank()) draft.sendFirst(removed) else draft.send(caption, removed) } },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(LibraryIcons.ArrowUp, stringResource(R.string.media_draft_send), tint = Color.White, modifier = Modifier.size(20.dp))
@@ -165,7 +203,7 @@ internal fun MediaCaptionBox(caption: MediaCaption, modifier: Modifier = Modifie
         }
     }
     androidx.compose.runtime.DisposableEffect(caption.messageId) { onDispose { commit("") } }
-    Column(modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalAlignment = Alignment.End) {
+    Column(modifier.fillMaxWidth().bleed(12.dp).padding(bottom = 6.dp), horizontalAlignment = Alignment.End) {
         Row(
             Modifier.padding(horizontal = 12.dp).width(bubbleMaxWidth()).writingHalf(coral, top = false).padding(start = 4.dp, end = 6.dp, top = 2.dp, bottom = 6.dp),
             verticalAlignment = Alignment.Bottom,

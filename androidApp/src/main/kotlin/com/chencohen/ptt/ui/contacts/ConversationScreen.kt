@@ -1303,7 +1303,7 @@ private fun ConversationScreenIn(
                             transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
                             label = "draft or recording",
                         ) { recording ->
-                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions, writing = { edits.abort() }, hint = writeHint, opens = writeOpens) { body, from -> flight.start(body, from, newest?.id) }
+                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions, writing = { edits.abort() }, hint = writeHint, opens = writeOpens, flyMedia = { shot, from -> flight.start("", from, newest?.id, shot) }) { body, from -> flight.start(body, from, newest?.id) }
                         }
                     }
                 }
@@ -1724,7 +1724,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
 ) {
     // Shared media (2026-11-28, hen): as wide as the screen, outside a bubble.
     if (message.media != null && !message.deleted) {
-        Box(Modifier.fillMaxWidth().bleed(12.dp).background(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent)) {
+        Box(Modifier.fillMaxWidth().bleed(12.dp).then(bubbleModifier).background(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent)) {
             androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalTransfers provides actions.transfers) { com.chencohen.ptt.ui.media.MediaMessage(
                 message, actions.mediaPreview, actions.openMedia, actions.retry, select = select, selecting = selecting,
                 reach = if (message.outgoing) (if (held) ReadMarks.Reach.SENDING else reach ?: ReadMarks.Reach.RECEIVED) else null,
@@ -2448,6 +2448,8 @@ internal val TheirSide = Alignment.CenterStart
  */
 internal class SendFlight {
     var body by mutableStateOf<String?>(null)
+    /** Pictures sent from their writing box: a picture of the box, which flies instead of the text (2026-11-28, hen). */
+    var picture by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
     var from by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
     /** The message's slot, as the list lays it out (it follows the list's scroll and the keyboard). */
     var to by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
@@ -2463,7 +2465,8 @@ internal class SendFlight {
     /** What was newest in the chat as Send was pressed: the sent message comes after it (never matched by text). */
     private var before: String? = null
 
-    fun start(text: String, bounds: androidx.compose.ui.geometry.Rect?, newestNow: String?) {
+    fun start(text: String, bounds: androidx.compose.ui.geometry.Rect?, newestNow: String?, shot: androidx.compose.ui.graphics.ImageBitmap? = null) {
+        picture = shot
         progress = androidx.compose.animation.core.Animatable(0f)
         to = null
         id = null
@@ -2484,6 +2487,7 @@ internal class SendFlight {
     }
 
     fun land() {
+        picture = null
         body = null
         from = null
         to = null
@@ -2513,6 +2517,20 @@ private fun SendFlightOverlay(flight: SendFlight) {
         androidx.compose.ui.util.lerp(from.left, to.left, p), androidx.compose.ui.util.lerp(from.top, to.top, p),
         androidx.compose.ui.util.lerp(from.right, to.right, p), androidx.compose.ui.util.lerp(from.bottom, to.bottom, p),
     )
+    // Pictures: the writing box as it was drawn moves, edge to edge, into its message's place; the message shows in
+    // the same frame it lands.
+    flight.picture?.let { shot ->
+        androidx.compose.foundation.Image(
+            shot, null, contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
+            modifier = Modifier.layout { measurable, constraints ->
+                val w = box.width.toInt().coerceAtLeast(1)
+                val h = box.height.toInt().coerceAtLeast(1)
+                val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
+                layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(flightOffset(box, flight.origin)) }
+            },
+        )
+        return
+    }
     val coral = LibraryColors.Writing
     val start = with(density) { androidx.compose.ui.util.lerp(14.dp.toPx(), 14.dp.toPx(), p).toDp() }
     val end = with(density) { androidx.compose.ui.util.lerp(8.dp.toPx(), 14.dp.toPx(), p).toDp() }
@@ -2564,6 +2582,8 @@ private fun PinnedDraft(
     writing: () -> Unit = {},
     hint: String? = null,
     opens: (() -> Unit)? = null,
+    /** Pictures sent from their writing box: a picture of it and where it was, to fly into the chat. */
+    flyMedia: (androidx.compose.ui.graphics.ImageBitmap, androidx.compose.ui.geometry.Rect) -> Unit = { _, _ -> },
     sent: (String, androidx.compose.ui.geometry.Rect?) -> Unit,
 ) {
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
@@ -2597,7 +2617,7 @@ private fun PinnedDraft(
     // Pictures picked here: the writing bubble holds them, the caption written under them (2026-11-28, hen).
     actions.mediaDraft?.let { mediaDraft ->
         androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalTransfers provides actions.transfers) {
-            com.chencohen.ptt.ui.media.MediaDraftBox(mediaDraft, actions.mediaPreview)
+            com.chencohen.ptt.ui.media.MediaDraftBox(mediaDraft, actions.mediaPreview, fly = { shot, bounds -> flyMedia(shot, bounds) })
         }
         return
     }

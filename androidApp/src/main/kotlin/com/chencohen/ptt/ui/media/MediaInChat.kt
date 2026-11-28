@@ -126,10 +126,10 @@ internal fun MediaMessage(
     }
     Column(modifier.fillMaxWidth(), horizontalAlignment = side) {
         // The top half bubble: who, in a group; else when they were taken.
-        val taken = takenLine(media.items)
+        val taken = takenAndWhere(media.items)
         Column(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).half(top = true).padding(horizontal = 14.dp, vertical = if (author != null || taken != null) 6.dp else 5.dp)) {
             if (author != null) Text(author, color = if (com.chencohen.ptt.ui.contacts.LocalMemberHues.current.isEmpty()) LibraryColors.Accent else LibraryColors.OnTheirs, style = LibraryType.Small)
-            if (taken != null) Text(taken, color = muted, style = LibraryType.Tiny, maxLines = 1)
+            if (taken != null) Text(taken, color = muted, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
         media.items.forEach { item ->
             when (item.kind) {
@@ -168,6 +168,43 @@ internal fun MediaMessage(
 }
 
 private fun halfShape(top: Boolean) = if (top) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp) else RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+
+/**
+ * Where and when the pictures were taken, for the top half bubble (2026-11-28, hen: "add date taken and location data
+ * in the top of the bubble"): "Tel Aviv · Yesterday 18:40". The place is named on this phone, in its own language, by
+ * Android's Geocoder from the first item's coordinates (they came end to end); either part alone when only it is known.
+ */
+@Composable
+internal fun takenAndWhere(items: List<AttachmentContent>): String? {
+    val time = takenLine(items)
+    val at = items.firstOrNull { it.hasPlace }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val place by produceState(at?.let { placeNames[placeKey(it)] }, at?.latE7, at?.lonE7) {
+        if (value != null || at == null) return@produceState
+        value = withContext(Dispatchers.IO) { placeName(context, at.latE7 / 1e7, at.lonE7 / 1e7) }?.also { placeNames[placeKey(at)] = it }
+    }
+    return listOfNotNull(place, time).joinToString(" · ").ifEmpty { null }
+}
+
+private fun placeKey(item: AttachmentContent) = "${item.latE7 / 1000},${item.lonE7 / 1000}"
+
+/** Place names looked up lately, by coordinates rounded to about 100 m. */
+private val placeNames = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+/** The town (or the nearest named area) at [lat], [lon]; null without a network or a geocoder. */
+private suspend fun placeName(context: android.content.Context, lat: Double, lon: Double): String? {
+    if (!android.location.Geocoder.isPresent()) return null
+    val geocoder = android.location.Geocoder(context, java.util.Locale.getDefault())
+    val address = kotlinx.coroutines.withTimeoutOrNull(8_000) {
+        kotlinx.coroutines.suspendCancellableCoroutine<android.location.Address?> { done ->
+            geocoder.getFromLocation(lat, lon, 1, object : android.location.Geocoder.GeocodeListener {
+                override fun onGeocode(addresses: MutableList<android.location.Address>) { if (done.isActive) done.resumeWith(Result.success(addresses.firstOrNull())) }
+                override fun onError(errorMessage: String?) { if (done.isActive) done.resumeWith(Result.success(null)) }
+            })
+        }
+    } ?: return null
+    return address.locality ?: address.subLocality ?: address.subAdminArea ?: address.adminArea ?: address.countryName
+}
 
 /** When the pictures were taken, at the place's own time: "Yesterday 18:40", or a span "18:40–18:52". Null: not known. */
 @Composable
