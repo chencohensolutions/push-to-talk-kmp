@@ -103,7 +103,12 @@ internal fun MediaDraftBox(
         LaunchedEffect(Unit) { draft.drop() }
         return
     }
-    val maxPictures = (LocalConfiguration.current.screenHeightDp * 0.45f).dp
+    // The pictures scroll inside the box at most 45% of the screen high, and less with the keyboard up, so the caption
+    // box under them (and the header, and a little of the chat) always stays in view (2026-11-28, hen: "i cant see the
+    // text bubble when many images included").
+    val screen = LocalConfiguration.current.screenHeightDp
+    val keyboard = with(androidx.compose.ui.platform.LocalDensity.current) { androidx.compose.foundation.layout.WindowInsets.ime.getBottom(this).toDp().value }
+    val maxPictures = minOf(screen * 0.45f, screen - keyboard - ROOM_AROUND).coerceAtLeast(120f).dp
     val width = bubbleMaxWidth()
     // Edge to edge: out through the side margins the writing area keeps (as the pictures in the chat).
     Column(
@@ -241,6 +246,9 @@ internal fun MediaCaptionBox(caption: MediaCaption, modifier: Modifier = Modifie
         }
     }
 }
+
+/** The draft's height besides its pictures, with the header and a strip of the chat (dp). */
+private const val ROOM_AROUND = 260f
 
 /** How long an empty caption box waits before telling them of the pictures alone. */
 private const val IDLE_NOTIFY = 120_000L
