@@ -169,6 +169,7 @@ internal fun MediaViewer(
                 val window = box
                 if (at >= 1f || from == null || window == null) {
                     alpha = if (from == null && current) p else 1f
+                    clip = false
                     return@graphicsLayer
                 }
                 // The picture's place on screen when it fits, and where it lies in the chat.
@@ -177,10 +178,36 @@ internal fun MediaViewer(
                 val fitH = fitW / ratio
                 val centre = androidx.compose.ui.geometry.Offset(window.left + size.width / 2, window.top + size.height / 2)
                 fun lerp(a: Float, b: Float) = a + (b - a) * at
-                scaleX = lerp(from.width / fitW, 1f)
-                scaleY = lerp(from.height / fitH, 1f)
+                val crop = item.crop
+                if (crop == null) {
+                    scaleX = lerp(from.width / fitW, 1f)
+                    scaleY = lerp(from.height / fitH, 1f)
+                    translationX = lerp(from.center.x - centre.x, 0f)
+                    translationY = lerp(from.center.y - centre.y, 0f)
+                    clip = false
+                    return@graphicsLayer
+                }
+                // A cropped picture (2026-11-28, hen: "the transition should be seamless, the full image should extend
+                // quickly from the cropped image"): its kept part lies exactly where the chat shows it, and the rest of
+                // the picture opens out above and below it as it grows to the screen, in one move.
+                val top = crop.top.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
+                val kept = crop.kept.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
+                val bottom = 1f - top - kept
+                val start = from.width / fitW
+                val keptShift = fitH * (top + kept / 2) - fitH / 2
+                val scale = lerp(start, 1f)
+                scaleX = scale
+                scaleY = scale
                 translationX = lerp(from.center.x - centre.x, 0f)
-                translationY = lerp(from.center.y - centre.y, 0f)
+                translationY = lerp(from.center.y - centre.y - start * keptShift, 0f)
+                val boxTop = size.height / 2 - fitH / 2
+                val shownTop = boxTop + fitH * top * (1f - at)
+                val shownBottom = boxTop + fitH - fitH * bottom * (1f - at)
+                shape = object : androidx.compose.ui.graphics.Shape {
+                    override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
+                        androidx.compose.ui.graphics.Outline.Rectangle(androidx.compose.ui.geometry.Rect(0f, shownTop, size.width, shownBottom))
+                }
+                clip = true
             }) {
                 ItemPage(message, item, originals["${message.id}/${item.id}"], preview, zoomOf(item.id), tap = { chrome = !chrome })
             }

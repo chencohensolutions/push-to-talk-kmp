@@ -68,3 +68,8 @@ one the crop is at is filled). Drag an edge to trim (it snaps at 4:5, 1:1 and 16
 move the kept part, tap to set the point of interest (a ring with a dot). With several pictures, a filmstrip picks one
 (a teal dot on those set) and the copy icon gives them all this one's crop. The coral check applies the changes.
 
+
+Opening a cropped picture is one move (2026-11-28, hen: "the full image should extend quickly from the cropped image";
+"preferred in one move"): the kept part starts exactly where the chat shows it, and as the picture grows to the screen
+the rest of it opens out above and below in the same move; closing folds it back into the crop. Until the original
+is here, the parts outside the crop are black.
