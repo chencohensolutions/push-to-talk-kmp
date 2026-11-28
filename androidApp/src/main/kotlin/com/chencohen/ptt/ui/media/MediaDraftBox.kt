@@ -125,7 +125,8 @@ internal fun MediaDraftBox(
             Modifier.fillMaxWidth().heightIn(max = maxPictures).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            items.forEach { (message, item) ->
+            items.forEachIndexed { index, (message, item) ->
+                if (index > 0) changeOver(item, items[index - 1].second)?.let { PictureNote(it) }
                 Box {
                     when (item.kind) {
                         MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = null) {}

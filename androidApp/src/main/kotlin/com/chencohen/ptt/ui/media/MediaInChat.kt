@@ -133,7 +133,10 @@ internal fun MediaMessage(
         }
         media.items.forEachIndexed { index, item ->
             // Between the pictures only: the half bubbles touch the first and the last (2026-11-28, hen).
-            if (index > 0) Spacer(Modifier.height(2.dp))
+            if (index > 0) {
+                Spacer(Modifier.height(2.dp))
+                changeOver(item, media.items[index - 1])?.let { PictureNote(it) }
+            }
             when (item.kind) {
                 MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = select) {
                     when {
@@ -177,14 +180,53 @@ private fun halfShape(top: Boolean) = if (top) RoundedCornerShape(topStart = 16.
  */
 @Composable
 internal fun takenAndWhere(items: List<AttachmentContent>): String? {
-    val time = takenLine(items)
-    val at = items.firstOrNull { it.hasPlace }
+    val first = items.firstOrNull() ?: return null
+    return listOfNotNull(placeOf(first), first.takenAt.takeIf { it > 0 }?.let { dayAndClock(first) }).joinToString(" · ").ifEmpty { null }
+}
+
+/**
+ * Over a picture after the first, when it differs from the one before (2026-11-28, hen: "if image taken after 5
+ * minutes than the previous image show date taken above the image, if location is different than previous images,
+ * show location"): its place when that differs, its time when more than five minutes apart (the day too when that
+ * changed). Null: nothing new.
+ */
+@Composable
+internal fun changeOver(item: AttachmentContent, before: AttachmentContent): String? {
+    val place = placeOf(item)
+    val newPlace = place != null && place != placeOf(before)
+    val apart = item.takenAt > 0 && before.takenAt > 0 && kotlin.math.abs(item.takenAt - before.takenAt) > CHANGE_MS
+    if (!newPlace && !apart) return null
+    val time = if (!apart) null else if (localDay(item) == localDay(before)) clockOf(item) else dayAndClock(item)
+    return listOfNotNull(place.takeIf { newPlace }, time).joinToString(" · ")
+}
+
+private const val CHANGE_MS = 5 * 60_000L
+
+/** The place [item] was taken, named on this phone (cached); null when it has none or it can't be named now. */
+@Composable
+private fun placeOf(item: AttachmentContent): String? {
+    if (!item.hasPlace) return null
     val context = androidx.compose.ui.platform.LocalContext.current
-    val place by produceState(at?.let { placeNames[placeKey(it)] }, at?.latE7, at?.lonE7) {
-        if (value != null || at == null) return@produceState
-        value = withContext(Dispatchers.IO) { placeName(context, at.latE7 / 1e7, at.lonE7 / 1e7) }?.also { placeNames[placeKey(at)] = it }
+    val place by produceState(placeNames[placeKey(item)], item.latE7, item.lonE7) {
+        if (value != null) return@produceState
+        value = withContext(Dispatchers.IO) { placeName(context, item.latE7 / 1e7, item.lonE7 / 1e7) }?.also { placeNames[placeKey(item)] = it }
     }
-    return listOfNotNull(place, time).joinToString(" · ").ifEmpty { null }
+    return place
+}
+
+/** Its time at the place it was taken ("18:40"). */
+private fun clockOf(item: AttachmentContent): String =
+    DateFormat.getTimeInstance(DateFormat.SHORT).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(Date(item.takenAt + item.takenOffsetMin * 60_000L))
+
+private fun localDay(item: AttachmentContent): Long = (item.takenAt + item.takenOffsetMin * 60_000L) / 86_400_000L
+
+/** "Yesterday 18:40", "Today 09:12", or the date and time further back. */
+private fun dayAndClock(item: AttachmentContent): String {
+    val local = item.takenAt + item.takenOffsetMin * 60_000L
+    val day = android.text.format.DateUtils.getRelativeTimeSpanString(
+        local - java.util.TimeZone.getDefault().getOffset(local), System.currentTimeMillis(), android.text.format.DateUtils.DAY_IN_MILLIS,
+    ).toString()
+    return "$day ${clockOf(item)}"
 }
 
 private fun placeKey(item: AttachmentContent) = "${item.latE7 / 1000},${item.lonE7 / 1000}"
@@ -205,26 +247,6 @@ private suspend fun placeName(context: android.content.Context, lat: Double, lon
         }
     } ?: return null
     return address.locality ?: address.subLocality ?: address.subAdminArea ?: address.adminArea ?: address.countryName
-}
-
-/** When the pictures were taken, at the place's own time: "Yesterday 18:40", or a span "18:40–18:52". Null: not known. */
-@Composable
-private fun takenLine(items: List<AttachmentContent>): String? {
-    val times = items.filter { it.takenAt > 0 }.map { it.takenAt + it.takenOffsetMin * 60_000L }.sorted()
-    if (times.isEmpty()) return null
-    val utc = java.util.TimeZone.getTimeZone("UTC")
-    val clock = DateFormat.getTimeInstance(DateFormat.SHORT).apply { timeZone = utc }
-    val day = android.text.format.DateUtils.getRelativeTimeSpanString(
-        times.first() - java.util.TimeZone.getDefault().getOffset(times.first()), System.currentTimeMillis(), android.text.format.DateUtils.DAY_IN_MILLIS,
-    ).toString()
-    val first = clock.format(Date(times.first()))
-    val last = clock.format(Date(times.last()))
-    val sameDay = times.last() / 86_400_000L == times.first() / 86_400_000L
-    return when {
-        first == last -> "$day $first"
-        sameDay -> "$day $first–$last"
-        else -> "$day $first – " + DateFormat.getDateInstance(DateFormat.MEDIUM).apply { timeZone = utc }.format(Date(times.last()))
-    }
 }
 
 @Composable
@@ -297,6 +319,15 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
         // A video's length (when it was taken is on the top half bubble, the time it was sent on the bottom one).
         item.durationMs.takeIf { it > 0 }?.let { Box(Modifier.align(Alignment.BottomStart).padding(8.dp)) { Chip(com.chencohen.ptt.ui.talk.clipLength(it)) } }
     }
+}
+
+/** A line over a picture saying where or when it was taken, when that changed from the one before. */
+@Composable
+internal fun PictureNote(text: String) {
+    Text(
+        text, color = LibraryColors.Muted, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 26.dp, vertical = 4.dp),
+    )
 }
 
 /** Each item's preview going up or coming down now (0 to 1), by item id: MediaSharing.transfers. */
