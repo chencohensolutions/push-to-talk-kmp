@@ -36,6 +36,9 @@ object SignalFailure {
  * as Android's SignalStore, so what only reads or deletes records (trusted keys, session lists, wipe) stays in the
  * shared code (IosCryptoEngine). Addresses are a user name and a device number; [localUser] and [localDevice] are this
  * phone's, which libsignal records in its sessions. Not thread-safe: called on Messaging's thread only.
+ *
+ * A method here must not have the name and parameter names of one of CryptoEngine's with other types: Kotlin then
+ * adds a `_` to a label in Swift (so `message`, `key`, `keyPair` here where CryptoEngine says `data`, `identityKey`, `pair`).
  */
 interface IosSignal {
     /** This phone's public identity key, 33 bytes; null before [createIdentity]. */
@@ -47,8 +50,8 @@ interface IosSignal {
     /** The identity key pair, private half included, serialized; null before [createIdentity]. */
     fun exportIdentity(): NSData?
 
-    /** Keeps [pair] (another phone's [exportIdentity]) with a new registration id. Answers the public key in `data`. */
-    fun importIdentity(pair: NSData): SignalReply
+    /** Keeps [keyPair] (another phone's [exportIdentity]) with a new registration id. Answers the public key in `data`. */
+    fun importIdentity(keyPair: NSData): SignalReply
 
     /** A new X25519 key pair: the private key in `data` (32 bytes), the public one in `more` (33 bytes). */
     fun makeAgreementKey(): SignalReply
@@ -104,16 +107,16 @@ interface IosSignal {
     fun decrypt(user: String, device: Int, localUser: String, localDevice: Int, prekeyMessage: Boolean, bytes: NSData): SignalReply
 
     /** The safety number: its 60 digits in `text`, what the QR code carries in `data`. */
-    fun safetyNumber(myUser: String, theirUser: String, theirIdentityKey: NSData): SignalReply
+    fun safetyNumber(myUser: String, theirUser: String, theirKey: NSData): SignalReply
 
-    fun matchesScanned(myUser: String, theirUser: String, theirIdentityKey: NSData, scanned: NSData): Boolean
+    fun matchesScanned(myUser: String, theirUser: String, theirKey: NSData, scanned: NSData): Boolean
 
     /** This device's sender key for [distributionId] (made when there is none): its distribution message in `data`. */
     fun senderKeyDistribution(localUser: String, localDevice: Int, distributionId: String): SignalReply
 
     fun takeSenderKey(user: String, device: Int, distribution: NSData): SignalReply
 
-    fun distributionIdOf(distribution: NSData): String?
+    fun distributionIdOf(message: NSData): String?
 
     /** A SENDER_KEY_MESSAGE in `data`. */
     fun groupEncrypt(localUser: String, localDevice: Int, distributionId: String, plaintext: NSData): SignalReply
@@ -121,10 +124,10 @@ interface IosSignal {
     /** The plaintext in `data`. */
     fun groupDecrypt(user: String, device: Int, bytes: NSData): SignalReply
 
-    fun groupMessageDistributionId(bytes: NSData): String?
+    fun groupMessageDistributionId(message: NSData): String?
 
-    /** The identity key's signature over [data], in `data`. */
-    fun sign(data: NSData): SignalReply
+    /** The identity key's signature over [message], in `data`. */
+    fun sign(message: NSData): SignalReply
 
-    fun verify(identityKey: NSData, data: NSData, signature: NSData): Boolean
+    fun verify(key: NSData, message: NSData, signature: NSData): Boolean
 }

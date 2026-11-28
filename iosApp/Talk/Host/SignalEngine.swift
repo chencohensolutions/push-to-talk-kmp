@@ -56,7 +56,7 @@ final class SignalEngine: NSObject, IosSignal {
 
     func exportIdentity() -> Data? { records.identityPair()?.serialize() }
 
-    func importIdentity(pair: Data) -> SignalReply {
+    func importIdentity(keyPair pair: Data) -> SignalReply {
         reply(otherwise: invalidKeys) {
             let identity = try IdentityKeyPair(bytes: pair)
             records.clearOwnKeys()
@@ -212,14 +212,14 @@ final class SignalEngine: NSObject, IosSignal {
         )
     }
 
-    func safetyNumber(myUser: String, theirUser: String, theirIdentityKey: Data) -> SignalReply {
+    func safetyNumber(myUser: String, theirUser: String, theirKey theirIdentityKey: Data) -> SignalReply {
         reply(otherwise: invalidKeys) {
             let made = try fingerprint(myUser, theirUser, theirIdentityKey)
             return ok(made.scannable.encoding, text: made.displayable.formatted)
         }
     }
 
-    func matchesScanned(myUser: String, theirUser: String, theirIdentityKey: Data, scanned: Data) -> Bool {
+    func matchesScanned(myUser: String, theirUser: String, theirKey theirIdentityKey: Data, scanned: Data) -> Bool {
         guard let made = try? fingerprint(myUser, theirUser, theirIdentityKey) else { return false }
         return (try? made.scannable.compare(againstEncoding: scanned)) ?? false
     }
@@ -249,7 +249,7 @@ final class SignalEngine: NSObject, IosSignal {
         }
     }
 
-    func distributionIdOf(distribution: Data) -> String? {
+    func distributionIdOf(message distribution: Data) -> String? {
         (try? SenderKeyDistributionMessage(bytes: distribution))?.distributionId.uuidString.lowercased()
     }
 
@@ -268,17 +268,17 @@ final class SignalEngine: NSObject, IosSignal {
         }
     }
 
-    func groupMessageDistributionId(bytes: Data) -> String? {
+    func groupMessageDistributionId(message bytes: Data) -> String? {
         (try? SenderKeyMessage(bytes: bytes))?.distributionId.uuidString.lowercased()
     }
 
-    func sign(data: Data) -> SignalReply {
+    func sign(message data: Data) -> SignalReply {
         reply(otherwise: invalidKeys) {
             ok(try records.identityKeyPair(context: context).privateKey.generateSignature(message: data))
         }
     }
 
-    func verify(identityKey: Data, data: Data, signature: Data) -> Bool {
+    func verify(key identityKey: Data, message data: Data, signature: Data) -> Bool {
         guard let key = try? IdentityKey(bytes: identityKey) else { return false }
         return (try? key.publicKey.verifySignature(message: data, signature: signature)) ?? false
     }
