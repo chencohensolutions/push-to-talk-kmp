@@ -173,7 +173,7 @@ private fun takenSince(context: Context, since: Long): List<Uri> = runCatching {
     val args = arrayOf(
         android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
         android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString(),
-        (since / 1000 - 1).toString(),
+        (since / 1000).toString(),
         android.os.Environment.DIRECTORY_DCIM + "/Camera/%",
     )
     val out = mutableListOf<Uri>()
