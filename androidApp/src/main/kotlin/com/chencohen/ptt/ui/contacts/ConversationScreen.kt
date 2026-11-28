@@ -172,9 +172,9 @@ class ConversationActions(
     /** Pictures sent before their caption: the caption box under them, until it is sent. */
     val mediaCaption: com.chencohen.ptt.ui.media.MediaCaption? = null,
     /** How far each of my media messages being sent got uploading, by message id (0 to 1). */
-    val uploads: Map<String, Float> = emptyMap(),
+    val uploads: androidx.compose.runtime.State<Map<String, Float>> = NoProgress,
     /** Each shared item's preview going up or coming down now, by item id (0 to 1). */
-    val transfers: Map<String, Float> = emptyMap(),
+    val transfers: androidx.compose.runtime.State<Map<String, Float>> = NoProgress,
 )
 
 /** A video call shown inside the chat (2026-11-24, hen): theirs under the header, mine with the call's bar at the bottom. */
@@ -1444,6 +1444,16 @@ private fun ConversationScreenIn(
     }
 }
 
+/** No upload or download going on (the progress maps are read where they are drawn, not by the screen). */
+internal val NoProgress: androidx.compose.runtime.State<Map<String, Float>> = androidx.compose.runtime.mutableStateOf(emptyMap())
+
+/** Message [id]'s upload (0 to 1), read so only a change of its own recomposes the caller. */
+@Composable
+private fun uploadOf(uploads: androidx.compose.runtime.State<Map<String, Float>>, id: String): Float? {
+    val p by remember(uploads, id) { androidx.compose.runtime.derivedStateOf { uploads.value[id] } }
+    return p
+}
+
 /** What kind of row a message is, so the list reuses a picture's row for a picture and a text's for a text. */
 private fun rowType(message: TextMessage): String = when {
     message.media != null -> "media"
@@ -1575,7 +1585,7 @@ private fun fadeWith(shown: () -> Boolean): androidx.compose.animation.core.Anim
     val a = remember { androidx.compose.animation.core.Animatable(if (androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation(shown)) 1f else 0f) }
     val now by androidx.compose.runtime.rememberUpdatedState(shown)
     LaunchedEffect(Unit) {
-        androidx.compose.runtime.snapshotFlow { now() }.collect { a.animateTo(if (it) 1f else 0f, androidx.compose.animation.core.tween(200)) }
+        androidx.compose.runtime.snapshotFlow { now() }.collectLatest { a.animateTo(if (it) 1f else 0f, androidx.compose.animation.core.tween(200)) }
     }
     return a
 }
@@ -1586,7 +1596,7 @@ private fun fadeWith(shown: () -> Boolean): androidx.compose.animation.core.Anim
 private fun DayPill(list: androidx.compose.foundation.lazy.LazyListState, messages: List<TextMessage>, byId: Map<String, TextMessage>, modifier: Modifier) {
     val topDay by androidx.compose.runtime.remember(messages) {
         androidx.compose.runtime.derivedStateOf {
-            val top = list.layoutInfo.visibleItemsInfo.maxByOrNull { it.index }?.key as? String ?: return@derivedStateOf null
+            val top = list.layoutInfo.visibleItemsInfo.lastOrNull()?.key as? String ?: return@derivedStateOf null
             when {
                 top.startsWith("day@") -> top.removePrefix("day@").toLongOrNull()
                 top.startsWith("pair@") -> byId[top.removePrefix("pair@")]?.let { dayOf(it.at) }
@@ -1802,7 +1812,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
             androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalTransfers provides actions.transfers) { com.chencohen.ptt.ui.media.MediaMessage(
                 message, actions.mediaPreview, actions.openMedia, actions.retry, select = select, selecting = selecting,
                 reach = if (message.outgoing) (if (held) ReadMarks.Reach.SENDING else reach ?: ReadMarks.Reach.RECEIVED) else null,
-                progress = actions.uploads[message.id],
+                progress = uploadOf(actions.uploads, message.id),
                 author = if (showAuthor && !message.outgoing) message.author else null,
                 liveEdit = liveEdit,
                 startEdit = startEdit?.let { start -> { caret: Int -> start(caret, 0) } },
@@ -2200,6 +2210,21 @@ internal const val FLIGHT_MS = 300
 
 /** The local day [at] falls on, as its midnight (the phone's own time zone). */
 internal fun dayOf(at: Long, zone: java.util.TimeZone = java.util.TimeZone.getDefault()): Long {
+    // The last day worked out is kept: messages come in order, so nearly every call is in it (no Calendar made).
+    lastDay?.let { d -> if (d.zone == zone.id && at >= d.start && at < d.end) return d.start }
+    return dayOfNew(at, zone).also { start ->
+        val c = java.util.Calendar.getInstance(zone)
+        c.timeInMillis = start
+        c.add(java.util.Calendar.DAY_OF_MONTH, 1)
+        lastDay = DayRange(zone.id, start, dayOfNew(c.timeInMillis, zone))
+    }
+}
+
+private class DayRange(val zone: String, val start: Long, val end: Long)
+
+@Volatile private var lastDay: DayRange? = null
+
+private fun dayOfNew(at: Long, zone: java.util.TimeZone): Long {
     val c = java.util.Calendar.getInstance(zone)
     c.timeInMillis = at
     c.set(java.util.Calendar.HOUR_OF_DAY, 0)

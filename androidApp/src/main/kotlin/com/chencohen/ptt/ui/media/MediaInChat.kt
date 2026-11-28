@@ -473,7 +473,9 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
         // Going up to the server (mine) or coming down from it (theirs): a small cloud (the server) in the end corner
         // with an arrow up or down, filling with colour from the bottom as it goes (2026-11-28, hen: "some icon";
         // mock transfer-icon.png, B).
-        LocalTransfers.current[item.id]?.let { done ->
+        val transfers = LocalTransfers.current
+        val transfer by androidx.compose.runtime.remember(transfers, item.id) { androidx.compose.runtime.derivedStateOf { transfers.value[item.id] } }
+        transfer?.let { done ->
             val shown by androidx.compose.animation.core.animateFloatAsState(done, label = "transfer")
             val tint = if (message.outgoing) LibraryColors.Writing else LibraryColors.Accent
             Box(
@@ -530,7 +532,7 @@ internal fun PictureNote(text: String, color: Color = LibraryColors.Muted) {
 }
 
 /** Each item's preview going up or coming down now (0 to 1), by item id: MediaSharing.transfers. */
-internal val LocalTransfers = androidx.compose.runtime.staticCompositionLocalOf<Map<String, Float>> { emptyMap() }
+internal val LocalTransfers = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.State<Map<String, Float>>> { com.chencohen.ptt.ui.contacts.NoProgress }
 
 @Composable
 private fun Chip(text: String, warn: Boolean = false) {

@@ -277,8 +277,9 @@ fun HomeApp(
             else mediaDrafts[chat] = mediaDrafts[chat].orEmpty() + drafts
         }
     }
-    val uploads by messaging.uploads.collectAsStateWithLifecycle()
-    val transfers by messaging.transfers.collectAsStateWithLifecycle()
+    // Held, not read here: each progress step rebuilt the whole app (2026-11-28); the pictures read them as they draw.
+    val uploads = messaging.uploads.collectAsStateWithLifecycle()
+    val transfers = messaging.transfers.collectAsStateWithLifecycle()
     // The phone's pictures and videos, with their place: the sender keeps no copy, so the original is read again from
     // there when someone opens it (asked once, the first time something is shared; it goes either way).
     var askedFor by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
