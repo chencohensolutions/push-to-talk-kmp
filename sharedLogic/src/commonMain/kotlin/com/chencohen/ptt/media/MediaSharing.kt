@@ -98,6 +98,12 @@ sealed interface OriginalState {
     /** The file there was changed since it was shared. */
     data object Changed : OriginalState
 
+    /**
+     * Mine, and this phone can no longer read where it was shared from (2026-11-28: the gallery's pass to a picked
+     * picture ends when the app restarts, unless the app may read all photos).
+     */
+    data object Unreadable : OriginalState
+
     /** It didn't come (no answer, or the network): Try again asks again. */
     data object Failed : OriginalState
 }
@@ -133,6 +139,8 @@ data class MediaKeeping(
     val onlyCopy: Boolean = false,
     /** The original is known to be somewhere other than a copy on this phone (the sharer's file, a copy, a Journal). */
     val originalElsewhere: Boolean = false,
+    /** Mine, and the file it was shared from can't be read here now (deleted, changed, or no access to it). */
+    val sourceUnreadable: Boolean = false,
 )
 
 /**
@@ -544,7 +552,19 @@ internal class MediaSharing(
         if (opening[key]?.isActive == true) return
         val message = store.message(messageId) ?: return
         val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return
-        store.mediaSource(messageId, itemId)?.let { return setOriginal(key, OriginalState.Ready(it, local = true)) }
+        store.mediaSource(messageId, itemId)?.let { source ->
+            // Read where it was shared from only once it is known to be readable (a lost pass fails quietly otherwise).
+            opening[key] = scope.launch {
+                if (readable(source)) {
+                    sourceBack(message, itemId)
+                    setOriginal(key, OriginalState.Ready(source, local = true))
+                } else {
+                    sourceGone(message, itemId)
+                    setOriginal(key, OriginalState.Unreadable)
+                }
+            }
+            return
+        }
         store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.let { blob -> files.originalPath(blob)?.let { return setOriginal(key, OriginalState.Ready(it)) } }
         opening[key] = scope.launch {
             try {
@@ -564,7 +584,9 @@ internal class MediaSharing(
         val shown = PreviewSpec.pick(item.previews, myScreen().takeIf { it > 0 } ?: PreviewSpec.DEFAULT_WIDTH)
         val parts = item.previews.map { KeptPart(false, it.width, it.height, it.size, it.mime, files.read(it.blob) != null, it == shown) } +
             listOfNotNull(item.poster).map { KeptPart(true, it.width, it.height, it.size, it.mime, files.read(it.blob) != null, false) }
-        val source = store.mediaSource(messageId, itemId)
+        val shared = store.mediaSource(messageId, itemId)
+        val unreadable = shared != null && store.mediaSource(messageId, "$itemId$SOURCE_GONE") != null
+        val source = shared?.takeIf { !unreadable }
         val fetched = store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.let { files.originalPath(it) }
         return MediaKeeping(
             parts = parts, originalPath = source ?: fetched, originalIsSource = source != null,
@@ -573,6 +595,7 @@ internal class MediaSharing(
             peers = emptyList(),
             onlyCopy = fetched != null && store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.let { files.keptOriginal(it) } == true,
             originalElsewhere = originalElsewhere(message, item),
+            sourceUnreadable = unreadable,
         )
     }
 
@@ -881,7 +904,20 @@ internal class MediaSharing(
         } else if (!files.keptOriginal(blob)) changed(message, item.id)
     }
 
-    /** The file [itemId] of [message] was shared from is gone (deleted, or changed since). */
+    private suspend fun readable(source: String): Boolean {
+        val reader = runCatching { preparer?.open(source) }.getOrNull() ?: return false
+        runCatching { reader.close() }
+        return true
+    }
+
+    /** The file [itemId] of [message] was shared from can be read again (access to all photos given): told. */
+    private fun sourceBack(message: TextMessage, itemId: String) {
+        if (store.mediaSource(message.id, "$itemId$SOURCE_GONE") == null) return
+        store.removeMediaSource(message.id, "$itemId$SOURCE_GONE")
+        changed(message, itemId)
+    }
+
+    /** The file [itemId] of [message] was shared from is gone (deleted, changed since, or no longer readable here). */
     private fun sourceGone(message: TextMessage, itemId: String) {
         if (store.mediaSource(message.id, itemId) == null || store.mediaSource(message.id, "$itemId$SOURCE_GONE") != null) return
         store.putMediaSource(message.id, "$itemId$SOURCE_GONE", now().toString())
@@ -958,11 +994,10 @@ internal class MediaSharing(
         for (message in mediaMessages().filter { it.outgoing }) {
             for (item in message.media?.items.orEmpty()) {
                 val source = store.mediaSource(message.id, item.id) ?: continue
-                if (store.mediaSource(message.id, "${item.id}$SOURCE_GONE") != null) continue
                 val reader = runCatching { preparer.open(source) }.getOrNull()
                 val there = reader != null && (reader.size < 0 || reader.size == item.size)
                 runCatching { reader?.close() }
-                if (!there) sourceGone(message, item.id)
+                if (there) sourceBack(message, item.id) else sourceGone(message, item.id)
             }
         }
     }

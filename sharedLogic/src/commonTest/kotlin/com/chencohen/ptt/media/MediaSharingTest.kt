@@ -351,13 +351,26 @@ class MediaOriginalTest {
         hen.messaging.media.openOriginal(message, item)
         advanceUntilIdle()
         assertEquals(OriginalState.Ready("content://media/a", local = true), hen.messaging.media.originals.value["$message/$item"])
+        // No longer readable on hen's phone (the gallery's pass ended): said, not shown as ready.
+        val kept = preparer.files.remove("content://media/a")!!
+        hen.messaging.media.openOriginal(message, item)
+        advanceUntilIdle()
+        assertEquals(OriginalState.Unreadable, hen.messaging.media.originals.value["$message/$item"])
+        assertTrue(hen.messaging.media.keeping(message, item)!!.sourceUnreadable)
+        // Readable again (access to all photos given): ready, and told.
+        preparer.files["content://media/a"] = kept
+        hen.messaging.media.openOriginal(message, item)
+        advanceUntilIdle()
+        assertEquals(OriginalState.Ready("content://media/a", local = true), hen.messaging.media.originals.value["$message/$item"])
+        assertEquals(HeldOriginal.SOURCE, dana.messaging.media.holdersOf(message, item).single { it.user == "hen" }.original)
 
         // Dana's cache cleared: fetched again from the server, without asking hen's phone.
+        val opened = preparer.opened
         dana.messaging.media.clear(sent = false)
         dana.messaging.media.openOriginal(message, item)
         advanceUntilIdle()
         assertTrue(dana.messaging.media.originals.value["$message/$item"] is OriginalState.Ready)
-        assertEquals(1, preparer.opened)
+        assertEquals(opened, preparer.opened)
         hen.stop()
         dana.stop()
     }

@@ -995,6 +995,9 @@
     <string name="media_info_peer_has">%1$s: תצוגה ברוחב %2$d, התקבלה</string>
     <string name="media_info_peer_not_yet">%1$s: תצוגה ברוחב %2$d, עוד לא התקבלה</string>
     <string name="media_info_peer_unknown">%1$s: תצוגה ברוחב %2$d</string>
+    <string name="media_original_unreadable">Talk לא יכול לקרוא כרגע את המקור שלך בטלפון הזה</string>
+    <string name="media_original_allow">גישה לכל התמונות</string>
+    <string name="media_info_source_unreadable">אי אפשר לקרוא כרגע את הקובץ ששיתפת: יש לאפשר ל־Talk את כל התמונות והסרטונים</string>
     <string name="media_info_only_copy">נשמר כעותק היחיד הידוע: ניקוי המטמון לא מוחק אותו</string>
     <string name="media_info_nowhere">לא ידוע כרגע על המקור בשום מקום</string>
     <string name="media_info_peer_phone">%1$s (טלפון %2$d)</string>

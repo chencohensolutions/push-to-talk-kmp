@@ -781,6 +781,11 @@ is told. A copy of an original opened on this phone that is then the only one kn
 else has one, nor a Journal) is moved out of the cache (`MediaFiles.keepOriginal`, `media-originals-kept` in the app's
 no-backup files), so neither Android nor Clear deletes it; once another holder is known it goes back to the cache.
 
+Talk keeps no copy of what it shares, so it needs access to all photos and videos (2026-11-28, hen chose it over
+copies): with only selected photos, a picked picture's pass ends when Talk restarts. Sharing asks for it (again at most
+once a day while it isn't given) and the viewer offers Allow all photos; a shared file found unreadable counts as
+gone until it can be read again (`sourceBack`).
+
 A chat's settings show its Storage (`ChatStorage`: previews sent and got, originals opened here, only copies kept,
 how many of mine are read from where I shared them, and how many originals are known to be nowhere), and Clear cache
 removes only what can come again (`clearChat`): previews got that are still on the server (shared within 29 days) and

@@ -32,6 +32,10 @@ A shared picture, video or file full screen (2026-11-28, hen), opened by a tap o
   3 of 8 MB" with a thin red bar and ✕ (stops; what came is kept and opening it again goes on). If it can't come:
   "The original is no longer on their phone", "The file on their phone was changed since it was shared", or "The
   original didn't come" with Try again.
+  On the phone that shared it, the file is checked to be readable first: when it isn't (with only selected photos
+  allowed, the gallery's pass to a picked picture ends when Talk restarts), the pill says "Talk can't read your
+  original on this phone now" with **Allow all photos** (Android's prompt, or Talk's app settings once Android stops
+  asking); once allowed, it opens.
 
 - **Info** (the ⓘ at the top right, `ui/media/MediaInfo.kt`): a sheet over the picture, 3/4 of the screen at most,
   scrolling; back or a tap above it closes it. *The original*: its size, type, taken time and place as shared, then

@@ -287,11 +287,13 @@ fun HomeApp(
         askedFor = null
     }
     fun shareIn(chat: String, uris: List<String>) {
-        val wanted = listOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO, android.Manifest.permission.ACCESS_MEDIA_LOCATION)
-        val missing = wanted.filter { context.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+        // Access to all photos (2026-11-28, hen): with only the selected ones, the gallery's pass to a picked picture ends
+        // when Talk restarts and its original can't be read again. Asked again at most once a day while it isn't given.
+        val missing = com.chencohen.ptt.ui.media.ALL_PHOTOS.filter { context.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
         val prefs = context.getSharedPreferences("media", android.content.Context.MODE_PRIVATE)
-        if (missing.isEmpty() || prefs.getBoolean("asked", false)) return sendShared(chat, uris)
-        prefs.edit { putBoolean("asked", true) }
+        val now = System.currentTimeMillis()
+        if (missing.isEmpty() || now - prefs.getLong("askedAt", 0L) < 24L * 60 * 60 * 1000) return sendShared(chat, uris)
+        prefs.edit { putLong("askedAt", now) }
         askedFor = chat to uris
         askMedia.launch(missing.toTypedArray())
     }

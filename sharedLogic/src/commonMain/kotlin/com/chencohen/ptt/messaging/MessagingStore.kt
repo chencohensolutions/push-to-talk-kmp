@@ -494,6 +494,8 @@ internal class MessagingStore(val store: SecureStore) {
 
     fun putMediaSource(message: String, item: String, source: String) = store.put(Spaces.MEDIA_SOURCES, "$message/$item", source.encodeToByteArray())
 
+    fun removeMediaSource(message: String, item: String) = store.remove(Spaces.MEDIA_SOURCES, "$message/$item")
+
     fun groups(): List<Group> = all(Spaces.GROUPS, Group.serializer())
 
     fun group(id: String): Group? = read(Spaces.GROUPS, id, Group.serializer())

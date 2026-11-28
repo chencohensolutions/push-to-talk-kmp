@@ -115,6 +115,7 @@ internal fun MediaViewer(
         }
     }
     var info by remember { mutableStateOf(false) }
+    val allowPhotos = rememberAllPhotos()
     BackHandler { if (info) info = false else close() }
     var box by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     // Each picture's zoom (Journal's, ViewerZoom.kt); one swiped away goes back to fitted.
@@ -201,7 +202,7 @@ internal fun MediaViewer(
         }
         if (item != null && bar > 0f) {
             Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp).graphicsLayer { alpha = p * bar }) {
-                OriginalPill(item, originals["${message.id}/${item.id}"], again = { open(message.id, item.id) }, cancel = { cancel(message.id, item.id) })
+                OriginalPill(item, originals["${message.id}/${item.id}"], again = { open(message.id, item.id) }, cancel = { cancel(message.id, item.id) }, allow = { allowPhotos { open(message.id, item.id) } })
             }
         }
         // Where the screen is on the whole picture while zoomed (Journal's minimap): shown with the bars, or while moving.
@@ -304,7 +305,7 @@ private fun Player(ready: OriginalState.Ready) {
 
 /** How far the original got, at the bottom: "Getting the original · 3 of 8 MB" with ✕, or why it didn't come. */
 @Composable
-private fun OriginalPill(item: AttachmentContent, state: OriginalState?, again: () -> Unit, cancel: () -> Unit) {
+private fun OriginalPill(item: AttachmentContent, state: OriginalState?, again: () -> Unit, cancel: () -> Unit, allow: () -> Unit) {
     val text = when (state) {
         null, is OriginalState.Ready -> return
         OriginalState.Asking -> stringResource(R.string.media_original_asking)
@@ -312,6 +313,7 @@ private fun OriginalPill(item: AttachmentContent, state: OriginalState?, again: 
         OriginalState.Gone -> stringResource(R.string.media_original_gone)
         OriginalState.Changed -> stringResource(R.string.media_original_changed)
         OriginalState.Failed -> stringResource(R.string.media_original_failed)
+        OriginalState.Unreadable -> stringResource(R.string.media_original_unreadable)
     }
     val busy = state == OriginalState.Asking || state is OriginalState.Coming
     Column(
@@ -324,6 +326,11 @@ private fun OriginalPill(item: AttachmentContent, state: OriginalState?, again: 
                 Box(Modifier.size(36.dp).clip(CircleShape).clickable(onClick = cancel), contentAlignment = Alignment.Center) {
                     Icon(LibraryIcons.Close, stringResource(R.string.media_original_stop), tint = Color.White, modifier = Modifier.size(18.dp))
                 }
+            } else if (state == OriginalState.Unreadable) {
+                Text(
+                    stringResource(R.string.media_original_allow), color = Color(0xFFFF8A80), style = LibraryType.Tiny,
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = allow).padding(horizontal = 10.dp, vertical = 8.dp),
+                )
             } else if (state == OriginalState.Failed) {
                 Text(
                     stringResource(R.string.media_original_again), color = Color(0xFFFF8A80), style = LibraryType.Tiny,
@@ -382,4 +389,34 @@ private fun openFile(context: Context, ready: OriginalState.Ready, item: Attachm
     val uri = if (ready.local) Uri.parse(ready.path) else FileProvider.getUriForFile(context, "${context.packageName}.calls", File(ready.path))
     val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, item.mime.ifEmpty { "*/*" }).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     runCatching { context.startActivity(Intent.createChooser(intent, item.name)) }
+}
+
+/** The photo permissions that let Talk read again the pictures and videos it shared (2026-11-28, hen: all photos). */
+internal val ALL_PHOTOS = arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO, android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+
+/** Whether Talk may read all the phone's pictures and videos (not only the ones selected). */
+internal fun hasAllPhotos(context: Context): Boolean = ALL_PHOTOS.all { context.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+
+/**
+ * Asks for access to all photos, then calls back; when Android no longer asks (denied before), opens Talk's app settings,
+ * where Photos and videos can be set to Allow all.
+ */
+@Composable
+internal fun rememberAllPhotos(): (then: () -> Unit) -> Unit {
+    val context = LocalContext.current
+    var after by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) {
+        val then = after
+        after = null
+        if (hasAllPhotos(context)) then?.invoke()
+        else runCatching {
+            context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+    return { then ->
+        if (hasAllPhotos(context)) then() else {
+            after = then
+            launcher.launch(ALL_PHOTOS)
+        }
+    }
 }

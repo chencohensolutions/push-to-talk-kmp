@@ -124,6 +124,7 @@ internal fun MediaInfoSheet(
                     },
                 )
                 if (k.onlyCopy) Line(stringResource(R.string.media_info_only_copy))
+                if (k.sourceUnreadable) Muted(stringResource(R.string.media_info_source_unreadable))
                 if (k.originalPath == null && !k.originalElsewhere) Muted(stringResource(R.string.media_info_nowhere))
                 if (k.originalUploadedAt > 0) Line(
                     stringResource(
