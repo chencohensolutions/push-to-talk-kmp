@@ -70,6 +70,8 @@ Milestone 1, the app in the foreground:
 
 ## Building
 
+Xcode 26 or newer (libsignal's Swift source needs Swift 6.2).
+
 ```sh
 brew install xcodegen
 cd iosApp && xcodegen && open Talk.xcodeproj     # then Run on a simulator or a phone

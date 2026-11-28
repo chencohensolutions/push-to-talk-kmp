@@ -26,7 +26,8 @@ concurrency:
 
 jobs:
   ios:
-    runs-on: macos-15
+    # libsignal's Swift source needs Swift 6.2 (Xcode 26).
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -90,8 +91,8 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/derived" \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
             > "$RUNNER_TEMP/xcodebuild.log" 2>&1 || {
-              grep -E "error:|error :|FAILED|What went wrong" -A4 "$RUNNER_TEMP/xcodebuild.log" | head -500
-              tail -30 "$RUNNER_TEMP/xcodebuild.log"
+              grep -E "error:|error :|FAILED|What went wrong" -A4 "$RUNNER_TEMP/xcodebuild.log" | cut -c1-400 | head -500
+              tail -30 "$RUNNER_TEMP/xcodebuild.log" | cut -c1-400
               exit 1
             }
           tail -5 "$RUNNER_TEMP/xcodebuild.log"
