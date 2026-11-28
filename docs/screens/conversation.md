@@ -592,7 +592,8 @@ the top line holds all their places (each once, in order, three then "+2") and t
 ("Yesterday 18:40 – 21:05"), said once (2026-11-28, hen: "show less redundancy about time and location", chose "once
 on top, changes only", then "no chip, make the details above the image"): a picture whose place differs from the one
 above it, or taken 5 minutes or more after it, has what changed ("Jaffa · 21:05", the day too when that changed) in a
-strip of the bubble right above it (in the draft too); the others have none, and follow each other with a 2-dp gap. Words may be
+strip of the bubble right above it, under the words written above it ("the date belongs to the lower image, it
+should be below the text"; in the draft too); the others have none, and follow each other with a 2-dp gap. Words may be
 written above any picture (`AttachmentContent.text`, field 20; "Aa" on the picture in the draft opens a field in a strip
 above it), shown in a strip of the bubble above it; the caption stays under the last. After sending too (2026-11-28, hen:
 "when i long tap of an image the text icon appears on all images and videos of that message"): a long press on my
@@ -613,12 +614,17 @@ the app closes); once it ended, the first frame and ▶ show again (2026-11-28, 
 loop, unmute button"; `ClipInChat`). A file is a row with its name and size in the same frame. A long press
 selects it, as any message; a tap opens the viewer (docs/screens/viewer.md). Until the preview is there
 (downloading, or fetched again after the cache was cleared), the picture's shape is held in the Raised colour, so
-nothing moves when it comes.
+nothing moves when it comes. In a message of several, the same long press puts a bin in each one's top end corner (2026-11-28, hen:
+"i want to be able to delete image from message"): it takes that one out for everyone (`EditContent.removedItem`, field
+10, a quiet edit); its previews, clip and original leave this chat on the server and both phones, so the key their
+phone had opens nothing any more ("can the peer download it again because he have the key"). A message's last one goes
+by deleting the message.
 
 **Writing a caption first** (`ui/media/MediaDraftBox.kt`; hen: "the image should be 100% width and the textbox
 should be its max width of a bubble", mock `mockups/share-media/caption-in-box-v2.png`). What is picked (the +
 button, or Talk in Android's Share menu) isn't sent at once: it is laid out as the message it will become, the
-pictures edge to edge (✕ takes one out; more than half the screen scrolls) between two half bubbles outlined in the
+pictures edge to edge (taking the whole height when they need it, the caption box kept in view under them; more scroll;
+2026-11-28, hen: "make it full height if needed so i could view all images before i send") between two half bubbles outlined in the
 writing colour on my side, a bubble's widest (78% of the screen, as the sent ones). The bottom one is the text box: a
 bin (don't send), the caption and Send. The top half already says where and when they were taken. Sent with a caption, the whole box (a picture of it as
 drawn) flies into the message's place in the chat, as a sent text does, and the message shows the frame it lands;
@@ -643,8 +649,9 @@ pictures and videos in Samsung's Gallery (Android's photo picker on phones witho
 document, kept readable). What is picked is shared in this chat at once. The first time, Android asks for the phone's
 pictures and videos and their places: the original is read again from there when someone opens it.
 
-Pictures in the writing bubble each have a crop icon in their bottom start corner (teal once set): it opens crop and
-focus (docs/screens/viewer.md, "Crop and focus") on the draft's pictures; their previews are made again before Send.
+Pictures in the writing bubble each have Aa (words above it), crop (teal once set) and ✕ (take it out) together in their
+top end corner, held at the top of what shows of the picture while the draft scrolls (2026-11-28, hen: "keep the x and
+crop and text button in view, at the same top corner"). Crop opens crop and focus (docs/screens/viewer.md, "Crop and focus") on the draft's pictures; their previews are made again before Send.
 A picture in the chat is drawn at its composition's shape, cut around its point of interest.
 
 The composer's + has Camera too (2026-11-28, hen: "open the native camera app ... also saved on the device"; "many in

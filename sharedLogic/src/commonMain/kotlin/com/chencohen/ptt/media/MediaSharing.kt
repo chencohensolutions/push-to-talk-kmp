@@ -593,6 +593,54 @@ internal class MediaSharing(
         return true
     }
 
+    /**
+     * Takes item [itemId] out of my message [messageId] for everyone (2026-11-28, hen: "i want to be able to delete image
+     * from message"; asked whether the peer can download it again with the key it has: no, the server no longer gives it). The chat is
+     * told with a quiet edit; its previews, clip and uploaded original leave this chat on the server (gone from it when
+     * no other chat has them) and this phone, and a later request for its original is refused (the item is gone).
+     * False: not mine, gone, or the message's only item (that is deleting the message).
+     */
+    suspend fun removeItem(messageId: String, itemId: String): Boolean {
+        val message = store.message(messageId)?.takeIf { it.outgoing && !it.deleted } ?: return false
+        val media = message.media ?: return false
+        val item = media.items.firstOrNull { it.id == itemId } ?: return false
+        if (media.items.size < 2) return false
+        val rest = media.copy(items = media.items.filter { it.id != itemId })
+        val updated = message.copy(media = rest, body = fallback(rest))
+        store.putMessage(updated)
+        publish()
+        uploading.remove("$messageId/$itemId")?.cancel()
+        val original = store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")
+        original?.let { files.deleteOriginal(it) }
+        val blobs = item.parts.map { it.blob } + listOfNotNull(original)
+        for (blob in blobs) if (!named(blob, "")) files.delete(blob)
+        _originals.update { all -> all - "$messageId/$itemId" }
+        val (peer, group) = conversationOf(message.user)
+        scope?.launch {
+            for (blob in blobs) {
+                uploaded.remove("$blob@${message.user}")
+                runCatching { this@MediaSharing.blobs.unshare(blob, peer, group) }
+            }
+        }
+        if (message.status != MessageStatus.PENDING) send(message.user, Content(edit = EditContent(messageId, editedAt = now(), removedItem = itemId)), PushKind.SYNC, "")
+        return true
+    }
+
+    /** Item [itemId] of [message] (someone's, or mine from another phone) taken out by its sender: gone from here too. */
+    internal fun takeRemoval(message: TextMessage, itemId: String): Boolean {
+        val media = message.media ?: return false
+        val item = media.items.firstOrNull { it.id == itemId } ?: return false
+        if (media.items.size < 2) return false
+        val rest = media.copy(items = media.items.filter { it.id != itemId })
+        store.putMessage(message.copy(media = rest, body = fallback(rest)))
+        opening.remove("${message.id}/$itemId")?.cancel()
+        for (part in item.parts) if (!named(part.blob, "")) files.delete(part.blob)
+        store.mediaSource(message.id, "$itemId$ORIGINAL_BLOB")?.let { files.deleteOriginal(it) }
+        _originals.update { all -> all - "${message.id}/$itemId" }
+        publish()
+        return true
+    }
+
     /** The previews [blobs] my sent [message] no longer names: gone from this phone and from its chat on the server. */
     private fun dropOld(message: TextMessage, blobs: List<String>) {
         for (blob in blobs) if (!named(blob, message.id)) files.delete(blob)

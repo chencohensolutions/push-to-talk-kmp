@@ -512,6 +512,7 @@ fun HomeApp(
                 mediaPreview = { id, item -> messaging.mediaPreview(id, item) },
                 mediaClip = { id, item -> messaging.mediaClip(id, item) },
                 mediaText = { id, item, text -> messaging.setMediaText(id, item, text) },
+                mediaRemove = { id, item -> messaging.removeMediaItem(id, item) },
                 openMedia = { id, item -> push("view/$id/$item") },
                 mediaDraft = mediaDrafts[user]?.let { drafts ->
                     com.chencohen.ptt.ui.media.MediaDraft(

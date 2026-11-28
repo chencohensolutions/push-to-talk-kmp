@@ -185,6 +185,9 @@ data class AttachmentContent(
     /** The height of what the chat shows of it: the original's, less what [crop] trims. */
     val shownHeight: Int get() = crop?.let { (height.toLong() * it.kept / CropContent.WHOLE).toInt().coerceAtLeast(1) } ?: height
 
+    /** The width of what the chat shows of it: the original's, less what [crop] trims off its sides. */
+    val shownWidth: Int get() = crop?.let { (width.toLong() * it.keptWidth / CropContent.WHOLE).toInt().coerceAtLeast(1) } ?: width
+
     override fun equals(other: Any?): Boolean = other is AttachmentContent && id == other.id && kind == other.kind &&
         key.contentEquals(other.key) && sha256.contentEquals(other.sha256) && size == other.size && mime == other.mime &&
         name == other.name && width == other.width && height == other.height && durationMs == other.durationMs &&
@@ -208,22 +211,33 @@ data class CropContent(
     @ProtoNumber(3) val focusX: Int = WHOLE / 2,
     @ProtoNumber(4) val focusY: Int = WHOLE / 2,
     @ProtoNumber(5) val hasFocus: Boolean = false,
+    /**
+     * Trimmed off the sides too (2026-11-28, hen: "zoom the image so also part of the sides will get cropped"). An app
+     * before this shows the picture a little wider than meant, cut around the point.
+     */
+    @ProtoNumber(6) val left: Int = 0,
+    @ProtoNumber(7) val right: Int = 0,
 ) {
     /** How much of the height is kept, in 1/[WHOLE]. */
     val kept: Int get() = WHOLE - top - bottom
 
-    /** Within bounds (at least [MIN_KEPT] kept, the point inside the picture); null when it changes nothing. */
+    /** How much of the width is kept, in 1/[WHOLE]. */
+    val keptWidth: Int get() = WHOLE - left - right
+
+    /** Within bounds (at least [MIN_KEPT] kept each way, the point inside the picture); null when it changes nothing. */
     fun clean(): CropContent? {
         val t = top.coerceIn(0, WHOLE - MIN_KEPT)
         val b = bottom.coerceIn(0, WHOLE - MIN_KEPT - t)
-        val c = CropContent(t, b, focusX.coerceIn(0, WHOLE), focusY.coerceIn(0, WHOLE), hasFocus)
-        return c.takeIf { it.top > 0 || it.bottom > 0 || it.hasFocus }?.let { if (it.hasFocus) it else it.copy(focusX = WHOLE / 2, focusY = WHOLE / 2) }
+        val l = left.coerceIn(0, WHOLE - MIN_KEPT)
+        val r = right.coerceIn(0, WHOLE - MIN_KEPT - l)
+        val c = CropContent(t, b, focusX.coerceIn(0, WHOLE), focusY.coerceIn(0, WHOLE), hasFocus, l, r)
+        return c.takeIf { it.top > 0 || it.bottom > 0 || it.left > 0 || it.right > 0 || it.hasFocus }?.let { if (it.hasFocus) it else it.copy(focusX = WHOLE / 2, focusY = WHOLE / 2) }
     }
 
     /** The point of interest within the kept part, 0 to 1 across and down (the middle when none is set). */
     val focusInCrop: Pair<Float, Float>
         get() = if (!hasFocus) 0.5f to 0.5f
-        else (focusX.toFloat() / WHOLE).coerceIn(0f, 1f) to ((focusY - top).toFloat() / kept.coerceAtLeast(1)).coerceIn(0f, 1f)
+        else ((focusX - left).toFloat() / keptWidth.coerceAtLeast(1)).coerceIn(0f, 1f) to ((focusY - top).toFloat() / kept.coerceAtLeast(1)).coerceIn(0f, 1f)
 
     companion object {
         const val WHOLE = 10_000
@@ -451,6 +465,11 @@ internal data class EditContent(
      * after message sent"): the same item (its id and key), its new [AttachmentContent.crop] and the previews made for it.
      */
     @ProtoNumber(9) val item: AttachmentContent? = null,
+    /**
+     * FINAL: a picture, video or file taken out of the message after it was sent (2026-11-28, hen: "i want to be able
+     * to delete image from message"), by item id: gone from their phone, and the server no longer gives it to them.
+     */
+    @ProtoNumber(10) val removedItem: String = "",
 ) {
     companion object {
         const val FINAL = 0

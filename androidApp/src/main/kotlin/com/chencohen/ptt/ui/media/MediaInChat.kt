@@ -216,6 +216,8 @@ internal fun MediaMessage(
     /** Mine, selected by a long press: Aa on each picture and video, to write the words above it (2026-11-28, hen). */
     texting: Boolean = false,
     setText: (itemId: String, text: String) -> Unit = { _, _ -> },
+    /** Mine, selected: takes one picture, video or file out of the message for everyone. */
+    removeItem: (itemId: String) -> Unit = {},
 ) {
     val media = message.media ?: return
     // The item whose words above it are being written now (after Aa), and what is written so far.
@@ -259,9 +261,6 @@ internal fun MediaMessage(
             // in a strip of the bubble (2026-11-28, hen: "show less redundancy about time and location"; "no chip, make
             // the details above the image").
             val change = if (index > 0) changeFrom(media.items[index - 1], item) else null
-            if (change != null) Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
-                PictureNote(change, color = muted)
-            }
             // Words written above this picture, in a strip of the bubble (2026-11-28, hen: "add text above any image").
             if (writing == item.id) {
                 Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
@@ -272,14 +271,22 @@ internal fun MediaMessage(
                 }
             } else if (item.text.isNotBlank()) {
                 Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
-                    Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                    // Close to its picture (2026-11-28, hen: "the text should be closer to the related image ... above the
+                    // time without spacing"): room above it, none under it when the time follows.
+                    Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (index == 0) 0.dp else 10.dp, bottom = if (change != null) 0.dp else 4.dp))
                 }
-            } else if (index > 0 && change == null) Spacer(Modifier.height(2.dp))
+            }
+            // Its own place and time, right above it, under the words above it (2026-11-28, hen: "the date belongs to
+            // the lower image, it should be below the text").
+            if (change != null) Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
+                PictureNote(change, color = muted, top = if (item.text.isNotBlank() && writing != item.id) 0.dp else 6.dp)
+            } else if (index > 0 && writing != item.id && item.text.isBlank()) Spacer(Modifier.height(2.dp))
             when (item.kind) {
                 MediaKind.IMAGE, MediaKind.VIDEO -> Picture(
                     message, item, preview, select = select,
                     // Aa writes above it; the selection ends so the keyboard and taps belong to the words.
                     words = if (texting && mine && !media.quiet) ({ writing = item.id; select?.invoke(); Unit }) else null,
+                    remove = if (texting && mine && !media.quiet && media.items.size > 1) ({ removeItem(item.id); select?.invoke(); Unit }) else null,
                 ) {
                     when {
                         selecting && select != null -> select()
@@ -489,7 +496,7 @@ private suspend fun placeName(context: android.content.Context, lat: Double, lon
 
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-internal fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, select: (() -> Unit)?, words: (() -> Unit)? = null, onClick: () -> Unit) {
+internal fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, select: (() -> Unit)?, words: (() -> Unit)? = null, remove: (() -> Unit)? = null, onClick: () -> Unit) {
     val key = "${message.id}/${item.id}"
     val drawnAs = drawnKey(message.id, item)
     // A new key (a new composition's preview) keeps the state, not its first value: the old picture shows until the
@@ -500,9 +507,9 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
     }
     // Its composition (2026-11-28, hen): the part of the original the sender kept, cut around their point of interest
     // where this box is another shape.
-    val ratio = if (item.width > 0 && item.height > 0) (item.width.toFloat() / item.shownHeight).coerceIn(0.4f, 3f) else 1f
+    val ratio = if (item.width > 0 && item.height > 0) (item.shownWidth.toFloat() / item.shownHeight).coerceIn(0.4f, 3f) else 1f
     val focus = item.crop?.focusInCrop
-    val align = if (focus == null) Alignment.Center else androidx.compose.ui.BiasAlignment(focus.first * 2 - 1, focus.second * 2 - 1)
+    val align = if (focus == null) Alignment.Center else androidx.compose.ui.BiasAbsoluteAlignment(focus.first * 2 - 1, focus.second * 2 - 1)
     val label = stringResource(if (item.kind == MediaKind.VIDEO) R.string.media_video else R.string.media_picture)
     Box(
         Modifier.fillMaxWidth().aspectRatio(ratio).background(LibraryColors.Raised)
@@ -584,6 +591,15 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
                     .clickable(onClickLabel = label, onClick = write).semantics { contentDescription = label },
                 contentAlignment = Alignment.Center,
             ) { Text("Aa", color = Color.White, style = LibraryType.Tiny) }
+        }
+        // Take it out of the message, for everyone (my message of several, selected; 2026-11-28, hen).
+        remove?.let { out ->
+            val label = stringResource(R.string.media_remove_item)
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(8.dp).size(36.dp).clip(CircleShape).background(Color(0x99000000))
+                    .clickable(onClickLabel = label, onClick = out).semantics { contentDescription = label },
+                contentAlignment = Alignment.Center,
+            ) { Icon(LibraryIcons.Trash, null, tint = Color.White, modifier = Modifier.size(18.dp)) }
         }
         // A video's length (when it was taken is on the top half bubble, the time it was sent on the bottom one).
         item.durationMs.takeIf { it > 0 }?.let { Box(Modifier.align(Alignment.BottomStart).padding(8.dp)) { Chip(com.chencohen.ptt.ui.talk.clipLength(it)) } }
@@ -687,10 +703,10 @@ private fun TextAbove(was: String, ink: Color, done: (save: Boolean, text: Strin
 
 /** A strip's line above a picture saying where or when it was taken, when that changed from the picture before. */
 @Composable
-internal fun PictureNote(text: String, color: Color = LibraryColors.Muted) {
+internal fun PictureNote(text: String, color: Color = LibraryColors.Muted, top: androidx.compose.ui.unit.Dp = 6.dp) {
     Text(
         text, color = color, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = top, bottom = 4.dp),
     )
 }
 

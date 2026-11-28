@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -47,7 +51,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import com.chencohen.ptt.R
 import com.chencohen.ptt.messaging.MediaKind
@@ -74,7 +77,10 @@ class MediaDraft(
  * its max width of a bubble"): the pictures edge to edge across the screen, each in its own shape with ✕ to take it
  * out, between two half bubbles outlined in the writing colour on my side, a bubble's widest. The bottom one is the
  * text box: the caption, Send, and the trash that drops them all. So the draft already looks like the message it
- * becomes (MediaMessage), and Send moves nothing sideways. More pictures than fit (about half the screen) scroll.
+ * becomes (MediaMessage), and Send moves nothing sideways. The pictures take the whole height when they need it, the
+ * caption box staying in view under them, and scroll when they need more (2026-11-28, hen: "make it full height if
+ * needed so i could view all images before i send"). Each picture's ✕, crop and Aa sit together in its top corner and
+ * stay in view while it scrolls ("keep the x and crop and text button in view, at the same top corner").
  * ✕ on the last one drops the draft.
  */
 @Composable
@@ -111,12 +117,13 @@ internal fun MediaDraftBox(
         LaunchedEffect(Unit) { draft.drop() }
         return
     }
-    // The pictures scroll inside the box at most 45% of the screen high, and less with the keyboard up, so the caption
-    // box under them (and the header, and a little of the chat) always stays in view (2026-11-28, hen: "i cant see the
-    // text bubble when many images included").
+    // The pictures take all the height they need, up to the whole screen less the header and the caption box (and the
+    // keyboard when it is up), so the caption box under them always stays in view (2026-11-28, hen: "i cant see the
+    // text bubble when many images included"; "make it full height if needed so i could view all images").
     val screen = LocalConfiguration.current.screenHeightDp
     val keyboard = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current).let { px -> px / androidx.compose.ui.platform.LocalDensity.current.density }
-    val maxPictures = minOf(screen * 0.45f, screen - keyboard - ROOM_AROUND).coerceAtLeast(120f).dp
+    val maxPictures = (screen - keyboard - ROOM_AROUND).coerceAtLeast(120f).dp
+    val scroll = rememberScrollState()
     val width = bubbleMaxWidth()
     // Edge to edge: out through the side margins the writing area keeps (as the pictures in the chat).
     Column(
@@ -135,21 +142,18 @@ internal fun MediaDraftBox(
             if (taken != null) Text(taken, color = LibraryColors.Muted, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
         Column(
-            Modifier.fillMaxWidth().heightIn(max = maxPictures).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().heightIn(max = maxPictures).verticalScroll(scroll),
         ) {
             items.forEachIndexed { index, (message, item) ->
                 // As on the message it becomes: what changed from the picture above, in a strip above it.
                 val change = if (index > 0) changeFrom(items[index - 1].second, item) else null
-                if (change != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(change) }
-                }
                 // Words above this picture: a field in a strip of the writing outline, as on the message it becomes.
                 val above = texts[item.id].orEmpty()
                 if (writingAbove == item.id || above.isNotEmpty()) {
                     val aboveFocus = remember(item.id) { FocusRequester() }
                     LaunchedEffect(writingAbove == item.id) { if (writingAbove == item.id) runCatching { aboveFocus.requestFocus() } }
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral).padding(horizontal = 14.dp, vertical = 8.dp)) {
+                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral).padding(start = 14.dp, end = 14.dp, top = if (index == 0) 0.dp else 10.dp, bottom = if (change != null) 0.dp else 4.dp)) {
                             if (above.isEmpty()) Text(stringResource(R.string.media_text_above_hint), color = LibraryColors.Muted, style = LibraryType.Message)
                             BasicTextField(
                                 above, { v -> texts = texts + (item.id to v) }, Modifier.fillMaxWidth().focusRequester(aboveFocus),
@@ -159,36 +163,55 @@ internal fun MediaDraftBox(
                             )
                         }
                     }
-                } else if (index > 0 && change == null) androidx.compose.foundation.layout.Spacer(Modifier.height(2.dp))
-                Box {
+                }
+                // Its own place and time right above it, under the words above it (hen: "it should be below the text").
+                if (change != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(change, top = if (above.isNotEmpty() || writingAbove == item.id) 0.dp else 6.dp) }
+                } else if (index > 0 && writingAbove != item.id && above.isEmpty()) androidx.compose.foundation.layout.Spacer(Modifier.height(2.dp))
+                // Where this picture lies in the scrolled column, so its buttons can stay in view.
+                var top by remember(item.id) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+                var tall by remember(item.id) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+                Box(Modifier.onPlaced { top = it.positionInParent().y; tall = it.size.height.toFloat() }) {
                     when (item.kind) {
                         MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = null) {}
                         else -> Text(item.name, color = LibraryColors.OnBackground, style = LibraryType.Message, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
                     }
-                    Box(
-                        Modifier.align(Alignment.TopEnd).padding(8.dp).size(28.dp).clip(CircleShape).background(Color(0x99000000))
-                            .clickable { removed = removed + item.id },
-                        contentAlignment = Alignment.Center,
+                    // Aa, crop and ✕ together in its top corner, held at the top of what shows of it while it scrolls
+                    // (and at its bottom once only that much is left).
+                    Row(
+                        Modifier.align(Alignment.TopEnd)
+                            .offset {
+                                val most = (tall - BUTTONS_HIGH.dp.toPx()).coerceAtLeast(0f)
+                                androidx.compose.ui.unit.IntOffset(0, (scroll.value - top).coerceIn(0f, most).toInt())
+                            }
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(LibraryIcons.Close, stringResource(R.string.media_draft_remove), tint = Color.White, modifier = Modifier.size(16.dp))
-                    }
-                    // Write above this picture.
-                    if (above.isEmpty() && writingAbove != item.id) Box(
-                        Modifier.align(Alignment.TopStart).padding(8.dp).size(28.dp).clip(CircleShape).background(Color(0x99000000))
-                            .clickable(onClickLabel = stringResource(R.string.media_text_above)) { writingAbove = item.id },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("Aa", color = Color.White, style = LibraryType.Tiny)
-                    }
-                    // Crop and focus (2026-11-28, hen): teal once this picture has a composition of its own.
-                    val crop = draft.crop
-                    if (crop != null && item.kind == MediaKind.IMAGE) Box(
-                        Modifier.align(Alignment.BottomStart).padding(10.dp).size(44.dp).clip(CircleShape)
-                            .background(if (item.crop != null) LibraryColors.Accent else Color(0x9E141414))
-                            .clickable(onClickLabel = stringResource(R.string.media_crop)) { crop(message.id, item.id) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(LibraryIcons.Crop, stringResource(R.string.media_crop), tint = Color.White, modifier = Modifier.size(18.dp))
+                        // Write above this picture.
+                        if (above.isEmpty() && writingAbove != item.id) Box(
+                            Modifier.size(BUTTON.dp).clip(CircleShape).background(Color(0x99000000))
+                                .clickable(onClickLabel = stringResource(R.string.media_text_above)) { writingAbove = item.id },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("Aa", color = Color.White, style = LibraryType.Small)
+                        }
+                        // Crop and focus (2026-11-28, hen): teal once this picture has a composition of its own.
+                        val crop = draft.crop
+                        if (crop != null && item.kind == MediaKind.IMAGE) Box(
+                            Modifier.size(BUTTON.dp).clip(CircleShape)
+                                .background(if (item.crop != null) LibraryColors.Accent else Color(0x99000000))
+                                .clickable(onClickLabel = stringResource(R.string.media_crop)) { crop(message.id, item.id) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(LibraryIcons.Crop, stringResource(R.string.media_crop), tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
+                        Box(
+                            Modifier.size(BUTTON.dp).clip(CircleShape).background(Color(0x99000000))
+                                .clickable { removed = removed + item.id },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(LibraryIcons.Close, stringResource(R.string.media_draft_remove), tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
@@ -293,8 +316,12 @@ internal fun MediaCaptionBox(caption: MediaCaption, modifier: Modifier = Modifie
     }
 }
 
-/** The draft's height besides its pictures, with the header and a strip of the chat (dp). */
-private const val ROOM_AROUND = 260f
+/** The draft's height besides its pictures: the header, the top half and the caption box under them (dp). */
+private const val ROOM_AROUND = 190f
+
+/** A picture's buttons (dp), and their row with its padding. */
+private const val BUTTON = 36
+private const val BUTTONS_HIGH = BUTTON + 16
 
 /** How long an empty caption box waits before telling them of the pictures alone. */
 private const val IDLE_NOTIFY = 120_000L
