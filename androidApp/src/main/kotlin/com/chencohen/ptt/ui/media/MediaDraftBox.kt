@@ -34,6 +34,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.ui.draw.drawBehind
 import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -107,7 +110,7 @@ internal fun MediaDraftBox(
     // box under them (and the header, and a little of the chat) always stays in view (2026-11-28, hen: "i cant see the
     // text bubble when many images included").
     val screen = LocalConfiguration.current.screenHeightDp
-    val keyboard = with(androidx.compose.ui.platform.LocalDensity.current) { androidx.compose.foundation.layout.WindowInsets.ime.getBottom(this).toDp().value }
+    val keyboard = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current).let { px -> px / androidx.compose.ui.platform.LocalDensity.current.density }
     val maxPictures = minOf(screen * 0.45f, screen - keyboard - ROOM_AROUND).coerceAtLeast(120f).dp
     val width = bubbleMaxWidth()
     // Edge to edge: out through the side margins the writing area keeps (as the pictures in the chat).
@@ -131,7 +134,12 @@ internal fun MediaDraftBox(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items.forEachIndexed { index, (message, item) ->
-                if (index > 0) changeOver(item, items[index - 1].second)?.let { PictureNote(it) }
+                if (index > 0) changeOver(item, items[index - 1].second)?.let {
+                    // In a strip of the writing outline, as on the message it becomes.
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(it) }
+                    }
+                }
                 Box {
                     when (item.kind) {
                         MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = null) {}
@@ -252,6 +260,13 @@ private const val ROOM_AROUND = 260f
 
 /** How long an empty caption box waits before telling them of the pictures alone. */
 private const val IDLE_NOTIFY = 120_000L
+
+/** The writing outline's two sides only: a strip of the draft's bubble between two pictures. */
+private fun Modifier.writingSides(color: Color): Modifier = drawBehind {
+    val w = 1.5.dp.toPx()
+    drawLine(color, androidx.compose.ui.geometry.Offset(w / 2, 0f), androidx.compose.ui.geometry.Offset(w / 2, size.height), w)
+    drawLine(color, androidx.compose.ui.geometry.Offset(size.width - w / 2, 0f), androidx.compose.ui.geometry.Offset(size.width - w / 2, size.height), w)
+}
 
 /** A half bubble's outline in [color], open on the side the pictures touch (the writing look of myHalfBubble). */
 private fun Modifier.writingHalf(color: Color, top: Boolean, radius: Dp = 16.dp): Modifier = drawWithCache {

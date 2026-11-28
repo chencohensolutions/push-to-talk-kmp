@@ -185,6 +185,31 @@ internal fun Modifier.myBubble(look: BubbleLook, radius: Dp = 16.dp): Modifier {
 }
 
 /**
+ * The strip of my picture message between two pictures (a note on where or when the next was taken): the half bubbles'
+ * side lines carried on through it, filled as they are, so the message reads as one long bubble (2026-11-28, hen).
+ */
+internal fun Modifier.myMiddleBubble(look: BubbleLook, progress: Float? = null): Modifier {
+    val lineColor = LibraryColors.MineLine
+    val fillColor = LibraryColors.Mine
+    return drawWithCache {
+        val w = 1.5.dp.toPx()
+        val x0 = w / 2f
+        val x1 = size.width - w / 2f
+        val left = Path().apply { moveTo(x0, 0f); lineTo(x0, size.height) }
+        val right = Path().apply { moveTo(x1, 0f); lineTo(x1, size.height) }
+        onDrawBehind {
+            val f = look.fill.value
+            if (f > 0f) drawRect(fillColor.copy(alpha = fillColor.alpha * f))
+            if (f >= 1f) return@onDrawBehind
+            val drawn = progress?.let { LINE_DASHED + (1f - LINE_DASHED) * it } ?: look.line.value
+            val color = androidx.compose.ui.graphics.lerp(lineColor, fillColor, f)
+            drawMorphLine(left, size.height, color, w, drawn, 9.dp.toPx())
+            drawMorphLine(right, size.height, color, w, drawn, 9.dp.toPx())
+        }
+    }
+}
+
+/**
  * Half of my bubble round shared pictures (2026-11-28, hen): above them ([top]) or below them, rounded on its far
  * side and open where the pictures meet it. Its line and fill move as [myBubble]'s; while its previews upload, the
  * dashes grow towards a whole line with [progress] (0 to 1).

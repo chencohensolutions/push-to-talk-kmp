@@ -41,9 +41,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.draw.drawWithCache
 import com.chencohen.ptt.ui.contacts.liveCaret
+import com.chencohen.ptt.ui.contacts.myMiddleBubble
 import com.awxkee.jxlcoder.JxlCoder
 import com.chencohen.ptt.R
 import com.chencohen.ptt.messaging.AttachmentContent
@@ -124,6 +126,17 @@ internal fun MediaMessage(
         media.quiet -> this.border(1.dp, LibraryColors.Muted.copy(alpha = 0.6f), halfShape(top))
         else -> this.background(LibraryColors.Theirs, halfShape(top))
     }
+    @Composable
+    fun Modifier.middle(): Modifier = when {
+        look != null -> this.then(Modifier.myMiddleBubble(look, progress))
+        media.quiet -> this.drawBehind {
+            val w = 1.dp.toPx()
+            val c = LibraryColors.Muted.copy(alpha = 0.6f)
+            drawLine(c, androidx.compose.ui.geometry.Offset(w / 2, 0f), androidx.compose.ui.geometry.Offset(w / 2, size.height), w)
+            drawLine(c, androidx.compose.ui.geometry.Offset(size.width - w / 2, 0f), androidx.compose.ui.geometry.Offset(size.width - w / 2, size.height), w)
+        }
+        else -> this.background(LibraryColors.Theirs)
+    }
     Column(modifier.fillMaxWidth(), horizontalAlignment = side) {
         // The top half bubble: who, in a group; else when they were taken.
         val taken = takenAndWhere(media.items)
@@ -134,8 +147,12 @@ internal fun MediaMessage(
         media.items.forEachIndexed { index, item ->
             // Between the pictures only: the half bubbles touch the first and the last (2026-11-28, hen).
             if (index > 0) {
-                Spacer(Modifier.height(2.dp))
-                changeOver(item, media.items[index - 1])?.let { PictureNote(it) }
+                val note = changeOver(item, media.items[index - 1])
+                // Where or when the next was taken, in a strip of the bubble between them, so the message reads as one
+                // long bubble with the pictures in it (2026-11-28, hen); else a thin gap.
+                if (note != null) {
+                    Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) { PictureNote(note, color = muted) }
+                } else Spacer(Modifier.height(2.dp))
             }
             when (item.kind) {
                 MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = select) {
@@ -323,10 +340,10 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
 
 /** A line over a picture saying where or when it was taken, when that changed from the one before. */
 @Composable
-internal fun PictureNote(text: String) {
+internal fun PictureNote(text: String, color: Color = LibraryColors.Muted) {
     Text(
-        text, color = LibraryColors.Muted, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 26.dp, vertical = 4.dp),
+        text, color = color, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 5.dp),
     )
 }
 

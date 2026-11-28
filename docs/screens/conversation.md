@@ -579,7 +579,8 @@ between two half bubbles a bubble's widest on the sender's side in their bubble'
 `mockups/share-media/picture-sender.png`, option A). The top one says who sent them, only in a group and only on
 other members' pictures, and where and when they were taken ("Tel Aviv · Yesterday 18:40": the place named on each phone by Android's
 Geocoder from the item's coordinates, the date from the EXIF or else the gallery's date taken); of the first item. Over each picture after
-the first, a quiet line says its place when it differs from the one before and its time when more than five minutes
+the first, in a strip of the bubble between the two (its sides carried on, so the message reads as one long bubble
+with the pictures in it), a quiet line says its place when it differs from the one before and its time when more than five minutes
 apart (the day too when it changed), 2026-11-28, hen; the bottom one holds the caption
 and the time sent. Mine move as my text bubbles do: dashed while it goes, the dashes growing towards a whole line as
 the previews upload, whole on the server, filled once every phone has it; failed, the time turns red and a tap sends
