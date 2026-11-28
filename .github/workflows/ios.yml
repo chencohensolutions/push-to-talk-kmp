@@ -1,20 +1,10 @@
 # Builds the iOS app for the simulator on one of GitHub's Macs: the shared Kotlin framework, libsignal's Swift
-# package and the SwiftUI app. Mac minutes cost ten times a Linux minute, so this runs only when what the iOS app is
-# made of changes (and by hand: Actions › iOS › Run workflow). Common code that stops compiling for iOS is caught on
-# every push by build.yml's Linux job, which compiles the shared logic for iOS too.
+# package and the SwiftUI app. By hand only for now (Actions › iOS › Run workflow): while the iOS app is being built
+# it is compiled on the owner's Mac, and this runs on pushes again once the app is stable (hen, 2026-11-28). Common
+# code that stops compiling for iOS is caught on every push by build.yml's Linux job.
 name: iOS
 
 on:
-  push:
-    paths:
-      - iosApp/**
-      - sharedLogic/src/iosMain/**
-      - sharedLogic/build.gradle.kts
-      - gradle/libs.versions.toml
-      - tools/ios-strings.py
-      - androidApp/src/main/res/values/strings.xml
-      - androidApp/src/main/res/values-iw/strings.xml
-      - .github/workflows/ios.yml
   workflow_dispatch:
 
 permissions:

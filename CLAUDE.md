@@ -85,8 +85,8 @@ workflow does the same by hand. Then `ptt-server app-update --push` on the serve
 tells the phones.
 
 Test results land in `sharedLogic/build/test-results/<task>/*.xml`. CI: `.github/workflows/build.yml` runs both on
-every push, and compiles the shared logic for iOS; `.github/workflows/ios.yml` builds the iOS app on a Mac when its
-parts change.
+every push, and compiles the shared logic for iOS; `.github/workflows/ios.yml` builds the iOS app on one of GitHub's Macs,
+by hand only until the app is stable (until then it is built on the owner's Mac; a failed run mails the owner).
 
 ## Gotchas
 

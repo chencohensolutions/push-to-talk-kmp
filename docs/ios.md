@@ -78,8 +78,8 @@ cd iosApp && xcodegen && open Talk.xcodeproj     # then Run on a simulator or a 
 ```
 
 The first build compiles the Kotlin framework and libsignal's Swift source, a few minutes; later ones are quick.
-CI builds the app for the simulator on a Mac (`.github/workflows/ios.yml`) when the iOS app's parts change, and
-compiles the shared logic for iOS on Linux on every push (`build.yml`).
+While the app is being built it is compiled on the owner's Mac; `.github/workflows/ios.yml` builds it for the simulator
+on one of GitHub's Macs by hand only (Actions › iOS › Run workflow) until the app is stable. CI compiles the shared logic for iOS on Linux on every push (`build.yml`).
 
 Kotlin names in Swift: a sealed type's cases are `EnrollmentStepConfirm`; an object is `IosViews.shared`; an enum
 value is `ServerHealth.offline`; `Int` is `Int32`, `Long` is `Int64`, and inside a callback or a nullable they are
