@@ -153,7 +153,7 @@ internal fun MediaDraftBox(
                     val aboveFocus = remember(item.id) { FocusRequester() }
                     LaunchedEffect(writingAbove == item.id) { if (writingAbove == item.id) runCatching { aboveFocus.requestFocus() } }
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral).padding(horizontal = 14.dp, vertical = 8.dp)) {
+                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral).padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = if (change != null) 0.dp else 4.dp)) {
                             if (above.isEmpty()) Text(stringResource(R.string.media_text_above_hint), color = LibraryColors.Muted, style = LibraryType.Message)
                             BasicTextField(
                                 above, { v -> texts = texts + (item.id to v) }, Modifier.fillMaxWidth().focusRequester(aboveFocus),
@@ -166,7 +166,7 @@ internal fun MediaDraftBox(
                 }
                 // Its own place and time right above it, under the words above it (hen: "it should be below the text").
                 if (change != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(change) }
+                    Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(change, top = if (above.isNotEmpty() || writingAbove == item.id) 0.dp else 6.dp) }
                 } else if (index > 0 && writingAbove != item.id && above.isEmpty()) androidx.compose.foundation.layout.Spacer(Modifier.height(2.dp))
                 // Where this picture lies in the scrolled column, so its buttons can stay in view.
                 var top by remember(item.id) { androidx.compose.runtime.mutableFloatStateOf(0f) }

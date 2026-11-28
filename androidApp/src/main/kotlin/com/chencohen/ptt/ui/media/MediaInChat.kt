@@ -269,13 +269,15 @@ internal fun MediaMessage(
                 }
             } else if (item.text.isNotBlank()) {
                 Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
-                    Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                    // Close to its picture (2026-11-28, hen: "the text should be closer to the related image ... above the
+                    // time without spacing"): room above it, none under it when the time follows.
+                    Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = if (change != null) 0.dp else 4.dp))
                 }
             }
             // Its own place and time, right above it, under the words above it (2026-11-28, hen: "the date belongs to
             // the lower image, it should be below the text").
             if (change != null) Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
-                PictureNote(change, color = muted)
+                PictureNote(change, color = muted, top = if (item.text.isNotBlank() && writing != item.id) 0.dp else 6.dp)
             } else if (index > 0 && writing != item.id && item.text.isBlank()) Spacer(Modifier.height(2.dp))
             when (item.kind) {
                 MediaKind.IMAGE, MediaKind.VIDEO -> Picture(
@@ -689,10 +691,10 @@ private fun TextAbove(was: String, ink: Color, done: (save: Boolean, text: Strin
 
 /** A strip's line above a picture saying where or when it was taken, when that changed from the picture before. */
 @Composable
-internal fun PictureNote(text: String, color: Color = LibraryColors.Muted) {
+internal fun PictureNote(text: String, color: Color = LibraryColors.Muted, top: androidx.compose.ui.unit.Dp = 6.dp) {
     Text(
         text, color = color, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = top, bottom = 4.dp),
     )
 }
 
