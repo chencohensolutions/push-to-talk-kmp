@@ -1,11 +1,11 @@
-# Talk (Android, later iOS)
+# Talk (Android, and iOS being built)
 
 Push-to-talk, messages and calls between the people who share one self-hosted server,
 [ptt-server](../push-to-talk-server-go) (`push-to-talk-server-go`). Works like Signal, looks like
 [Journal](https://github.com/chencohensolutions/journal-client-kmp). "Talk" is a placeholder name.
 
 Built with **Kotlin Multiplatform**: the logic is shared and tested once in `sharedLogic`, and each platform has its
-own UI (Jetpack Compose on Android now; SwiftUI on iOS after phase 6).
+own UI (Jetpack Compose on Android; SwiftUI on iOS, [docs/ios.md](docs/ios.md)).
 
 ## Phase 1: enroll and find the server
 

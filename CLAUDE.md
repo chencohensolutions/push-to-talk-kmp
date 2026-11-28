@@ -1,6 +1,6 @@
 # Talk client (Kotlin Multiplatform)
 
-Android (and, after phase 6, iOS) app for push-to-talk, messages and calls through one self-hosted server,
+Android and iOS (being built, [docs/ios.md](docs/ios.md)) app for push-to-talk, messages and calls through one self-hosted server,
 `ptt-server` in `../push-to-talk-server-go`. "Talk" is a placeholder name. **Read [docs/design.md](docs/design.md)
 first**: what is built and what is next. The whole plan (architecture, decisions, phases) is
 https://claude.ai/artifact/CPewKaHcVw4FeLyKthu2Cm; follow it as written. Each screen is described in
@@ -32,8 +32,15 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
   server's CA (`AndroidMtlsHttpClientFactory`, with Ktor's WebSockets), Opus capture and playback (`talk/OpusCodec.kt`, `AndroidTalkCapture`, `AndroidTalkPlayer`), LiveKit (`talk/LiveKitTalkTransport.kt`, `calls/LiveKitCallTransport.kt`, `calls/CallRecorder.kt` for Save calls),
   libsignal (`crypto/LibsignalCryptoEngine.kt`,
   `SignalStore.kt`), SQLCipher (`store/SqlCipherStore.kt`, its key wrapped in the Keystore), and the factories
-  (`AndroidPtt.kt`). `androidHostTest`: libsignal itself on the JVM. `iosMain`: only the actuals common code
-  expects, until iOS is built.
+  (`AndroidPtt.kt`). `androidHostTest`: libsignal itself on the JVM. `iosMain`: iOS's implementations
+  (`IosPtt.kt`, the entry; `ios/IosHost.kt`, `IosSignal.kt`, `IosDb`: what Swift implements; `ios/IosViews.kt`: what the
+  SwiftUI screens read out of the state; `crypto/IosCryptoEngine.kt`, `network/IosMtlsHttpClientFactory.kt`,
+  `store/IosSecureStore.kt`).
+- `iosApp/` — the SwiftUI app (docs/ios.md). `project.yml` (XcodeGen writes `Talk.xcodeproj`), `Talk/App/` (`TalkApp`,
+  `TalkModel` with a `Store` per controller), `Talk/Host/` (`TalkHost`: Keychain keys, the sealed SQLite store,
+  libsignal, TLS pieces), `Talk/Style/` (the library palette, `L("key")` for the words), `Talk/Parts/`, `Talk/Screens/`.
+  `Talk/Resources/*.lproj/Localizable.strings` are written by `tools/ios-strings.py` from the Android strings: run it
+  after changing `strings.xml`.
 - `androidApp/` — Jetpack Compose UI. `ui/style/`: Journal's style (`LibraryStyle.kt` colors, type, shapes, icons;
   `LibraryButtons.kt`; `LibraryPages.kt` with `SettingsScaffold`, `EmptyState`, `TitleBar`; `LibraryMessages.kt`;
   `LibraryChrome.kt` with the Offline pill, the tabs, `HomeCard`, settings cards and rows). The names stay Journal's
@@ -65,6 +72,9 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
 ./gradlew :androidApp:assembleDebug
 ./gradlew :androidApp:assembleRelease          # signed with ~/.talk-release/keystore.properties when it's there
 ./gradlew :sharedLogic:syncServerSchema      # copy the GraphQL schema and ptt.proto from ../push-to-talk-server-go
+./gradlew :sharedLogic:compileKotlinIosSimulatorArm64   # the shared logic for iOS (works on Linux too)
+python3 tools/ios-strings.py                 # the iOS app's words, from strings.xml
+cd iosApp && xcodegen && open Talk.xcodeproj # the iOS app (a Mac; brew install xcodegen)
 ```
 
 Releases are built and signed on GitHub's servers (`.github/workflows/release.yml`, the key in the repository's
@@ -75,14 +85,21 @@ workflow does the same by hand. Then `ptt-server app-update --push` on the serve
 tells the phones.
 
 Test results land in `sharedLogic/build/test-results/<task>/*.xml`. CI: `.github/workflows/build.yml` runs both on
-every push.
+every push, and compiles the shared logic for iOS; `.github/workflows/ios.yml` builds the iOS app on a Mac when its
+parts change.
 
 ## Gotchas
 
 - Cloud sessions can't download the Android SDK (dl.google.com is blocked) or libsignal (build-artifacts.signal.org),
   so Android builds and the libsignal tests run only in CI there. The common code and its tests can still be checked
   on the JVM with a scratch Gradle project that adds a `jvm()` target over `sharedLogic/src/commonMain` and
-  `commonTest` (an actual for `resolveIpv4` is all it needs).
+  `commonTest` (actuals for `resolveIpv4`, `Aes256Gcm` and `SyncLock` are all it needs).
+- Swift can't be compiled in a cloud session: the Kotlin side of iOS can (`compileKotlinIosSimulatorArm64`), the app
+  only on a Mac (CI's, or the owner's). Common code must keep to what Kotlin/Native has: no `synchronized` (use
+  `util/SyncLock`), no `java.*`.
+- In Swift, a Kotlin `Int` is `Int32` and a `Long` `Int64`; in callbacks and nullables they are `KotlinInt`,
+  `KotlinLong`, `KotlinBoolean`. Swift must pass every argument (Kotlin's defaults don't cross), and `Group` is
+  `TalkGroup` there.
 - On a phone, an address typed by hand (no QR link) must be in a certificate the system trusts; enroll by the QR code
   or its link, which pins the server's key, for a home server.
 - An emulator whose microphone is opened can hang QEMU in macOS CoreAudio (a microphone prompt for qemu); after

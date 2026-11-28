@@ -16,3 +16,8 @@ keystore.properties
 *.jks
 *.keystore
 androidApp/src/fast/assets/face-models/
+
+# The Xcode project is written by XcodeGen from iosApp/project.yml.
+iosApp/Talk.xcodeproj/
+iosApp/build/
+.swiftpm/

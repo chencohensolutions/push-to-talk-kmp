@@ -1,6 +1,6 @@
-# Builds and tests every push and pull request: the shared logic's tests on the JVM and the Android debug APK. The
-# machine this project is often written on can't download the Android SDK, so this is where the Android build is
-# checked. Actions are pinned by commit, as in journal-client-kmp.
+# Builds and tests every push and pull request: the shared logic's tests on the JVM, its compile for iOS, and the
+# Android debug APK. The machine this project is often written on can't download the Android SDK, so this is where
+# the Android build is checked. Actions are pinned by commit, as in journal-client-kmp.
 name: Build
 
 on:
@@ -37,6 +37,11 @@ jobs:
 
       - name: Test the shared logic
         run: ./gradlew :sharedLogic:testAndroidHostTest --continue
+
+      # Kotlin/Native compiles the shared logic for iOS on Linux too (no Mac needed for this part): common code that
+      # only the JVM accepts is caught here, on every push. The iOS app itself is built by ios.yml, on a Mac.
+      - name: Compile the shared logic for iOS
+        run: ./gradlew :sharedLogic:compileKotlinIosSimulatorArm64
 
       - name: Build the debug APK
         run: ./gradlew :androidApp:assembleDebug
