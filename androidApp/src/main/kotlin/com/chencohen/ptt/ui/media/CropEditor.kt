@@ -68,6 +68,7 @@ import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -178,17 +179,20 @@ private fun CropArea(target: CropTarget, crop: CropContent, resets: Int, preview
         val boxW = constraints.maxWidth.toFloat()
         val boxH = constraints.maxHeight.toFloat()
         // The frame's width: the whole picture's when it fits, which zooming in spreads over the kept part.
-        val frameW = minOf(boxW, boxH * ratio)
+        // Room for the size line under the frame (2026-11-28, hen: "show the resolution outside the box").
+        val label = with(LocalDensity.current) { 36.dp.toPx() }
+        val frameW = minOf(boxW, (boxH - 2 * label).coerceAtLeast(boxH / 2) * ratio)
         val frameLeft = (boxW - frameW) / 2
         val whole = CropContent.WHOLE.toFloat()
         fun drawnW(c: CropContent) = frameW * whole / c.keptWidth.coerceAtLeast(1)
         fun drawnH(c: CropContent) = drawnW(c) / ratio
         fun frameH(c: CropContent) = drawnH(c) * c.kept / whole
-        // Where the frame's top is on screen: it moves only when its lines are dragged, so the picture stays put then,
-        // and moves under it when dragged, pinched or reset.
-        var frameTop by remember(target.item.id, resets, boxH) {
-            androidx.compose.runtime.mutableFloatStateOf(((boxH - drawnH(crop)) / 2 + drawnH(crop) * crop.top / whole).coerceIn(0f, (boxH - frameH(crop)).coerceAtLeast(0f)))
-        }
+        // Where the frame's top is on screen: in the middle (2026-11-28, hen: "show the selected rectangle in center of
+        // screen"). While a line is dragged the picture stays put and the frame follows the finger; let go, frame and
+        // picture glide back together so the frame is in the middle again.
+        fun centred(c: CropContent) = (boxH - frameH(c)) / 2
+        var frameTop by remember(target.item.id, resets, boxH) { androidx.compose.runtime.mutableFloatStateOf(centred(crop)) }
+        val glide = androidx.compose.runtime.rememberCoroutineScope()
         val density = LocalDensity.current
         val grab = with(density) { 40.dp.toPx() }
         val sharpWidth = (item.width.toLong() * crop.keptWidth / CropContent.WHOLE).toInt()
@@ -293,6 +297,11 @@ private fun CropArea(target: CropTarget, crop: CropContent, resets: Int, preview
                             }
                         }
                         if (!moved) return@awaitEachGesture
+                        val from = frameTop
+                        val to = centred(current.value)
+                        if (abs(to - from) > 0.5f) glide.launch {
+                            androidx.compose.animation.core.animate(from, to, animationSpec = androidx.compose.animation.core.tween(250)) { v, _ -> frameTop = v }
+                        }
                     }
                 },
         ) {
@@ -339,16 +348,26 @@ private fun CropArea(target: CropTarget, crop: CropContent, resets: Int, preview
             // The kept part's size in the original's pixels, and the widest screen it fills without being enlarged
             // (2026-11-28, hen: "see the dimensions of the cropped section and what is the maximum resolution it is
             // without scaling"); red below 1080 ("i want to know when i zooming pass of 1080p").
-            if (item.width > 0 && item.height > 0) Box(
-                Modifier.align(Alignment.TopCenter).offset(y = with(density) { (frameTop + 14.dp.toPx()).toDp() })
-                    .background(if (blurry) Color(0xFFFF5A4E) else Color(0x99000000), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 3.dp),
-            ) {
+            // In numbers and symbols only, left to right in any language: the size, then the widest screen it fills
+            // without being enlarged, or "< 1080p" in red (hen: "don't write עד, think about better solution").
+            if (item.width > 0 && item.height > 0) {
+                val below = frameTop + fh + 8.dp.value * density.density
+                val y = if (below + label <= boxH + 4) below else (frameTop - label).coerceAtLeast(0f)
                 val fills = SCREENS.lastOrNull { it <= sharpWidth }
-                Text(
-                    if (fills == null) stringResource(R.string.crop_size_below, sharpWidth, sharpHeight, SHARP_WIDTH)
-                    else stringResource(R.string.crop_size, sharpWidth, sharpHeight, fills),
-                    color = Color.White, style = LibraryType.Caption,
-                )
+                val ltr = LibraryType.Caption.copy(textDirection = androidx.compose.ui.text.style.TextDirection.Ltr)
+                Row(
+                    Modifier.align(Alignment.TopCenter).offset(y = with(density) { y.toDp() }),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        "$sharpWidth × $sharpHeight", color = Color.White, style = ltr,
+                        modifier = Modifier.background(if (blurry) Color(0xFFFF5A4E) else Color(0xFF2A2A2A), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 3.dp),
+                    )
+                    Text(
+                        if (fills == null) "< ${SHARP_WIDTH}p" else "${fills}p", color = if (fills == null) Color.White else Color(0xFFB9B4AE), style = ltr,
+                        modifier = Modifier.background(if (fills == null) Color(0xFFFF5A4E) else Color(0xFF2A2A2A), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 3.dp),
+                    )
+                }
             }
             if (crop.hasFocus) {
                 val x = with(density) { (imageLeft + dw * crop.focusX / whole).toDp() }

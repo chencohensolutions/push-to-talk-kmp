@@ -68,9 +68,12 @@ counter ("1 / N") on top; the picture with a frame across it (white lines and ha
 inside), the rest dimmed. Drag a line from anywhere near it to trim (the picture stays put), pinch to zoom in so the
 sides are trimmed too (`CropContent.left`/`right`), drag with one finger to move the picture under the frame, tap to set
 the point of interest (a ring with a dot) (hen: "i want to be able to move the lines"; "zoom the image so also part of
-the sides will get cropped"). A line on the frame says the kept part's size in the original's pixels and the widest
-screen it fills without being enlarged ("2412 × 1810 · up to 2160p"); narrower than 1080 it and the frame turn red,
-with a tick ("i want to know when i zooming pass of 1080p"; "see the dimensions of the cropped section and what is the
+the sides will get cropped"). The frame sits in the middle of the screen; a line dragged moves over a still picture,
+and on letting go frame and picture glide back so the frame is in the middle ("show the selected rectangle in center
+of screen"). Under the frame, outside it, two pills in numbers only, left to right in any language: the kept part's
+size in the original's pixels ("2412 × 1810") and the widest screen it fills without being enlarged ("2160p");
+narrower than 1080 they read "960 × 720" and "< 1080p" in red, the frame turns red, with a tick ("show the
+resolution outside the box"; "don't write עד, think about better solution"; "i want to know when i zooming pass of 1080p"; "see the dimensions of the cropped section and what is the
 maximum resolution it is without scaling"). Under the picture, the reset icon brings the whole picture back (the
 ratio shapes are gone: "remove the ratio buttons, add reset button"). With several pictures, a filmstrip picks one
 (a teal dot on those set) and the copy icon gives them all this one's crop. The coral check applies the changes.
