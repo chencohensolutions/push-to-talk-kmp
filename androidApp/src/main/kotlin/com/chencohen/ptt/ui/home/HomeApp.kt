@@ -614,7 +614,7 @@ fun HomeApp(
                         update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
                     ),
                 )
-                name == "settings" -> {
+                name == "settings" -> com.chencohen.ptt.ui.contacts.Isolated {
                     var presenceVisible by remember { mutableStateOf<Boolean?>(messaging.presenceVisible) }
                     var hearVisible by remember { mutableStateOf<Boolean?>(messaging.hearVisible) }
                     val settingsState by settings.state.collectAsStateWithLifecycle()
@@ -664,7 +664,7 @@ fun HomeApp(
                         },
                     )
                 }
-                name == "talksettings" -> {
+                name == "talksettings" -> com.chencohen.ptt.ui.contacts.Isolated {
                     val chats = messagingState.contacts.filter { it.paired && !it.blocked }.map { it.user to nameOf(it.user) } +
                         messagingState.groups.filter { !it.gone && it.isReader(state.device?.user.orEmpty()) }.map { it.chat to groupName(it) }
                     com.chencohen.ptt.ui.settings.TalkSettingsScreen(
@@ -687,7 +687,7 @@ fun HomeApp(
                     back = ::pop,
                     change = { new -> onTalkSettings(new) },
                 )
-                name == "devices" -> {
+                name == "devices" -> com.chencohen.ptt.ui.contacts.Isolated {
                     // Read each time the page opens; a removed phone leaves the list once the server says so.
                     var view by remember { mutableStateOf<DevicesView>(DevicesView.Loading) }
                     fun load() {
@@ -717,7 +717,7 @@ fun HomeApp(
                         linkPhone = { push("link") },
                     )
                 }
-                name == "link" -> {
+                name == "link" -> com.chencohen.ptt.ui.contacts.Isolated {
                     // A new code each time the page opens; the phone linked with it shows once its answer went out.
                     var view by remember { mutableStateOf<LinkPhoneView>(LinkPhoneView.Loading) }
                     val linkedBefore = remember { messagingState.linkedDevice }
@@ -758,7 +758,7 @@ fun HomeApp(
                     openContact = { push("chat/$it") },
                     newGroup = { push("newgroup") },
                 )
-                name == "newgroup" -> {
+                name == "newgroup" -> com.chencohen.ptt.ui.contacts.Isolated {
                     var busy by remember { mutableStateOf(false) }
                     NewGroupScreen(
                         contacts = messagingState.contacts,
@@ -775,7 +775,7 @@ fun HomeApp(
                 }
                 name == "picture" -> com.chencohen.ptt.ui.face.FacePickerScreen(onboarding = false, done = ::pop)
                 name == "welcomepicture" -> com.chencohen.ptt.ui.face.FacePickerScreen(onboarding = true, done = ::pop)
-                name.startsWith("groupadd/") && pageUser != null -> {
+                name.startsWith("groupadd/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val group = messagingState.groups.firstOrNull { it.id == pageUser }
                     var busy by remember { mutableStateOf(false) }
                     AddMembersScreen(
@@ -795,7 +795,7 @@ fun HomeApp(
                         },
                     )
                 }
-                name.startsWith("group/") && pageUser != null -> {
+                name.startsWith("group/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val id = pageUser
                     val group = messagingState.groups.firstOrNull { it.id == id }
                     LaunchedEffect(id) { messaging.refreshGroups() }
@@ -850,7 +850,7 @@ fun HomeApp(
                         quickTalk = Group.chatOf(id) in messagingState.talkSettings.quickTalk,
                     )
                 }
-                name == "invite" -> {
+                name == "invite" -> com.chencohen.ptt.ui.contacts.Isolated {
                     val pairingState by pairing.state.collectAsStateWithLifecycle()
                     DisposableEffect(page) { onDispose { pairing.clearInvite() } }
                     LaunchedEffect(page) { pairing.refreshWaiting() }
@@ -895,7 +895,7 @@ fun HomeApp(
                         ),
                     )
                 }
-                name == "add" || name == "join" || name.startsWith("review/") -> {
+                name == "add" || name == "join" || name.startsWith("review/") -> com.chencohen.ptt.ui.contacts.Isolated {
                     val pairingState by pairing.state.collectAsStateWithLifecycle()
                     DisposableEffect(page) {
                         pairing.open()
@@ -925,7 +925,7 @@ fun HomeApp(
                         ),
                     )
                 }
-                name.startsWith("chat/") && pageUser != null -> {
+                name.startsWith("chat/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val user = pageUser
                     // On screen: what comes in is read at once; gone, notifications again.
                     // On screen by the user's doing (opened, or the app brought back on it): the floating chat, if it was
@@ -949,7 +949,7 @@ fun HomeApp(
                     LaunchedEffect(messagingState.unread[user]) { if ((messagingState.unread[user] ?: 0) > 0) messaging.openChat(user) }
                     ChatScreenFor(user)
                 }
-                name.startsWith("contact/") && pageUser != null -> {
+                name.startsWith("contact/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val user = pageUser
                     ContactScreen(
                         user = user,
@@ -1007,7 +1007,7 @@ fun HomeApp(
                         direction = messagingState.talkSettings.directionOf(user),
                     )
                 }
-                name.startsWith("kept/") && pageUser != null && keptCalls[pageUser] != null -> {
+                name.startsWith("kept/") && pageUser != null && keptCalls[pageUser] != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val message = keptCalls.getValue(pageUser)
                     var progress by remember(pageUser) { mutableStateOf(0f) }
                     var load by remember(pageUser) { mutableStateOf<com.chencohen.ptt.ui.calls.KeptLoad?>(null) }
@@ -1050,7 +1050,7 @@ fun HomeApp(
                         if (ready != null && keptSaveAsked.remove(pageUser)) saveNow(ready)
                     }
                 }
-                name.startsWith("safety/") && pageUser != null -> {
+                name.startsWith("safety/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val user = pageUser
                     val contact = messagingState.contacts.firstOrNull { it.user == user }
                     var load by remember(user) { mutableStateOf<SafetyNumberLoad>(SafetyNumberLoad.Loading) }

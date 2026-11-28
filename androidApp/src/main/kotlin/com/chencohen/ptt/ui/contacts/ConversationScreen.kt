@@ -1483,7 +1483,7 @@ private fun traceRunsOf(messages: List<TextMessage>, keeps: (TextMessage) -> Boo
 /** Runs [content] as a composable of its own: a part of a big screen that compiles as its own method (ART won't compile
  * a method over its instruction limit, so a giant one always runs interpreted), with its own recomposition scope. */
 @Composable
-private fun Isolated(content: @Composable () -> Unit) = content()
+internal fun Isolated(content: @Composable () -> Unit) = content()
 
 /** What kind of row a message is, so the list reuses a picture's row for a picture and a text's for a text. */
 private fun rowType(message: TextMessage): String = when {
