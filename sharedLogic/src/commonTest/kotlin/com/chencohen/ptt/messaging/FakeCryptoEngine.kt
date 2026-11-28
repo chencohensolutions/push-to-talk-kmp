@@ -29,6 +29,8 @@ class FakeCryptoEngine(private val random: Random = Random(1)) : CryptoEngine {
     private val trusted = mutableMapOf<String, ByteArray>()
     private val sessions = mutableMapOf<DeviceAddress, Int>()
     private val sentFirst = mutableSetOf<DeviceAddress>()
+    /** Sessions the other side has sent on (decrypted here): from then on, plain messages. */
+    private val answered = mutableSetOf<DeviceAddress>()
     val signedPrekeys = mutableMapOf<Int, Long>()
     val kyberPrekeys = mutableMapOf<Int, Boolean>()
     val prekeys = mutableSetOf<Int>()
@@ -102,6 +104,7 @@ class FakeCryptoEngine(private val random: Random = Random(1)) : CryptoEngine {
         trusted.remove(user)
         sessions.keys.removeAll { it.user == user }
         sentFirst.removeAll { it.user == user }
+        answered.removeAll { it.user == user }
     }
 
     override fun startSession(address: DeviceAddress, identityKey: ByteArray, bundle: PrekeyBundle) {
@@ -113,6 +116,7 @@ class FakeCryptoEngine(private val random: Random = Random(1)) : CryptoEngine {
         trusted[address.user] = identityKey.copyOf()
         sessions[address] = bundle.registrationId
         sentFirst.remove(address)
+        answered.remove(address)
     }
 
     override fun hasSession(address: DeviceAddress): Boolean = address in sessions
@@ -124,11 +128,14 @@ class FakeCryptoEngine(private val random: Random = Random(1)) : CryptoEngine {
     override fun deleteSession(address: DeviceAddress) {
         sessions.remove(address)
         sentFirst.remove(address)
+        answered.remove(address)
     }
 
     override fun encrypt(address: DeviceAddress, plaintext: ByteArray): Ciphertext {
         if (address !in sessions) throw UndecryptableException("no session with $address")
-        val type = if (sentFirst.add(address)) EnvelopeType.PREKEY_MESSAGE else EnvelopeType.MESSAGE
+        // As libsignal: prekey messages until the other side has answered on the session (one may have been dropped).
+        sentFirst.add(address)
+        val type = if (address !in answered) EnvelopeType.PREKEY_MESSAGE else EnvelopeType.MESSAGE
         return Ciphertext(type, identity!! + plaintext)
     }
 
@@ -144,6 +151,7 @@ class FakeCryptoEngine(private val random: Random = Random(1)) : CryptoEngine {
         } else if (address !in sessions) {
             throw UndecryptableException("no session with $address")
         }
+        answered += address
         return Decrypted(bytes.copyOfRange(33, bytes.size), key)
     }
 

@@ -983,6 +983,14 @@ internal class Messaging(
                 shareAbout()
             }
         }
+        // Once a run: history not answered yet is asked for again.
+        if (!historyAskedThisRun && store.meta.historyWanted.isNotEmpty()) {
+            historyAskedThisRun = true
+            scope.launch {
+                socket.state.first { it is SocketState.Live }
+                askForHistory()
+            }
+        }
         // Once a run: this user's email to contacts (some paired since it was last said).
         if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET || store.pictureId("") != null)) {
             profileShared = true
@@ -995,6 +1003,94 @@ internal class Messaging(
 
     private var profileShared = false
     private var aboutShared = false
+    private var historyAskedThisRun = false
+
+    // --- History from contacts (2026-11-28, hen: "if someone installs the app new, it requests the full history from
+    // the peer"; "for now make it resilient by requesting history from the peer") -------------------------------------
+
+    /**
+     * Asks each contact this install wants history from ([Meta.historyWanted]: paired here with no messages, as a new
+     * install is) for their chat's history. Asked again each run until they answer: their phone can open it only once
+     * its user accepted this install's new key.
+     */
+    internal suspend fun askForHistory() {
+        val wanted = store.meta.historyWanted
+        for (user in wanted) {
+            val contact = store.contact(user)?.takeIf { it.paired && !it.blocked }
+            if (contact == null) {
+                store.meta = store.meta.let { it.copy(historyWanted = it.historyWanted - user) }
+                continue
+            }
+            try {
+                sender.send(user, Content(historyRequest = HistoryRequestContent()), pushKind = PushKind.SYNC)
+                println("TalkHistory: asked $user for our history")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("TalkHistory: couldn't ask $user: $e")
+            }
+        }
+    }
+
+    /** Contacts that came from the server with no messages here: this install wants their history. */
+    private fun wantHistoryFrom(users: List<String>) {
+        val fresh = users.filter { store.messagesWith(it).isEmpty() }
+        if (fresh.isEmpty()) return
+        store.meta = store.meta.let { it.copy(historyWanted = it.historyWanted + fresh) }
+        scope.launch {
+            socket.state.first { it is SocketState.Live }
+            askForHistory()
+        }
+    }
+
+    /**
+     * [contact] asked for our chat's history: sent back end to end, in parts that fit an envelope, oldest first; an
+     * empty last part when there is none. (Their message opened here, so this phone trusts the key it came with: a new
+     * install's is trusted once this user accepted it.)
+     */
+    private suspend fun sendHistory(contact: Contact, request: HistoryRequestContent) {
+        val messages = store.messagesWith(contact.user).filter {
+            it.clip == null && it.call == null && (request.before == 0L || it.at < request.before) && !(it.media?.quiet == true && it.outgoing)
+        }
+        val parts = historyParts(messages)
+        println("TalkHistory: ${contact.user} asked for our history: ${messages.size} messages in ${parts.size} parts")
+        for ((i, items) in parts.withIndex()) {
+            sender.send(contact.user, Content(history = HistoryContent(items, last = i == parts.lastIndex)), pushKind = PushKind.SYNC)
+        }
+    }
+
+    /**
+     * Part of the history from [contact]: the messages this phone doesn't have yet, as they were, read, quietly (no
+     * notification). Pictures keep their shape, when and where they were taken, so the chat lays them out at once;
+     * only the last [HISTORY_PREVIEW_DAYS] days' previews are fetched now, the older as they scroll into view
+     * (2026-11-28, hen: "it should feel seamless, in the background").
+     */
+    private fun takeHistory(contact: Contact, history: HistoryContent, originDevice: Int) {
+        var added = 0
+        val recent = mutableListOf<String>()
+        for (item in history.items) {
+            if (!validId(item.id) || store.message(item.id) != null) continue
+            val media = media.accept(item.media, originDevice)
+            store.putMessage(
+                TextMessage(
+                    item.id, contact.user, outgoing = !item.fromSender, body = item.body.take(4_000), at = item.at, read = true,
+                    status = if (item.fromSender) MessageStatus.SENT else MessageStatus.DELIVERED,
+                    editedAt = item.editedAt.takeIf { it > 0 }, deleted = item.deleted, face = item.face, media = media,
+                ),
+            )
+            added++
+            if (media != null && now() - item.at < HISTORY_PREVIEW_DAYS * 86_400_000L) recent += item.id
+        }
+        if (recent.isNotEmpty()) scope.launch {
+            // Newest first: what the chat shows first.
+            for (id in recent.asReversed()) runCatching { this@Messaging.media.fetchPreviews(id, videos = false) }
+        }
+        if (history.last) store.meta = store.meta.let { it.copy(historyWanted = it.historyWanted - contact.user) }
+        println("TalkHistory: ${added} messages of our history from ${contact.user}${if (history.last) " (the last part)" else ""}")
+        publish()
+    }
+
+    private fun validId(id: String) = id.isNotEmpty() && id.length <= 64
 
     /** This phone's app version ("1.4.28"), told to contacts (AboutContent); "" when the platform didn't set it. */
     var appVersion: String = ""
@@ -1907,8 +2003,10 @@ internal class Messaging(
             )
         }
         // Paired elsewhere (or this phone's store is new): trusted from the server until the safety number is compared.
+        val arrived = mutableListOf<String>()
         for (server in answer.contacts) {
             if (store.contact(server.user) != null) continue
+            arrived += server.user
             val key = server.identityKey ?: continue
             engine.trustIdentity(server.user, key)
             store.putContact(
@@ -1919,6 +2017,8 @@ internal class Messaging(
             )
         }
         publish()
+        // A contact this phone didn't know, with no messages here (a new install): our history is asked of them.
+        wantHistoryFrom(arrived)
     }
 
     suspend fun unpair(user: String) {
@@ -2688,6 +2788,18 @@ internal class Messaging(
         }
         content.edit?.let { takeEdit(contact.user, null, mine = false, it) }
         content.delete?.let { takeDelete(contact.user, null, mine = false, it) }
+        content.historyRequest?.let { request ->
+            scope.launch {
+                try {
+                    sendHistory(contact, request)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    println("TalkHistory: our history to ${contact.user} not sent: $e")
+                }
+            }
+        }
+        content.history?.let { takeHistory(contact, it, envelope.senderDevice) }
         content.talkKey?.let { live.takeKey("${contact.user}.${envelope.senderDevice}", it) }
         content.talkHeard?.let { talk.takeHeard(contact.user, it) }
         content.call?.let { calls.receive(contact.user, contact.user, it, envelope.serverTimestamp, ownCopy = false) }
@@ -2825,6 +2937,9 @@ internal class Messaging(
     }
 
     companion object {
+        /** A history's pictures from these last days have their previews fetched as it comes; older ones on scroll. */
+        const val HISTORY_PREVIEW_DAYS = 30
+
         /** Read or sent messages in a row after which older ones aren't looked at for the unread count. */
         const val UNREAD_LOOKBACK = 500
 

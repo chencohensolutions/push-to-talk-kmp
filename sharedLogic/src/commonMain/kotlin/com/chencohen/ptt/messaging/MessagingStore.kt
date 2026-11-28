@@ -282,6 +282,8 @@ internal data class Meta(
     val nextSignedId: Int = 1,
     val signedId: Int = 0,
     val signedAt: Long = 0,
+    /** Contacts this new install asked for their chat's history, not answered yet (asked again on each start). */
+    val historyWanted: Set<String> = emptySet(),
 )
 
 /** The shared code's part of the [SecureStore], as JSON values. */

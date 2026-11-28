@@ -753,6 +753,18 @@ to tell how far it got), the top half bubble's place name (hen to pick what it s
 fps and HDR), files' copies, albums, the viewer's Share, Save and Info and its details. Journal as a source for originals that
 are gone from the phone is the next phase (shed).
 
+## History from contacts (2026-11-28, hen)
+
+"Make it resilient by requesting history from the peer": a new install (a contact that comes from the server's
+`contacts` with no messages here) keeps them in `Meta.historyWanted` and asks each for our chat's history
+(`Content.historyRequest`, field 32), again on each start until answered. Their phone opens it only once its user
+accepted this install's new key, then sends the chat back end to end in parts under the 256 KiB envelope
+(`Content.history`, field 33, `historyParts`), oldest first, an empty last part when there is none; clips and calls
+stay out. It arrives quietly, read, no notification. Pictures keep their shape, when and where, so the chat lays them
+out at once; only the last 30 days' previews are fetched as the history comes, older ones as they scroll in. One-to-one
+chats only for now; groups and this user's other phones are next, and a backup on the Journal server later (hen).
+(`MessagingTest.aNewInstallGetsTheHistoryFromItsContact`.)
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.

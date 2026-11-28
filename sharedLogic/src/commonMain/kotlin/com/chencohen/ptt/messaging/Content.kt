@@ -90,6 +90,13 @@ internal data class Content(
     @ProtoNumber(30) val mediaRequest: MediaRequestContent? = null,
     /** The sharing phone's answer to [mediaRequest], to the whole chat: where the part is now, or why it can't come. */
     @ProtoNumber(31) val mediaReply: MediaReplyContent? = null,
+    /**
+     * A new install asks a contact's phone for their chat's history (2026-11-28, hen: "make it resilient by requesting
+     * history from the peer"). Older apps skip it.
+     */
+    @ProtoNumber(32) val historyRequest: HistoryRequestContent? = null,
+    /** One part of a chat's history, sent back for a [historyRequest]. */
+    @ProtoNumber(33) val history: HistoryContent? = null,
 )
 
 /** One message of shared items: its [id] (the message's), when it was sent, a caption, and up to 30 items. */
@@ -632,4 +639,62 @@ internal object ContentCodec {
             null
         }
     }
+}
+
+/** "Send me our chat's history": this phone has none of it (a new install). */
+@Serializable
+internal data class HistoryRequestContent(
+    /** Only messages before this time (0: all). */
+    @ProtoNumber(1) val before: Long = 0,
+)
+
+/** Part of a chat's history, oldest first; [last] on the final part (an empty last part: nothing to send). */
+@Serializable
+internal data class HistoryContent(
+    @ProtoNumber(1) val items: List<HistoryItem> = emptyList(),
+    @ProtoNumber(2) val last: Boolean = false,
+)
+
+/** One message of a history, as its sender's phone keeps it. */
+@Serializable
+internal data class HistoryItem(
+    @ProtoNumber(1) val id: String = "",
+    /** Written by the phone sending the history (its user); else by the one asking. */
+    @ProtoNumber(2) val fromSender: Boolean = false,
+    @ProtoNumber(3) val body: String = "",
+    @ProtoNumber(4) val at: Long = 0,
+    @ProtoNumber(5) val face: Int = 0,
+    @ProtoNumber(6) val media: MediaContent? = null,
+    @ProtoNumber(7) val editedAt: Long = 0,
+    @ProtoNumber(8) val deleted: Boolean = false,
+)
+
+/** The bytes of history items in one part: well under the server's 256 KiB envelope, after padding and encryption. */
+internal const val HISTORY_PART_BYTES = 160 * 1024
+
+/**
+ * [messages] (a chat's, oldest first, as this phone keeps them) as history parts that each fit an envelope; one empty
+ * part when there are none, so the asking phone knows it is done.
+ */
+internal fun historyParts(messages: List<TextMessage>): List<List<HistoryItem>> {
+    val parts = mutableListOf<List<HistoryItem>>()
+    var part = mutableListOf<HistoryItem>()
+    var bytes = 0
+    for (m in messages) {
+        val item = HistoryItem(
+            id = m.id, fromSender = m.outgoing, body = if (m.deleted) "" else m.body, at = m.at, face = m.face,
+            media = if (m.deleted) null else m.media, editedAt = m.editedAt ?: 0, deleted = m.deleted,
+        )
+        val size = kotlinx.serialization.protobuf.ProtoBuf.encodeToByteArray(HistoryItem.serializer(), item).size + 8
+        if (size > HISTORY_PART_BYTES) continue
+        if (bytes + size > HISTORY_PART_BYTES && part.isNotEmpty()) {
+            parts += part
+            part = mutableListOf()
+            bytes = 0
+        }
+        part += item
+        bytes += size
+    }
+    parts += part
+    return parts
 }
