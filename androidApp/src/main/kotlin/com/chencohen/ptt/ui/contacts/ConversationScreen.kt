@@ -54,6 +54,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.launch
@@ -162,10 +163,26 @@ class ConversationActions(
     val handOver: ((video: Boolean, urgent: Boolean) -> Boolean)? = null,
     /** Shared media's preview for this screen (2026-11-28, hen): opened, or null when it can't be had now. */
     val mediaPreview: suspend (messageId: String, itemId: String) -> ByteArray? = { _, _ -> null },
+    /** Sets the words above item itemId of my message (after sending: a quiet edit). */
+    val mediaText: (messageId: String, itemId: String, text: String) -> Unit = { _, _, _ -> },
+    /** A video's clip (its 1080p HEVC preview, an MP4), opened; null: none, or can't be had now. */
+    val mediaClip: suspend (messageId: String, itemId: String) -> ByteArray? = { _, _ -> null },
     /** A shared picture or video tapped: the viewer (its original comes with it). */
     val openMedia: (messageId: String, itemId: String) -> Unit = { _, _ -> },
     /** The composer's +: pick pictures and videos ([gallery]) or files to share here; null: not here. */
     val attach: ((gallery: Boolean) -> Unit)? = null,
+    /** The composer's + › Camera: the phone's own camera, its shots into a draft here (2026-11-28, hen); null: not here. */
+    val camera: (() -> Unit)? = null,
+    /** Pictures picked here, not sent yet: in the writing bubble, the caption written under them. */
+    val mediaDraft: com.chencohen.ptt.ui.media.MediaDraft? = null,
+    /** Pictures sent before their caption: the caption box under them, until it is sent. */
+    val mediaCaption: com.chencohen.ptt.ui.media.MediaCaption? = null,
+    /** How far each of my media messages being sent got uploading, by message id (0 to 1). */
+    val uploads: androidx.compose.runtime.State<Map<String, Float>> = NoProgress,
+    /** Each shared item's preview going up or coming down now, by item id (0 to 1). */
+    val transfers: androidx.compose.runtime.State<Map<String, Float>> = NoProgress,
+    /** Each video of mine whose clip is being made now (0 to 1), by item id. */
+    val encoding: androidx.compose.runtime.State<Map<String, Float>> = NoProgress,
 )
 
 /** A video call shown inside the chat (2026-11-24, hen): theirs under the header, mine with the call's bar at the bottom. */
@@ -294,9 +311,11 @@ private fun ConversationScreenIn(
     // A video burst tapped in the chat plays full screen over it (2026-11-23, hen); Back or a tap closes it.
     var fullVideo by remember(user) { mutableStateOf<String?>(null) }
     val chatActions = actions
-    val actions = ConversationActionsWith(chatActions) { id ->
-        fullVideo = id
-        chatActions.playClip(id)
+    val actions = remember(chatActions) {
+        ConversationActionsWith(chatActions) { id ->
+            fullVideo = id
+            chatActions.playClip(id)
+        }
     }
     // Send (2026-11-24, hen): the pinned draft flies into its place at the end of the chat.
     val flight = remember(user) { SendFlight() }
@@ -341,8 +360,15 @@ private fun ConversationScreenIn(
         }
     }
     val allMessages = messages
+    // A very long history (2026-11-28, hen): only the newest [CHAT_WINDOW] are laid out, and as many again each time
+    // the scroll comes near the oldest shown, so the chat's work doesn't grow with how long it is.
+    var window by remember(user) { androidx.compose.runtime.mutableIntStateOf(CHAT_WINDOW) }
+    val total = androidx.compose.runtime.rememberUpdatedState(allMessages.size)
     @Suppress("NAME_SHADOWING")
-    val messages = remember(messages, pendingDelete) { pendingDelete?.let { d -> messages.filter { it.id !in d.ids } } ?: messages }
+    val messages = remember(messages, pendingDelete, window) {
+        val shown = if (messages.size > window) messages.subList(messages.size - window, messages.size) else messages
+        pendingDelete?.let { d -> shown.filter { it.id !in d.ids } } ?: shown
+    }
     Box(
         Modifier.fillMaxSize().onGloballyPositioned { flight.origin = it.positionInWindow() }.pointerInput(Unit) {
             // Every touch counts (the camera's idle time).
@@ -378,8 +404,8 @@ private fun ConversationScreenIn(
                 SelectionBar(
                     count = selected.size,
                     close = { selected.clear() },
-                    edit = one?.takeIf { it.outgoing && it.face == 0 && it.media == null && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
-                        { selected.clear(); edits.start(Editing(m.id, m.body, m.body.length, 0)) }
+                    edit = one?.takeIf { it.outgoing && it.face == 0 && it.media?.quiet != true && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
+                        { selected.clear(); val text = m.media?.caption ?: m.body; edits.start(Editing(m.id, text, text.length, 0)) }
                     },
                     info = one?.let { m -> { sheet = ChatSheet.Info(m.id) } },
                     // A burst or voice message: Save as file (it was the long press; now that selects).
@@ -403,6 +429,9 @@ private fun ConversationScreenIn(
                 }
             }
         }
+        // From here on, in parts of their own (Isolated): the screen in one method was too big for Android to compile
+        // (ART's limit is 10,000 instructions; it was 21,584), so it always ran interpreted.
+        Isolated {
         val videoPanel = (talk.playing?.let { it.chat == user && it.video && it.live } == true) ||
             (talk.talkers[user]?.let { t -> messages.firstOrNull { it.id == t.clip }?.clip?.video } == true) ||
             (pushVideo && talk.own?.chat == user && talk.own?.phase != TalkPhase.VOICE)
@@ -607,9 +636,25 @@ private fun ConversationScreenIn(
                 warning = true,
             )
         }
+        Isolated {
         // The newest is item 0 (the list is upside down). At the bottom (or one item from it) a new message scrolls into
         // view; scrolled up, a "New message" chip shows instead; what this phone sends always scrolls (2026-11-22, hen).
-        val list = androidx.compose.foundation.lazy.rememberLazyListState()
+        // Rows a screen ahead of the scroll (half a screen behind) are composed and measured between frames, so a tall
+        // picture row is ready before it comes in instead of being built in the frame that shows it (2026-11-28, hen:
+        // "the scroll is jaggy"; the S25 lost 14-26 ms building rows on 4% of frames).
+        @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+        val list = androidx.compose.foundation.lazy.rememberLazyListState(
+            cacheWindow = androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow(aheadFraction = 1f, behindFraction = 0.5f),
+        )
+        // Near the oldest shown (the list is upside down: its end), older messages join the window.
+        LaunchedEffect(list, user) {
+            androidx.compose.runtime.snapshotFlow {
+                val info = list.layoutInfo
+                (info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= info.totalItemsCount - CHAT_WINDOW_EDGE
+            }.collect { near -> if (near && total.value > window) window += CHAT_WINDOW }
+        }
+        // The pictures about to scroll in are loaded first, in the background (2026-11-28, hen).
+        com.chencohen.ptt.ui.media.PrefetchPictures(list, messages, actions.mediaPreview)
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         var unseen by androidx.compose.runtime.remember(user) { androidx.compose.runtime.mutableStateOf(false) }
         // How many came in while scrolled up (the scroll-down button's badge).
@@ -659,7 +704,7 @@ private fun ConversationScreenIn(
                 if (!newest.outgoing) unseenCount++
             }
         }
-        val atBottom by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
+        Isolated {
         // How far they read: their face beside the last message of mine they read (one-to-one; not when they hide
         // their presence).
         // Sent while they had the chat in view (2026-11-24, hen): taken as read at once, so their face is beside the new
@@ -765,6 +810,7 @@ private fun ConversationScreenIn(
                 list.scrollToItem(0)
             }
         }
+        Isolated {
         // The message sent from the draft: its slot is kept, unseen, while the draft flies into it.
         flight.claim(newest)
         val sentMorph = flight.id
@@ -782,14 +828,18 @@ private fun ConversationScreenIn(
         }
         // Leaving the chat ends a live draft (it fades on the other phone).
         androidx.compose.runtime.DisposableEffect(user) { onDispose { actions.draft("", -1, -1) } }
+        Isolated {
         // Push-to-video from the chat (2026-11-23, hen): the camera kept open while the chat shows, so a press sends
         // it at once; what this phone sends shows live in its bubble at the end of the chat, and stays as the video.
         // Released after a minute untouched (2026-11-24, hen), opened again at the next touch.
         var cameraIdle by remember(user) { mutableStateOf(false) }
-        LaunchedEffect(flight.touches, pushVideo) {
-            cameraIdle = false
-            delay(60_000)
-            cameraIdle = true
+        // The touches are watched here, not read in composition: each touch rebuilt the whole chat (2026-11-28).
+        LaunchedEffect(pushVideo) {
+            androidx.compose.runtime.snapshotFlow { flight.touches }.collectLatest {
+                cameraIdle = false
+                delay(60_000)
+                cameraIdle = true
+            }
         }
         val recordingVoice = talk.own?.takeIf { it.chat == user && it.phase == TalkPhase.VOICE } != null
         val talkingHere = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) } != null
@@ -812,6 +862,7 @@ private fun ConversationScreenIn(
         val ownHere = talk.own?.takeIf { it.chat == user }
         val ownNow by androidx.compose.runtime.rememberUpdatedState(ownHere)
         // Each change of this phone's own burst here, in the log: what is sent, against what the buttons did.
+        Isolated {
         LaunchedEffect(ownHere?.clip, ownHere?.phase) {
             say("own: " + (ownHere?.let { "${it.phase} ${it.clip.takeLast(6)}" } ?: "none") + " (run ${runs.now}, hands-free $handsFree)")
         }
@@ -863,6 +914,7 @@ private fun ConversationScreenIn(
                 }
             }
         }
+        }
         // Hands-free and the chat goes off the screen (the app to the back, or another page): the push goes on in the
         // floating window (2026-11-27, hen), which takes the floor once this one is let go; else it ends here.
         val pushVideoNow by androidx.compose.runtime.rememberUpdatedState(pushVideo)
@@ -880,6 +932,7 @@ private fun ConversationScreenIn(
             // camera"); the floating window lets it go when it can't take it as it is.
             if (!taken) actions.finishVoice(true)
         }
+        Isolated {
         androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_STOP) { handOverOrEnd("app left", keep = true) }
         // On screen (opened, or the app back in front): the floating window for this chat goes, and my hands-free press
         // it held goes on here as it is (2026-11-27, hen: "at the moment I see two camera videos").
@@ -899,6 +952,7 @@ private fun ConversationScreenIn(
         com.chencohen.ptt.ui.talk.WarmCamera(user, canWrite && !chatLive.anyCall && (sliding || cameraHeld || chatLive.roomCallCamera || (pushVideo && (handsFree || talkingHere))), warmCamera)
         // Push is voice, except hands-free (slid up to the lock): this chat's video setting is set for it and back.
         LaunchedEffect(handsFree, pushVideo, talk.own?.chat) { if (!handsFree && pushVideo && talk.own?.chat != user) actions.setPushVideo?.invoke(false) }
+        }
         // Both talking at once (2026-11-25: one to one, both can): I'm live and so are they, so the room can become the
         // call (hen: "how to make it a video call?").
         val theyTalkToo = group == null && talk.talkers[user]?.let { t -> talk.own?.clip != t.clip } == true
@@ -923,6 +977,7 @@ private fun ConversationScreenIn(
             makeCallNow[0] = makeCall
             fullScreenNow[0] = goFullScreen
         }
+        Isolated {
         // A call in this chat (the room's or the usual): hands-free ends, the call carries the media now.
         LaunchedEffect(chatLive.call != null) {
             if (chatLive.call != null) {
@@ -942,41 +997,25 @@ private fun ConversationScreenIn(
         // Their draft counts as a new message for scrolling: appearing or growing at the bottom, the list glides to it.
         val draftText = shownDrafts.joinToString("\n") { it.second }
         LaunchedEffect(draftText) { if (draftText.isNotEmpty() && list.firstVisibleItemIndex <= 1) list.glideToEnd() }
-        LaunchedEffect(atBottom) {
-            if (atBottom) {
-                unseen = false
-                unseenCount = 0
+        // Scroll positions are read in effects and in the small composables that show them, never in this one's
+        // composition: a read here rebuilt the whole chat as the scroll crossed it (2026-11-28, hen: "the scroll in chat
+        // still janky"; Perfetto on the S25: the slow frames were this screen recomposing, run in the interpreter).
+        LaunchedEffect(list, user) {
+            androidx.compose.runtime.snapshotFlow { list.firstVisibleItemIndex == 0 }.collect { atBottom ->
+                if (atBottom) {
+                    unseen = false
+                    unseenCount = 0
+                }
             }
         }
+        }
+        Isolated {
         val pairs = remember(messages, talk.own?.clip, talk.playing?.clip) { ReadMarks.overlappingVideos(messages.filter(keeps), System.currentTimeMillis()) }
         val pairedEarlier = remember(pairs) { pairs.values.toSet() }
         val byId = remember(messages) { messages.associateBy { it.id } }
         // Push-to-talk from both sides with nothing else between, ten minutes apart at most, is one session: one quiet
         // line (2026-11-24, hen: "Push-to-talk · testbot ×5, you ×4 · 21:40–21:45"), a tap lists them.
-        val traceRuns = remember(messages, talk.own?.clip, talk.talkers[user]?.clip) {
-            val shownAt = HashMap<String, List<TextMessage>>()
-            val hidden = HashSet<String>()
-            var run = mutableListOf<TextMessage>()
-            fun close() {
-                if (run.isEmpty()) return
-                shownAt[run.last().id] = run
-                run.dropLast(1).forEach { hidden += it.id }
-                run = mutableListOf()
-            }
-            for (m in messages) {
-                val c = m.clip
-                val trace = c != null && !m.deleted && !keeps(m) && c.durationMs >= 500 && talk.own?.clip != m.id && talk.talkers[user]?.clip != m.id
-                if (!trace) {
-                    if (c == null || keeps(m) || m.deleted) close()
-                    continue
-                }
-                val prev = run.lastOrNull()
-                if (prev != null && m.at - prev.at > 10 * 60_000) close()
-                run += m
-            }
-            close()
-            shownAt to hidden
-        }
+        val traceRuns = remember(messages, talk.own?.clip, talk.talkers[user]?.clip) { traceRunsOf(messages, keeps, talk.own?.clip, talk.talkers[user]?.clip) }
         val openSessions = remember(user) { androidx.compose.runtime.mutableStateListOf<String>() }
         // The draft and the buttons float over the chat (2026-11-23, hen: no band behind them): the list scrolls
         // under them to the bottom of the screen, with room at its end so its last message clears them.
@@ -998,6 +1037,7 @@ private fun ConversationScreenIn(
                 !shown || other != null
             }.collect { leave -> if (leave) actions.stopClip() }
         }
+        Isolated {
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { autoplay.viewport = it.boundsInWindow() }) {
           androidx.compose.runtime.CompositionLocalProvider(LocalVideoAutoplay provides autoplay) {
             // The Talk tab: its stage where the messages are, clear of the strip.
@@ -1032,7 +1072,7 @@ private fun ConversationScreenIn(
                 val move = if (morphing) null else androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                 // Both kept pushing at once: a video call may suit them (2026-11-23, hen).
                 if (talk.suggestCall == user) {
-                    item(key = "suggest-call") {
+                    item(key = "suggest-call", contentType = "suggest") {
                         Box(Modifier.animateItem(ease, move, ease).fillMaxWidth(), contentAlignment = Alignment.Center) {
                             Text(
                                 stringResource(R.string.chat_suggest_call),
@@ -1046,7 +1086,7 @@ private fun ConversationScreenIn(
                 }
                 // (What this phone sends with its camera shows in the panel above the buttons now.)
                 // Their draft and the message it became: one item, so the draft fills into the message in place.
-                fun liveItem(key: String, line: LiveLine) = item(key = key) {
+                fun liveItem(key: String, line: LiveLine) = item(key = key, contentType = "live") {
                     // A draft that comes grows in from nothing as it fades in, so the messages above slide up by its height
                     // in the same 200 ms (2026-11-26, hen: "calm, one move"); the list stays pinned to its end.
                     // (Only a draft grows in: the message it became, scrolled away and back, comes whole.)
@@ -1063,7 +1103,7 @@ private fun ConversationScreenIn(
                 // Two videos at once, one each side: side by side, the later one lower by when it started.
                 // A quiet divider where the day changes (2026-11-24, hen), above each day's first message.
                 var newerDay: Long? = null
-                fun divider(day: Long) = item(key = "day@$day") {
+                fun divider(day: Long) = item(key = "day@$day", contentType = "day") {
                     Box(Modifier.animateItem(ease, move, ease).fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
                         Text(dayLabel(day), color = LibraryColors.Muted, style = LibraryType.Tiny)
                     }
@@ -1083,7 +1123,7 @@ private fun ConversationScreenIn(
                     newerDay = day
                     val earlier = pairs[message.id]?.let { byId[it] }
                     if (earlier != null) {
-                        item(key = "pair@" + earlier.id) {
+                        item(key = "pair@" + earlier.id, contentType = "pair") {
                             val mineOf = if (earlier.outgoing) earlier else message
                             val faces = marks[mineOf.id].orEmpty()
                             Column(Modifier.animateItem(ease, move, ease).zIndex(if (faces.isEmpty()) 0f else 1f)) {
@@ -1100,7 +1140,7 @@ private fun ConversationScreenIn(
                         val liveNow = message.clip!!.durationMs < 500 || talk.talkers[user]?.clip == message.id || talk.own?.clip == message.id || (talk.playing?.clip == message.id && talk.playing?.live == true)
                         val runOf = traceRuns.first[message.id] ?: listOf(message)
                         val nameOf = { m: TextMessage -> if (group != null) m.author ?: m.user else contact?.name ?: user }
-                        if (!liveNow && message.id !in traceRuns.second) item(key = message.id) {
+                        if (!liveNow && message.id !in traceRuns.second) item(key = message.id, contentType = "trace") {
                             Box(Modifier.animateItem(ease, move, ease).graphicsLayer { alpha = seeThrough }) {
                                 if (runOf.size == 1) {
                                     TalkTrace(message, nameOf(message))
@@ -1121,7 +1161,7 @@ private fun ConversationScreenIn(
                         liveItem(liveKey, LiveLine.Message(message, if (group != null) message.author else null, live.lastText[message.id]))
                         return@forEach
                     }
-                    item(key = message.id) {
+                    item(key = message.id, contentType = rowType(message)) {
                         // Sent while their draft is at the end (2026-11-26, hen's recording at 1.8 s: the chat above jumped up
                         // by the new message's height in one frame while the draft flew): its slot grows in over the
                         // flight's time, so the messages above rise with the flight. (With no draft the list glides instead.)
@@ -1135,7 +1175,8 @@ private fun ConversationScreenIn(
                         Column(Modifier.animateItem(if (message.outgoing) null else ease, move, ease).zIndex(if (faces.isEmpty()) 0f else 1f)) {
                           Box((if (grows) Modifier.growIn(true, FLIGHT_MS) else Modifier).then(if (fresh) Modifier.fadeIn() else Modifier)) {
                             val edit = edits.of(message.id)
-                            if (edit != null) {
+                            // (A picture message's caption is edited in its own bottom half, in the Bubble.)
+                            if (edit != null && message.media == null) {
                                 EditBubble(
                                     edit,
                                     change = { v ->
@@ -1162,8 +1203,16 @@ private fun ConversationScreenIn(
                                     bubbleModifier = if (slot) Modifier.onGloballyPositioned { flight.to = androidx.compose.ui.geometry.Rect(it.positionInWindow(), androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat())) }.graphicsLayer { alpha = 0f }
                                     else Modifier.graphicsLayer { alpha = seeThrough },
                                     liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
-                                    startEdit = if (!slot && message.outgoing && message.media == null && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
+                                    startEdit = if (!slot && message.outgoing && message.media?.quiet != true && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.media?.caption ?: message.body, offset, width)) } else null,
                                     doubleTap = if (message.clip?.video == true && selected.isEmpty()) { { actions.playClip(message.id) } } else null,
+                                    mediaEdit = edit?.takeIf { message.media != null }?.let { e ->
+                                        MediaEdit(
+                                            e,
+                                            change = { v -> e.value = v; actions.editLive(message.id, v.text, v.selection.start, v.selection.end) },
+                                            done = { save -> if (save) actions.edit(message.id, e.value.text) else actions.editLive(message.id, null, -1, -1) },
+                                            gone = { edits.gone(e) },
+                                        )
+                                    },
                                     selected = message.id in selected,
                                     select = { if (message.id in selected) selected.remove(message.id) else selected.add(message.id) },
                                     selecting = selected.isNotEmpty(),
@@ -1178,75 +1227,20 @@ private fun ConversationScreenIn(
                 newerDay?.let { divider(it) }
             }
           }
-            // The day of the topmost message on screen, floating under the header when it isn't today (2026-11-24, hen).
-            val topDay by androidx.compose.runtime.remember(messages) {
-                androidx.compose.runtime.derivedStateOf {
-                    val top = list.layoutInfo.visibleItemsInfo.maxByOrNull { it.index }?.key as? String ?: return@derivedStateOf null
-                    when {
-                        top.startsWith("day@") -> top.removePrefix("day@").toLongOrNull()
-                        top.startsWith("pair@") -> byId[top.removePrefix("pair@")]?.let { dayOf(it.at) }
-                        else -> byId[top]?.let { dayOf(it.at) }
-                    }
-                }
-            }
             // Messages scrolled under the header (the list is not at its oldest end), and under the buttons' strip
             // (the newest has passed the writing bubble on its way down).
-            val under by remember { androidx.compose.runtime.derivedStateOf { list.canScrollForward } }
             val gapPx = with(density) { 16.dp.roundToPx() }
             val underStrip by remember {
                 androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > floatingHeight - stripHeight + gapPx }
             }
             // The header's line (2026-11-26, hen): at the very top of the list, only while messages are beneath it.
-            Box(Modifier.align(Alignment.TopCenter)) { HeaderHairline(under) }
-            val shownDay = topDay?.takeIf { it != dayOf(System.currentTimeMillis()) }
-            androidx.compose.animation.AnimatedVisibility(
-                shownDay != null,
-                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
-                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp),
-            ) {
-                var last by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
-                if (shownDay != null) last = shownDay
-                androidx.compose.animation.Crossfade(last, animationSpec = androidx.compose.animation.core.tween(200), label = "day") { d ->
-                    Text(
-                        dayLabel(d), color = LibraryColors.OnBackground, style = LibraryType.Small,
-                        modifier = Modifier.shadow(3.dp, androidx.compose.foundation.shape.CircleShape)
-                            .background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
-                            .padding(horizontal = 12.dp, vertical = 5.dp),
-                    )
-                }
-            }
+            Box(Modifier.align(Alignment.TopCenter)) { HeaderHairline { list.canScrollForward } }
+            DayPill(list, messages, byId, Modifier.align(Alignment.TopCenter).padding(top = 6.dp))
             // Scrolled up more than a screen (2026-11-24, hen): a round ⌄ above the writing bubble, on their side (the
             // right in Hebrew), with how many came in meanwhile; a tap glides to the end.
-            val farUp by androidx.compose.runtime.remember {
-                androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex > list.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1) }
-            }
-            androidx.compose.animation.AnimatedVisibility(
-                farUp || unseen,
-                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(180), initialScale = 0.7f),
-                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) + androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(150), targetScale = 0.7f),
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = floatingRoom + 12.dp),
-            ) {
-                val label = stringResource(R.string.chat_new_message)
-                Box {
-                    Box(
-                        Modifier.size(44.dp).shadow(6.dp, androidx.compose.foundation.shape.CircleShape)
-                            .background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
-                            .clickable(role = Role.Button, onClickLabel = label) {
-                                scope.launch { list.animateScrollToItem(0) }
-                                unseenCount = 0
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(LibraryIcons.ChevronDown, label, tint = LibraryColors.OnBackground) }
-                    if (unseenCount > 0) {
-                        Text(
-                            unseenCount.toString(), color = Color.White, style = LibraryType.Tiny,
-                            modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
-                                .background(com.chencohen.ptt.ui.style.Pink, androidx.compose.foundation.shape.CircleShape)
-                                .padding(horizontal = 6.dp, vertical = 1.dp),
-                        )
-                    }
-                }
+            ScrollDownButton(list, unseen, unseenCount, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = floatingRoom + 12.dp)) {
+                scope.launch { list.animateScrollToItem(0) }
+                unseenCount = 0
             }
             // The live pills and boxes, floating over the chat under the header.
             // (2026-11-25, hen: "just below the header"; they come out from under its edge.)
@@ -1295,7 +1289,7 @@ private fun ConversationScreenIn(
                             transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)).togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))) },
                             label = "draft or recording",
                         ) { recording ->
-                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions, writing = { edits.abort() }, hint = writeHint, opens = writeOpens) { body, from -> flight.start(body, from, newest?.id) }
+                            if (recording) RecordingStrip { actions.finishVoice(false) } else PinnedDraft(draft, focus, actions, writing = { edits.abort() }, hint = writeHint, opens = writeOpens, flyMedia = { shot, from -> flight.start("", from, newest?.id, shot) }) { body, from -> flight.start(body, from, newest?.id) }
                         }
                     }
                 }
@@ -1306,10 +1300,10 @@ private fun ConversationScreenIn(
                 // scrolled under it (200 ms). The writing bubble and my face float above it; messages pass beside them.
                 val page = LibraryColors.Background
                 val stripLine = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant
-                val stripLineShown by androidx.compose.animation.core.animateFloatAsState(if (underStrip) 1f else 0f, androidx.compose.animation.core.tween(200), label = "strip line")
+                val stripLineShown = fadeWith { underStrip }
                 val strip = Modifier.fillMaxWidth().drawBehind {
                     drawRect(page)
-                    drawRect(stripLine.copy(alpha = stripLine.alpha * stripLineShown), size = androidx.compose.ui.geometry.Size(size.width, 1f))
+                    drawRect(stripLine.copy(alpha = stripLine.alpha * stripLineShown.value), size = androidx.compose.ui.geometry.Size(size.width, 1f))
                 }
                 Box(Modifier.zIndex(1f).onSizeChanged { stripHeight = it.height }) {
                 when {
@@ -1414,6 +1408,13 @@ private fun ConversationScreenIn(
                 }
             }
         }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
     }
     SendFlightOverlay(flight)
     if (editing != null && androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current != null) {
@@ -1450,6 +1451,56 @@ private fun ConversationScreenIn(
     }
 }
 
+/** No upload or download going on (the progress maps are read where they are drawn, not by the screen). */
+internal val NoProgress: androidx.compose.runtime.State<Map<String, Float>> = androidx.compose.runtime.mutableStateOf(emptyMap())
+
+/** Message [id]'s upload (0 to 1), read so only a change of its own recomposes the caller. */
+@Composable
+private fun uploadOf(uploads: androidx.compose.runtime.State<Map<String, Float>>, id: String): Float? {
+    val p by remember(uploads, id) { androidx.compose.runtime.derivedStateOf { uploads.value[id] } }
+    return p
+}
+
+/** Push-to-talk runs (both sides, nothing else between, ten minutes apart at most): the run shown at each one's last
+ * message, and the ones folded into it. A plain function: inline in the screen it made the screen too big to compile. */
+private fun traceRunsOf(messages: List<TextMessage>, keeps: (TextMessage) -> Boolean, ownClip: String?, theirClip: String?): Pair<Map<String, List<TextMessage>>, Set<String>> {
+    val shownAt = HashMap<String, List<TextMessage>>()
+    val hidden = HashSet<String>()
+    var run = mutableListOf<TextMessage>()
+    fun close() {
+        if (run.isEmpty()) return
+        shownAt[run.last().id] = run
+        run.dropLast(1).forEach { hidden += it.id }
+        run = mutableListOf()
+    }
+    for (m in messages) {
+        val c = m.clip
+        val trace = c != null && !m.deleted && !keeps(m) && c.durationMs >= 500 && ownClip != m.id && theirClip != m.id
+        if (!trace) {
+            if (c == null || keeps(m) || m.deleted) close()
+            continue
+        }
+        val prev = run.lastOrNull()
+        if (prev != null && m.at - prev.at > 10 * 60_000) close()
+        run += m
+    }
+    close()
+    return shownAt to hidden
+}
+
+/** Runs [content] as a composable of its own: a part of a big screen that compiles as its own method (ART won't compile
+ * a method over its instruction limit, so a giant one always runs interpreted), with its own recomposition scope. */
+@Composable
+internal fun Isolated(content: @Composable () -> Unit) = content()
+
+/** What kind of row a message is, so the list reuses a picture's row for a picture and a text's for a text. */
+private fun rowType(message: TextMessage): String = when {
+    message.media != null -> "media"
+    message.clip != null -> "clip"
+    message.call != null -> "call"
+    else -> "text"
+}
+
 /** [actions] with the video bubble's tap playing it full screen. */
 private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) -> Unit) = ConversationActions(
     back = a.back, openContact = a.openContact, openSafetyNumber = a.openSafetyNumber, send = a.send, retry = a.retry, typing = a.typing, draft = a.draft, openTalk = a.openTalk,
@@ -1457,7 +1508,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
-    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach,
+    mediaPreview = a.mediaPreview, mediaClip = a.mediaClip, mediaText = a.mediaText, openMedia = a.openMedia, attach = a.attach, camera = a.camera, mediaDraft = a.mediaDraft, mediaCaption = a.mediaCaption, uploads = a.uploads, transfers = a.transfers, encoding = a.encoding,
 )
 
 
@@ -1561,10 +1612,88 @@ internal fun Modifier.faceRing(ring: Int): Modifier = morphRing(ring, LibraryCol
  * 200 ms. At the chat's oldest end there is no line.
  */
 @Composable
-private fun HeaderHairline(shown: Boolean) {
+private fun HeaderHairline(shown: () -> Boolean) {
     val line = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant
-    val a by androidx.compose.animation.core.animateFloatAsState(if (shown) 1f else 0f, androidx.compose.animation.core.tween(200), label = "header hairline")
-    Box(Modifier.fillMaxWidth().height(with(androidx.compose.ui.platform.LocalDensity.current) { 1.toDp() }).drawBehind { drawRect(line.copy(alpha = line.alpha * a)) })
+    val a = fadeWith(shown)
+    Box(Modifier.fillMaxWidth().height(with(androidx.compose.ui.platform.LocalDensity.current) { 1.toDp() }).drawBehind { drawRect(line.copy(alpha = line.alpha * a.value)) })
+}
+
+/** 0 to 1 over 200 ms as [shown] (a scroll position) turns, read only in an effect and in draw: nothing recomposes. */
+@Composable
+private fun fadeWith(shown: () -> Boolean): androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D> {
+    val a = remember { androidx.compose.animation.core.Animatable(if (androidx.compose.runtime.snapshots.Snapshot.withoutReadObservation(shown)) 1f else 0f) }
+    val now by androidx.compose.runtime.rememberUpdatedState(shown)
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.snapshotFlow { now() }.collectLatest { a.animateTo(if (it) 1f else 0f, androidx.compose.animation.core.tween(200)) }
+    }
+    return a
+}
+
+/** The day of the topmost message on screen, floating under the header when it isn't today (2026-11-24, hen). Its own
+ * composable: as the scroll changes the day, only this is rebuilt. */
+@Composable
+private fun DayPill(list: androidx.compose.foundation.lazy.LazyListState, messages: List<TextMessage>, byId: Map<String, TextMessage>, modifier: Modifier) {
+    val topDay by androidx.compose.runtime.remember(messages) {
+        androidx.compose.runtime.derivedStateOf {
+            val top = list.layoutInfo.visibleItemsInfo.lastOrNull()?.key as? String ?: return@derivedStateOf null
+            when {
+                top.startsWith("day@") -> top.removePrefix("day@").toLongOrNull()
+                top.startsWith("pair@") -> byId[top.removePrefix("pair@")]?.let { dayOf(it.at) }
+                else -> byId[top]?.let { dayOf(it.at) }
+            }
+        }
+    }
+    val shownDay = topDay?.takeIf { it != dayOf(System.currentTimeMillis()) }
+    androidx.compose.animation.AnimatedVisibility(
+        shownDay != null,
+        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+        modifier = modifier,
+    ) {
+        var last by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+        if (shownDay != null) last = shownDay
+        androidx.compose.animation.Crossfade(last, animationSpec = androidx.compose.animation.core.tween(200), label = "day") { d ->
+            Text(
+                dayLabel(d), color = LibraryColors.OnBackground, style = LibraryType.Small,
+                modifier = Modifier.shadow(3.dp, androidx.compose.foundation.shape.CircleShape)
+                    .background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
+            )
+        }
+    }
+}
+
+/** The round ⌄ shown when scrolled up more than a screen (or something came in), with how many came. Its own composable:
+ * the scroll is read here only. */
+@Composable
+private fun ScrollDownButton(list: androidx.compose.foundation.lazy.LazyListState, unseen: Boolean, unseenCount: Int, modifier: Modifier, onClick: () -> Unit) {
+    val farUp by androidx.compose.runtime.remember {
+        androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex > list.layoutInfo.visibleItemsInfo.size.coerceAtLeast(1) }
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        farUp || unseen,
+        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(180), initialScale = 0.7f),
+        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) + androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(150), targetScale = 0.7f),
+        modifier = modifier,
+    ) {
+        val label = stringResource(R.string.chat_new_message)
+        Box {
+            Box(
+                Modifier.size(44.dp).shadow(6.dp, androidx.compose.foundation.shape.CircleShape)
+                    .background(LibraryColors.Raised, androidx.compose.foundation.shape.CircleShape)
+                    .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+                contentAlignment = Alignment.Center,
+            ) { Icon(LibraryIcons.ChevronDown, label, tint = LibraryColors.OnBackground) }
+            if (unseenCount > 0) {
+                Text(
+                    unseenCount.toString(), color = Color.White, style = LibraryType.Tiny,
+                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
+                        .background(com.chencohen.ptt.ui.style.Pink, androidx.compose.foundation.shape.CircleShape)
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+            }
+        }
+    }
 }
 
 private val HEADER_FACE = 32.dp
@@ -1713,11 +1842,26 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     selecting: Boolean = false,
     /** Mine, in Send's slot while the draft flies into it: shown as still on its way, so what came meanwhile is seen once it lands. */
     held: Boolean = false,
+    /** My picture message whose caption is being edited. */
+    mediaEdit: MediaEdit? = null,
 ) {
     // Shared media (2026-11-28, hen): as wide as the screen, outside a bubble.
     if (message.media != null && !message.deleted) {
-        Box(Modifier.fillMaxWidth().bleed(12.dp).background(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent)) {
-            com.chencohen.ptt.ui.media.MediaMessage(message, actions.mediaPreview, actions.openMedia, actions.retry, select = select, selecting = selecting)
+        Box(Modifier.fillMaxWidth().bleed(12.dp).then(bubbleModifier).background(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent)) {
+            androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalTransfers provides actions.transfers, com.chencohen.ptt.ui.media.LocalClips provides actions.mediaClip, com.chencohen.ptt.ui.media.LocalEncoding provides actions.encoding) { com.chencohen.ptt.ui.media.MediaMessage(
+                message, actions.mediaPreview, actions.openMedia, actions.retry, select = select, selecting = selecting,
+                reach = if (message.outgoing) (if (held) ReadMarks.Reach.SENDING else reach ?: ReadMarks.Reach.RECEIVED) else null,
+                progress = uploadOf(actions.uploads, message.id),
+                author = if (showAuthor && !message.outgoing) message.author else null,
+                liveEdit = liveEdit,
+                startEdit = startEdit?.let { start -> { caret: Int -> start(caret, 0) } },
+                edit = mediaEdit?.edit,
+                editChange = mediaEdit?.change ?: {},
+                editDone = mediaEdit?.done ?: {},
+                editGone = mediaEdit?.gone ?: {},
+                texting = selected && message.outgoing,
+                setText = { itemId, text -> actions.mediaText(message.id, itemId, text) },
+            ) }
         }
         if (message.reactions.isNotEmpty()) com.chencohen.ptt.ui.face.Reactions(message.reactions, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
         return
@@ -2107,6 +2251,21 @@ internal const val FLIGHT_MS = 300
 
 /** The local day [at] falls on, as its midnight (the phone's own time zone). */
 internal fun dayOf(at: Long, zone: java.util.TimeZone = java.util.TimeZone.getDefault()): Long {
+    // The last day worked out is kept: messages come in order, so nearly every call is in it (no Calendar made).
+    lastDay?.let { d -> if (d.zone == zone.id && at >= d.start && at < d.end) return d.start }
+    return dayOfNew(at, zone).also { start ->
+        val c = java.util.Calendar.getInstance(zone)
+        c.timeInMillis = start
+        c.add(java.util.Calendar.DAY_OF_MONTH, 1)
+        lastDay = DayRange(zone.id, start, dayOfNew(c.timeInMillis, zone))
+    }
+}
+
+private class DayRange(val zone: String, val start: Long, val end: Long)
+
+@Volatile private var lastDay: DayRange? = null
+
+private fun dayOfNew(at: Long, zone: java.util.TimeZone): Long {
     val c = java.util.Calendar.getInstance(zone)
     c.timeInMillis = at
     c.set(java.util.Calendar.HOUR_OF_DAY, 0)
@@ -2274,6 +2433,19 @@ private fun ChatSheetView(sheet: ChatSheet?, messages: List<TextMessage>, group:
  * double tap, a tap or focus on the writing bubble, Back or a tap outside end the one in progress unchanged (it turns
  * back, and its cancel goes to them).
  */
+/** How many of a chat's newest messages are laid out at first, and how many more join each time (a long history). */
+private const val CHAT_WINDOW = 200
+/** How close (in rows) to the oldest shown the scroll comes before more join. */
+private const val CHAT_WINDOW_EDGE = 40
+
+/** A picture message's caption being edited, with what its field does. */
+internal class MediaEdit(
+    val edit: Editing,
+    val change: (androidx.compose.ui.text.input.TextFieldValue) -> Unit,
+    val done: (save: Boolean) -> Unit,
+    val gone: () -> Unit,
+)
+
 internal class EditSession {
     var editing by mutableStateOf<Editing?>(null)
         private set
@@ -2434,6 +2606,8 @@ internal val TheirSide = Alignment.CenterStart
  */
 internal class SendFlight {
     var body by mutableStateOf<String?>(null)
+    /** Pictures sent from their writing box: a picture of the box, which flies instead of the text (2026-11-28, hen). */
+    var picture by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
     var from by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
     /** The message's slot, as the list lays it out (it follows the list's scroll and the keyboard). */
     var to by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
@@ -2449,7 +2623,8 @@ internal class SendFlight {
     /** What was newest in the chat as Send was pressed: the sent message comes after it (never matched by text). */
     private var before: String? = null
 
-    fun start(text: String, bounds: androidx.compose.ui.geometry.Rect?, newestNow: String?) {
+    fun start(text: String, bounds: androidx.compose.ui.geometry.Rect?, newestNow: String?, shot: androidx.compose.ui.graphics.ImageBitmap? = null) {
+        picture = shot
         progress = androidx.compose.animation.core.Animatable(0f)
         to = null
         id = null
@@ -2470,6 +2645,7 @@ internal class SendFlight {
     }
 
     fun land() {
+        picture = null
         body = null
         from = null
         to = null
@@ -2499,6 +2675,20 @@ private fun SendFlightOverlay(flight: SendFlight) {
         androidx.compose.ui.util.lerp(from.left, to.left, p), androidx.compose.ui.util.lerp(from.top, to.top, p),
         androidx.compose.ui.util.lerp(from.right, to.right, p), androidx.compose.ui.util.lerp(from.bottom, to.bottom, p),
     )
+    // Pictures: the writing box as it was drawn moves, edge to edge, into its message's place; the message shows in
+    // the same frame it lands.
+    flight.picture?.let { shot ->
+        androidx.compose.foundation.Image(
+            shot, null, contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
+            modifier = Modifier.layout { measurable, constraints ->
+                val w = box.width.toInt().coerceAtLeast(1)
+                val h = box.height.toInt().coerceAtLeast(1)
+                val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
+                layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(flightOffset(box, flight.origin)) }
+            },
+        )
+        return
+    }
     val coral = LibraryColors.Writing
     val start = with(density) { androidx.compose.ui.util.lerp(14.dp.toPx(), 14.dp.toPx(), p).toDp() }
     val end = with(density) { androidx.compose.ui.util.lerp(8.dp.toPx(), 14.dp.toPx(), p).toDp() }
@@ -2550,6 +2740,8 @@ private fun PinnedDraft(
     writing: () -> Unit = {},
     hint: String? = null,
     opens: (() -> Unit)? = null,
+    /** Pictures sent from their writing box: a picture of it and where it was, to fly into the chat. */
+    flyMedia: (androidx.compose.ui.graphics.ImageBitmap, androidx.compose.ui.geometry.Rect) -> Unit = { _, _ -> },
     sent: (String, androidx.compose.ui.geometry.Rect?) -> Unit,
 ) {
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
@@ -2579,6 +2771,17 @@ private fun PinnedDraft(
                 draft.lastTyping = 0L
             }
         }
+    }
+    // Pictures picked here: the writing bubble holds them, the caption written under them (2026-11-28, hen).
+    actions.mediaDraft?.let { mediaDraft ->
+        androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalTransfers provides actions.transfers, com.chencohen.ptt.ui.media.LocalClips provides actions.mediaClip, com.chencohen.ptt.ui.media.LocalEncoding provides actions.encoding) {
+            com.chencohen.ptt.ui.media.MediaDraftBox(mediaDraft, actions.mediaPreview, fly = { shot, bounds -> flyMedia(shot, bounds) })
+        }
+        return
+    }
+    actions.mediaCaption?.let { caption ->
+        com.chencohen.ptt.ui.media.MediaCaptionBox(caption)
+        return
     }
     var faces by remember { mutableStateOf(false) }
     val sendFace = actions.sendFace

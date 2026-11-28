@@ -267,9 +267,48 @@ fun HomeApp(
         sharing = shared
         saved = "share"
     }
-    fun sendShared(chat: String, uris: List<String>) {
-        messaging.shareMedia(chat, uris, "") { sent -> if (sent == 0) messages.post(resources.getString(R.string.share_failed)) }
+    // Pictures picked for a chat, not sent yet: in its writing bubble, the caption written under them (2026-11-28, hen).
+    val mediaDrafts = remember { androidx.compose.runtime.mutableStateMapOf<String, List<com.chencohen.ptt.messaging.TextMessage>>() }
+    // Crop and focus open (2026-11-28, hen), over everything: the pictures, the first shown, and what Done does.
+    var cropping by remember { mutableStateOf<CropSession?>(null) }
+    // Bumped when a sent picture's composition changed, so an open viewer reads its message again.
+    var recropped by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    fun cropDraft(chat: String, messageId: String, itemId: String) {
+        val drafts = mediaDrafts[chat].orEmpty()
+        val targets = drafts.flatMap { m -> m.media?.items.orEmpty().filter { it.kind == com.chencohen.ptt.messaging.MediaKind.IMAGE }.map { com.chencohen.ptt.ui.media.CropTarget(m.id, it, messaging.mediaSource(m.id, it.id)) } }
+        cropping = CropSession(targets, targets.indexOfFirst { it.messageId == messageId && it.item.id == itemId }.coerceAtLeast(0)) { crops ->
+            messaging.recrop(crops) { now ->
+                // The draft as it is now: each changed picture with its new previews.
+                mediaDrafts[chat]?.let { list ->
+                    mediaDrafts[chat] = list.map { m ->
+                        val mine = now.filter { it.first == m.id }.associate { it.second.id to it.second }
+                        if (mine.isEmpty()) m else m.copy(media = m.media?.copy(items = m.media!!.items.map { mine[it.id] ?: it }))
+                    }
+                }
+            }
+        }
     }
+    fun cropSent(message: com.chencohen.ptt.messaging.TextMessage, itemId: String) {
+        val targets = message.media?.items.orEmpty().filter { it.kind == com.chencohen.ptt.messaging.MediaKind.IMAGE }.map { com.chencohen.ptt.ui.media.CropTarget(message.id, it, messaging.mediaSource(message.id, it.id)) }
+        cropping = CropSession(targets, targets.indexOfFirst { it.item.id == itemId }.coerceAtLeast(0)) { crops ->
+            messaging.recrop(crops) { now ->
+                recropped++
+                if (now.size < crops.size) messages.post(resources.getString(R.string.crop_failed))
+            }
+        }
+    }
+    // Pictures sent before their caption, by chat: the message whose caption is being written.
+    val mediaCaptions = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
+    fun sendShared(chat: String, uris: List<String>) {
+        messaging.draftMedia(chat, uris) { drafts ->
+            if (drafts.isEmpty()) messages.post(resources.getString(R.string.share_failed))
+            else mediaDrafts[chat] = mediaDrafts[chat].orEmpty() + drafts
+        }
+    }
+    // Held, not read here: each progress step rebuilt the whole app (2026-11-28); the pictures read them as they draw.
+    val uploads = messaging.uploads.collectAsStateWithLifecycle()
+    val transfers = messaging.transfers.collectAsStateWithLifecycle()
+    val encoding = messaging.encoding.collectAsStateWithLifecycle()
     // The phone's pictures and videos, with their place: the sender keeps no copy, so the original is read again from
     // there when someone opens it (asked once, the first time something is shared; it goes either way).
     var askedFor by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
@@ -278,11 +317,13 @@ fun HomeApp(
         askedFor = null
     }
     fun shareIn(chat: String, uris: List<String>) {
-        val wanted = listOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO, android.Manifest.permission.ACCESS_MEDIA_LOCATION)
-        val missing = wanted.filter { context.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+        // Access to all photos (2026-11-28, hen): with only the selected ones, the gallery's pass to a picked picture ends
+        // when Talk restarts and its original can't be read again. Asked again at most once a day while it isn't given.
+        val missing = com.chencohen.ptt.ui.media.ALL_PHOTOS.filter { context.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
         val prefs = context.getSharedPreferences("media", android.content.Context.MODE_PRIVATE)
-        if (missing.isEmpty() || prefs.getBoolean("asked", false)) return sendShared(chat, uris)
-        prefs.edit { putBoolean("asked", true) }
+        val now = System.currentTimeMillis()
+        if (missing.isEmpty() || now - prefs.getLong("askedAt", 0L) < 24L * 60 * 60 * 1000) return sendShared(chat, uris)
+        prefs.edit { putLong("askedAt", now) }
         askedFor = chat to uris
         askMedia.launch(missing.toTypedArray())
     }
@@ -342,6 +383,7 @@ fun HomeApp(
         val writable = if (Group.idOf(user) != null) group != null && !group.gone && group.isReader(state.device?.user.orEmpty())
             else messagingState.contacts.firstOrNull { it.user == user }?.let { it.paired && !it.blocked } == true
         val attachPicker = com.chencohen.ptt.ui.media.rememberMediaPicker { uris -> shareIn(user, uris.map { it.toString() }) }
+        val camera = com.chencohen.ptt.ui.media.rememberCamera { uris -> sendShared(user, uris.map { it.toString() }) }
         val groupTyping = messagingState.typing.filterKeys { it.startsWith("$user/") }
         val typingUntil = if (Group.idOf(user) != null) groupTyping.values.maxOrNull() else messagingState.typing[user]
         LaunchedEffect(typingUntil) {
@@ -468,7 +510,46 @@ fun HomeApp(
                 editLive = { id, text, s, e -> messaging.editLive(id, text, s, e) },
                 delete = { ids, everyone -> messaging.deleteMessages(ids, everyone) },
                 mediaPreview = { id, item -> messaging.mediaPreview(id, item) },
+                mediaClip = { id, item -> messaging.mediaClip(id, item) },
+                mediaText = { id, item, text -> messaging.setMediaText(id, item, text) },
+                openMedia = { id, item -> push("view/$id/$item") },
+                mediaDraft = mediaDrafts[user]?.let { drafts ->
+                    com.chencohen.ptt.ui.media.MediaDraft(
+                        drafts,
+                        send = { caption, removed, texts ->
+                            mediaDrafts.remove(user)
+                            messaging.sendDraft(drafts, caption, removed, texts)
+                        },
+                        sendFirst = { removed, texts ->
+                            mediaDrafts.remove(user)
+                            messaging.sendPicturesFirst(drafts, removed, texts) { id -> if (id != null) mediaCaptions[user] = id }
+                        },
+                        drop = {
+                            mediaDrafts.remove(user)
+                            messaging.dropDraft(drafts)
+                        },
+                        crop = { m, i -> cropDraft(user, m, i) },
+                    )
+                },
+                mediaCaption = mediaCaptions[user]?.let { id ->
+                    com.chencohen.ptt.ui.media.MediaCaption(
+                        id,
+                        live = { text, s, e -> messaging.editLive(id, text, s, e) },
+                        commit = { caption ->
+                            mediaCaptions.remove(user)
+                            messaging.commitCaption(id, caption)
+                        },
+                        abort = {
+                            mediaCaptions.remove(user)
+                            messaging.deleteMessages(listOf(id), true)
+                        },
+                    )
+                },
+                uploads = uploads,
+                transfers = transfers,
+                encoding = encoding,
                 attach = if (writable) attachPicker else null,
+                camera = if (writable) camera else null,
             ),
             talk = messagingState.talk,
             talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
@@ -478,7 +559,36 @@ fun HomeApp(
     androidx.compose.runtime.SideEffect { com.chencohen.ptt.ui.style.ChatShade.take(messagingState.talkSettings.colorsFor[com.chencohen.ptt.ui.style.ChatShade.KEY]) }
     CompositionLocalProvider(LocalMessages provides messages, com.chencohen.ptt.ui.talk.LocalHear provides hearOf) {
         Box(Modifier.fillMaxSize()) {
-            val page = stack.lastOrNull()
+            @Composable
+            fun Viewer(name: String) {
+                    val (id, item) = name.removePrefix("view/").split('/').let { it[0] to it.getOrElse(1) { "" } }
+                    val message = remember(id, recropped) { messaging.mediaMessage(id) }
+                    val originals by messaging.originals.collectAsStateWithLifecycle()
+                    if (message == null) {
+                        LaunchedEffect(Unit) { pop() }
+                    } else {
+                        androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalNames provides { u -> if (u == state.device?.user) resources.getString(R.string.group_you) else nameOf(u) }) {
+                        com.chencohen.ptt.ui.media.MediaViewer(
+                            message = message,
+                            startItem = item,
+                            sender = if (message.outgoing) resources.getString(R.string.group_you) else nameOf(message.author ?: message.user),
+                            originals = originals,
+                            preview = { m, i -> messaging.mediaPreview(m, i) },
+                            open = messaging::openOriginal,
+                            cancel = messaging::cancelOriginal,
+                            stream = messaging::streamOriginal,
+                            keeping = { m, i -> messaging.askHoldings(m, i); messaging.mediaKeeping(m, i) },
+                            back = ::pop,
+                            crop = if (message.outgoing && messaging.mediaSource(message.id, item) != null) { i -> cropSent(message, i) } else null,
+                        )
+                        }
+                    }
+                }
+            val top = stack.lastOrNull()
+            // A picture opened from a chat is drawn over it (the chat stays under), so it grows out of its place in
+            // the chat and shrinks back into it (2026-11-28, hen: "seamless transition between chat and the image").
+            val viewing = top?.takeIf { it.startsWith("view/") && stack.size >= 2 && stack[stack.size - 2].startsWith("chat/") }
+            val page = if (viewing != null) stack[stack.size - 2] else top
             val name = page.orEmpty()
             val pageUser = page?.substringAfter('/', "")?.takeIf { it.isNotEmpty() }
             when {
@@ -541,7 +651,7 @@ fun HomeApp(
                         update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
                     ),
                 )
-                name == "settings" -> {
+                name == "settings" -> com.chencohen.ptt.ui.contacts.Isolated {
                     var presenceVisible by remember { mutableStateOf<Boolean?>(messaging.presenceVisible) }
                     var hearVisible by remember { mutableStateOf<Boolean?>(messaging.hearVisible) }
                     val settingsState by settings.state.collectAsStateWithLifecycle()
@@ -555,6 +665,7 @@ fun HomeApp(
                         openTalk = { push("talksettings") },
                         chatColors = { com.chencohen.ptt.ui.talk.ChatColorsCard(com.chencohen.ptt.messaging.GLOBAL_COLORS, messagingState.talkSettings, onTalkSettings) },
                         openCalls = { push("callsettings") },
+                        openStorage = { push("storagesettings") },
                         updates = updates,
                         checkUpdates = { com.chencohen.ptt.AppUpdates.check(app) },
                         update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
@@ -591,7 +702,7 @@ fun HomeApp(
                         },
                     )
                 }
-                name == "talksettings" -> {
+                name == "talksettings" -> com.chencohen.ptt.ui.contacts.Isolated {
                     val chats = messagingState.contacts.filter { it.paired && !it.blocked }.map { it.user to nameOf(it.user) } +
                         messagingState.groups.filter { !it.gone && it.isReader(state.device?.user.orEmpty()) }.map { it.chat to groupName(it) }
                     com.chencohen.ptt.ui.settings.TalkSettingsScreen(
@@ -609,12 +720,18 @@ fun HomeApp(
                     openLayout = { push("videolayout") },
                 )
                 name == "videolayout" -> com.chencohen.ptt.ui.settings.VideoLayoutScreen(back = ::pop)
+                name == "storagesettings" -> com.chencohen.ptt.ui.settings.StorageSettingsScreen(
+                    settings = messagingState.talkSettings,
+                    used = messaging::cacheBytes,
+                    back = ::pop,
+                    change = { new -> onTalkSettings(new) },
+                )
                 name == "savingcalls" -> com.chencohen.ptt.ui.settings.SavingCallsScreen(
                     settings = messagingState.talkSettings,
                     back = ::pop,
                     change = { new -> onTalkSettings(new) },
                 )
-                name == "devices" -> {
+                name == "devices" -> com.chencohen.ptt.ui.contacts.Isolated {
                     // Read each time the page opens; a removed phone leaves the list once the server says so.
                     var view by remember { mutableStateOf<DevicesView>(DevicesView.Loading) }
                     fun load() {
@@ -644,7 +761,7 @@ fun HomeApp(
                         linkPhone = { push("link") },
                     )
                 }
-                name == "link" -> {
+                name == "link" -> com.chencohen.ptt.ui.contacts.Isolated {
                     // A new code each time the page opens; the phone linked with it shows once its answer went out.
                     var view by remember { mutableStateOf<LinkPhoneView>(LinkPhoneView.Loading) }
                     val linkedBefore = remember { messagingState.linkedDevice }
@@ -661,6 +778,7 @@ fun HomeApp(
                     }
                     LinkPhoneScreen(view, back = ::pop, again = ::make)
                 }
+                name.startsWith("view/") -> Viewer(name)
                 name == "share" -> com.chencohen.ptt.ui.media.ShareToScreen(
                     count = sharing.size,
                     contacts = messagingState.contacts,
@@ -684,7 +802,7 @@ fun HomeApp(
                     openContact = { push("chat/$it") },
                     newGroup = { push("newgroup") },
                 )
-                name == "newgroup" -> {
+                name == "newgroup" -> com.chencohen.ptt.ui.contacts.Isolated {
                     var busy by remember { mutableStateOf(false) }
                     NewGroupScreen(
                         contacts = messagingState.contacts,
@@ -701,7 +819,7 @@ fun HomeApp(
                 }
                 name == "picture" -> com.chencohen.ptt.ui.face.FacePickerScreen(onboarding = false, done = ::pop)
                 name == "welcomepicture" -> com.chencohen.ptt.ui.face.FacePickerScreen(onboarding = true, done = ::pop)
-                name.startsWith("groupadd/") && pageUser != null -> {
+                name.startsWith("groupadd/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val group = messagingState.groups.firstOrNull { it.id == pageUser }
                     var busy by remember { mutableStateOf(false) }
                     AddMembersScreen(
@@ -721,7 +839,7 @@ fun HomeApp(
                         },
                     )
                 }
-                name.startsWith("group/") && pageUser != null -> {
+                name.startsWith("group/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val id = pageUser
                     val group = messagingState.groups.firstOrNull { it.id == id }
                     LaunchedEffect(id) { messaging.refreshGroups() }
@@ -768,13 +886,15 @@ fun HomeApp(
                         inChat = {
                             com.chencohen.ptt.ui.talk.KeepInChatCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
                             com.chencohen.ptt.ui.talk.ChatColorsCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.talk.VideosAtOnceCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.media.ChatStorageCard(Group.chatOf(id), messaging::chatStorage, messaging::clearChatStorage, messaging::originalRequests, nameOf)
                         },
                         liveTyping = messagingState.talkSettings.liveTypingTo(Group.chatOf(id)),
                         direction = messagingState.talkSettings.directionOf(Group.chatOf(id)),
                         quickTalk = Group.chatOf(id) in messagingState.talkSettings.quickTalk,
                     )
                 }
-                name == "invite" -> {
+                name == "invite" -> com.chencohen.ptt.ui.contacts.Isolated {
                     val pairingState by pairing.state.collectAsStateWithLifecycle()
                     DisposableEffect(page) { onDispose { pairing.clearInvite() } }
                     LaunchedEffect(page) { pairing.refreshWaiting() }
@@ -819,7 +939,7 @@ fun HomeApp(
                         ),
                     )
                 }
-                name == "add" || name == "join" || name.startsWith("review/") -> {
+                name == "add" || name == "join" || name.startsWith("review/") -> com.chencohen.ptt.ui.contacts.Isolated {
                     val pairingState by pairing.state.collectAsStateWithLifecycle()
                     DisposableEffect(page) {
                         pairing.open()
@@ -849,7 +969,7 @@ fun HomeApp(
                         ),
                     )
                 }
-                name.startsWith("chat/") && pageUser != null -> {
+                name.startsWith("chat/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val user = pageUser
                     // On screen: what comes in is read at once; gone, notifications again.
                     // On screen by the user's doing (opened, or the app brought back on it): the floating chat, if it was
@@ -873,7 +993,7 @@ fun HomeApp(
                     LaunchedEffect(messagingState.unread[user]) { if ((messagingState.unread[user] ?: 0) > 0) messaging.openChat(user) }
                     ChatScreenFor(user)
                 }
-                name.startsWith("contact/") && pageUser != null -> {
+                name.startsWith("contact/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val user = pageUser
                     ContactScreen(
                         user = user,
@@ -922,6 +1042,8 @@ fun HomeApp(
                         inChat = {
                             com.chencohen.ptt.ui.talk.KeepInChatCard(user, messagingState.talkSettings, onTalkSettings)
                             com.chencohen.ptt.ui.talk.ChatColorsCard(user, messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.talk.VideosAtOnceCard(user, messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.media.ChatStorageCard(user, messaging::chatStorage, messaging::clearChatStorage, messaging::originalRequests, nameOf)
                         },
                         versions = messagingState.versions[user].orEmpty(),
                         quickTalk = user in messagingState.talkSettings.quickTalk,
@@ -929,7 +1051,7 @@ fun HomeApp(
                         direction = messagingState.talkSettings.directionOf(user),
                     )
                 }
-                name.startsWith("kept/") && pageUser != null && keptCalls[pageUser] != null -> {
+                name.startsWith("kept/") && pageUser != null && keptCalls[pageUser] != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val message = keptCalls.getValue(pageUser)
                     var progress by remember(pageUser) { mutableStateOf(0f) }
                     var load by remember(pageUser) { mutableStateOf<com.chencohen.ptt.ui.calls.KeptLoad?>(null) }
@@ -972,7 +1094,7 @@ fun HomeApp(
                         if (ready != null && keptSaveAsked.remove(pageUser)) saveNow(ready)
                     }
                 }
-                name.startsWith("safety/") && pageUser != null -> {
+                name.startsWith("safety/") && pageUser != null -> com.chencohen.ptt.ui.contacts.Isolated {
                     val user = pageUser
                     val contact = messagingState.contacts.firstOrNull { it.user == user }
                     var load by remember(user) { mutableStateOf<SafetyNumberLoad>(SafetyNumberLoad.Loading) }
@@ -1001,6 +1123,18 @@ fun HomeApp(
                     )
                 }
                 else -> LaunchedEffect(page) { home() }
+            }
+            if (viewing != null) Viewer(viewing)
+            cropping?.let { session ->
+                com.chencohen.ptt.ui.media.CropEditor(
+                    session.targets, session.start,
+                    preview = { m, i -> messaging.mediaPreview(m, i) },
+                    done = { crops ->
+                        cropping = null
+                        if (crops.isNotEmpty()) session.apply(crops)
+                    },
+                    close = { cropping = null },
+                )
             }
             MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarRoom().imePadding().padding(bottom = if (page == null) 88.dp else 16.dp))
             // The floating window is on by default (2026-11-22, hen) but needs "Display over other apps": asked once.
@@ -1623,3 +1757,10 @@ internal fun liveDrafts(drafts: Map<String, com.chencohen.ptt.messaging.Draft>, 
     } else {
         listOfNotNull(drafts[chat]?.takeIf { now - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }?.let { null as String? to it.text })
     }
+
+/** Crop and focus, open: [targets], the one shown first, and what Done does with the crops that changed. */
+private class CropSession(
+    val targets: List<com.chencohen.ptt.ui.media.CropTarget>,
+    val start: Int,
+    val apply: (Map<Pair<String, String>, com.chencohen.ptt.messaging.CropContent?>) -> Unit,
+)

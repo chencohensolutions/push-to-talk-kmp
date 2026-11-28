@@ -90,6 +90,19 @@ internal data class Content(
     @ProtoNumber(30) val mediaRequest: MediaRequestContent? = null,
     /** The sharing phone's answer to [mediaRequest], to the whole chat: where the part is now, or why it can't come. */
     @ProtoNumber(31) val mediaReply: MediaReplyContent? = null,
+    /**
+     * A new install asks a contact's phone for their chat's history (2026-11-28, hen: "make it resilient by requesting
+     * history from the peer"). Older apps skip it.
+     */
+    @ProtoNumber(32) val historyRequest: HistoryRequestContent? = null,
+    /** One part of a chat's history, sent back for a [historyRequest]. */
+    @ProtoNumber(33) val history: HistoryContent? = null,
+    /**
+     * What the sending phone holds of shared items (2026-11-28, hen: "monitor who have what in a smart way, so the app
+     * could clear its cache but make sure all the original images exist somewhere"), to the chat; or asks for that.
+     * Older apps skip it.
+     */
+    @ProtoNumber(34) val holdings: HoldingsContent? = null,
 )
 
 /** One message of shared items: its [id] (the message's), when it was sent, a caption, and up to 30 items. */
@@ -99,7 +112,22 @@ data class MediaContent(
     @ProtoNumber(2) val sentAt: Long = 0,
     @ProtoNumber(3) val caption: String = "",
     @ProtoNumber(4) val items: List<AttachmentContent> = emptyList(),
-)
+    /**
+     * Sent before its caption (2026-11-28, hen: "first send the pictures, then write the text"): it comes in without a
+     * notification; the caption, an [EditContent] with `notify`, notifies. Older apps skip it.
+     */
+    @ProtoNumber(5) val quiet: Boolean = false,
+    /**
+     * How long the server keeps its previews and original: [FOREVER] (2026-11-28, hen: "keep forever everything"; the
+     * server's 1 TB lets the least fetched go), or 0 from older apps: 30 days. A phone that got it lets its previews go
+     * from the cache while the server has them.
+     */
+    @ProtoNumber(6) val keepDays: Int = 0,
+) {
+    companion object {
+        const val FOREVER = -1
+    }
+}
 
 /**
  * One shared item. [key] (32 random bytes) encrypts its parts (MediaCrypto); [sha256] is of the untouched original,
@@ -127,22 +155,81 @@ data class AttachmentContent(
     @ProtoNumber(13) val latE7: Int = 0,
     @ProtoNumber(14) val lonE7: Int = 0,
     @ProtoNumber(15) val hasPlace: Boolean = false,
-    /** Its previews: an image's, one per receiving screen width; a video's, one 1080p HEVC. */
+    /** Its previews (JPEG XL), one per receiving screen width: a picture's, or a video's first frame. */
     @ProtoNumber(16) val previews: List<PartContent> = emptyList(),
-    /** A video's first frame, a JPEG XL. */
+    /** Not sent (a video's first frame is in [previews]). */
     @ProtoNumber(17) val poster: PartContent? = null,
     /** The sender's device that holds the original: only it answers a [MediaRequestContent]. */
     @ProtoNumber(18) val originDevice: Int = 0,
     /** A ThumbHash, about 25 bytes, drawn while the preview downloads. */
     @ProtoNumber(19) val thumb: ByteArray = ByteArray(0),
+    /** Words written above this picture in the message (2026-11-28, hen: "add text above any image"). */
+    @ProtoNumber(20) val text: String = "",
+    /**
+     * A picture's composition (2026-11-28, hen: "pick the composition of an image"): its previews show only this part
+     * of the original, which [width] and [height] still describe; opening it shows the whole original. Null: all of it.
+     */
+    @ProtoNumber(21) val crop: CropContent? = null,
+    /**
+     * A video's preview (2026-11-28, hen): the whole video in 1080p HEVC at 3 Mbit/s, its own frame rate and HDR, an
+     * MP4, played muted in the chat. Null: a picture, a video too long for one, or from an older app.
+     */
+    @ProtoNumber(22) val clip: PartContent? = null,
 ) {
+    /** Every sealed file of it that a message names: the previews, the poster and the video's clip. */
+    val parts: List<PartContent> get() = previews + listOfNotNull(poster, clip)
+
+    /** What goes up with the message: the previews and the video's clip. */
+    val uploaded: List<PartContent> get() = previews + listOfNotNull(clip)
+
+    /** The height of what the chat shows of it: the original's, less what [crop] trims. */
+    val shownHeight: Int get() = crop?.let { (height.toLong() * it.kept / CropContent.WHOLE).toInt().coerceAtLeast(1) } ?: height
+
     override fun equals(other: Any?): Boolean = other is AttachmentContent && id == other.id && kind == other.kind &&
         key.contentEquals(other.key) && sha256.contentEquals(other.sha256) && size == other.size && mime == other.mime &&
         name == other.name && width == other.width && height == other.height && durationMs == other.durationMs &&
         takenAt == other.takenAt && takenOffsetMin == other.takenOffsetMin && latE7 == other.latE7 &&
         lonE7 == other.lonE7 && hasPlace == other.hasPlace && previews == other.previews && poster == other.poster &&
-        originDevice == other.originDevice && thumb.contentEquals(other.thumb)
+        originDevice == other.originDevice && thumb.contentEquals(other.thumb) && text == other.text &&
+        crop == other.crop && clip == other.clip
     override fun hashCode(): Int = id.hashCode()
+}
+
+/**
+ * The part of a picture its previews show, and its point of interest (2026-11-28, hen: "by default its the full width
+ * of the image and the top and bottom border can be trimmed"), in 1/[WHOLE] of the original: [top] and [bottom] trimmed
+ * off it, and the point at [focusX], [focusY] (of the whole original), set when [hasFocus]. Where a strip shows the
+ * picture smaller than its crop (a grid, a reply), it is cut around that point.
+ */
+@Serializable
+data class CropContent(
+    @ProtoNumber(1) val top: Int = 0,
+    @ProtoNumber(2) val bottom: Int = 0,
+    @ProtoNumber(3) val focusX: Int = WHOLE / 2,
+    @ProtoNumber(4) val focusY: Int = WHOLE / 2,
+    @ProtoNumber(5) val hasFocus: Boolean = false,
+) {
+    /** How much of the height is kept, in 1/[WHOLE]. */
+    val kept: Int get() = WHOLE - top - bottom
+
+    /** Within bounds (at least [MIN_KEPT] kept, the point inside the picture); null when it changes nothing. */
+    fun clean(): CropContent? {
+        val t = top.coerceIn(0, WHOLE - MIN_KEPT)
+        val b = bottom.coerceIn(0, WHOLE - MIN_KEPT - t)
+        val c = CropContent(t, b, focusX.coerceIn(0, WHOLE), focusY.coerceIn(0, WHOLE), hasFocus)
+        return c.takeIf { it.top > 0 || it.bottom > 0 || it.hasFocus }?.let { if (it.hasFocus) it else it.copy(focusX = WHOLE / 2, focusY = WHOLE / 2) }
+    }
+
+    /** The point of interest within the kept part, 0 to 1 across and down (the middle when none is set). */
+    val focusInCrop: Pair<Float, Float>
+        get() = if (!hasFocus) 0.5f to 0.5f
+        else (focusX.toFloat() / WHOLE).coerceIn(0f, 1f) to ((focusY - top).toFloat() / kept.coerceAtLeast(1)).coerceIn(0f, 1f)
+
+    companion object {
+        const val WHOLE = 10_000
+        /** A tenth of the height stays, at least. */
+        const val MIN_KEPT = 1_000
+    }
 }
 
 /** `AttachmentContent.kind`. */
@@ -168,7 +255,20 @@ data class PartContent(
     /** One of [MediaHdr]. */
     @ProtoNumber(7) val hdr: Int = 0,
     @ProtoNumber(8) val growing: Boolean = false,
-)
+    /**
+     * This part's own key (2026-11-28, hen chose "a key per file, inside each chat's message"): a part shared again in
+     * another chat, a new crop, or an original that went up for a re-shared item carry theirs, so a chat gets the keys
+     * of exactly the files it may read. Empty: derived from the item's key (MediaCrypto.partKey).
+     */
+    @ProtoNumber(9) val key: ByteArray = ByteArray(0),
+) {
+    override fun equals(other: Any?): Boolean = other is PartContent && blob == other.blob && size == other.size &&
+        width == other.width && height == other.height && mime == other.mime && codec == other.codec && hdr == other.hdr &&
+        growing == other.growing && key.contentEquals(other.key)
+
+    override fun hashCode(): Int = blob.hashCode() * 31 + size.hashCode()
+}
+
 
 /** `PartContent.codec`. */
 object MediaCodec {
@@ -188,6 +288,7 @@ object MediaPart {
     const val PREVIEW = 1
     const val ORIGINAL = 2
     const val POSTER = 3
+    const val CLIP = 4
 }
 
 /** A request for [part] of item [attachmentId] of message [messageId]; [width] for a preview, [now] from Get it now. */
@@ -209,6 +310,40 @@ internal data class MediaReplyContent(
     @ProtoNumber(4) val status: Int = 0,
     @ProtoNumber(5) val upload: PartContent? = null,
 )
+
+/**
+ * What a phone holds of some shared items ([items]), sent to the chat when it changes; [ask]: the others answer with
+ * what they hold of the same items (all their items in the chat when [items] is empty).
+ */
+@Serializable
+internal data class HoldingsContent(
+    @ProtoNumber(1) val items: List<HoldingContent> = emptyList(),
+    @ProtoNumber(2) val ask: Boolean = false,
+)
+
+/** What the sending phone holds of item [attachmentId] of message [messageId]. */
+@Serializable
+internal data class HoldingContent(
+    @ProtoNumber(1) val messageId: String = "",
+    @ProtoNumber(2) val attachmentId: String = "",
+    /** One of [HeldOriginal]. */
+    @ProtoNumber(3) val original: Int = 0,
+    /** The width of the preview it keeps (0: none kept). */
+    @ProtoNumber(4) val previewWidth: Int = 0,
+    /** Its Journal server has the original (the last phase; nothing sets it yet). */
+    @ProtoNumber(5) val journal: Boolean = false,
+)
+
+/** `HoldingContent.original`. */
+object HeldOriginal {
+    const val NONE = 0
+    /** The shared file itself, where it was shared from (the sharing phone). */
+    const val SOURCE = 1
+    /** A copy fetched when it was opened. */
+    const val COPY = 2
+    /** A copy kept because it is the only one known: it stays when the cache is cleared. */
+    const val KEPT = 3
+}
 
 /** `MediaReplyContent.status`. */
 object MediaReplyStatus {
@@ -309,6 +444,13 @@ internal data class EditContent(
     /** LIVE: where the editor's caret is in [body], and the selection's end (2026-11-24, hen); -1: not said. */
     @ProtoNumber(6) val selStart: Int = -1,
     @ProtoNumber(7) val selEnd: Int = -1,
+    /** FINAL, on pictures sent [MediaContent.quiet]: their caption (empty: none), which notifies as a new message. */
+    @ProtoNumber(8) val notify: Boolean = false,
+    /**
+     * FINAL: a picture of the message with a new composition after it was sent (2026-11-28, hen: "edit the composition
+     * after message sent"): the same item (its id and key), its new [AttachmentContent.crop] and the previews made for it.
+     */
+    @ProtoNumber(9) val item: AttachmentContent? = null,
 ) {
     companion object {
         const val FINAL = 0
@@ -625,4 +767,62 @@ internal object ContentCodec {
             null
         }
     }
+}
+
+/** "Send me our chat's history": this phone has none of it (a new install). */
+@Serializable
+internal data class HistoryRequestContent(
+    /** Only messages before this time (0: all). */
+    @ProtoNumber(1) val before: Long = 0,
+)
+
+/** Part of a chat's history, oldest first; [last] on the final part (an empty last part: nothing to send). */
+@Serializable
+internal data class HistoryContent(
+    @ProtoNumber(1) val items: List<HistoryItem> = emptyList(),
+    @ProtoNumber(2) val last: Boolean = false,
+)
+
+/** One message of a history, as its sender's phone keeps it. */
+@Serializable
+internal data class HistoryItem(
+    @ProtoNumber(1) val id: String = "",
+    /** Written by the phone sending the history (its user); else by the one asking. */
+    @ProtoNumber(2) val fromSender: Boolean = false,
+    @ProtoNumber(3) val body: String = "",
+    @ProtoNumber(4) val at: Long = 0,
+    @ProtoNumber(5) val face: Int = 0,
+    @ProtoNumber(6) val media: MediaContent? = null,
+    @ProtoNumber(7) val editedAt: Long = 0,
+    @ProtoNumber(8) val deleted: Boolean = false,
+)
+
+/** The bytes of history items in one part: well under the server's 256 KiB envelope, after padding and encryption. */
+internal const val HISTORY_PART_BYTES = 160 * 1024
+
+/**
+ * [messages] (a chat's, oldest first, as this phone keeps them) as history parts that each fit an envelope; one empty
+ * part when there are none, so the asking phone knows it is done.
+ */
+internal fun historyParts(messages: List<TextMessage>): List<List<HistoryItem>> {
+    val parts = mutableListOf<List<HistoryItem>>()
+    var part = mutableListOf<HistoryItem>()
+    var bytes = 0
+    for (m in messages) {
+        val item = HistoryItem(
+            id = m.id, fromSender = m.outgoing, body = if (m.deleted) "" else m.body, at = m.at, face = m.face,
+            media = if (m.deleted) null else m.media, editedAt = m.editedAt ?: 0, deleted = m.deleted,
+        )
+        val size = kotlinx.serialization.protobuf.ProtoBuf.encodeToByteArray(HistoryItem.serializer(), item).size + 8
+        if (size > HISTORY_PART_BYTES) continue
+        if (bytes + size > HISTORY_PART_BYTES && part.isNotEmpty()) {
+            parts += part
+            part = mutableListOf()
+            bytes = 0
+        }
+        part += item
+        bytes += size
+    }
+    parts += part
+    return parts
 }

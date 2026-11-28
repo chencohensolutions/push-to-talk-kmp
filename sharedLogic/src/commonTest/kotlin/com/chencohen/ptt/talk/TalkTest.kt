@@ -564,6 +564,29 @@ class TalkTest {
     }
 
     @Test
+    fun theirMicrophoneGoingQuietEndsTheirPushPlayingHere() = runTest {
+        // 2026-11-28: testbot kept showing "hen talking" for two hours: hen's microphone went quiet in the room, the
+        // end of the floor never came, and the push it was playing never ended.
+        val (server, hen, dana) = paired()
+        dana.work.launch { dana.talk.press("hen") }
+        advanceTimeBy(500)
+        dana.mic.say(0, 20)
+        advanceTimeBy(500)
+        runCurrent()
+        assertEquals(true, hen.state.talk.playing?.live, "playing her push live")
+        server.dropTalkStates = true
+        server.dropForwarded = true
+        hen.talk.onStopped("dana.1")
+        hen.clock += 6_000
+        advanceTimeBy(6_000)
+        runCurrent()
+        assertTrue(hen.state.talk.playing?.live != true, "no longer playing live")
+        assertFalse(hen.state.talk.talkers.containsKey("dana"))
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun aPushThatStopsComingStopsPlayingLiveWithinThreeSeconds() = runTest {
         // 2026-11-27 (hen, with Sharon): her pill stayed "talking" with its time counting after she had let go. Her
         // segments stopped and the floor's end never came here: the live playback ends by itself.

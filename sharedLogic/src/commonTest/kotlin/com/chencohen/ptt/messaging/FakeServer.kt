@@ -550,8 +550,56 @@ internal class FakeServer {
         override suspend fun put(id: String, peer: String?, group: String?, bytes: ByteArray) {
             if (peer != null && setOf(device.user, peer) !in pairs) throw com.chencohen.ptt.talk.BlobException(403, "not paired")
             files[id] = bytes
+            shares.getOrPut(id) { mutableSetOf() } += (group ?: peer.orEmpty())
+        }
+
+        override suspend fun readFrom(id: String, offset: Long, follow: Boolean, onBytes: suspend (ByteArray) -> Unit) {
+            val bytes = files[id] ?: throw com.chencohen.ptt.talk.BlobException(404, "no such blob")
+            if (offset < bytes.size) onBytes(bytes.copyOfRange(offset.toInt(), bytes.size))
+        }
+
+        override suspend fun putPiece(id: String, peer: String?, group: String?, keepMedia: Boolean, total: Long, offset: Long, bytes: ByteArray): Long {
+            if (peer != null && setOf(device.user, peer) !in pairs) throw com.chencohen.ptt.talk.BlobException(403, "not paired")
+            val have = files[id] ?: ByteArray(0)
+            if (offset != have.size.toLong()) return have.size.toLong()
+            if (have.size + bytes.size > total) throw com.chencohen.ptt.talk.BlobException(413, "too large")
+            files[id] = have + bytes
+            shares.getOrPut(id) { mutableSetOf() } += (group ?: peer.orEmpty())
+            kept[id] = keepMedia
+            return offset + bytes.size
+        }
+
+        override suspend fun putMediaPiece(id: String, peer: String?, group: String?, keepDays: Int, total: Long, offset: Long, bytes: ByteArray): Long =
+            putPiece(id, peer, group, true, total, offset, bytes).also { keptDays[id] = keepDays }
+
+        override suspend fun delete(id: String) {
+            files.remove(id)
+            shares.remove(id)
+        }
+
+        override suspend fun share(id: String, peer: String?, group: String?): Boolean {
+            if (id !in files) return false
+            shareCalls += id
+            shares.getOrPut(id) { mutableSetOf() } += (group ?: peer.orEmpty())
+            return true
+        }
+
+        override suspend fun unshare(id: String, peer: String?, group: String?) {
+            val left = shares[id] ?: return delete(id)
+            left -= (group ?: peer.orEmpty())
+            if (left.isEmpty()) delete(id)
         }
     }
+
+    /** The conversations each blob is readable in (its upload's and the shares'), and every share asked for. */
+    val shares = mutableMapOf<String, MutableSet<String>>()
+    val shareCalls = mutableListOf<String>()
+
+    /** Whether each blob was uploaded as a shared original (?keep=media). */
+    val kept = mutableMapOf<String, Boolean>()
+
+    /** The days each shared media blob was asked to be kept (&days=N). */
+    val keptDays = mutableMapOf<String, Int>()
 
     /** Closes [device]'s connection with [code], as the server does on 4001 and 4003. */
     fun close(device: DeviceAddress, code: Int) {

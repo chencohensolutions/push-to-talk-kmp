@@ -60,6 +60,8 @@ kotlin {
             api(libs.livekit.android)
             // Follow my face in video calls (on the phone, bundled: works offline).
             implementation(libs.mlkit.face.detection)
+            // Shared videos' previews (media/AndroidMediaPreparer.kt): HEVC through Media3 Transformer.
+            implementation(libs.androidx.media3.transformer)
             // Silero VAD for hands-free bursts in the car on LiteRT from Google Play services (talk/SileroSpeechDetector.kt):
             // the runtime isn't bundled.
             implementation(libs.play.services.tflite.java)

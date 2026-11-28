@@ -53,6 +53,56 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         item
     }
 
+    override suspend fun open(source: String): OriginalReader? = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(source)
+        val input = runCatching { resolver.openInputStream(uri) }.getOrNull() ?: return@withContext null
+        val size = nameAndSize(uri).second.takeIf { it > 0 } ?: -1L
+        object : OriginalReader {
+            private val digest = MessageDigest.getInstance("SHA-256")
+            private val buffer = ByteArray(MediaCrypto.CHUNK)
+            override val size: Long = size
+
+            override suspend fun read(max: Int): ByteArray? = withContext(Dispatchers.IO) {
+                val n = input.read(buffer, 0, minOf(max, buffer.size))
+                if (n < 0) null else buffer.copyOf(n).also { digest.update(it) }
+            }
+
+            override fun sha256(): ByteArray = digest.digest()
+
+            override fun close() = runCatching { input.close() }.let { }
+        }
+    }
+
+    /**
+     * New previews of the picture at [source] from the part of the original [crop] keeps (2026-11-28, hen: "make the
+     * cropped preview from the original image"): decoded upright again, just sharp enough for the widest preview.
+     */
+    override suspend fun crop(source: String, crop: com.chencohen.ptt.messaging.CropContent, widths: (croppedWidth: Int) -> List<Int>): PreparedCrop? = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(source)
+        var scale = 1.0
+        val full = runCatching {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                val most = widths(info.size.width).maxOrNull() ?: info.size.width
+                scale = fit(info.size.width, most)
+                if (scale < 1.0) decoder.setTargetSize((info.size.width * scale).roundToInt().coerceAtLeast(1), (info.size.height * scale).roundToInt().coerceAtLeast(1))
+            }
+        }.getOrNull() ?: return@withContext null
+        val top = (full.height.toLong() * crop.top / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt()
+        val kept = (full.height.toLong() * crop.kept / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt().coerceIn(1, full.height - top)
+        val part = if (top == 0 && kept == full.height) full else Bitmap.createBitmap(full, 0, top, full.width, kept)
+        val started = System.nanoTime()
+        val previews = previews(part, widths((full.width / scale).roundToInt()))
+        if (part !== full) part.recycle()
+        full.recycle()
+        Log.i(TAG, "Cropped ${crop.top}/${crop.bottom}: previews " + previews.joinToString { "${it.width}px ${it.bytes.size / 1024} KB" } + " in ${(System.nanoTime() - started) / 1_000_000} ms")
+        PreparedCrop(previews)
+    }
+
+    override suspend fun sizeOf(source: String): Long = withContext(Dispatchers.IO) {
+        runCatching { nameAndSize(Uri.parse(source)).second }.getOrDefault(-1L)
+    }
+
     private fun nameAndSize(uri: Uri): Pair<String, Long> {
         var name = uri.lastPathSegment.orEmpty()
         var size = -1L
@@ -88,23 +138,25 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
     private fun image(uri: Uri, mime: String, name: String, size: Long, sha: ByteArray, source: String, widths: (Int) -> List<Int>): PreparedItem? {
         val exif = runCatching { openExif(original(uri)) ?: openExif(uri) }.getOrNull()
         // Upright: ImageDecoder turns it by its EXIF orientation.
-        var sample = 1
+        // Decoded just wide enough for the widest preview, at an exact size: a sample size may be rounded by the decoder
+        // (a HEIC asked for 1/2 came at 1/3, 2026-11-28, hen: "why preview image width is 1000 shouldn't it be 1080?").
+        var scale = 1.0
         val full = runCatching {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                val turned = (exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) ?: 0) in TURNED
-                val upright = if (turned) info.size.height else info.size.width
-                val most = widths(upright).maxOrNull() ?: upright
-                sample = maxOf(1, upright / most)
-                if (sample > 1) decoder.setTargetSampleSize(sample)
+                // The size here is already upright (ImageDecoder turns it by its EXIF orientation, and says so).
+                val most = widths(info.size.width).maxOrNull() ?: info.size.width
+                scale = fit(info.size.width, most)
+                if (scale < 1.0) decoder.setTargetSize((info.size.width * scale).roundToInt().coerceAtLeast(1), (info.size.height * scale).roundToInt().coerceAtLeast(1))
             }
         }.getOrNull() ?: return null
-        val width = full.width * sample
-        val height = full.height * sample
+        val width = (full.width / scale).roundToInt()
+        val height = (full.height / scale).roundToInt()
         val previews = previews(full, widths(width))
         full.recycle()
-        val taken = exif?.let(::takenAt)
+        val taken = exif?.let(::takenAt) ?: storeTakenAt(uri)?.let { at -> at to java.util.TimeZone.getDefault().getOffset(at) / 60_000 }
         val place = exif?.let { e -> FloatArray(2).takeIf { @Suppress("DEPRECATION") e.getLatLong(it) }?.let { doubleArrayOf(it[0].toDouble(), it[1].toDouble()) } }
+        android.util.Log.i("TalkMedia", "picked ${uri.authority}: exif ${exif != null}, taken ${taken != null}, place ${place != null}")
         return PreparedItem(
             kind = MediaKind.IMAGE, mime = mime, name = name, size = size, width = width, height = height,
             takenAt = taken?.first ?: 0, takenOffsetMin = taken?.second ?: 0,
@@ -114,7 +166,17 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         )
     }
 
-    private fun openExif(uri: Uri): ExifInterface? = resolver.openInputStream(uri)?.use { ExifInterface(it) }
+    // By file descriptor first: the framework reads HEIF (what newer cameras save) only from a seekable file, not a stream.
+    private fun openExif(uri: Uri): ExifInterface? =
+        runCatching { resolver.openFileDescriptor(uri, "r")?.use { ExifInterface(it.fileDescriptor) } }.getOrNull()
+            ?: resolver.openInputStream(uri)?.use { ExifInterface(it) }
+
+    /** When the picture was taken, as the gallery has it (a picture whose EXIF has no date, or one ExifInterface can't read). */
+    private fun storeTakenAt(uri: Uri): Long? = runCatching {
+        resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATE_TAKEN), null, null, null)?.use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0).takeIf { it > 0 } else null
+        }
+    }.getOrNull()
 
     /** When it was taken (ms, UTC) and its place's offset in minutes, from the EXIF's original date and offset. */
     private fun takenAt(exif: ExifInterface): Pair<Long, Int>? {
@@ -126,7 +188,7 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         return local.toInstant(zone).toEpochMilli() to zone.totalSeconds / 60
     }
 
-    private fun video(uri: Uri, mime: String, name: String, size: Long, sha: ByteArray, source: String, widths: (Int) -> List<Int>): PreparedItem? {
+    private suspend fun video(uri: Uri, mime: String, name: String, size: Long, sha: ByteArray, source: String, widths: (Int) -> List<Int>): PreparedItem? {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(app, original(uri))
@@ -139,7 +201,7 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
             val taken = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)?.let { d ->
                 runCatching { java.time.ZonedDateTime.parse(d, DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX")).toInstant().toEpochMilli() }.getOrNull()
             }
-            // Until the video's own preview (1080p HEVC) is built, its first picture stands for it in the chat.
+            // Its first picture stands for it in the chat until its clip plays, and where there is none.
             val wanted = widths(width).maxOrNull() ?: width
             val frame = retriever.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, wanted, PreviewSpec.heightAt(width, height, wanted).coerceAtLeast(1))
             val previews = frame?.let { previews(it, widths(width)).also { _ -> it.recycle() } }.orEmpty()
@@ -149,8 +211,94 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
                 lonE7 = place?.let { (it.second * 1e7).roundToInt() } ?: 0, hasPlace = place != null,
                 sha256 = sha, previews = previews, source = source,
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't read the video", e)
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
+    /**
+     * The video's clip (2026-11-28, hen): the whole video in HEVC, its short side 1080 (never larger than it is), at
+     * 3 Mbit/s, its own frame rate, HDR kept where it has it, its sound as it is; an MP4. Null when it is too long to
+     * fit [MAX_CLIP_BYTES] at that rate, or can't be made here.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    override suspend fun clip(source: String, width: Int, height: Int, durationMs: Long, progress: (Float) -> Unit): PreparedPreview? = withContext(Dispatchers.IO) {
+        makeClip(Uri.parse(source), width, height, durationMs, progress)
+    }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private suspend fun makeClip(uri: Uri, width: Int, height: Int, durationMs: Long, progress: (Float) -> Unit): PreparedPreview? {
+        if (durationMs <= 0 || durationMs * (CLIP_BITRATE + CLIP_AUDIO) / 8 / 1000 > MAX_CLIP_BYTES) return null
+        val out = java.io.File(app.cacheDir, "clip-${System.nanoTime()}.mp4")
+        val started = System.nanoTime()
+        try {
+            val made = withContext(Dispatchers.Main) {
+                kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { done ->
+                    val encoders = androidx.media3.transformer.DefaultEncoderFactory.Builder(app)
+                        .setRequestedVideoEncoderSettings(androidx.media3.transformer.VideoEncoderSettings.Builder().setBitrate(CLIP_BITRATE).build())
+                        .build()
+                    val transformer = androidx.media3.transformer.Transformer.Builder(app)
+                        .setVideoMimeType(androidx.media3.common.MimeTypes.VIDEO_H265)
+                        .setEncoderFactory(encoders)
+                        .addListener(object : androidx.media3.transformer.Transformer.Listener {
+                            override fun onCompleted(composition: androidx.media3.transformer.Composition, exportResult: androidx.media3.transformer.ExportResult) {
+                                if (done.isActive) done.resumeWith(Result.success(true))
+                            }
+
+                            override fun onError(
+                                composition: androidx.media3.transformer.Composition,
+                                exportResult: androidx.media3.transformer.ExportResult,
+                                exportException: androidx.media3.transformer.ExportException,
+                            ) {
+                                Log.w(TAG, "Couldn't make the video's clip", exportException)
+                                if (done.isActive) done.resumeWith(Result.success(false))
+                            }
+                        })
+                        .build()
+                    val effects = if (minOf(width, height) > CLIP_SHORT_SIDE) {
+                        androidx.media3.transformer.Effects(emptyList(), listOf(androidx.media3.effect.Presentation.createForShortSide(CLIP_SHORT_SIDE)))
+                    } else androidx.media3.transformer.Effects.EMPTY
+                    val edited = androidx.media3.transformer.EditedMediaItem.Builder(androidx.media3.common.MediaItem.fromUri(original(uri))).setEffects(effects).build()
+                    transformer.start(edited, out.absolutePath)
+                    // How far it got, read on the main thread as Transformer wants, every quarter second.
+                    val main = android.os.Handler(android.os.Looper.getMainLooper())
+                    val holder = androidx.media3.transformer.ProgressHolder()
+                    val poll = object : Runnable {
+                        override fun run() {
+                            if (!done.isActive) return
+                            if (transformer.getProgress(holder) == androidx.media3.transformer.Transformer.PROGRESS_STATE_AVAILABLE) progress(holder.progress / 100f)
+                            main.postDelayed(this, 250)
+                        }
+                    }
+                    main.post(poll)
+                    done.invokeOnCancellation { main.post { main.removeCallbacks(poll); transformer.cancel() } }
+                }
+            }
+            if (!made || !out.exists() || out.length() == 0L || out.length() > MAX_CLIP_BYTES) return null
+            val (w, h) = uprightSize(out) ?: (width to height)
+            val bytes = out.readBytes()
+            Log.i(TAG, "Clip ${w}x$h, ${bytes.size / 1024} KB for ${durationMs / 1000} s in ${(System.nanoTime() - started) / 1_000_000} ms")
+            return PreparedPreview(w, h, bytes, "video/mp4")
+        } finally {
+            out.delete()
+        }
+    }
+
+    /** A video file's size as it is shown (turned by its rotation). */
+    private fun uprightSize(file: java.io.File): Pair<Int, Int>? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: return null
+            val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: return null
+            val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            if (rotation == 90 || rotation == 270) h to w else w to h
+        } catch (_: Exception) {
             null
         } finally {
             runCatching { retriever.release() }
@@ -162,6 +310,9 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         val m = Regex("""([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)""").find(text) ?: return null
         return (m.groupValues[1].toDoubleOrNull() ?: return null) to (m.groupValues[2].toDoubleOrNull() ?: return null)
     }
+
+    /** The scale (at most 1) that makes a picture [width] pixels wide (upright) [most] wide. */
+    private fun fit(width: Int, most: Int): Double = minOf(1.0, most.toDouble() / width.coerceAtLeast(1))
 
     /** [picture] (upright) as one JPEG XL per width, none wider than it. */
     private fun previews(picture: Bitmap, wanted: List<Int>): List<PreparedPreview> = wanted.mapNotNull { w ->
@@ -182,5 +333,12 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
 
         /** Journal's "max" preview quality (2026-11-28, hen: "so use max"). */
         const val QUALITY = 95
+        /** A video's clip (2026-11-28, hen): 1080p HEVC at 3 Mbit/s, flat. */
+        const val CLIP_SHORT_SIDE = 1080
+        const val CLIP_BITRATE = 3_000_000
+        /** About what its sound adds, to tell whether a clip will fit before making it. */
+        const val CLIP_AUDIO = 256_000
+        /** Under what a phone takes as one preview (MediaSharing.MAX_PREVIEW_BYTES, 64 MB): about two and a half minutes. */
+        const val MAX_CLIP_BYTES = 60L shl 20
     }
 }

@@ -975,6 +975,56 @@ class MessagingTest {
     }
 
     @Test
+    fun aNewInstallGetsTheHistoryFromItsContact() = runTest {
+        val server = FakeServer()
+        val hen = Phone(server, "hen", 1, this, 1)
+        val dana = Phone(server, "dana", 1, this, 2)
+        pairedByQr(server, hen, dana)
+        val first = hen.messaging.sendText("dana", "hi dana")
+        advanceUntilIdle()
+        val second = dana.messaging.sendText("hen", "hi hen")
+        advanceUntilIdle()
+        hen.stop()
+        // Her old phone is gone (wiped): the server lists it no more.
+        server.api(DeviceAddress("hen", 2)).revokeMyDevice(1)
+
+        // Hen installs the app again: a new phone with nothing on it, and a new identity key.
+        val again = Phone(server, "hen", 2, this, 7)
+        again.controller.start()
+        advanceUntilIdle()
+        again.messaging.replaceIdentityKey()
+        advanceUntilIdle()
+        // Dana's phone was told of the new key, and she accepts it (until then nothing from it opens there).
+        assertNotNull(dana.store.contact("hen")?.changedKey)
+        assertEquals(setOf("dana"), again.store.meta.historyWanted, "dana came from the server with no messages here")
+        dana.messaging.acceptKeyChange("hen")
+        // Asked before she accepted it, the request didn't open on her phone: the next start asks again.
+        again.controller.stop()
+        advanceUntilIdle()
+        again.controller.start()
+        advanceUntilIdle()
+        val history = again.store.messagesWith("dana")
+        val theirs = dana.store.messagesWith("hen")
+        assertEquals(theirs.map { it.id }, history.map { it.id }, "the history, in the same order")
+        assertEquals(setOf(first.id, second.id), history.map { it.id }.toSet())
+        assertEquals(theirs.map { !it.outgoing }, history.map { it.outgoing }, "hen's own words as hers")
+        assertEquals(theirs.map { it.body }, history.map { it.body })
+        assertTrue(history.all { it.read }, "nothing comes back as unread")
+        assertTrue(again.store.meta.historyWanted.isEmpty(), "answered: asked no more")
+        again.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun historyPartsFitAnEnvelope() {
+        val messages = (1..2_000).map { TextMessage("m$it", "dana", outgoing = it % 2 == 0, body = "x".repeat(400), at = it.toLong()) }
+        val parts = historyParts(messages)
+        assertTrue(parts.size > 1)
+        assertEquals(messages.map { it.id }, parts.flatten().map { it.id }, "every message once, in order")
+        assertEquals(listOf(emptyList()), historyParts(emptyList()), "nothing: one empty part")
+    }
+
+    @Test
     fun anotherAccountOnThePhoneStartsFromNothing() = runTest {
         val server = FakeServer()
         val hen = Phone(server, "hen", 1, this, 1)

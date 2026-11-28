@@ -122,6 +122,77 @@ class MessagingController internal constructor(
      * Shares [sources] (content URIs: pictures, videos, files) in [chat] with [caption] (2026-11-28, hen): previews made
      * for the screens there, then sent. [done] gets how many messages went (0: nothing could be read).
      */
+    /** Reads what the user picked for [chat] into a draft (shown in the chat, its caption written there); [done] gets it. */
+    fun draftMedia(chat: String, sources: List<String>, done: (List<TextMessage>) -> Unit) {
+        scope.launch {
+            val drafts = withContext(work) {
+                try {
+                    messaging.draftMedia(chat, sources)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+            done(drafts)
+        }
+    }
+
+    /** Sends a draft with [caption]. */
+    fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), texts: Map<String, String> = emptyMap()) {
+        scope.launch { withContext(work) { runCatching { messaging.sendDraft(drafts, caption, removed, texts) } } }
+    }
+
+    /** Sends a draft's pictures before their caption (quietly); [done] gets the first message's id. */
+    fun sendPicturesFirst(drafts: List<TextMessage>, removed: Set<String> = emptySet(), texts: Map<String, String> = emptyMap(), done: (String?) -> Unit) {
+        scope.launch {
+            val kept = withContext(work) { runCatching { messaging.sendPicturesFirst(drafts, removed, texts) }.getOrDefault(emptyList()) }
+            done(kept.firstOrNull()?.id)
+        }
+    }
+
+    /** The caption of pictures sent first (empty: none); it notifies them. */
+    fun commitCaption(id: String, caption: String) {
+        scope.launch { withContext(work) { runCatching { messaging.commitCaption(id, caption) } } }
+    }
+
+    /**
+     * New compositions for pictures of my messages (2026-11-28, hen), by (message id, item id), null: the whole
+     * picture; [done] gets each item as it is now (the same one when it couldn't be changed), on the main thread.
+     */
+    /** Sets the words above item [itemId] of my message [messageId] (sent: a quiet edit to the chat). */
+    fun setMediaText(messageId: String, itemId: String, text: String) {
+        scope.launch { withContext(work) { runCatching { messaging.setMediaText(messageId, itemId, text) } } }
+    }
+
+    fun recrop(crops: Map<Pair<String, String>, CropContent?>, done: (List<Pair<String, AttachmentContent>>) -> Unit) {
+        scope.launch {
+            val out = withContext(work) {
+                crops.mapNotNull { (at, crop) ->
+                    runCatching { messaging.recrop(at.first, at.second, crop) }.getOrNull()?.let { at.first to it }
+                }
+            }
+            done(out)
+        }
+    }
+
+    /** Where item [itemId] of my message [messageId] was shared from, to show its original in the crop editor. */
+    fun mediaSource(messageId: String, itemId: String): String? = messaging.media.sourceOf(messageId, itemId)
+
+    /** Drops a draft. */
+    fun dropDraft(drafts: List<TextMessage>) {
+        scope.launch { withContext(work) { messaging.media.drop(drafts) } }
+    }
+
+    /** How far each of this phone's media messages being sent got uploading (0 to 1), by message id. */
+    val uploads: kotlinx.coroutines.flow.StateFlow<Map<String, Float>> get() = messaging.media.uploads
+
+    /** Each shared item's preview going up or coming down now (0 to 1), by item id. */
+    val transfers: kotlinx.coroutines.flow.StateFlow<Map<String, Float>> get() = messaging.media.transfers
+
+    /** Each video of mine whose clip is being made now, 0 to 1, by item id. */
+    val encoding: kotlinx.coroutines.flow.StateFlow<Map<String, Float>> get() = messaging.media.encoding
+
     fun shareMedia(chat: String, sources: List<String>, caption: String, done: (Int) -> Unit = {}) {
         scope.launch {
             val sent = withContext(work) {
@@ -139,6 +210,47 @@ class MessagingController internal constructor(
 
     /** The preview of item [itemId] of message [messageId] for this screen, opened (JPEG XL); null: can't be had now. */
     suspend fun mediaPreview(messageId: String, itemId: String): ByteArray? = withContext(work) { messaging.media.preview(messageId, itemId) }
+
+    /** Video [itemId]'s clip (its 1080p HEVC preview, an MP4), opened; null: none, or can't be had now. */
+    suspend fun mediaClip(messageId: String, itemId: String): ByteArray? = withContext(work) { messaging.media.clip(messageId, itemId) }
+
+    /** The originals asked for on this phone, by "message/item" (the viewer's progress pill). */
+    val originals: kotlinx.coroutines.flow.StateFlow<Map<String, com.chencohen.ptt.media.OriginalState>> get() = messaging.media.originals
+
+    /** Opens the original of a shared item: here at once, or fetched quietly from the phone that shared it. */
+    fun openOriginal(messageId: String, itemId: String) {
+        scope.launch { withContext(work) { messaging.media.openOriginal(messageId, itemId) } }
+    }
+
+    /** An original video read from the server from byte [position] as it plays (OriginalState.Streaming). */
+    fun streamOriginal(messageId: String, itemId: String, position: Long): com.chencohen.ptt.media.OriginalStream? =
+        messaging.media.streamOriginal(messageId, itemId, position)
+
+    /** A message as kept, for the viewer. */
+    fun mediaMessage(id: String): TextMessage? = messaging.media.message(id)
+
+    /** Where a shared item is kept, here and on the others' phones (the viewer's Info). */
+    suspend fun mediaKeeping(messageId: String, itemId: String): com.chencohen.ptt.media.MediaKeeping? = withContext(work) { messaging.mediaKeeping(messageId, itemId) }
+
+    /** Asks the chat's phones what they hold of an item (the viewer's Info). */
+    fun askHoldings(messageId: String, itemId: String) = messaging.askHoldings(messageId, itemId)
+
+    /** What this phone keeps of [chat]'s shared media (the chat's settings, Storage). */
+    suspend fun chatStorage(chat: String): com.chencohen.ptt.media.ChatStorage = withContext(work) { messaging.media.chatStorage(chat) }
+
+    /** Clears what of [chat]'s shared media can come again; answers what is kept then. */
+    /** What the cache of pictures and videos got takes now (Settings › Storage). */
+    suspend fun cacheBytes(): Long = withContext(work) { messaging.media.cacheBytes() }
+
+    suspend fun clearChatStorage(chat: String): com.chencohen.ptt.media.ChatStorage = withContext(work) { messaging.media.clearChat(chat) }
+
+    /** Every request for an original this phone got in [chat], oldest first (logged, refused ones too). */
+    suspend fun originalRequests(chat: String): List<com.chencohen.ptt.media.OriginalRequest> = withContext(work) { messaging.media.originalRequests(chat) }
+
+    /** Stops fetching an original (Cancel). */
+    fun cancelOriginal(messageId: String, itemId: String) {
+        scope.launch { withContext(work) { messaging.media.cancelOriginal(messageId, itemId) } }
+    }
 
     /** Tries a text that failed again. */
     fun retry(id: String) {

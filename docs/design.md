@@ -721,9 +721,165 @@ https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-
   (`PreviewSpec.pick`), opens it from `MediaFiles`, else downloads it once (several asks share one download), checks
   its size and every chunk, and keeps it; a cleared cache is fetched again the same way.
 
-Still to build: originals on request, video previews (1080p HEVC at 3 Mbps, original fps and HDR), files' copies,
-albums, the viewer and its details. Journal as a source for originals that
+- **Originals on request (A3).** Opening an item (`MediaSharing.openOriginal`) shows it at once on the phone that
+  shared it (its URI) or when it came before; otherwise it sends `mediaRequest` in the chat with `PushKind.MEDIA` and
+  `push_user` = the sharer, so only that user's phones wake. The device that keeps the item's source answers
+  (`MediaSharing.took`): it reads the file again through `MediaPreparer.open` (an `OriginalReader` that works out the
+  SHA-256 as it reads), seals it in 64 KiB chunks and PUTs it in about 1 MB pieces with `?keep=media` (`BlobApi.putPiece`),
+  telling the chat `mediaReply` READY once its first piece is on the server. Its last chunk goes only after the whole
+  file matches the SHA-256 that was shared: a changed file is deleted from the server and answered CHANGED, a file that
+  is gone GONE. An upload done in the last 29 days is answered with the same blob, and a wake-up keeps the connection
+  while an upload runs (`MEDIA_WAKE_LIMIT`, 30 minutes). The asker reads the blob with `?follow=1` from its last whole
+  chunk (`BlobApi.readFrom`), opens each chunk and appends it to `media-originals` in the app's cache (opened, so the
+  viewer and the player read it; only Talk can read that folder), and `originals` says how far it got. Waiting for Wi-Fi
+  is not built yet; hen chose it off by default (2026-11-28).
+- **The viewer** (`ui/media/MediaViewer.kt`, docs/screens/viewer.md): growing out of its place in the chat and back into it, an Info sheet (EXIF, what this phone keeps, who has what), the preview at once, the original swapped in when
+  it is here, pinch and double tap zoom, swipe between a message's items, a video's original played with ExoPlayer, a
+  file opened in an app that reads it (the FileProvider serves `media-originals`). A pill at the bottom says "Getting the
+  original · 3 of 8 MB" with ✕, or why it didn't come, with Try again.
+
+- **Drafts and half bubbles** (2026-11-28, hen). `Messaging.draftMedia` prepares what was picked without keeping it
+  (`MediaSharing.prepare(keep = false)`; its previews show from `MediaSharing.drafts`), the writing bubble shows it
+  (`MediaDraftBox`), and `sendDraft` keeps it with the caption, less the items taken out, and delivers it;
+  the previews start uploading on `prepare` (`draftUploads`; `upload` on Send waits for that job and skips what
+  went up), and `MediaSharing.drop` (or an item taken out) deletes the previews here and, with `BlobApi.delete`, on
+  the server. `Messaging.sendPicturesFirst` sends them `quiet` (PushKind.SYNC, no notification) and
+  `commitCaption` sends the caption as an `EditContent` with `notify`, which `takeCaption` keeps and notifies. `MediaSharing.uploads` says how far each message's previews
+  uploaded, which my half bubbles' dashes show. Pictures in the chat sit between half bubbles
+  (docs/screens/conversation.md).
+
+Still to build: each person's download shown as a ring on their face (mock `sending-progress.png`; needs each phone
+to tell how far it got), the top half bubble's place name (hen to pick what it says), files' copies, albums, the viewer's Share and Save. Journal as a source for originals that
 are gone from the phone is the next phase (shed).
+
+## History from contacts (2026-11-28, hen)
+
+"Make it resilient by requesting history from the peer": a new install (a contact that comes from the server's
+`contacts` with no messages here) keeps them in `Meta.historyWanted` and asks each for our chat's history
+(`Content.historyRequest`, field 32), again on each start until answered. Their phone opens it only once its user
+accepted this install's new key, then sends the chat back end to end in parts under the 256 KiB envelope
+(`Content.history`, field 33, `historyParts`), oldest first, an empty last part when there is none; clips and calls
+stay out. It arrives quietly, read, no notification. Pictures keep their shape, when and where, so the chat lays them
+out at once; only the last 30 days' previews are fetched as the history comes, older ones as they scroll in. One-to-one
+chats only for now; groups and this user's other phones are next, and a backup on the Journal server later (hen).
+(`MessagingTest.aNewInstallGetsTheHistoryFromItsContact`.)
+
+## Who holds what (2026-11-28, hen)
+
+"Monitor who have what in a smart way, so the app could clear its cache but make sure all the original images exist
+somewhere; if my image is in the journal server it counts as existed." Each phone tells the chat what it holds of each
+shared item when that changes (`Content.holdings`, field 34, `HoldingsContent`; no push, batched 3 s, only what
+changed since it last said): the original (`HeldOriginal`: the shared file itself, a copy opened here, or a copy kept
+as the only one), the widest preview it keeps, and (the last phase) whether its Journal server has the original. The
+others keep it per item and phone (`MediaSharing.holdersOf`, `#holders` beside the item's source); the sharer's
+answer to a request for the original counts too (ready: its file is there; gone or changed: it isn't), so older apps
+are followed. The viewer's Info asks the chat again (`ask`) and shows what each phone said and when.
+
+The sharing phone checks its shared files once a day as it comes to the front (`checkSources`): one deleted or changed
+is told. A copy of an original opened on this phone that is then the only one known (the sharer's file gone, no one
+else has one, nor a Journal) is moved out of the cache (`MediaFiles.keepOriginal`, `media-originals-kept` in the app's
+no-backup files), so neither Android nor Clear deletes it; once another holder is known it goes back to the cache.
+
+Talk keeps no copy of what it shares, so it needs access to all photos and videos (2026-11-28, hen chose it over
+copies): with only selected photos, a picked picture's pass ends when Talk restarts. Sharing asks for it (again at most
+once a day while it isn't given) and the viewer offers Allow all photos; a shared file found unreadable counts as
+gone until it can be read again (`sourceBack`).
+
+A chat's settings show its Storage (`ChatStorage`: previews sent and got, originals opened here, only copies kept,
+how many of mine are read from where I shared them, and how many originals are known to be nowhere), and Clear cache
+removes only what can come again (`clearChat`): previews got that are still on the server (shared within 29 days) and
+copies of originals someone else has. My own shared previews (the others may ask for them) and the only copies stay.
+
+The whole cache has a limit (2026-11-28, hen: Settings › Storage, 10 GB by default, 1 GB at least; `trimCache`): over
+it, what was read longest ago goes first (`MediaFiles.cached`, each part's last read: a preview's file time is set when
+it is read, an original's when it is opened). Only what can come again goes, as with Clear cache, and nothing read in
+the last 10 minutes (on screen or playing). It runs a few seconds after the cache grows and each time the app comes to
+the front. With Clear when storage is low (on by default), under 2 GB free on the phone all of it that can go goes.
+
+What I share is kept on the server forever (2026-11-28, hen: "don't use the 1 year, keep forever everything"; the
+server's `media_total_gb`, 1 TB, lets what was fetched longest ago go): previews and originals go up with
+`&keep=media` (`BlobApi.putMediaPiece`) and the message says so (`MediaContent.keepDays`, `FOREVER`; 0 from older
+apps means 30 days), so a phone that got it lets its previews go from the cache, to be fetched again. On Wi-Fi (a network that isn't metered) an original goes up right after its message is on the server
+(`uploadAhead`; off Wi-Fi, `uploadPending` sends it on the next start on Wi-Fi), and the chat is told with a READY
+reply as if someone had asked: it then opens for anyone straight from the server, even with my phone off or the file
+gone from it.
+
+**Video clips** (2026-11-28, hen: 1080p HEVC at 3 Mbit/s flat, the video's own frame rate and HDR, autoplay muted, no
+loop). It is made after the draft shows, while the caption is written (hen: "the encoding should happen while writing
+a message with progress indication"): `MediaSharing.makeClips` runs in the draft's upload job, one video at a time,
+says how far each got (`encoding`, by item id; a ring round the video's ▶), and puts the clip on the draft, or on the
+kept message when Send came first (the outbox's `upload` waits for it, then sends the message with it).
+`AndroidMediaPreparer.clip` makes it with Media3 Transformer (`Presentation.createForShortSide(1080)` when the
+video is larger, `DefaultEncoderFactory` at 3 Mbit/s, HDR kept as Transformer does by default, the sound as it is) into
+an MP4, when the video fits 60 MB at that rate (about two and a half minutes; longer ones have only their first frame
+and open their original). It is sealed as `AttachmentContent.clip` (field 22, `MediaCrypto.Part.CLIP`, its own blob)
+and goes up with the previews (`uploaded`); `MediaSharing.clip` opens it (fetched and kept as a preview is, asked of the
+sharer again with `MediaPart.CLIP` when the server let it go), and `fetchPreviews` fetches it with the video's frame
+when videos come at once. The first frame stays in `previews`, so the chat, the receipt and older apps are unchanged.
+
+A preview the server has let go (404) is asked of the phone that shared it (`MediaRequestContent` with `PREVIEW` and
+the width, `askAgain`, at most once an hour for a part): that phone puts the very sealed file it keeps back on the
+server for that chat (`answerPreview`; shared again when another chat still has it), so the key in the message still
+opens it, and answers READY; the asker then fetches it. Only for an item of a message it sent in that chat, not
+deleted, to someone still in it, as for originals. With that phone gone or off, the preview stays missing until it
+answers.
+
+Every file has its own key, and a chat gets the keys of exactly the files it may read (2026-11-28, hen chose "a key
+per file, inside each chat's message" after Fable's review found that a re-share handed chat B the item key chat A
+has, which would open what is made later for B). A first share sends the item's key, from which each part's is
+derived (`MediaCrypto.partKey`, salted by its blob id). Shared again to another chat (`again`), the item goes
+without its key: each preview and the poster carry their own (`PartContent.key`), the same blobs, so it is still
+stored once; its original's key goes in the READY reply (`#okey`, the first chat's original's own key, or a new random
+one when it is uploaded for this chat). A new crop's previews get random keys of their own in every chat, and an
+edit never changes an item's key. A fetched original is checked against the SHA-256 its message named.
+
+Original videos can stream (2026-11-28, hen): a video bigger than the cache limit always does, and with Settings ›
+Storage › Stream original videos (off by default) every one does. Opening one gets its blob as usual (asking the
+sharing phone when the server doesn't have it) and then `OriginalState.Streaming` instead of fetching: the viewer's
+player reads it through `StreamDataSource`, which asks `streamOriginal` for the bytes from where it plays; that reads
+the blob from the chunk there (`Range: bytes=N-`), opens chunk by chunk in memory and writes nothing. A seek opens it
+again; a file still being uploaded is followed as it grows.
+
+Every request for an original is logged on the sharing phone (2026-11-28, hen: "every original image that requested
+will log somewhere; how can we be sure there isn't a way to download all my images"), refused ones too
+(`OriginalRequest`, `RequestResult`). A request names only a message and an item; it is answered only for a message
+this phone sent in the very chat it came from, not deleted, to someone still in that chat (a group's reader), and the
+file read is the one kept when it was shared: nothing in a request names a file, and the ids are random. The original
+goes up sealed with that item's own key, which only the chat has.
+(`MediaOriginalTest.everyRequestForAnOriginalIsLoggedAndOnlyMineInThatChatAreAnswered`.)
+
+A picture deleted for everyone by its sender is gone for everyone (2026-11-28, hen: "if i delete image i sent from chat,
+the peer no longer have access to that image"): its previews, poster and uploaded original are deleted from the
+server and the sender's phone (`revoke`), the others' phones delete what they kept, the only copies too
+(`forgetTaken`), and a later request for the original finds no message and is refused. Delete for me only removes it
+from this phone. (`MediaOriginalTest`.) Next, the last phase: a Journal server's copy counts as existing, and the
+originals sent to me can be backed up there.
+
+A picture shared again, to another chat or the same one, is stored once (2026-11-28, hen: "share images between groups
+without doubling the storage"). When it is picked, `prepare` looks for an item this phone shared before that is the same
+file (`earlier`: the same source, else the same size and then the same SHA-256) whose file was readable when last
+checked and whose previews are still here; it is sent again as that item with its own id (`again`: the same key,
+previews and poster, so the same blobs; `#from` names the first item). Its previews aren't made or uploaded again: the
+server is asked to let the new chat read them too (`POST /blob/<id>?peer=` or `?group=`, the server's
+docs/messaging.md, "Blobs"), and only if they are gone from there are they uploaded. A request for its original is
+answered with the original already uploaded for the first sharing when it is still on the server, shared the same way.
+Deleting it in one chat takes the blobs out of that chat only (`DELETE /blob/<id>?peer=`): the server deletes a blob
+when no chat is left, and this phone keeps a preview while another message names it. The previews are the widths made
+for the first chat's screens. (`MediaSharingTest.aPictureSharedToAnotherChatIsStoredOnce`.)
+
+Each picture may have a composition of its own (2026-11-28, hen: "pick the point of interest of every image i send ...
+when composing an image, by default its the full width of the image and the top and bottom border can be trimmed";
+"edit the composition after message sent"). `AttachmentContent.crop` (`CropContent`, in 1/10000 of the original) says
+how much is trimmed off the top and the bottom (a tenth stays at least) and the point of interest; `width` and `height`
+stay the original's, and `shownHeight` is what the chat shows. `MediaSharing.recrop` makes the previews again from the
+original's kept part (`MediaPreparer.crop`; Android decodes it upright again and cuts it before encoding), seals them
+with the item's own key under new blob ids, and drops the old ones here and on the server. A draft's go up with the
+rest (`keep` and `drop` read the draft as this phone holds it now); a sent message's go up first, then the chat is told
+with a quiet edit (`EditContent.item`: the same item id, kind and key, its new crop and previews; `takeRecrop` refuses
+anything else and keeps what the item is, so only its look changes). Opening it still shows the whole original; until
+the original is here, the cropped preview sits where its part lies. Where a box is another shape than the crop, the
+picture is cut around the point of interest. (`MediaSharingTest.aDraftsPictureIsCroppedBeforeItGoes`,
+`aSentPicturesCompositionChangesQuietlyOnTheirPhone`.)
 
 ## Next
 

@@ -78,6 +78,8 @@ internal fun SettingsScreen(
     setSoftMessage: (Boolean) -> Unit = {},
     /** Settings › Your picture (2026-11-24, hen). */
     openPicture: () -> Unit = {},
+    /** Settings › Storage (2026-11-28, hen). */
+    openStorage: () -> Unit = {},
 ) {
     LaunchedEffect(Unit) { refresh() }
     SettingsScaffold(stringResource(R.string.settings_title), back) {
@@ -214,6 +216,10 @@ internal fun SettingsScreen(
         SectionTitle(stringResource(R.string.settings_calls_title))
         SettingsCard {
             InfoRow(stringResource(R.string.settings_calls_row), stringResource(R.string.settings_calls_body), onClick = openCalls)
+        }
+        SectionTitle(stringResource(R.string.settings_storage_title))
+        SettingsCard {
+            InfoRow(stringResource(R.string.settings_storage_title), stringResource(R.string.settings_storage_body), onClick = openStorage)
         }
         UpdatesSection(updates, checkUpdates, update, automaticUpdates, setAutomaticUpdates)
         ServerSection(state)

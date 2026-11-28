@@ -138,6 +138,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         set(value) = store.putString(KEY_HEAR_VISIBLE, value.toString())
 
     /** The chats set to When I'm away: Notify only (the rest play aloud). */
+    /** Chats whose videos are fetched as they come (TalkSettings.videosAtOnce); else when the chat opens. */
+    var videosAtOnceChats: Set<String>
+        get() = store.getString(KEY_VIDEOS_AT_ONCE)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
+        set(value) = store.putString(KEY_VIDEOS_AT_ONCE, json.encodeToString(value.sorted()))
+
     var notifyOnlyChats: Set<String>
         get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
         set(value) = store.putString(KEY_NOTIFY_ONLY, json.encodeToString(value.sorted()))
@@ -283,6 +288,21 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_LIVE_TYPING_FOR)?.let { runCatching { json.decodeFromString<Map<String, Boolean>>(it) }.getOrNull() }.orEmpty()
         set(value) = store.putString(KEY_LIVE_TYPING_FOR, json.encodeToString(value))
 
+    /** Settings › Storage › Cache limit in GB (TalkSettings.mediaCacheGb): 10 unless set, 1 at least. */
+    var mediaCacheGb: Int
+        get() = store.getString(KEY_MEDIA_CACHE_GB)?.toIntOrNull()?.coerceAtLeast(1) ?: 10
+        set(value) = store.putString(KEY_MEDIA_CACHE_GB, value.coerceAtLeast(1).toString())
+
+    /** Settings › Storage › Clear the cache when the phone has less than 2 GB free (default on). */
+    var clearCacheWhenLow: Boolean
+        get() = store.getString(KEY_CLEAR_CACHE_LOW) != "false"
+        set(value) = store.putString(KEY_CLEAR_CACHE_LOW, value.toString())
+
+    /** Settings › Storage › Stream original videos (default off). */
+    var streamVideos: Boolean
+        get() = store.getString(KEY_STREAM_VIDEOS) == "true"
+        set(value) = store.putString(KEY_STREAM_VIDEOS, value.toString())
+
     /** The chats there were when Live typing's default was turned on (TalkSettings.liveTypingKnown). */
     var liveTypingKnown: Set<String>
         get() = store.getString(KEY_LIVE_TYPING_KNOWN)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
@@ -373,6 +393,9 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_LIVE_TYPING_FOR = "live_typing_for"
         private const val KEY_MY_GENDER = "my_gender"
         private const val KEY_LIVE_TYPING_KNOWN = "live_typing_known"
+        private const val KEY_MEDIA_CACHE_GB = "media_cache_gb"
+        private const val KEY_CLEAR_CACHE_LOW = "media_clear_cache_low"
+        private const val KEY_STREAM_VIDEOS = "media_stream_videos"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
         private const val KEY_LOWER_OTHERS_FOR_TALK = "lower_others_for_talk"
@@ -392,6 +415,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_DEFAULT_TALK = "talk_default_chat"
         private const val KEY_HARDWARE_BUTTONS = "talk_hardware_buttons"
         private const val KEY_NOTIFY_ONLY = "talk_notify_only"
+        private const val KEY_VIDEOS_AT_ONCE = "talk_videos_at_once"
         private const val KEY_KEEP_VOICE = "talk_keep_voice"
         private const val KEY_KEEP_VIDEO = "talk_keep_video"
         private const val KEY_BOTH_LIVE_CALL = "talk_both_live_call"

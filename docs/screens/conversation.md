@@ -144,7 +144,10 @@ label), and ✓ takes the place of the time and its mark at the bottom, so the h
 only when the typed text no longer fits, toward the middle (the right in Hebrew), up to 85% of the row, then wraps
 (`editBoxWidth`, RtlTransitionsTest). A tap on (or focus in) the writing bubble ends the edit unchanged, the focus moving there with the keyboard staying up; a double tap on another of my texts ends the first and starts the new one (`EditSession`, EditSessionTest). ✓ saves; Back or a tap outside turn it back unchanged (no ✕). The edit goes end to end like
 a text (`EditContent` in Content field 19, kept and pushed silently, also to my other phones; in a group through the
-group's Send); every phone replaces the text and shows "edited" by the time. Only the author's edit of their own text
+group's Send); every phone replaces the text and shows "edited" by the time. The caption of my sent pictures is edited the same way (2026-11-28, hen:
+"double tap on message text to edit"): a double tap on their bottom half (or Edit with the message selected) turns
+it to the writing look in place, the caret at the character tapped, ✓ where the time was; it may be emptied, and it
+changes on every phone without a new notification (`CaptionEdit`; `Messaging.editText`). Only the author's edit of their own text
 counts; an id a phone doesn't have is ignored; older apps skip the field. While I edit, live only like live typing
 (ephemeral): with Live typing on for the chat they see that message's text change letter by letter in place, else
 only that it is being edited; either way their bubble gets a soft outline and "Editing…", and its size eases. A cancel
@@ -573,16 +576,80 @@ until someone else's comes; the bubble's time is in the same colour as the name 
 
 ## Shared pictures, videos and files (2026-11-28, hen; being built)
 
-`ui/media/MediaInChat.kt`. Shared media isn't in a bubble: each picture or video is as wide as the screen (out through
-the chat's side padding), in its own shape (kept between 0.4 and 3 wide to high), drawn from its JPEG XL preview made
-for this screen's width. Over its bottom edge, small dark chips: at the start when it was taken (and, next, the place's
-name) and a video's length; at the end the time it was sent, orange when it failed (a tap tries again). A video shows its
-first picture with a Play circle until its own preview is built. A caption comes under them in a bubble of its own; a
-file is a bubble with its name, its size and the time. A long press selects it, as any message; a tap will open the
-viewer. Until the preview is there (downloading, or fetched again after the cache was cleared), the picture's shape is
-held in the Raised colour, so nothing moves when it comes.
+`ui/media/MediaInChat.kt`. Each picture or video is as wide as the screen (out through the chat's side padding), in
+its own shape (kept between 0.4 and 3 wide to high), drawn from its JPEG XL preview made for this screen's width,
+between two half bubbles a bubble's widest on the sender's side in their bubble's colour (2026-11-28, hen; mock
+`mockups/share-media/picture-sender.png`, option A). The pictures of the next eight messages in the scroll's direction
+(three behind it) are read, decoded and made into GPU bitmaps on a background thread, two at a time, before they scroll
+in, and the last ones drawn are kept (an eighth of the app's memory), and the chat composes and measures its rows a screen ahead of the scroll (half a
+screen behind) between frames (`LazyLayoutCacheWindow`), so scrolling stays smooth. A long history: only the newest 200 messages are
+laid out, and 200 more each time the scroll comes within 40 rows of the oldest shown; the store keeps each chat's
+messages in order and hands out unchanged chats' lists again, so nothing sorts the whole history on a change (2026-11-28, hen:
+"load images just before scroll reveals the image"; `PrefetchPictures`). The top one says who sent them, only in a group and only on
+other members' pictures, and where and when they were taken ("Tel Aviv · Yesterday 18:40": the place named on each phone by Android's
+Geocoder from the item's coordinates, the date from the EXIF or else the gallery's date taken). With several pictures
+the top line holds all their places (each once, in order, three then "+2") and the span from the first taken to the last
+("Yesterday 18:40 – 21:05"), said once (2026-11-28, hen: "show less redundancy about time and location", chose "once
+on top, changes only", then "no chip, make the details above the image"): a picture whose place differs from the one
+above it, or taken 5 minutes or more after it, has what changed ("Jaffa · 21:05", the day too when that changed) in a
+strip of the bubble right above it (in the draft too); the others have none, and follow each other with a 2-dp gap. Words may be
+written above any picture (`AttachmentContent.text`, field 20; "Aa" on the picture in the draft opens a field in a strip
+above it), shown in a strip of the bubble above it; the caption stays under the last. After sending too (2026-11-28, hen:
+"when i long tap of an image the text icon appears on all images and videos of that message"): a long press on my
+picture message selects it and shows Aa on each of its pictures and videos; Aa ends the selection and opens the field
+in a strip above that one, ✓ saves (a quiet edit: `MediaSharing.setText`, `EditContent.item` with only its words
+changed, no notification), ✕ leaves it. The bottom one holds the caption
+and the time sent. Mine move as my text bubbles do: dashed while it goes, the dashes growing towards a whole line as
+the previews upload, whole on the server, filled once every phone has it; failed, the time turns red and a tap sends
+it again. While a picture's preview goes up to the server (mine, in the writing colour) or comes down from it (theirs, in
+the accent colour), a small cloud (the server) in its end corner, with an arrow up or down, fills with colour from the bottom (mock
+`transfer-icon.png`, B) (hen, 2026-11-28: "i want to see upload progress and download
+progress from server"; `MediaSharing.transfers`, previews uploaded in 64 KiB pieces). Their phone fetches a message's pictures as it comes, and says it got the message (my received face) only once their
+previews are on it; a video's preview comes when the chat is opened, unless the chat has Download videos at once (its
+page, off by default), 2026-11-28, hen. A video shows its length in a chip. A video with a clip (its 1080p HEVC preview)
+plays in place while it is in the chat's layout, muted, once from start to end (no loop), over its first frame from
+the clip's first drawn frame; a speaker button in its top end corner turns the sound on for the chat's clips (until
+the app closes); once it ended, the first frame and ▶ show again (2026-11-28, hen: "autoplay muted when on screen, no
+loop, unmute button"; `ClipInChat`). A file is a row with its name and size in the same frame. A long press
+selects it, as any message; a tap opens the viewer (docs/screens/viewer.md). Until the preview is there
+(downloading, or fetched again after the cache was cleared), the picture's shape is held in the Raised colour, so
+nothing moves when it comes.
+
+**Writing a caption first** (`ui/media/MediaDraftBox.kt`; hen: "the image should be 100% width and the textbox
+should be its max width of a bubble", mock `mockups/share-media/caption-in-box-v2.png`). What is picked (the +
+button, or Talk in Android's Share menu) isn't sent at once: it is laid out as the message it will become, the
+pictures edge to edge (✕ takes one out; more than half the screen scrolls) between two half bubbles outlined in the
+writing colour on my side, a bubble's widest (78% of the screen, as the sent ones). The bottom one is the text box: a
+bin (don't send), the caption and Send. The top half already says where and when they were taken. Sent with a caption, the whole box (a picture of it as
+drawn) flies into the message's place in the chat, as a sent text does, and the message shows the frame it lands;
+sent first, nothing moves: the message takes the pictures' place above the caption box. Send sends them as one message with the caption, and nothing moves sideways.
+The previews start uploading as soon as they are picked (hen: "start sending the images to server before writing");
+the message that names them reaches the others only on Send, which waits for whatever is still uploading. A picture
+taken out, or the whole draft dropped, is deleted from the server too.
+
+**Pictures first, then the text** (2026-11-28, hen: "first send the pictures, then write the text", one button; mock
+`mockups/share-media/send-pictures-first.png`, B). Send with the box empty sends the pictures quietly
+(`MediaContent.quiet`: a silent push, no notification) and leaves the box open under them as their bottom half
+(`MediaCaptionBox`); on their phones the pictures come in at once between outlined half bubbles, like a live draft, and
+with Live typing on the caption forms under them with my caret ("Writing…"). Send then sends the caption (an edit with
+`notify`), their bubbles turn solid as a message, and only that notifies them. Left empty (the chat closed, or two
+minutes without a letter), they are notified of the pictures alone. The bin at the start of the box takes them back: deleted for everyone
+(previews from the server too), and nobody is notified. Send with text written first still sends both at
+once, as before.
+
 
 **The + button** (left of Voice message in the bottom row, hidden while Push is held or hands-free): Gallery picks
 pictures and videos in Samsung's Gallery (Android's photo picker on phones without it), File picks files (Open
 document, kept readable). What is picked is shared in this chat at once. The first time, Android asks for the phone's
 pictures and videos and their places: the original is read again from there when someone opens it.
+
+Pictures in the writing bubble each have a crop icon in their bottom start corner (teal once set): it opens crop and
+focus (docs/screens/viewer.md, "Crop and focus") on the draft's pictures; their previews are made again before Send.
+A picture in the chat is drawn at its composition's shape, cut around its point of interest.
+
+The composer's + has Camera too (2026-11-28, hen: "open the native camera app ... also saved on the device"; "many in
+one go"): the phone's own camera opens. With access to all photos (asked the first time), it opens as itself, and back
+in Talk everything the camera saved in DCIM/Camera since then (pictures and videos, at most 30; not screenshots or downloads) joins a draft here. Without it, the camera is
+asked for one shot at a time into a gallery entry Talk makes in DCIM/Camera and opens again after each shot; Back ends
+the round and its shots join the draft. Either way every shot is an ordinary photo in the gallery, kept after it is sent
+(`rememberCamera` in ui/media/MediaPickers.kt).

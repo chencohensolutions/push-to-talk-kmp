@@ -282,6 +282,8 @@ internal data class Meta(
     val nextSignedId: Int = 1,
     val signedId: Int = 0,
     val signedAt: Long = 0,
+    /** Contacts this new install asked for their chat's history, not answered yet (asked again on each start). */
+    val historyWanted: Set<String> = emptySet(),
 )
 
 /** The shared code's part of the [SecureStore], as JSON values. */
@@ -359,15 +361,42 @@ internal class MessagingStore(val store: SecureStore) {
     private var messageCache: MutableMap<String, TextMessage>? = null
     private val keyById = mutableMapOf<String, String>()
 
+    // Each chat's message keys in order, and its list as last handed out (2026-11-28, hen: "the chats should support
+    // very very long history"): a write touches only its own chat (a binary search, no sort), and publishing hands out
+    // the other chats' lists as they were, so its cost doesn't grow with the history.
+    private val keysByUser = mutableMapOf<String, ArrayList<String>>()
+    private val listByUser = mutableMapOf<String, List<TextMessage>>()
+
     private fun messageKey(message: TextMessage) = message.at.toString().padStart(15, '0') + "-" + message.id
 
     private fun cache(): MutableMap<String, TextMessage> = messageCache ?: run {
         val loaded = mutableMapOf<String, TextMessage>()
         store.keys(Spaces.MESSAGES).forEach { key -> read(Spaces.MESSAGES, key, TextMessage.serializer())?.let { loaded[key] = it } }
         keyById.clear()
-        loaded.forEach { (key, m) -> keyById[m.id] = key }
+        keysByUser.clear()
+        listByUser.clear()
+        loaded.forEach { (key, m) ->
+            keyById[m.id] = key
+            keysByUser.getOrPut(m.user) { ArrayList() }.add(key)
+        }
+        keysByUser.values.forEach { it.sort() }
         messageCache = loaded
         loaded
+    }
+
+    private fun indexed(user: String, key: String) {
+        val keys = keysByUser.getOrPut(user) { ArrayList() }
+        val at = keys.binarySearch(key)
+        if (at < 0) keys.add(-at - 1, key)
+        listByUser.remove(user)
+    }
+
+    private fun unindexed(user: String, key: String) {
+        val keys = keysByUser[user] ?: return
+        val at = keys.binarySearch(key)
+        if (at >= 0) keys.removeAt(at)
+        if (keys.isEmpty()) keysByUser.remove(user)
+        listByUser.remove(user)
     }
 
     fun putMessage(message: TextMessage) = synchronized(messageLock) {
@@ -376,32 +405,48 @@ internal class MessagingStore(val store: SecureStore) {
         val c = cache()
         // The same message under another time: the old row goes (it was kept twice before).
         keyById[message.id]?.takeIf { it != key }?.let { old ->
-            c.remove(old)
+            c.remove(old)?.let { unindexed(it.user, old) }
             store.remove(Spaces.MESSAGES, old)
         }
+        c[key]?.takeIf { it.user != message.user }?.let { unindexed(it.user, key) }
         c[key] = message
         keyById[message.id] = key
+        indexed(message.user, key)
     }
 
     fun messages(): List<TextMessage> = synchronized(messageLock) { cache().entries.sortedBy { it.key }.map { it.value } }
 
-    fun messagesWith(user: String): List<TextMessage> = synchronized(messageLock) { cache().entries.filter { it.value.user == user }.sortedBy { it.key }.map { it.value } }
+    /** [user]'s messages, oldest first; the same list object until one of them changes. */
+    fun messagesWith(user: String): List<TextMessage> = synchronized(messageLock) { chatList(user) }
+
+    private fun chatList(user: String): List<TextMessage> {
+        val c = cache()
+        return listByUser[user] ?: keysByUser[user].orEmpty().mapNotNull { c[it] }.also { listByUser[user] = it }
+    }
+
+    /** Every chat's messages, oldest first (lists of chats that didn't change are the ones handed out before). */
+    fun conversations(): Map<String, List<TextMessage>> = synchronized(messageLock) {
+        cache()
+        keysByUser.keys.associateWith { chatList(it) }
+    }
 
     fun message(id: String): TextMessage? = synchronized(messageLock) { val c = cache(); keyById[id]?.let { c[it] } }
 
     fun removeMessage(message: TextMessage) = synchronized(messageLock) {
         val key = keyById[message.id] ?: messageKey(message)
         store.remove(Spaces.MESSAGES, key)
-        cache().remove(key)
+        cache().remove(key)?.let { unindexed(it.user, key) }
         keyById.remove(message.id)
     }
 
     fun removeMessagesOf(user: String) = synchronized(messageLock) {
         val c = cache()
-        c.filterValues { it.user == user }.keys.toList().forEach { key ->
+        keysByUser[user].orEmpty().toList().forEach { key ->
             store.remove(Spaces.MESSAGES, key)
             c.remove(key)?.let { keyById.remove(it.id) }
         }
+        keysByUser.remove(user)
+        listByUser.remove(user)
     }
 
     /** [user]'s picture (this user's own: ""), a small WebP with a clear background; null: none. */
@@ -448,6 +493,8 @@ internal class MessagingStore(val store: SecureStore) {
     fun mediaSource(message: String, item: String): String? = store.get(Spaces.MEDIA_SOURCES, "$message/$item")?.decodeToString()
 
     fun putMediaSource(message: String, item: String, source: String) = store.put(Spaces.MEDIA_SOURCES, "$message/$item", source.encodeToByteArray())
+
+    fun removeMediaSource(message: String, item: String) = store.remove(Spaces.MEDIA_SOURCES, "$message/$item")
 
     fun groups(): List<Group> = all(Spaces.GROUPS, Group.serializer())
 

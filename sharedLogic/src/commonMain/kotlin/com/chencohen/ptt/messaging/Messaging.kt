@@ -113,6 +113,11 @@ data class TalkSettings(
     val hardwareButtons: Boolean = false,
     /** Chats set to Notify only. */
     val notifyOnly: Set<String> = emptySet(),
+    /**
+     * Chats whose shared videos are fetched as soon as they come (their page, off by default, 2026-11-28, hen); else a
+     * video's preview comes when the chat is opened. Pictures always come at once.
+     */
+    val videosAtOnce: Set<String> = emptySet(),
     /** Contacts whose urgent pushes play through Do Not Disturb (their page; off unless turned on). */
     val urgentThroughDnd: Set<String> = emptySet(),
     /** Kept calls already downloaded from the server (by id): their Download button is gone. */
@@ -178,6 +183,12 @@ data class TalkSettings(
     val liveTypingFor: Map<String, Boolean> = emptyMap(),
     /** The chats there were when [liveTyping] (the default for new ones) was turned on: they keep their own choice. */
     val liveTypingKnown: Set<String> = emptySet(),
+    /** Settings › Storage › Cache limit, in GB (2026-11-28, hen: 10 by default, 1 at least). */
+    val mediaCacheGb: Int = 10,
+    /** Settings › Storage › Clear the cache when the phone has less than 2 GB free (on by default). */
+    val clearCacheWhenLow: Boolean = true,
+    /** Settings › Storage › Stream original videos: played from the server, none kept here (off by default). */
+    val streamVideos: Boolean = false,
     /**
      * Voice or Video per contact or group (2026-11-23, hen: "remember that setting for that contact"): what the Talk
      * screen's and the reply bubble's Voice | Video chose last for it; [pushVideo] for one never chosen.
@@ -405,7 +416,8 @@ internal class Messaging(
     connector: FrameConnector,
     private val scope: CoroutineScope,
     private val now: () -> Long,
-    private val random: Random = Random.Default,
+    /** Keys and secrets come from it: a cryptographic source (SecureRandom on Android), never Random.Default. */
+    private val random: Random,
     private val onRevoked: () -> Unit = {},
     clipFiles: ClipFiles = MemoryClipFiles(),
     blobApi: BlobApi? = null,
@@ -689,14 +701,18 @@ internal class Messaging(
 
     val groups: Groups = Groups(
         acceptMedia = { m, d -> media.accept(m, d) },
+        onMedia = { group, author, device, content -> media.took(group.chat, author, device, content) },
         engine = engine, store = store, api = api, sender = sender, send = socket::send, scope = scope, now = now, random = random,
         me = ::device, publish = ::publish,
         onText = { group, message ->
             val read = message.outgoing || readsAtOnce(group.chat)
             store.putMessage(message.copy(read = read))
             _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty()), drafts = it.drafts - typingKey(group.chat, message.author.orEmpty())) }
-            if (!read) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
-            if (!message.outgoing) scope.launch { sendGroupDelivered(group, message.id) }
+            if (!read && message.media?.quiet != true) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
+            if (!message.outgoing) scope.launch {
+                previewsHere(group.chat, message.id)
+                sendGroupDelivered(group, message.id)
+            }
         },
         onClip = { group, author, clip, at ->
             val mine = author == device()?.user
@@ -800,7 +816,61 @@ internal class Messaging(
     val media: com.chencohen.ptt.media.MediaSharing = com.chencohen.ptt.media.MediaSharing(
         store = store, files = mediaFiles, blobs = blobs, random = random, now = now,
         screens = ::screensIn, myScreen = { screenWidthPx }, publish = ::publish, newId = ::newId,
+        scope = scope,
+        send = { chat, content, pushKind, pushUser ->
+            val group = Group.idOf(chat)
+            if (group != null) groups.send(group, content, pushKind, pushUser = pushUser) else sender.send(chat, content, pushKind = pushKind, pushUser = pushUser)
+        },
+        cacheLimit = { _state.value.talkSettings.mediaCacheGb.coerceAtLeast(1) * com.chencohen.ptt.media.MediaSharing.GB },
+        clearWhenLow = { _state.value.talkSettings.clearCacheWhenLow },
+        streamVideos = { _state.value.talkSettings.streamVideos },
+        unmetered = { unmetered() },
     )
+
+    /** Whether the phone is on Wi-Fi or another network that isn't metered (the platform sets it): originals go up at once. */
+    var unmetered: () -> Boolean = { false }
+
+    /**
+     * What this phone keeps of a shared item, and who else holds what (the viewer's Info): the one who shared it has the
+     * original; everyone else the preview made for their screen, reached them when their receipt came (mine), unknown
+     * otherwise.
+     */
+    fun mediaKeeping(messageId: String, itemId: String): com.chencohen.ptt.media.MediaKeeping? {
+        val kept = media.keeping(messageId, itemId) ?: return null
+        val message = store.message(messageId) ?: return kept
+        val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return kept
+        val me = device()?.user
+        val owner = if (message.outgoing) me else message.author ?: message.user
+        val chat = message.user
+        val others = Group.idOf(chat)?.let { id -> store.group(id)?.readers?.map { it.user }.orEmpty() } ?: listOf(chat)
+        val told = settings.contactScreens
+        val peers = (listOfNotNull(owner) + others).distinct().filter { it != me }.map { user ->
+            if (user == owner) com.chencohen.ptt.media.PeerHolds(user, original = true, previewWidth = 0, has = true)
+            else {
+                val width = com.chencohen.ptt.media.PreviewSpec.pick(item.previews, told[user] ?: com.chencohen.ptt.media.PreviewSpec.DEFAULT_WIDTH)?.width ?: 0
+                val has = when {
+                    !message.outgoing -> null
+                    Group.idOf(chat) != null -> user in message.deliveredTo || user in message.readBy
+                    else -> message.deliveredAt != null || message.readAt != null || message.status == MessageStatus.DELIVERED || message.status == MessageStatus.READ
+                }
+                com.chencohen.ptt.media.PeerHolds(user, original = false, previewWidth = width, has = has)
+            }
+        }
+        // What each phone said it holds wins over what is inferred; a user's phones each get a line.
+        val holders = media.holdersOf(messageId, itemId).filter { it.device != (device()?.deviceNumber ?: -1) || it.user != me }
+        val reported = holders.groupBy { it.user }
+        val merged = peers.flatMap { peer ->
+            reported[peer.user]?.map { h ->
+                peer.copy(original = h.original == HeldOriginal.SOURCE, device = h.device, held = h.original, keptWidth = h.previewWidth, journal = h.journal, toldAt = h.at, has = peer.has ?: (h.previewWidth > 0 || h.original != HeldOriginal.NONE))
+            } ?: listOf(peer)
+        } + reported.filterKeys { u -> peers.none { it.user == u } }.values.flatten().map { h ->
+            com.chencohen.ptt.media.PeerHolds(h.user, h.original == HeldOriginal.SOURCE, 0, true, h.device, h.original, h.previewWidth, h.journal, h.at)
+        }
+        return kept.copy(peers = merged)
+    }
+
+    /** Asks the chat's phones what they hold of an item (the viewer's Info, so it is fresh). */
+    fun askHoldings(messageId: String, itemId: String) = media.askHoldings(messageId, itemId)
 
     /** The screen widths of the phones that see [chat]: this phone's, and the contact's or each member's as told. */
     private fun screensIn(chat: String): List<Int> {
@@ -815,6 +885,64 @@ internal class Messaging(
      * Shares [sources] (content URIs the user picked or shared to Talk) in [chat]: read, previews made for the screens
      * there, kept as messages and sent (uploaded first). Answers the messages.
      */
+    /** Reads [sources] for [chat] into a draft: shown in the chat with its caption written in place, not sent yet. */
+    suspend fun draftMedia(chat: String, sources: List<String>): List<TextMessage> = media.prepare(chat, sources, "", keep = false)
+
+    /**
+     * Picture [itemId] of my message [messageId] (a draft, or sent) given the composition [crop] (null: all of it):
+     * previews made again from the original; a sent one's chat is told quietly. Answers the item now; null: not done.
+     */
+    suspend fun recrop(messageId: String, itemId: String, crop: CropContent?): AttachmentContent? = media.recrop(messageId, itemId, crop)
+
+    /** The words above item [itemId] of my message [messageId], set after sending (a quiet edit). */
+    suspend fun setMediaText(messageId: String, itemId: String, text: String): Boolean = media.setText(messageId, itemId, text)
+
+    /** Sends a draft [draftMedia] made, with [caption]. */
+    suspend fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), texts: Map<String, String> = emptyMap()): List<TextMessage> =
+        media.keep(drafts, caption, removed, texts = texts).map { deliver(it) }
+
+    /**
+     * Sends a draft's pictures before their caption (2026-11-28, hen, option A): they come in quietly (no notification,
+     * a silent push); [commitCaption] sends the caption, and that notifies. Answers the messages, kept at once (their
+     * delivery goes on in the background), so the caption box can join the first.
+     */
+    fun sendPicturesFirst(drafts: List<TextMessage>, removed: Set<String> = emptySet(), texts: Map<String, String> = emptyMap()): List<TextMessage> {
+        val kept = media.keep(drafts, "", removed, quiet = true, texts = texts)
+        scope.launch { for (m in kept) deliver(m) }
+        return kept
+    }
+
+    /**
+     * The caption of pictures sent with [sendPicturesFirst] (empty: none): here at once, then to the chat as an edit
+     * that notifies. If the pictures haven't gone yet, they go with it (deliver reads the message again).
+     */
+    suspend fun commitCaption(id: String, caption: String): Boolean {
+        val message = store.message(id)?.takeIf { it.outgoing && it.media?.quiet == true } ?: return false
+        val text = caption.trim().take(com.chencohen.ptt.media.MediaSharing.MAX_CAPTION)
+        val shared = message.media!!.copy(caption = text, quiet = false)
+        store.putMessage(message.copy(media = shared, body = com.chencohen.ptt.media.MediaSharing.fallback(shared)))
+        publish()
+        editWanted.remove(id)
+        if (message.status != MessageStatus.SENT && message.status != MessageStatus.DELIVERED && message.status != MessageStatus.READ) return true
+        return sendCaption(message.user, id, text)
+    }
+
+    private suspend fun sendCaption(chat: String, id: String, text: String): Boolean {
+        val at = now()
+        val content = Content(edit = EditContent(id, text, at, EditContent.FINAL, notify = true))
+        return try {
+            val group = Group.idOf(chat)
+            if (group != null) groups.send(group, content, PushKind.MESSAGE) else sender.send(chat, content, pushKind = PushKind.MESSAGE)
+            sendEdit(chat, EditContent(id, editedAt = at, stage = EditContent.CANCEL))
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            println("TalkEdit: caption of $id not sent: $e")
+            false
+        }
+    }
+
     suspend fun shareMedia(chat: String, sources: List<String>, caption: String): List<TextMessage> {
         val messages = media.prepare(chat, sources, caption)
         return messages.map { deliver(it) }
@@ -902,6 +1030,8 @@ internal class Messaging(
     private fun deviceKey(): String? = device()?.let { "${it.user}/${it.deviceNumber}" }
 
     /** The app came to the front: keys, /ws, and the push registration. */
+    private var sourcesCheckedAt = Long.MIN_VALUE / 2
+
     suspend fun start() {
         foreground = true
         updateViewing()
@@ -920,6 +1050,30 @@ internal class Messaging(
                 shareAbout()
             }
         }
+        // Coming to the front at most once a day: the files this phone shared are checked to be where they were (who
+        // holds what).
+        // Coming to the front: the cache kept within its limit (and cleared when the phone runs low).
+        scope.launch { runCatching { media.trimCache() } }
+        // And the originals of what I shared that haven't gone up yet, on Wi-Fi.
+        scope.launch {
+            socket.state.first { it is SocketState.Live }
+            runCatching { media.uploadPending() }
+        }
+        if (now() - sourcesCheckedAt >= SOURCES_CHECK_EVERY) {
+            sourcesCheckedAt = now()
+            scope.launch {
+                socket.state.first { it is SocketState.Live }
+                runCatching { media.checkSources() }
+            }
+        }
+        // Once a run: history not answered yet is asked for again.
+        if (!historyAskedThisRun && store.meta.historyWanted.isNotEmpty()) {
+            historyAskedThisRun = true
+            scope.launch {
+                socket.state.first { it is SocketState.Live }
+                askForHistory()
+            }
+        }
         // Once a run: this user's email to contacts (some paired since it was last said).
         if (!profileShared && (settings.myEmail != null || settings.myGender != Gender.NOT_SET || store.pictureId("") != null)) {
             profileShared = true
@@ -932,6 +1086,94 @@ internal class Messaging(
 
     private var profileShared = false
     private var aboutShared = false
+    private var historyAskedThisRun = false
+
+    // --- History from contacts (2026-11-28, hen: "if someone installs the app new, it requests the full history from
+    // the peer"; "for now make it resilient by requesting history from the peer") -------------------------------------
+
+    /**
+     * Asks each contact this install wants history from ([Meta.historyWanted]: paired here with no messages, as a new
+     * install is) for their chat's history. Asked again each run until they answer: their phone can open it only once
+     * its user accepted this install's new key.
+     */
+    internal suspend fun askForHistory() {
+        val wanted = store.meta.historyWanted
+        for (user in wanted) {
+            val contact = store.contact(user)?.takeIf { it.paired && !it.blocked }
+            if (contact == null) {
+                store.meta = store.meta.let { it.copy(historyWanted = it.historyWanted - user) }
+                continue
+            }
+            try {
+                sender.send(user, Content(historyRequest = HistoryRequestContent()), pushKind = PushKind.SYNC)
+                println("TalkHistory: asked $user for our history")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                println("TalkHistory: couldn't ask $user: $e")
+            }
+        }
+    }
+
+    /** Contacts that came from the server with no messages here: this install wants their history. */
+    private fun wantHistoryFrom(users: List<String>) {
+        val fresh = users.filter { store.messagesWith(it).isEmpty() }
+        if (fresh.isEmpty()) return
+        store.meta = store.meta.let { it.copy(historyWanted = it.historyWanted + fresh) }
+        scope.launch {
+            socket.state.first { it is SocketState.Live }
+            askForHistory()
+        }
+    }
+
+    /**
+     * [contact] asked for our chat's history: sent back end to end, in parts that fit an envelope, oldest first; an
+     * empty last part when there is none. (Their message opened here, so this phone trusts the key it came with: a new
+     * install's is trusted once this user accepted it.)
+     */
+    private suspend fun sendHistory(contact: Contact, request: HistoryRequestContent) {
+        val messages = store.messagesWith(contact.user).filter {
+            it.clip == null && it.call == null && (request.before == 0L || it.at < request.before) && !(it.media?.quiet == true && it.outgoing)
+        }
+        val parts = historyParts(messages)
+        println("TalkHistory: ${contact.user} asked for our history: ${messages.size} messages in ${parts.size} parts")
+        for ((i, items) in parts.withIndex()) {
+            sender.send(contact.user, Content(history = HistoryContent(items, last = i == parts.lastIndex)), pushKind = PushKind.SYNC)
+        }
+    }
+
+    /**
+     * Part of the history from [contact]: the messages this phone doesn't have yet, as they were, read, quietly (no
+     * notification). Pictures keep their shape, when and where they were taken, so the chat lays them out at once;
+     * only the last [HISTORY_PREVIEW_DAYS] days' previews are fetched now, the older as they scroll into view
+     * (2026-11-28, hen: "it should feel seamless, in the background").
+     */
+    private fun takeHistory(contact: Contact, history: HistoryContent, originDevice: Int) {
+        var added = 0
+        val recent = mutableListOf<String>()
+        for (item in history.items) {
+            if (!validId(item.id) || store.message(item.id) != null) continue
+            val media = media.accept(item.media, originDevice)
+            store.putMessage(
+                TextMessage(
+                    item.id, contact.user, outgoing = !item.fromSender, body = item.body.take(4_000), at = item.at, read = true,
+                    status = if (item.fromSender) MessageStatus.SENT else MessageStatus.DELIVERED,
+                    editedAt = item.editedAt.takeIf { it > 0 }, deleted = item.deleted, face = item.face, media = media,
+                ),
+            )
+            added++
+            if (media != null && now() - item.at < HISTORY_PREVIEW_DAYS * 86_400_000L) recent += item.id
+        }
+        if (recent.isNotEmpty()) scope.launch {
+            // Newest first: what the chat shows first.
+            for (id in recent.asReversed()) runCatching { this@Messaging.media.fetchPreviews(id, videos = false) }
+        }
+        if (history.last) store.meta = store.meta.let { it.copy(historyWanted = it.historyWanted - contact.user) }
+        println("TalkHistory: ${added} messages of our history from ${contact.user}${if (history.last) " (the last part)" else ""}")
+        publish()
+    }
+
+    private fun validId(id: String) = id.isNotEmpty() && id.length <= 64
 
     /** This phone's app version ("1.4.28"), told to contacts (AboutContent); "" when the platform didn't set it. */
     var appVersion: String = ""
@@ -1034,6 +1276,8 @@ internal class Messaging(
         // Warmed (someone has this chat open): the connection and the room stay, quietly, until they leave it, its
         // refresh stops coming, or nobody talks for 10 minutes.
         while (!foreground && live.warmFor() > now()) kotlinx.coroutines.delay(1_000)
+        // Someone asked for an original this phone shared: the connection stays while it uploads.
+        kotlinx.coroutines.withTimeoutOrNull(MEDIA_WAKE_LIMIT) { while (!foreground && media.sending) kotlinx.coroutines.delay(1_000) }
         // Another wake-up still holds the connection: it closes it when it is done.
         if (waking > 1) return
         host?.warm(null, false)
@@ -1046,6 +1290,7 @@ internal class Messaging(
         defaultChat = settings.defaultTalkChat,
         hardwareButtons = settings.hardwareButtons,
         notifyOnly = settings.notifyOnlyChats,
+        videosAtOnce = settings.videosAtOnceChats,
         urgentThroughDnd = settings.urgentThroughDndChats,
         downloadedCalls = settings.downloadedCalls,
         saveCalls = settings.saveCalls?.let { name -> com.chencohen.ptt.calls.SaveCalls.entries.firstOrNull { it.name == name } } ?: com.chencohen.ptt.calls.SaveCalls.OFF,
@@ -1083,6 +1328,9 @@ internal class Messaging(
         liveTyping = settings.liveTyping,
         liveTypingFor = settings.liveTypingFor,
         liveTypingKnown = settings.liveTypingKnown,
+        mediaCacheGb = settings.mediaCacheGb,
+        clearCacheWhenLow = settings.clearCacheWhenLow,
+        streamVideos = settings.streamVideos,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -1091,6 +1339,7 @@ internal class Messaging(
         settings.defaultTalkChat = talk.defaultChat
         settings.hardwareButtons = talk.hardwareButtons
         settings.notifyOnlyChats = talk.notifyOnly
+        settings.videosAtOnceChats = talk.videosAtOnce
         settings.urgentThroughDndChats = talk.urgentThroughDnd
         settings.downloadedCalls = talk.downloadedCalls
         settings.saveCalls = talk.saveCalls.name
@@ -1134,8 +1383,12 @@ internal class Messaging(
         // The default turned on: the chats there are now keep theirs (off unless set), only new ones follow it.
         val known = if (talk.liveTyping && !before.liveTyping) knownChats() else talk.liveTypingKnown
         if (known != before.liveTypingKnown) settings.liveTypingKnown = known
-        val talk = talk.copy(liveTypingKnown = known, colorsAt = stamped)
+        settings.mediaCacheGb = talk.mediaCacheGb.coerceAtLeast(1)
+        settings.clearCacheWhenLow = talk.clearCacheWhenLow
+        settings.streamVideos = talk.streamVideos
+        val talk = talk.copy(liveTypingKnown = known, colorsAt = stamped, mediaCacheGb = talk.mediaCacheGb.coerceAtLeast(1))
         _state.update { it.copy(talkSettings = talk) }
+        if (talk.mediaCacheGb < before.mediaCacheGb || (talk.clearCacheWhenLow && !before.clearCacheWhenLow)) scope.launch { runCatching { media.trimCache() } }
     }
 
     /**
@@ -1840,8 +2093,10 @@ internal class Messaging(
             )
         }
         // Paired elsewhere (or this phone's store is new): trusted from the server until the safety number is compared.
+        val arrived = mutableListOf<String>()
         for (server in answer.contacts) {
             if (store.contact(server.user) != null) continue
+            arrived += server.user
             val key = server.identityKey ?: continue
             engine.trustIdentity(server.user, key)
             store.putContact(
@@ -1852,6 +2107,8 @@ internal class Messaging(
             )
         }
         publish()
+        // A contact this phone didn't know, with no messages here (a new install): our history is asked of them.
+        wantHistoryFrom(arrived)
     }
 
     suspend fun unpair(user: String) {
@@ -2071,6 +2328,7 @@ internal class Messaging(
 
     /** Sends one kept text; answers it with its new status. */
     private suspend fun deliver(message: TextMessage): TextMessage {
+        var sentMedia: MediaContent? = null
         if (message.clip != null) {
             talk.deliverVoice(message.id)
             return store.message(message.id) ?: message
@@ -2078,9 +2336,13 @@ internal class Messaging(
         val status = try {
             // Shared media: its previews go up first (again after a broken upload), then the message that names them.
             if (message.outgoing && message.media != null) media.upload(message)
-            val text = Content(text = TextContent(message.body, message.at, message.id, face = message.face), media = message.media)
+            // Read again: pictures sent first may have had their caption written while they uploaded.
+            val going = store.message(message.id) ?: message
+            sentMedia = going.media
+            val text = Content(text = TextContent(going.body, going.at, going.id, face = going.face), media = going.media)
+            val push = if (going.media?.quiet == true) PushKind.SYNC else PushKind.MESSAGE
             val group = Group.idOf(message.user)
-            if (group != null) groups.send(group, text, PushKind.MESSAGE) else sender.send(message.user, text, pushKind = PushKind.MESSAGE)
+            if (group != null) groups.send(group, text, push) else sender.send(message.user, text, pushKind = push)
             MessageStatus.SENT
         } catch (e: CancellationException) {
             throw e
@@ -2104,6 +2366,10 @@ internal class Messaging(
         val updated = now.copy(status = if (now.status.ordinal > status.ordinal && status != MessageStatus.FAILED) now.status else status)
         store.putMessage(updated)
         publish()
+        // Quiet pictures whose caption was committed while they were going: the caption follows, and notifies.
+        if (status == MessageStatus.SENT && sentMedia?.quiet == true && updated.media?.quiet == false) {
+            sendCaption(updated.user, updated.id, updated.media.caption)
+        }
         return updated
     }
 
@@ -2158,6 +2424,16 @@ internal class Messaging(
 
     /** Read receipts that couldn't go yet (not connected), by user; sent once connected. */
     private val pendingReads = mutableMapOf<String, MutableSet<String>>()
+
+    /**
+     * Waits until message [id]'s previews are on this phone, if it shares media: its pictures fetched now, its videos
+     * now too when [chat] has Download videos at once, else when the chat is opened and shows them.
+     */
+    private suspend fun previewsHere(chat: String, id: String) {
+        if (store.message(id)?.media == null) return
+        media.fetchPreviews(id, videos = chat in talkSettings().videosAtOnce)
+        media.allPreviews(id)
+    }
 
     private suspend fun sendReceipt(user: String, read: Boolean, ids: List<String>) {
         try {
@@ -2320,13 +2596,19 @@ internal class Messaging(
      */
     suspend fun editText(id: String, body: String): Boolean {
         val message = store.message(id)?.takeIf { it.outgoing && it.clip == null && it.call == null } ?: return false
-        val text = body.trim().take(4_000)
-        if (text.isEmpty() || text == message.body) {
+        // Pictures' caption (2026-11-28, hen: double tap to edit): it may be emptied; one not sent yet is committed.
+        val media = message.media
+        if (media?.quiet == true) return commitCaption(id, body)
+        val text = body.trim().take(if (media != null) com.chencohen.ptt.media.MediaSharing.MAX_CAPTION else 4_000)
+        if ((text.isEmpty() && media == null) || text == (media?.caption ?: message.body)) {
             editLive(id, null)
             return false
         }
         val at = now()
-        store.putMessage(message.copy(body = text, editedAt = at))
+        if (media != null) {
+            val shared = media.copy(caption = text)
+            store.putMessage(message.copy(media = shared, body = com.chencohen.ptt.media.MediaSharing.fallback(shared), editedAt = at))
+        } else store.putMessage(message.copy(body = text, editedAt = at))
         publish()
         editWanted.remove(id)
         val content = Content(edit = EditContent(id, text, at, EditContent.FINAL))
@@ -2354,6 +2636,9 @@ internal class Messaging(
         editWanted.remove(id)
         store.removeMessage(message)
         if (message.clip != null) talk.forgetClip(id)
+        // Shared pictures deleted for everyone: no one has them any more (2026-11-28, hen): their previews and original
+        // go from the server, and the others' phones drop what they kept.
+        if (message.media != null) media.revoke(message)
         publish()
         val content = Content(delete = DeleteContent(id))
         try {
@@ -2389,7 +2674,10 @@ internal class Messaging(
             it.user == chat && it.outgoing == mine && !it.deleted && (author == null || mine || it.author == author)
         } ?: return
         if (message.clip != null) talk.forgetClip(message.id)
-        if (mine) store.removeMessage(message) else store.putMessage(message.copy(body = "", clip = null, deleted = true, editedAt = null))
+        // Shared pictures deleted by their sender: this phone no longer has them (2026-11-28, hen).
+        if (message.media != null) media.forgetTaken(message)
+        // Pictures taken back before their caption leave no mark: they were never announced.
+        if (mine || message.media?.quiet == true) store.removeMessage(message) else store.putMessage(message.copy(body = "", clip = null, media = null, deleted = true, editedAt = null))
         _state.update { it.copy(liveEdits = it.liveEdits - delete.id) }
         publish()
     }
@@ -2469,9 +2757,22 @@ internal class Messaging(
         if (message == null) return
         when (edit.stage) {
             EditContent.FINAL -> {
-                if (edit.body.isBlank()) return
+                // A picture's new composition, or the words above a picture or video (2026-11-28, hen).
+                if (edit.item != null) {
+                    media.takeRecrop(message, edit.item)
+                    return
+                }
+                if (edit.notify && message.media != null) return takeCaption(chat, mine, message, edit)
+                if (edit.body.isBlank() && message.media == null) return
                 editEnded[edit.id] = maxOf(editEnded[edit.id] ?: 0L, edit.editedAt)
-                if ((message.editedAt ?: 0L) <= edit.editedAt) store.putMessage(message.copy(body = edit.body.take(4_000), editedAt = edit.editedAt))
+                if ((message.editedAt ?: 0L) <= edit.editedAt) {
+                    val media = message.media
+                    if (media != null) {
+                        // A caption edited after it was sent: no new notification.
+                        val shared = media.copy(caption = edit.body.take(com.chencohen.ptt.media.MediaSharing.MAX_CAPTION))
+                        store.putMessage(message.copy(media = shared, body = com.chencohen.ptt.media.MediaSharing.fallback(shared), editedAt = edit.editedAt))
+                    } else store.putMessage(message.copy(body = edit.body.take(4_000), editedAt = edit.editedAt))
+                }
                 _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
                 publish()
             }
@@ -2491,6 +2792,19 @@ internal class Messaging(
                 _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
             }
         }
+    }
+
+    /** The caption of pictures that came quietly: kept, and notified now as the new message it is (unless read). */
+    private fun takeCaption(chat: String, mine: Boolean, message: TextMessage, edit: EditContent) {
+        val shared = message.media!!.copy(caption = edit.body.take(com.chencohen.ptt.media.MediaSharing.MAX_CAPTION), quiet = false)
+        store.putMessage(message.copy(media = shared, body = com.chencohen.ptt.media.MediaSharing.fallback(shared), at = if (mine) message.at else maxOf(message.at, now())))
+        editEnded[edit.id] = maxOf(editEnded[edit.id] ?: 0L, edit.editedAt)
+        _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
+        publish()
+        if (mine || message.read) return
+        val group = Group.idOf(chat)
+        if (group != null) store.group(group)?.let { g -> notifier?.incomingGroup(g, store.messagesWith(chat).filter { !it.outgoing && !it.read }) }
+        else store.contact(chat)?.let { c -> notifier?.incoming(c, store.messagesWith(chat).filter { !it.outgoing && !it.read }) }
     }
 
     private fun newId(): String = random.nextBytes(12).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
@@ -2563,13 +2877,27 @@ internal class Messaging(
             store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read, face = text.face, media = media.accept(content.media, envelope.senderDevice)))
             _state.update { it.copy(typing = it.typing - contact.user, drafts = it.drafts - contact.user) }
             scope.launch {
+                // Shared media is received once its previews are on this phone (2026-11-28, hen): only then the face.
+                previewsHere(contact.user, id)
                 sendReceipt(contact.user, read = false, listOf(id))
                 if (read) sendReceipt(contact.user, read = true, listOf(id))
             }
-            if (!read) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
+            if (!read && content.media?.quiet != true) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
         }
         content.edit?.let { takeEdit(contact.user, null, mine = false, it) }
         content.delete?.let { takeDelete(contact.user, null, mine = false, it) }
+        content.historyRequest?.let { request ->
+            scope.launch {
+                try {
+                    sendHistory(contact, request)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    println("TalkHistory: our history to ${contact.user} not sent: $e")
+                }
+            }
+        }
+        content.history?.let { takeHistory(contact, it, envelope.senderDevice) }
         content.talkKey?.let { live.takeKey("${contact.user}.${envelope.senderDevice}", it) }
         content.talkHeard?.let { talk.takeHeard(contact.user, it) }
         content.call?.let { calls.receive(contact.user, contact.user, it, envelope.serverTimestamp, ownCopy = false) }
@@ -2612,6 +2940,7 @@ internal class Messaging(
         content.reaction?.let { takeReaction(contact.user, contact.user, it) }
         content.about?.let { takeAbout(contact.user, envelope.senderDevice, it.version, it.screenWidthPx) }
         content.colors?.let { takeColors(contact.user, it) }
+        if (content.mediaRequest != null || content.mediaReply != null || content.holdings != null) media.took(contact.user, contact.user, envelope.senderDevice, content)
         content.profile?.let { profile ->
             if (profile.needPicture) {
                 // They don't have this user's picture after all: it goes again.
@@ -2668,16 +2997,37 @@ internal class Messaging(
         }
     }
 
+    /**
+     * Unread counts. A chat is walked from its newest message back until [UNREAD_LOOKBACK] read or sent ones in a row,
+     * so a very long history isn't walked through on every change.
+     */
+    private fun unreadIn(conversations: Map<String, List<TextMessage>>): Map<String, Int> =
+        conversations.mapValues { (_, list) ->
+            var n = 0
+            var quiet = 0
+            for (i in list.indices.reversed()) {
+                val m = list[i]
+                if (m.outgoing || m.read) {
+                    if (++quiet > UNREAD_LOOKBACK) break
+                } else {
+                    quiet = 0
+                    n++
+                }
+            }
+            n
+        }.filterValues { it > 0 }
+
     /** Publishes what the store holds now. */
     fun publish() {
-        val messages = store.messages()
+        // Each chat's list as the store keeps it (only a changed chat's is made again): no sort of the whole history.
+        val conversations = store.conversations()
         _state.update { state ->
             state.copy(
                 contacts = store.contacts().sortedBy { it.user.lowercase() },
                 requests = store.requests().sortedBy { it.receivedAt },
-                lastMessages = messages.groupBy { it.user }.mapValues { (_, list) -> list.last() },
-                conversations = messages.groupBy { it.user },
-                unread = messages.filter { !it.outgoing && !it.read }.groupingBy { it.user }.eachCount(),
+                lastMessages = conversations.mapValues { (_, list) -> list.last() },
+                conversations = conversations,
+                unread = unreadIn(conversations),
                 groups = store.groups().sortedBy { it.createdAt },
                 pictures = store.pictureIds(),
             )
@@ -2685,6 +3035,15 @@ internal class Messaging(
     }
 
     companion object {
+        /** A history's pictures from these last days have their previews fetched as it comes; older ones on scroll. */
+        const val HISTORY_PREVIEW_DAYS = 30
+
+        /** How often this phone checks that the files it shared are still where they were shared from. */
+        const val SOURCES_CHECK_EVERY = 24L * 60 * 60 * 1000
+
+        /** Read or sent messages in a row after which older ones aren't looked at for the unread count. */
+        const val UNREAD_LOOKBACK = 500
+
         /** How long the camera stays open after the last screen let go of it, for the next to take it over. */
         const val COOL_AFTER_MS = 1_500L
 
@@ -2696,6 +3055,8 @@ internal class Messaging(
 
         /** The longest a talk wake-up keeps the connection. */
         const val TALK_WAKE_LIMIT = 120_000L
+        /** How long a wake-up keeps the connection while this phone uploads an original someone asked for. */
+        const val MEDIA_WAKE_LIMIT = 30L * 60 * 1000
 
         /** How long "typing…" shows after the last typing message, unless a text or a stop comes first. */
         const val TYPING_FOR = 8_000L

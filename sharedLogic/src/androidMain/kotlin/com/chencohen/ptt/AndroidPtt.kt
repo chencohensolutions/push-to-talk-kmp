@@ -136,6 +136,14 @@ private fun hub(context: Context): Messaging {
             it.screenWidthPx = minOf(bounds.width(), bounds.height())
             it.screenHeightPx = maxOf(bounds.width(), bounds.height())
         }
+        // Originals of what this phone shares go up at once on Wi-Fi (2026-11-28, hen).
+        val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
+        it.unmetered = {
+            runCatching {
+                connectivity.getNetworkCapabilities(connectivity.activeNetwork)
+                    ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == true
+            }.getOrDefault(false)
+        }
         // This phone's app version, told to contacts (AboutContent).
         it.appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
         it.talk.capture = com.chencohen.ptt.talk.AndroidTalkCapture(com.chencohen.ptt.talk.SpeakerphoneMic(context))
