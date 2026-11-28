@@ -131,7 +131,9 @@ internal fun MediaMessage(
             if (author != null) Text(author, color = if (com.chencohen.ptt.ui.contacts.LocalMemberHues.current.isEmpty()) LibraryColors.Accent else LibraryColors.OnTheirs, style = LibraryType.Small)
             if (taken != null) Text(taken, color = muted, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
-        media.items.forEach { item ->
+        media.items.forEachIndexed { index, item ->
+            // Between the pictures only: the half bubbles touch the first and the last (2026-11-28, hen).
+            if (index > 0) Spacer(Modifier.height(2.dp))
             when (item.kind) {
                 MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = select) {
                     when {
@@ -142,7 +144,6 @@ internal fun MediaMessage(
                 }
                 else -> FileRow(item) { if (!selecting) open(message.id, item.id) }
             }
-            Spacer(Modifier.height(2.dp))
         }
         // Mine sent before the caption: the caption box under the chat is its bottom half while I write it.
         if (mine && media.quiet) return@Column
