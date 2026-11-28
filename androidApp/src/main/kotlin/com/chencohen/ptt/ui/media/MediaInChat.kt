@@ -334,7 +334,7 @@ private fun CaptionEdit(edit: com.chencohen.ptt.ui.contacts.Editing, change: (an
             value = edit.value,
             onValueChange = { v ->
                 if (v.text != edit.value.text) edit.changed = true
-                change(v.copy(text = v.text.take(com.chencohen.ptt.media.MediaSharing.MAX_CAPTION)))
+                change(v.copy(text = v.text.take(4_000)))
             },
             textStyle = LibraryType.Message.copy(color = LibraryColors.OnBackground),
             cursorBrush = androidx.compose.ui.graphics.SolidColor(coral),
