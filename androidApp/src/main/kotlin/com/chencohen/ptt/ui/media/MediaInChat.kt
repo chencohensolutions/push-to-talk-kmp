@@ -41,7 +41,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.drawBehind
 import com.chencohen.ptt.ui.contacts.liveCaret
 import com.awxkee.jxlcoder.JxlCoder
 import com.chencohen.ptt.R
@@ -210,11 +211,24 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
                 Icon(LibraryIcons.Play, null, tint = Color.White, modifier = Modifier.size(28.dp))
             }
         }
-        // Going up to the server (mine) or coming down from it (theirs): a thin bar along the bottom, filling.
+        // Going up to the server (mine) or coming down from it (theirs): a small ring in the end corner, its rim
+        // filling round, with an arrow up or down (2026-11-28, hen: "not thin line across the picture, some icon").
         LocalTransfers.current[item.id]?.let { done ->
             val shown by androidx.compose.animation.core.animateFloatAsState(done, label = "transfer")
-            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x55000000))) {
-                Box(Modifier.fillMaxWidth(shown).fillMaxHeight().background(if (message.outgoing) LibraryColors.Writing else LibraryColors.Accent))
+            val tint = if (message.outgoing) LibraryColors.Writing else LibraryColors.Accent
+            Box(
+                Modifier.align(Alignment.BottomEnd).padding(10.dp).size(36.dp).background(Color(0x8C000000), CircleShape)
+                    .drawBehind {
+                        val w = 3.dp.toPx()
+                        val r = 14.dp.toPx()
+                        val tl = androidx.compose.ui.geometry.Offset(center.x - r, center.y - r)
+                        val sz = androidx.compose.ui.geometry.Size(r * 2, r * 2)
+                        drawArc(Color.White.copy(alpha = 0.25f), 0f, 360f, false, tl, sz, style = androidx.compose.ui.graphics.drawscope.Stroke(w))
+                        drawArc(tint, -90f, 360f * shown, false, tl, sz, style = androidx.compose.ui.graphics.drawscope.Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(LibraryIcons.ArrowUp, null, tint = Color.White, modifier = Modifier.size(18.dp).rotate(if (message.outgoing) 0f else 180f))
             }
         }
         // A video's length (when it was taken is on the top half bubble, the time it was sent on the bottom one).
