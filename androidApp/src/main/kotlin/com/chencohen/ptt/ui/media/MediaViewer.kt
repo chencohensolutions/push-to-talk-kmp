@@ -320,8 +320,8 @@ private fun ItemPage(
         }
     }
     when {
-        item.kind == MediaKind.VIDEO && ready != null -> Player(ready.path) { MediaItem.fromUri(uriOf(ready.path)) }
-        item.kind == MediaKind.VIDEO && state is OriginalState.Streaming -> StreamedPlayer(state, stream)
+        item.kind == MediaKind.VIDEO && ready != null -> Player(ready.path, shapeOf(item)) { MediaItem.fromUri(uriOf(ready.path)) }
+        item.kind == MediaKind.VIDEO && state is OriginalState.Streaming -> StreamedPlayer(state, shapeOf(item), stream)
         item.kind == MediaKind.IMAGE -> {
             val full by produceState<Bitmap?>(null, ready?.path) {
                 val path = ready?.path ?: return@produceState
@@ -390,7 +390,7 @@ private fun ItemPage(
 
 /** A picture that pinches and pans; a double tap zooms in or back. */
 @Composable
-private fun Player(key: String, build: (ExoPlayer.Builder) -> ExoPlayer.Builder = { it }, media: () -> MediaItem) {
+private fun Player(key: String, shape: Float, build: (ExoPlayer.Builder) -> ExoPlayer.Builder = { it }, media: () -> MediaItem) {
     val context = LocalContext.current
     val player = remember(key) {
         build(ExoPlayer.Builder(context)).build().apply {
@@ -399,13 +399,18 @@ private fun Player(key: String, build: (ExoPlayer.Builder) -> ExoPlayer.Builder 
             playWhenReady = true
         }
     }
-    // The surface takes the video's own shape, fitted whole in the screen: a full-screen surface stretched it to the
-    // screen's shape (2026-11-28, hen: "when i play video full screen i think it cropped").
-    var ratio by remember(player) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    // The video's own shape, fitted whole in the screen: a full-screen surface stretched it to the screen's shape
+    // (2026-11-28, hen: "when i play video full screen i think it cropped"; "the video still stretched"). Upright, as
+    // the item says, until the player tells its own; a TextureView, so it moves and scales with the page's open move
+    // (a SurfaceView ignores those).
+    var ratio by remember(player) { androidx.compose.runtime.mutableFloatStateOf(shape) }
     DisposableEffect(player) {
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onVideoSizeChanged(size: androidx.media3.common.VideoSize) {
-                if (size.width > 0 && size.height > 0) ratio = size.width * size.pixelWidthHeightRatio / size.height
+                if (size.width <= 0 || size.height <= 0) return
+                val turned = size.unappliedRotationDegrees == 90 || size.unappliedRotationDegrees == 270
+                val own = size.width * size.pixelWidthHeightRatio / size.height
+                ratio = if (turned) 1f / own else own
             }
         }
         player.addListener(listener)
@@ -416,18 +421,21 @@ private fun Player(key: String, build: (ExoPlayer.Builder) -> ExoPlayer.Builder 
     }
     Box(Modifier.fillMaxSize().clickable { player.playWhenReady = !player.playWhenReady }, contentAlignment = Alignment.Center) {
         AndroidView(
-            factory = { android.view.SurfaceView(it).also { view -> player.setVideoSurfaceView(view) } },
+            factory = { android.view.TextureView(it).also { view -> player.setVideoTextureView(view) } },
             modifier = if (ratio > 0f) Modifier.aspectRatio(ratio, matchHeightConstraintsFirst = ratio < 1f) else Modifier.size(1.dp),
         )
     }
 }
 
+/** [item]'s shape, width over height, upright (0: not known). */
+private fun shapeOf(item: AttachmentContent): Float = if (item.width > 0 && item.height > 0) item.width.toFloat() / item.height else 0f
+
 /** An original video played from the server as it is read, never kept here (2026-11-28, hen). */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun StreamedPlayer(state: OriginalState.Streaming, stream: (String, String, Long) -> com.chencohen.ptt.media.OriginalStream?) {
+private fun StreamedPlayer(state: OriginalState.Streaming, shape: Float, stream: (String, String, Long) -> com.chencohen.ptt.media.OriginalStream?) {
     val key = "stream:${state.messageId}/${state.itemId}"
-    Player(key, build = { builder ->
+    Player(key, shape, build = { builder ->
         builder.setMediaSourceFactory(
             androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(StreamDataSource.Factory { position -> stream(state.messageId, state.itemId, position) }),
         )

@@ -160,15 +160,21 @@ private fun newShot(context: Context): Uri? = runCatching {
     context.contentResolver.insert(android.provider.MediaStore.Images.Media.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY), values)
 }.getOrNull()
 
-/** The pictures and videos added to the gallery since [since] (ms), oldest first. */
+/**
+ * The pictures and videos the camera saved since [since] (ms), oldest first: only what is in DCIM/Camera, so a
+ * screenshot, a download or a synced picture added meanwhile doesn't join the draft (2026-11-28, hen: back from the
+ * camera without a shot, a bank app's screenshot was added).
+ */
 private fun takenSince(context: Context, since: Long): List<Uri> = runCatching {
     val files = android.provider.MediaStore.Files.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL)
     val columns = arrayOf(android.provider.MediaStore.Files.FileColumns._ID, android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE)
-    val where = "${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?) AND ${android.provider.MediaStore.MediaColumns.DATE_ADDED} >= ?"
+    val where = "${android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE} IN (?, ?) AND ${android.provider.MediaStore.MediaColumns.DATE_ADDED} >= ? AND " +
+        "${android.provider.MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
     val args = arrayOf(
         android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString(),
         android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString(),
         (since / 1000 - 1).toString(),
+        android.os.Environment.DIRECTORY_DCIM + "/Camera/%",
     )
     val out = mutableListOf<Uri>()
     context.contentResolver.query(files, columns, where, args, "${android.provider.MediaStore.MediaColumns.DATE_ADDED} ASC")?.use { c ->
