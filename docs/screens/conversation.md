@@ -576,7 +576,10 @@ until someone else's comes; the bubble's time is in the same colour as the name 
 `ui/media/MediaInChat.kt`. Each picture or video is as wide as the screen (out through the chat's side padding), in
 its own shape (kept between 0.4 and 3 wide to high), drawn from its JPEG XL preview made for this screen's width,
 between two half bubbles a bubble's widest on the sender's side in their bubble's colour (2026-11-28, hen; mock
-`mockups/share-media/picture-sender.png`, option A). The top one says who sent them, only in a group and only on
+`mockups/share-media/picture-sender.png`, option A). The pictures of the next eight messages in the scroll's direction
+(three behind it) are read, decoded and made into GPU bitmaps on a background thread, two at a time, before they scroll
+in, and the last ones drawn are kept (an eighth of the app's memory), so scrolling stays smooth (2026-11-28, hen:
+"load images just before scroll reveals the image"; `PrefetchPictures`). The top one says who sent them, only in a group and only on
 other members' pictures, and where and when they were taken ("Tel Aviv · Yesterday 18:40": the place named on each phone by Android's
 Geocoder from the item's coordinates, the date from the EXIF or else the gallery's date taken); of the first item. Over each picture after
 the first, in a strip of the bubble between the two (its sides carried on, so the message reads as one long bubble

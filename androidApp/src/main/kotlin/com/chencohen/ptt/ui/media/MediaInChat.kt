@@ -59,6 +59,8 @@ import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.collectLatest
 import java.text.DateFormat
 import java.util.Date
 
@@ -75,9 +77,87 @@ internal fun Modifier.bleed(side: androidx.compose.ui.unit.Dp): Modifier = this.
     },
 )
 
-/** The pictures drawn lately, by "<message>/<item>", so scrolling back doesn't decode them again. */
-private val drawn = object : LruCache<String, Bitmap>(48 * 1024 * 1024) {
+/**
+ * The pictures drawn lately, by "<message>/<item>", so scrolling back doesn't decode them again: an eighth of what the
+ * app may hold (about 30 screen-wide previews on an S25), at least 96 MB.
+ */
+private val drawn = object : LruCache<String, Bitmap>(maxOf(96L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 8).toInt()) {
     override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
+}
+
+/**
+ * Pictures are read, decoded and handed to the GPU here, two at a time, never on the main thread (2026-11-28, hen:
+ * "the scroll is jaggy, load images just before the scroll reveals them, on a background thread").
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+private val decoding = Dispatchers.Default.limitedParallelism(2)
+private val loadScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + decoding)
+private val loading = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Bitmap?>>()
+
+/**
+ * The picture of [itemId] in [messageId], decoded once however many ask (the picture on screen and the prefetcher). A
+ * hardware bitmap is made from it on this background thread, so its upload to the GPU doesn't stall a frame the first
+ * time it is drawn.
+ */
+private suspend fun loadPicture(messageId: String, itemId: String, preview: suspend (String, String) -> ByteArray?): Bitmap? {
+    val key = "$messageId/$itemId"
+    drawn.get(key)?.let { return it }
+    // Started only once it is in the map, so its own removal can't run before it is put there.
+    val job = loading.computeIfAbsent(key) {
+        loadScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            try {
+                val bytes = preview(messageId, itemId) ?: return@async null
+                val decoded = runCatching { if (JxlCoder.isJXL(bytes)) JxlCoder.decode(bytes) else android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+                    ?: return@async null
+                val ready = decoded.copy(Bitmap.Config.HARDWARE, false)?.also { decoded.recycle() } ?: decoded.also { it.prepareToDraw() }
+                drawn.put(key, ready)
+                ready
+            } finally {
+                loading.remove(key)
+            }
+        }
+    }
+    job.start()
+    return job.await()
+}
+
+/** How many messages ahead in the scroll's direction, and behind it, have their pictures loaded before they show. */
+private const val AHEAD = 8
+private const val BEHIND = 3
+
+/**
+ * Loads the pictures of the messages about to scroll into view, in the direction the chat is scrolling, so each has its
+ * bitmap before its row comes on screen. [list] is the chat's (upside down: item 0 is the newest), [messages] oldest
+ * first, the items keyed by message id.
+ */
+@Composable
+internal fun PrefetchPictures(list: androidx.compose.foundation.lazy.LazyListState, messages: List<TextMessage>, preview: suspend (String, String) -> ByteArray?) {
+    val latest = androidx.compose.runtime.rememberUpdatedState(messages)
+    androidx.compose.runtime.LaunchedEffect(list) {
+        var lastFirst = -1
+        var older = true
+        androidx.compose.runtime.snapshotFlow {
+            val visible = list.layoutInfo.visibleItemsInfo
+            Triple(list.firstVisibleItemIndex, visible.firstOrNull()?.key, visible.lastOrNull()?.key)
+        }.collectLatest { (first, newestKey, oldestKey) ->
+            if (lastFirst >= 0 && first != lastFirst) older = first > lastFirst
+            lastFirst = first
+            val all = latest.value
+            val newest = all.indexOfLast { it.id == newestKey }.takeIf { it >= 0 } ?: all.lastIndex
+            val oldest = all.indexOfFirst { it.id == oldestKey }.takeIf { it >= 0 } ?: newest
+            val from = (oldest - if (older) AHEAD else BEHIND).coerceAtLeast(0)
+            val to = (newest + if (older) BEHIND else AHEAD).coerceAtMost(all.lastIndex)
+            if (from > to) return@collectLatest
+            // Nearest first, in the scroll's direction.
+            val order = if (older) (oldest downTo from) + (newest..to) else (newest..to) + (oldest downTo from)
+            for (i in order) {
+                val message = all.getOrNull(i) ?: continue
+                message.media?.items?.forEach { item ->
+                    if (item.kind == MediaKind.IMAGE || item.kind == MediaKind.VIDEO) loadPicture(message.id, item.id, preview)
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -272,10 +352,7 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
     val key = "${message.id}/${item.id}"
     val bitmap by produceState(drawn.get(key), key) {
         if (value != null) return@produceState
-        val bytes = preview(message.id, item.id) ?: return@produceState
-        value = withContext(Dispatchers.Default) {
-            runCatching { if (JxlCoder.isJXL(bytes)) JxlCoder.decode(bytes) else android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
-        }?.also { drawn.put(key, it) }
+        value = loadPicture(message.id, item.id, preview)
     }
     val ratio = if (item.width > 0 && item.height > 0) (item.width.toFloat() / item.height).coerceIn(0.4f, 3f) else 1f
     val label = stringResource(if (item.kind == MediaKind.VIDEO) R.string.media_video else R.string.media_picture)

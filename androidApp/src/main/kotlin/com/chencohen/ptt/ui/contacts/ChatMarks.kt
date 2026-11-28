@@ -188,6 +188,7 @@ internal fun Modifier.myBubble(look: BubbleLook, radius: Dp = 16.dp): Modifier {
  * The strip of my picture message between two pictures (a note on where or when the next was taken): the half bubbles'
  * side lines carried on through it, filled as they are, so the message reads as one long bubble (2026-11-28, hen).
  */
+@Composable
 internal fun Modifier.myMiddleBubble(look: BubbleLook, progress: Float? = null): Modifier {
     val lineColor = LibraryColors.MineLine
     val fillColor = LibraryColors.Mine

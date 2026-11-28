@@ -618,6 +618,8 @@ private fun ConversationScreenIn(
         // The newest is item 0 (the list is upside down). At the bottom (or one item from it) a new message scrolls into
         // view; scrolled up, a "New message" chip shows instead; what this phone sends always scrolls (2026-11-22, hen).
         val list = androidx.compose.foundation.lazy.rememberLazyListState()
+        // The pictures about to scroll in are loaded first, in the background (2026-11-28, hen).
+        com.chencohen.ptt.ui.media.PrefetchPictures(list, messages, actions.mediaPreview)
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         var unseen by androidx.compose.runtime.remember(user) { androidx.compose.runtime.mutableStateOf(false) }
         // How many came in while scrolled up (the scroll-down button's badge).
