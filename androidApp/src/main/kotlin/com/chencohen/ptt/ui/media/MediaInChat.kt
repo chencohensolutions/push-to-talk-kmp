@@ -209,12 +209,11 @@ internal fun MediaMessage(
     @Composable
     fun Modifier.middle(): Modifier = when {
         look != null -> this.then(Modifier.myMiddleBubble(look, progress))
-        media.quiet -> this.drawBehind {
+        media.quiet -> LibraryColors.Muted.copy(alpha = 0.6f).let { c -> this.drawBehind {
             val w = 1.dp.toPx()
-            val c = LibraryColors.Muted.copy(alpha = 0.6f)
             drawLine(c, androidx.compose.ui.geometry.Offset(w / 2, 0f), androidx.compose.ui.geometry.Offset(w / 2, size.height), w)
             drawLine(c, androidx.compose.ui.geometry.Offset(size.width - w / 2, 0f), androidx.compose.ui.geometry.Offset(size.width - w / 2, size.height), w)
-        }
+        } }
         else -> this.background(LibraryColors.Theirs)
     }
     Column(modifier.fillMaxWidth(), horizontalAlignment = side) {
