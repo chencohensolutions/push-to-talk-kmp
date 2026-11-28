@@ -8,8 +8,8 @@ plugins {
 }
 
 kotlin {
-    // iOS comes after phase 6 (docs/design.md). The targets stay so common code keeps to what Kotlin/Native can
-    // compile; iosMain holds only the actuals common code expects. They are skipped on Linux and Windows.
+    // The iOS app (iosApp, docs/ios.md) links this as the static framework SharedLogic; iosMain holds iOS's
+    // implementations (IosPtt.kt). Kotlin compiles these targets on Linux too (CI does), but only a Mac links them.
     listOf(
         iosArm64(),
         iosSimulatorArm64()

@@ -1,0 +1,2 @@
+/* Words only the iOS app has (Android's are in Localizable.strings, written by tools/ios-strings.py). */
+"ios_copy" = "העתקה";

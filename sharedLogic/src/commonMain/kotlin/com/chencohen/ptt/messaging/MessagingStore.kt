@@ -2,6 +2,8 @@ package com.chencohen.ptt.messaging
 
 import com.chencohen.ptt.store.SecureStore
 import com.chencohen.ptt.store.Spaces
+import com.chencohen.ptt.util.SyncLock
+import com.chencohen.ptt.util.locked
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -304,12 +306,15 @@ internal class MessagingStore(val store: SecureStore) {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun <T> read(space: String, key: String, serializer: KSerializer<T>): T? =
-        store.get(space, key)?.let { runCatching { json.decodeFromString(serializer, it.decodeToString()) }.getOrNull() }
+        store.get(space, key)?.let { decode(serializer, it) }
 
     private fun <T> write(space: String, key: String, serializer: KSerializer<T>, value: T) =
         store.put(space, key, json.encodeToString(serializer, value).encodeToByteArray())
 
-    private fun <T> all(space: String, serializer: KSerializer<T>): List<T> = store.keys(space).mapNotNull { read(space, it, serializer) }
+    private fun <T> decode(serializer: KSerializer<T>, bytes: ByteArray): T? =
+        runCatching { json.decodeFromString(serializer, bytes.decodeToString()) }.getOrNull()
+
+    private fun <T> all(space: String, serializer: KSerializer<T>): List<T> = store.entries(space).mapNotNull { decode(serializer, it.second) }
 
     var meta: Meta
         get() = read(Spaces.META, "meta", Meta.serializer()) ?: Meta()
@@ -357,7 +362,7 @@ internal class MessagingStore(val store: SecureStore) {
     /** Messages are keyed by time, so the space's sorted keys are the order they came in. */
     // The messages, kept in memory as well, in the store's order (2026-11-26: every message(id) read and decoded the
     // whole table, so storing one incoming message took 1-5 s and publish() as long again). Writes go to both.
-    private val messageLock = Any()
+    private val messageLock = SyncLock()
     private var messageCache: MutableMap<String, TextMessage>? = null
     private val keyById = mutableMapOf<String, String>()
 
@@ -371,7 +376,8 @@ internal class MessagingStore(val store: SecureStore) {
 
     private fun cache(): MutableMap<String, TextMessage> = messageCache ?: run {
         val loaded = mutableMapOf<String, TextMessage>()
-        store.keys(Spaces.MESSAGES).forEach { key -> read(Spaces.MESSAGES, key, TextMessage.serializer())?.let { loaded[key] = it } }
+        // The whole history in one read of the store (a query per message made a long history slow to open).
+        store.entries(Spaces.MESSAGES).forEach { (key, bytes) -> decode(TextMessage.serializer(), bytes)?.let { loaded[key] = it } }
         keyById.clear()
         keysByUser.clear()
         listByUser.clear()
@@ -399,7 +405,7 @@ internal class MessagingStore(val store: SecureStore) {
         listByUser.remove(user)
     }
 
-    fun putMessage(message: TextMessage) = synchronized(messageLock) {
+    fun putMessage(message: TextMessage) = messageLock.locked {
         val key = messageKey(message)
         write(Spaces.MESSAGES, key, TextMessage.serializer(), message)
         val c = cache()
@@ -414,10 +420,10 @@ internal class MessagingStore(val store: SecureStore) {
         indexed(message.user, key)
     }
 
-    fun messages(): List<TextMessage> = synchronized(messageLock) { cache().entries.sortedBy { it.key }.map { it.value } }
+    fun messages(): List<TextMessage> = messageLock.locked { cache().entries.sortedBy { it.key }.map { it.value } }
 
     /** [user]'s messages, oldest first; the same list object until one of them changes. */
-    fun messagesWith(user: String): List<TextMessage> = synchronized(messageLock) { chatList(user) }
+    fun messagesWith(user: String): List<TextMessage> = messageLock.locked { chatList(user) }
 
     private fun chatList(user: String): List<TextMessage> {
         val c = cache()
@@ -425,21 +431,21 @@ internal class MessagingStore(val store: SecureStore) {
     }
 
     /** Every chat's messages, oldest first (lists of chats that didn't change are the ones handed out before). */
-    fun conversations(): Map<String, List<TextMessage>> = synchronized(messageLock) {
+    fun conversations(): Map<String, List<TextMessage>> = messageLock.locked {
         cache()
         keysByUser.keys.associateWith { chatList(it) }
     }
 
-    fun message(id: String): TextMessage? = synchronized(messageLock) { val c = cache(); keyById[id]?.let { c[it] } }
+    fun message(id: String): TextMessage? = messageLock.locked { val c = cache(); keyById[id]?.let { c[it] } }
 
-    fun removeMessage(message: TextMessage) = synchronized(messageLock) {
+    fun removeMessage(message: TextMessage) = messageLock.locked {
         val key = keyById[message.id] ?: messageKey(message)
         store.remove(Spaces.MESSAGES, key)
         cache().remove(key)?.let { unindexed(it.user, key) }
         keyById.remove(message.id)
     }
 
-    fun removeMessagesOf(user: String) = synchronized(messageLock) {
+    fun removeMessagesOf(user: String) = messageLock.locked {
         val c = cache()
         keysByUser[user].orEmpty().toList().forEach { key ->
             store.remove(Spaces.MESSAGES, key)

@@ -1,6 +1,8 @@
 package com.chencohen.ptt.calls
 
 import com.chencohen.ptt.talk.Aes256Gcm
+import com.chencohen.ptt.util.SyncLock
+import com.chencohen.ptt.util.locked
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.random.Random
@@ -42,9 +44,10 @@ class FaceHints(private val keep: Int = 8) {
     private class Got(val hint: FaceHint, val arrivedAt: Long)
 
     private val bySender = HashMap<String, ArrayDeque<Got>>()
+    private val lock = SyncLock()
 
     fun put(sender: String, hint: FaceHint, now: Long) {
-        synchronized(this) {
+        lock.locked {
             val list = bySender.getOrPut(sender) { ArrayDeque() }
             // A hint older than the newest from the same sender came out of order: dropped.
             if (list.lastOrNull()?.let { it.hint.t > hint.t } == true) return
@@ -57,17 +60,17 @@ class FaceHints(private val keep: Int = 8) {
     fun latest(sender: String, now: Long): FaceHint? = at(sender, now, now)
 
     /** The standing hint from [sender] that arrived nearest [moment]. */
-    fun at(sender: String, moment: Long, now: Long): FaceHint? = synchronized(this) {
+    fun at(sender: String, moment: Long, now: Long): FaceHint? = lock.locked {
         bySender[sender]?.filter { now - it.arrivedAt <= EXPIRES_MS && it.arrivedAt <= now }
             ?.minByOrNull { kotlin.math.abs(it.arrivedAt - moment) }?.hint
     }
 
     fun forget(sender: String) {
-        synchronized(this) { bySender.remove(sender) }
+        lock.locked { bySender.remove(sender) }
     }
 
     fun clear() {
-        synchronized(this) { bySender.clear() }
+        lock.locked { bySender.clear() }
     }
 
     companion object {

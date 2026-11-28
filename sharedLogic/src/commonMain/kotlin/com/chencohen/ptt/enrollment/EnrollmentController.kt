@@ -1,5 +1,6 @@
 package com.chencohen.ptt.enrollment
 
+import com.chencohen.ptt.util.logFailures
 import com.chencohen.ptt.connection.ConnectionStatus
 import com.chencohen.ptt.connection.ObservationHandle
 import com.apollographql.apollo.exception.ApolloNetworkException
@@ -190,7 +191,7 @@ class EnrollmentController internal constructor(
         DhtClient().lookup(key, fingerprint)
     },
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher + logFailures)
     private var job: Job? = null
 
     /**

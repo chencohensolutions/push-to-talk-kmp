@@ -17,6 +17,12 @@ interface SecureStore {
     /** The keys of [space], sorted. */
     fun keys(space: String): List<String>
 
+    /**
+     * Every key of [space] with its value, sorted by key. One read of the store, where [keys] and a [get] each would
+     * be one per entry: the chats' whole history is read this way when the app starts (2026-11-28).
+     */
+    fun entries(space: String): List<Pair<String, ByteArray>> = keys(space).mapNotNull { key -> get(space, key)?.let { key to it } }
+
     fun clear(space: String)
 
     /** Empties every space. */
@@ -74,6 +80,9 @@ class MemoryStore : SecureStore {
     }
 
     override fun keys(space: String): List<String> = spaces[space]?.keys?.sorted().orEmpty()
+
+    override fun entries(space: String): List<Pair<String, ByteArray>> =
+        spaces[space]?.entries?.sortedBy { it.key }?.map { it.key to it.value.copyOf() }.orEmpty()
 
     override fun clear(space: String) {
         spaces.remove(space)

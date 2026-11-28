@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>contact_paired_devices</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>ld</string>
+			<key>one</key>
+			<string>מחוברים · טלפון אחד</string>
+			<key>two</key>
+			<string>מחוברים · שני טלפונים</string>
+			<key>many</key>
+			<string>מחוברים · %ld טלפונים</string>
+			<key>other</key>
+			<string>מחוברים · %ld טלפונים</string>
+		</dict>
+	</dict>
+	<key>group_members</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@count@</string>
+		<key>count</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>ld</string>
+			<key>one</key>
+			<string>חבר אחד</string>
+			<key>two</key>
+			<string>שני חברים</string>
+			<key>many</key>
+			<string>%ld חברים</string>
+			<key>other</key>
+			<string>%ld חברים</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

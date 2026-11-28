@@ -1,5 +1,6 @@
 package com.chencohen.ptt.connection
 
+import com.chencohen.ptt.util.logFailures
 import com.chencohen.ptt.discovery.KeptDiscovery
 import com.chencohen.ptt.network.ConnectionResult
 import com.chencohen.ptt.network.checkConnection
@@ -83,7 +84,7 @@ class ConnectionController internal constructor(
     dispatcher: CoroutineDispatcher = Dispatchers.Main,
     private val retryDelays: List<Duration> = listOf(5.seconds, 15.seconds, 30.seconds, 60.seconds),
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher + logFailures)
     private var connectJob: Job? = null
 
     private val _state = MutableStateFlow(

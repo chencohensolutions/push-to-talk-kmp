@@ -1,5 +1,6 @@
 package com.chencohen.ptt.messaging
 
+import com.chencohen.ptt.util.logFailures
 import com.chencohen.ptt.connection.ObservationHandle
 import com.chencohen.ptt.network.describe
 import kotlinx.coroutines.CoroutineDispatcher
@@ -37,7 +38,7 @@ class MessagingController internal constructor(
     /** Where the callbacks run (the UI's thread). */
     main: CoroutineDispatcher = Dispatchers.Main,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + main)
+    private val scope = CoroutineScope(SupervisorJob() + main + logFailures)
 
     val state: StateFlow<MessagingState> = messaging.state
 
