@@ -41,8 +41,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.draw.drawWithCache
 import com.chencohen.ptt.ui.contacts.liveCaret
 import com.awxkee.jxlcoder.JxlCoder
 import com.chencohen.ptt.R
@@ -211,25 +211,50 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
                 Icon(LibraryIcons.Play, null, tint = Color.White, modifier = Modifier.size(28.dp))
             }
         }
-        // Going up to the server (mine) or coming down from it (theirs): a small ring in the end corner, its rim
-        // filling round, with an arrow up or down (2026-11-28, hen: "not thin line across the picture, some icon").
+        // Going up to the server (mine) or coming down from it (theirs): a small cloud (the server) in the end corner
+        // with an arrow up or down, filling with colour from the bottom as it goes (2026-11-28, hen: "some icon";
+        // mock transfer-icon.png, B).
         LocalTransfers.current[item.id]?.let { done ->
             val shown by androidx.compose.animation.core.animateFloatAsState(done, label = "transfer")
             val tint = if (message.outgoing) LibraryColors.Writing else LibraryColors.Accent
             Box(
-                Modifier.align(Alignment.BottomEnd).padding(10.dp).size(36.dp).background(Color(0x8C000000), CircleShape)
-                    .drawBehind {
-                        val w = 3.dp.toPx()
-                        val r = 14.dp.toPx()
-                        val tl = androidx.compose.ui.geometry.Offset(center.x - r, center.y - r)
-                        val sz = androidx.compose.ui.geometry.Size(r * 2, r * 2)
-                        drawArc(Color.White.copy(alpha = 0.25f), 0f, 360f, false, tl, sz, style = androidx.compose.ui.graphics.drawscope.Stroke(w))
-                        drawArc(tint, -90f, 360f * shown, false, tl, sz, style = androidx.compose.ui.graphics.drawscope.Stroke(w, cap = androidx.compose.ui.graphics.StrokeCap.Round))
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(LibraryIcons.ArrowUp, null, tint = Color.White, modifier = Modifier.size(18.dp).rotate(if (message.outgoing) 0f else 180f))
-            }
+                Modifier.align(Alignment.BottomEnd).padding(10.dp).size(width = 44.dp, height = 34.dp).drawWithCache {
+                    // The cloud in a 44 x 34 box, scaled to the drawn size.
+                    val sx = size.width / 44f
+                    val sy = size.height / 34f
+                    val cloud = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(12f * sx, 30f * sy)
+                        lineTo(34f * sx, 30f * sy)
+                        cubicTo(39f * sx, 30f * sy, 42f * sx, 26f * sy, 42f * sx, 22f * sy)
+                        cubicTo(42f * sx, 17.5f * sy, 38.5f * sx, 14f * sy, 34f * sx, 14f * sy)
+                        cubicTo(32.5f * sx, 8f * sy, 27.5f * sx, 4f * sy, 22f * sx, 4f * sy)
+                        cubicTo(17.5f * sx, 4f * sy, 14f * sx, 7f * sy, 13f * sx, 12f * sy)
+                        cubicTo(7.5f * sx, 12.5f * sy, 3f * sx, 16f * sy, 3f * sx, 21f * sy)
+                        cubicTo(3f * sx, 26f * sy, 7f * sx, 30f * sy, 12f * sx, 30f * sy)
+                        close()
+                    }
+                    val line = 1.6.dp.toPx()
+                    val arrow = 2.dp.toPx()
+                    onDrawBehind {
+                        drawPath(cloud, Color(0x8C000000))
+                        val top = 30f * sy - (26f * sy) * shown
+                        clipPath(cloud) { drawRect(tint.copy(alpha = 0.85f), androidx.compose.ui.geometry.Offset(0f, top), androidx.compose.ui.geometry.Size(size.width, size.height - top)) }
+                        drawPath(cloud, Color.White, style = androidx.compose.ui.graphics.drawscope.Stroke(line))
+                        val x = 22f * sx
+                        val up = message.outgoing
+                        val tip = if (up) 14f * sy else 26f * sy
+                        val tail = if (up) 26f * sy else 14f * sy
+                        val head = if (up) 4f * sy else -4f * sy
+                        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(arrow, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+                        drawLine(Color.White, androidx.compose.ui.geometry.Offset(x, tail), androidx.compose.ui.geometry.Offset(x, tip), arrow, androidx.compose.ui.graphics.StrokeCap.Round)
+                        drawPath(androidx.compose.ui.graphics.Path().apply {
+                            moveTo(x - 4f * sx, tip + head)
+                            lineTo(x, tip)
+                            lineTo(x + 4f * sx, tip + head)
+                        }, Color.White, style = stroke)
+                    }
+                },
+            )
         }
         // A video's length (when it was taken is on the top half bubble, the time it was sent on the bottom one).
         item.durationMs.takeIf { it > 0 }?.let { Box(Modifier.align(Alignment.BottomStart).padding(8.dp)) { Chip(com.chencohen.ptt.ui.talk.clipLength(it)) } }
