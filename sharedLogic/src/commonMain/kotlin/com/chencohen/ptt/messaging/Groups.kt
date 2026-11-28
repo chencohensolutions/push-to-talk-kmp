@@ -451,7 +451,7 @@ internal class Groups(
         content.liveWaiting?.let { onLiveWaiting(group, author, it.open) }
         content.warm?.let { onWarm(group, author, it.open) }
         content.colors?.let { onColors(group, author, it) }
-        if (content.mediaRequest != null || content.mediaReply != null) onMedia(group, author, envelope.senderDevice, content)
+        if (content.mediaRequest != null || content.mediaReply != null || content.holdings != null) onMedia(group, author, envelope.senderDevice, content)
         // (An older app takes only the read ones: a delivered receipt is nothing to it.)
         content.receipt?.takeIf { author != self.user }?.let { if (it.read) onRead(group, author, it.ids) else onDelivered(group, author, it.ids) }
         content.clip?.let { onClip(group, author, it, envelope.serverTimestamp) }

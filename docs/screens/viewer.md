@@ -41,6 +41,9 @@ A shared picture, video or file full screen (2026-11-28, hen), opened by a tap o
   (its size), or not here; and until when the server keeps it (30 days from its upload). *Who has what*: the one who
   shared it has the original; each other member the preview made for their screen width, received or not yet when
   this phone has their receipt (`MediaKeeping`, from `MessagingController.mediaKeeping`; a peer's own cache isn't
-  seen, so "has" means the message reached them).
+  seen, so "has" means the message reached them). Opening it asks the chat's phones what they hold, and a moment later
+  each phone's own word replaces the guess: the original (the file shared), a copy of it, the only copy kept, a
+  preview so wide, or nothing, with when it said so (a user's phones each on a line). *On this phone* also says when
+  its copy is kept as the only one known, and when the original isn't known to be anywhere.
 
 Still to come: Share and Save as icons (no menu), the thumbnail strip.

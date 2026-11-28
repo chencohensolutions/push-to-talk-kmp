@@ -12,10 +12,40 @@ class AndroidMediaFiles(context: Context) : MediaFiles {
     private val gotDir = File(context.cacheDir, "media").apply { mkdirs() }
     private val originalsDir = File(context.cacheDir, "media-originals").apply { mkdirs() }
 
+    /** Originals that are the only copy known (2026-11-28, hen): out of the cache, so nothing clears them. */
+    private val keptDir = File(context.noBackupFilesDir, "media-originals-kept").apply { mkdirs() }
+
     private fun original(blob: String, partial: Boolean): File? =
         blob.takeIf { MediaSharing.validBlob(it) }?.let { File(originalsDir, if (partial) "$it.part" else it) }
 
-    override fun originalPath(blob: String): String? = original(blob, false)?.takeIf { it.isFile }?.absolutePath
+    override fun originalPath(blob: String): String? =
+        (kept(blob)?.takeIf { it.isFile } ?: original(blob, false)?.takeIf { it.isFile })?.absolutePath
+
+    private fun kept(blob: String): File? = blob.takeIf { MediaSharing.validBlob(it) }?.let { File(keptDir, it) }
+
+    override fun keepOriginal(blob: String, keep: Boolean): Boolean {
+        val cached = original(blob, false) ?: return false
+        val kept = kept(blob) ?: return false
+        fun move(from: File, to: File) {
+            to.parentFile?.mkdirs()
+            if (!from.renameTo(to)) runCatching { from.copyTo(to, overwrite = true); from.delete() }
+        }
+        if (keep) {
+            if (!kept.isFile && cached.isFile) move(cached, kept)
+            return kept.isFile
+        }
+        if (kept.isFile) move(kept, cached)
+        return false
+    }
+
+    override fun keptOriginal(blob: String): Boolean = kept(blob)?.isFile == true
+
+    override fun originalSize(blob: String): Long = originalPath(blob)?.let { File(it).length() } ?: 0
+
+    override fun sizeOf(name: String): Long {
+        val file = fileOf(name) ?: return 0
+        return listOf(sentDir, gotDir).map { File(it, file) }.firstOrNull { it.isFile }?.length() ?: 0
+    }
 
     override fun partialOriginal(blob: String): Long = original(blob, true)?.takeIf { it.isFile }?.length() ?: 0
 
@@ -34,6 +64,7 @@ class AndroidMediaFiles(context: Context) : MediaFiles {
     override fun deleteOriginal(blob: String) {
         original(blob, true)?.delete()
         original(blob, false)?.delete()
+        kept(blob)?.delete()
     }
 
     private fun fileOf(id: String): String? = id.takeIf { MediaSharing.validBlob(it) }?.let { "$it.part" }
@@ -50,6 +81,11 @@ class AndroidMediaFiles(context: Context) : MediaFiles {
     override fun read(name: String): ByteArray? {
         val file = fileOf(name) ?: return null
         return listOf(sentDir, gotDir).map { File(it, file) }.firstOrNull { it.isFile }?.let { runCatching { it.readBytes() }.getOrNull() }
+    }
+
+    override fun has(name: String): Boolean {
+        val file = fileOf(name) ?: return false
+        return File(sentDir, file).isFile || File(gotDir, file).isFile
     }
 
     override fun delete(name: String) {

@@ -1,5 +1,6 @@
 package com.chencohen.ptt.media
 
+import com.chencohen.ptt.messaging.HeldOriginal
 import com.chencohen.ptt.crypto.DeviceAddress
 import com.chencohen.ptt.discovery.KeptDiscovery
 import com.chencohen.ptt.messaging.FakeCryptoEngine
@@ -377,6 +378,79 @@ class MediaOriginalTest {
         dana.messaging.media.openOriginal(message, item)
         advanceUntilIdle()
         assertEquals(OriginalState.Gone, dana.messaging.media.originals.value["$message/$item"])
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun eachPhoneTellsWhatItHoldsAndTheOnlyCopyIsKept() = runTest {
+        val (_, hen, dana) = paired()
+        val (message, item) = shared(hen)
+        dana.messaging.media.openOriginal(message, item)
+        advanceUntilIdle()
+        val blob = (dana.messaging.media.originals.value["$message/$item"] as OriginalState.Ready).path.removePrefix("memory:")
+        // Each phone told the chat what it holds: hen the shared file, dana a copy (in the cache: hen has the file).
+        assertEquals(HeldOriginal.COPY, hen.messaging.media.holdersOf(message, item).single { it.user == "dana" }.original)
+        assertEquals(HeldOriginal.SOURCE, dana.messaging.media.holdersOf(message, item).single { it.user == "hen" }.original)
+        assertTrue(blob !in dana.files.keptOriginals)
+        val info = assertNotNull(dana.messaging.mediaKeeping(message, item))
+        assertEquals(HeldOriginal.SOURCE, info.peers.single { it.user == "hen" }.held)
+        assertTrue(info.originalElsewhere)
+
+        // Hen's file is deleted: hen's phone finds it, tells the chat, and dana's copy is now the only one: kept.
+        (hen.messaging.media.preparer as FakePreparer).files.remove("content://media/a")
+        hen.messaging.media.checkSources()
+        advanceUntilIdle()
+        assertEquals(HeldOriginal.NONE, dana.messaging.media.holdersOf(message, item).single { it.user == "hen" }.original)
+        assertTrue(blob in dana.files.keptOriginals)
+        assertEquals(HeldOriginal.KEPT, hen.messaging.media.holdersOf(message, item).single { it.user == "dana" }.original)
+
+        // Clearing keeps it, the whole cache or the chat's.
+        dana.messaging.media.clear(sent = false)
+        assertNotNull(dana.files.originals[blob])
+        val storage = dana.messaging.media.clearChat("hen")
+        assertNotNull(dana.files.originals[blob])
+        assertEquals(1, storage.onlyCount)
+        assertEquals(0, storage.lost)
+        assertEquals(1, hen.messaging.media.chatStorage("dana").let { if (it.lost == 0) 1 else 0 }, "dana's copy counts as the original")
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aChatsStorageClearsWhatCanComeAgain() = runTest {
+        val (_, hen, dana) = paired()
+        val (message, item) = shared(hen)
+        dana.messaging.media.preview(message, item)
+        dana.messaging.media.openOriginal(message, item)
+        advanceUntilIdle()
+        val before = dana.messaging.media.chatStorage("hen")
+        assertEquals(1, before.copiesCount)
+        assertTrue(before.gotCount >= 1)
+        val after = dana.messaging.media.clearChat("hen")
+        assertEquals(0, after.copiesCount, "hen's phone has the file")
+        assertEquals(0, after.gotCount, "the preview is still on the server")
+        // Both come again.
+        assertNotNull(dana.messaging.media.preview(message, item))
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aPictureDeletedByItsSenderIsGoneForEveryone() = runTest {
+        val (server, hen, dana) = paired()
+        val (message, item) = shared(hen)
+        dana.messaging.media.preview(message, item)
+        dana.messaging.media.openOriginal(message, item)
+        advanceUntilIdle()
+        val parts = hen.store.message(message)!!.media!!.items.single().previews.map { it.blob }
+        assertTrue(hen.messaging.deleteMessage(message))
+        advanceUntilIdle()
+        assertTrue(parts.none { it in server.files }, "its previews are gone from the server")
+        assertTrue(dana.files.originals.isEmpty(), "dana's copy of the original is gone")
+        assertTrue(parts.none { dana.files.has(it) }, "and the previews dana kept")
+        assertNull(dana.store.message(message)?.media)
+        assertNull(dana.messaging.media.originals.value["$message/$item"])
         hen.stop()
         dana.stop()
     }

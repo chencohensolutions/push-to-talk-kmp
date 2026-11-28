@@ -15,6 +15,9 @@ import com.chencohen.ptt.messaging.MediaPart
 import com.chencohen.ptt.messaging.MediaReplyContent
 import com.chencohen.ptt.messaging.MediaReplyStatus
 import com.chencohen.ptt.messaging.MediaRequestContent
+import com.chencohen.ptt.messaging.HeldOriginal
+import com.chencohen.ptt.messaging.HoldingContent
+import com.chencohen.ptt.messaging.HoldingsContent
 import com.chencohen.ptt.relay.PushKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -126,6 +129,26 @@ data class MediaKeeping(
     val originalUploadedAt: Long,
     /** Who else holds what, as this phone knows it. */
     val peers: List<PeerHolds>,
+    /** This phone's copy of the original is the only one known, so it is kept out of the cache (Clear leaves it). */
+    val onlyCopy: Boolean = false,
+    /** The original is known to be somewhere other than a copy on this phone (the sharer's file, a copy, a Journal). */
+    val originalElsewhere: Boolean = false,
+)
+
+/**
+ * What this phone keeps of a chat's shared media (bytes and how many): the previews it sent ([sent]) and got
+ * ([got]; [gotLasting] of those are no longer on the server, so a clear keeps them), copies of originals ([copies])
+ * and those kept as the only copy known ([only]); [shared] of its own items are read from where they were shared, and
+ * [lost] items' originals are known to be nowhere.
+ */
+data class ChatStorage(
+    val sent: Long, val sentCount: Int,
+    val got: Long, val gotCount: Int,
+    val copies: Long, val copiesCount: Int,
+    val only: Long, val onlyCount: Int,
+    val gotLasting: Long,
+    val shared: Int,
+    val lost: Int,
 )
 
 data class KeptPart(val poster: Boolean, val width: Int, val height: Int, val bytes: Long, val mime: String, val here: Boolean, val shown: Boolean)
@@ -134,7 +157,18 @@ data class KeptPart(val poster: Boolean, val width: Int, val height: Int, val by
  * [user]'s phones: [original] the one who shared it (the file is on their phone); else the preview made for their
  * screen ([previewWidth]), and [has] whether it reached them (true, false, or null: not known here).
  */
-data class PeerHolds(val user: String, val original: Boolean, val previewWidth: Int, val has: Boolean?)
+data class PeerHolds(
+    val user: String,
+    val original: Boolean,
+    val previewWidth: Int,
+    val has: Boolean?,
+    /** What [user]'s phone [device] itself said it holds, at [toldAt]: [held] one of HeldOriginal (-1: it hasn't said). */
+    val device: Int = 0,
+    val held: Int = -1,
+    val keptWidth: Int = 0,
+    val journal: Boolean = false,
+    val toldAt: Long = 0,
+)
 
 internal class MediaSharing(
     private val store: MessagingStore,
@@ -245,6 +279,34 @@ internal class MediaSharing(
         }
     }
 
+    /**
+     * [message] (this phone's) deleted for everyone (2026-11-28, hen: "if i delete image i sent from chat, the peer no
+     * longer have access to that image"): its previews, poster and uploaded original go from the server and this
+     * phone, and a later request for the original is refused (the message is gone).
+     */
+    fun revoke(message: TextMessage) {
+        drop(listOf(message))
+        val items = message.media?.items.orEmpty()
+        val blobsGone = items.flatMap { item -> (item.previews + listOfNotNull(item.poster)).map { it.blob } + listOfNotNull(store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")) }
+        for (item in items) {
+            uploading.remove("${message.id}/${item.id}")?.cancel()
+            store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")?.let { files.deleteOriginal(it) }
+        }
+        for (blob in blobsGone) files.delete(blob)
+        scope?.launch { for (blob in blobsGone) runCatching { blobs.delete(blob) } }
+        _originals.update { all -> all.filterKeys { !it.startsWith("${message.id}/") } }
+    }
+
+    /** [message] (someone else's) deleted for everyone by its sender: what this phone kept of it goes, the only copies too. */
+    fun forgetTaken(message: TextMessage) {
+        for (item in message.media?.items.orEmpty()) {
+            opening.remove("${message.id}/${item.id}")?.cancel()
+            for (part in item.previews + listOfNotNull(item.poster)) files.delete(part.blob)
+            store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")?.let { files.deleteOriginal(it) }
+        }
+        _originals.update { all -> all.filterKeys { !it.startsWith("${message.id}/") } }
+    }
+
     /** A preview taken out of a draft: gone from this phone, and from the server if it went up. */
     private fun forget(blob: String) {
         files.delete(blob)
@@ -307,6 +369,7 @@ internal class MediaSharing(
     suspend fun upload(message: TextMessage) {
         draftUploads.remove(message.id)?.join()
         putPreviews(message)
+        message.media?.items?.forEach { changed(message, it.id) }
     }
 
     private suspend fun putPreviews(message: TextMessage) {
@@ -379,7 +442,12 @@ internal class MediaSharing(
         val message = store.message(messageId) ?: drafts[messageId] ?: return null
         val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return null
         val part = PreviewSpec.pick(item.previews, myScreen().takeIf { it > 0 } ?: PreviewSpec.DEFAULT_WIDTH) ?: return null
-        return part(item, part, MediaCrypto.Part.PREVIEW, sent = message.outgoing).also { if (it != null) checkAll(messageId) }
+        return part(item, part, MediaCrypto.Part.PREVIEW, sent = message.outgoing).also {
+            if (it != null) {
+                checkAll(messageId)
+                if (message.id !in drafts) changed(message, item.id)
+            }
+        }
     }
 
     /** Fetches message [messageId]'s pictures' previews now (its videos' too when [videos]); those that fail come later. */
@@ -503,6 +571,8 @@ internal class MediaSharing(
             originalBytes = item.size, originalWidth = item.width, originalHeight = item.height, originalMime = item.mime,
             originalUploadedAt = store.mediaSource(messageId, "$itemId$ORIGINAL_UPLOADED")?.toLongOrNull()?.takeIf { it > 0 } ?: 0,
             peers = emptyList(),
+            onlyCopy = fetched != null && store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.let { files.keptOriginal(it) } == true,
+            originalElsewhere = originalElsewhere(message, item),
         )
     }
 
@@ -592,7 +662,8 @@ internal class MediaSharing(
         }
         files.finishOriginal(blob)
         val path = files.originalPath(blob) ?: return setOriginal(key, OriginalState.Failed)
-        setOriginal(key, OriginalState.Ready(path))
+        reconsider(store.message(key.substringBefore('/')) ?: return setOriginal(key, OriginalState.Ready(path)), item)
+        setOriginal(key, OriginalState.Ready(files.originalPath(blob) ?: path))
     }
 
     private fun setOriginal(key: String, state: OriginalState) {
@@ -620,9 +691,17 @@ internal class MediaSharing(
                 store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", blob)
                 store.putMediaSource(message.id, "${item.id}$ORIGINAL_UPLOADED", now().toString())
             }
+            // The sharer's answer says whether its file is there (older apps send no holdings).
+            if (reply.part == MediaPart.ORIGINAL && reply.status in listOf(MediaReplyStatus.READY, MediaReplyStatus.GONE, MediaReplyStatus.CHANGED)) {
+                val had = holdersOf(message.id, item.id).firstOrNull { it.user == author && it.device == device }
+                val original = if (reply.status == MediaReplyStatus.READY) HeldOriginal.SOURCE else HeldOriginal.NONE
+                putHolder(message.id, item.id, Holder(author, device, original, had?.previewWidth ?: 0, had?.journal ?: false, now()))
+                reconsider(message, item)
+            }
             answers["${message.id}/${item.id}"]?.complete(reply)
         }
         content.mediaRequest?.let { request -> answer(chat, request) }
+        content.holdings?.let { holdings -> tookHoldings(chat, author, device, holdings) }
     }
 
     /** Answers a request for an original this phone shared: uploads it (once in media_days), or says why it can't. */
@@ -654,7 +733,10 @@ internal class MediaSharing(
                     store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", id)
                     store.putMediaSource(message.id, "${item.id}$ORIGINAL_UPLOADED", now().toString())
                 }
-                MediaReplyStatus.GONE, MediaReplyStatus.CHANGED -> runCatching { send(chat, Content(mediaReply = reply(result, null)), PushKind.NONE, "") }
+                MediaReplyStatus.GONE, MediaReplyStatus.CHANGED -> {
+                    sourceGone(message, item.id)
+                    runCatching { send(chat, Content(mediaReply = reply(result, null)), PushKind.NONE, "") }
+                }
                 else -> Unit
             }
         }
@@ -734,7 +816,212 @@ internal class MediaSharing(
     fun kept(sent: Boolean): Long = files.size(sent)
 
     /** Clears what this phone keeps of media it sent ([sent]: Settings › Storage) or got; what's still wanted comes again. */
-    fun clear(sent: Boolean) = files.clear(sent)
+    fun clear(sent: Boolean) {
+        val before = mediaMessages().flatMap { m -> m.media?.items.orEmpty().map { m to it } }.filter { (m, i) -> held(m, i).let { it.original != HeldOriginal.NONE || it.previewWidth > 0 } }
+        files.clear(sent)
+        // What this phone no longer holds goes to the chats (originals kept as the only copy stay).
+        for ((m, i) in before) changed(m, i.id)
+    }
+
+    // Who holds what (2026-11-28, hen: "monitor who have what in a smart way, so the app could clear its cache but make
+    // sure all the original images exist somewhere; if my image is in the journal server it counts as existed"). Each
+    // phone tells the chat what it holds of each item when that changes (HoldingsContent, no push), and keeps what the
+    // others told it. A copy of an original fetched here that is the only one known (the sharer's file is gone and no
+    // one else has it, nor a Journal server) is moved out of the cache, so neither the system nor Clear deletes it; once
+    // another holder is known it goes back to the cache.
+
+    /** What [user]'s phone [device] said it holds of an item ([original] one of [HeldOriginal]), at [at]. */
+    data class Holder(val user: String, val device: Int, val original: Int, val previewWidth: Int, val journal: Boolean, val at: Long)
+
+    fun holdersOf(messageId: String, itemId: String): List<Holder> =
+        store.mediaSource(messageId, "$itemId$HOLDERS")?.lineSequence()?.mapNotNull { line ->
+            val f = line.split('|')
+            if (f.size != 6) return@mapNotNull null
+            Holder(f[0], f[1].toIntOrNull() ?: return@mapNotNull null, f[2].toIntOrNull() ?: 0, f[3].toIntOrNull() ?: 0, f[4] == "1", f[5].toLongOrNull() ?: 0)
+        }?.toList().orEmpty()
+
+    private fun putHolder(messageId: String, itemId: String, holder: Holder) {
+        if ('|' in holder.user || '\n' in holder.user || holder.user.isEmpty()) return
+        val list = holdersOf(messageId, itemId).filterNot { it.user == holder.user && it.device == holder.device } + holder
+        store.putMediaSource(messageId, "$itemId$HOLDERS", list.takeLast(MAX_HOLDERS).joinToString("\n") {
+            "${it.user}|${it.device}|${it.original}|${it.previewWidth}|${if (it.journal) 1 else 0}|${it.at}"
+        })
+    }
+
+    /** What this phone holds of [item] of [message] now. */
+    internal fun held(message: TextMessage, item: AttachmentContent): HoldingContent {
+        val source = store.mediaSource(message.id, item.id)
+        val gone = store.mediaSource(message.id, "${item.id}$SOURCE_GONE") != null
+        val blob = store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")
+        val original = when {
+            source != null && !gone -> HeldOriginal.SOURCE
+            blob != null && files.keptOriginal(blob) -> HeldOriginal.KEPT
+            blob != null && files.originalPath(blob) != null -> HeldOriginal.COPY
+            else -> HeldOriginal.NONE
+        }
+        val width = item.previews.filter { files.has(it.blob) }.maxOfOrNull { it.width } ?: 0
+        return HoldingContent(message.id, item.id, original, width)
+    }
+
+    /** Whether the original of [item] is somewhere other than a copy on this phone, as far as this phone knows. */
+    fun originalElsewhere(message: TextMessage, item: AttachmentContent): Boolean {
+        val source = store.mediaSource(message.id, item.id)
+        if (source != null && store.mediaSource(message.id, "${item.id}$SOURCE_GONE") == null) return true
+        return holdersOf(message.id, item.id).any { it.original != HeldOriginal.NONE || it.journal }
+    }
+
+    /** Keeps this phone's copy of [item]'s original out of the cache while it is the only one known; else lets it go back. */
+    private fun reconsider(message: TextMessage, item: AttachmentContent) {
+        val blob = store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB") ?: return
+        if (files.originalPath(blob) == null) return
+        val keep = !originalElsewhere(message, item)
+        if (files.keptOriginal(blob) != keep) {
+            files.keepOriginal(blob, keep)
+            changed(message, item.id)
+        } else if (!files.keptOriginal(blob)) changed(message, item.id)
+    }
+
+    /** The file [itemId] of [message] was shared from is gone (deleted, or changed since). */
+    private fun sourceGone(message: TextMessage, itemId: String) {
+        if (store.mediaSource(message.id, itemId) == null || store.mediaSource(message.id, "$itemId$SOURCE_GONE") != null) return
+        store.putMediaSource(message.id, "$itemId$SOURCE_GONE", now().toString())
+        changed(message, itemId)
+    }
+
+    private val reporting = Mutex()
+    private val pendingReports = mutableMapOf<String, MutableSet<Pair<String, String>>>()
+    private var reportWaiting = false
+    private val lastReported = mutableMapOf<Pair<String, String>, HoldingContent>()
+
+    /** What this phone holds of [itemId] of [message] may have changed: told to the chat a moment later, with the rest. */
+    private fun changed(message: TextMessage, itemId: String) {
+        val scope = scope ?: return
+        scope.launch {
+            val start = reporting.withLock {
+                pendingReports.getOrPut(message.user) { mutableSetOf() } += message.id to itemId
+                (!reportWaiting).also { reportWaiting = true }
+            }
+            if (!start) return@launch
+            delay(REPORT_WAIT)
+            val batch = reporting.withLock {
+                reportWaiting = false
+                pendingReports.toMap().also { pendingReports.clear() }
+            }
+            for ((chat, items) in batch) tell(chat, items, ask = false, force = false)
+        }
+    }
+
+    /** Tells [chat] what this phone holds of [items] (only what changed since it last said, unless [force]); [ask]: and asks the others. */
+    private suspend fun tell(chat: String, items: Collection<Pair<String, String>>, ask: Boolean, force: Boolean) {
+        val now = items.mapNotNull { (m, i) ->
+            val message = store.message(m)?.takeIf { it.user == chat } ?: return@mapNotNull null
+            val item = message.media?.items?.firstOrNull { it.id == i } ?: return@mapNotNull null
+            held(message, item)
+        }.filter { h -> force || reporting.withLock { lastReported[h.messageId to h.attachmentId] != h } }
+        if (now.isEmpty() && !ask) return
+        for (part in now.chunked(HOLDINGS_PART).ifEmpty { listOf(emptyList()) }) {
+            runCatching { send(chat, Content(holdings = HoldingsContent(part, ask)), PushKind.NONE, "") }.onSuccess {
+                reporting.withLock { part.forEach { lastReported[it.messageId to it.attachmentId] = it } }
+            }
+        }
+    }
+
+    /** Asks [chat]'s phones what they hold of [itemId] of [messageId] (the viewer's Info), telling them this phone's. */
+    fun askHoldings(messageId: String, itemId: String) {
+        val scope = scope ?: return
+        val message = store.message(messageId) ?: return
+        scope.launch { tell(message.user, listOf(messageId to itemId), ask = true, force = true) }
+    }
+
+    private fun tookHoldings(chat: String, author: String, device: Int, holdings: HoldingsContent) {
+        for (h in holdings.items.take(HOLDINGS_PART)) {
+            val message = store.message(h.messageId)?.takeIf { it.user == chat } ?: continue
+            val item = message.media?.items?.firstOrNull { it.id == h.attachmentId } ?: continue
+            val original = h.original.takeIf { it in HeldOriginal.NONE..HeldOriginal.KEPT } ?: HeldOriginal.NONE
+            putHolder(message.id, item.id, Holder(author, device, original, h.previewWidth.coerceIn(0, 100_000), h.journal, now()))
+            reconsider(message, item)
+        }
+        if (!holdings.ask) return
+        val scope = scope ?: return
+        val asked = holdings.items.map { it.messageId to it.attachmentId }.ifEmpty {
+            store.messagesWith(chat).flatMap { m -> m.media?.items.orEmpty().map { m.id to it.id } }
+        }
+        scope.launch { tell(chat, asked, ask = false, force = true) }
+    }
+
+    /**
+     * Checks that the files this phone shared are still where they were shared from (at start, and daily): one deleted
+     * or changed is told to the chat, so a copy elsewhere is kept as the only one.
+     */
+    suspend fun checkSources() {
+        val preparer = preparer ?: return
+        for (message in mediaMessages().filter { it.outgoing }) {
+            for (item in message.media?.items.orEmpty()) {
+                val source = store.mediaSource(message.id, item.id) ?: continue
+                if (store.mediaSource(message.id, "${item.id}$SOURCE_GONE") != null) continue
+                val reader = runCatching { preparer.open(source) }.getOrNull()
+                val there = reader != null && (reader.size < 0 || reader.size == item.size)
+                runCatching { reader?.close() }
+                if (!there) sourceGone(message, item.id)
+            }
+        }
+    }
+
+    /** What this phone keeps of [chat]'s shared media (its settings' Storage). */
+    fun chatStorage(chat: String): ChatStorage {
+        var mine = 0L; var mineCount = 0
+        var theirs = 0L; var theirsCount = 0
+        var copies = 0L; var copiesCount = 0
+        var only = 0L; var onlyCount = 0
+        var lasting = 0L
+        var shared = 0; var lost = 0
+        for (message in store.messagesWith(chat).filter { it.media != null && !it.deleted }) {
+            for (item in message.media?.items.orEmpty()) {
+                for (part in item.previews + listOfNotNull(item.poster)) {
+                    val size = files.sizeOf(part.blob).takeIf { it > 0 } ?: continue
+                    if (message.outgoing) { mine += size; mineCount++ } else {
+                        theirs += size; theirsCount++
+                        if (!refetchable(message)) lasting += size
+                    }
+                }
+                if (store.mediaSource(message.id, item.id) != null && store.mediaSource(message.id, "${item.id}$SOURCE_GONE") == null) shared++
+                val blob = store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")
+                val size = blob?.let { files.originalSize(it) } ?: 0
+                if (size > 0 && files.keptOriginal(blob!!)) { only += size; onlyCount++ } else if (size > 0) { copies += size; copiesCount++ }
+                if (size == 0L && !originalElsewhere(message, item)) lost++
+            }
+        }
+        return ChatStorage(mine, mineCount, theirs, theirsCount, copies, copiesCount, only, onlyCount, lasting, shared, lost)
+    }
+
+    /** A received message's previews are still on the server (fetched again after a clear). */
+    private fun refetchable(message: TextMessage): Boolean = now() - message.at < ORIGINAL_KEPT
+
+    /**
+     * Clears what this phone keeps of [chat]'s shared media that can come again: the previews it got that are still on
+     * the server, and its copies of originals that are somewhere else too. What it shared stays (the others may ask for
+     * it), and so do the only copies and the previews that are no longer on the server.
+     */
+    fun clearChat(chat: String): ChatStorage {
+        for (message in store.messagesWith(chat).filter { it.media != null && !it.deleted }) {
+            var touched = false
+            for (item in message.media?.items.orEmpty()) {
+                if (!message.outgoing && refetchable(message)) for (part in item.previews + listOfNotNull(item.poster)) {
+                    if (files.has(part.blob)) { files.delete(part.blob); touched = true }
+                }
+                val blob = store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")
+                if (blob != null && files.originalPath(blob) != null && !files.keptOriginal(blob) && originalElsewhere(message, item)) {
+                    files.deleteOriginal(blob)
+                    _originals.update { it - "${message.id}/${item.id}" }
+                    touched = true
+                }
+                if (touched) changed(message, item.id)
+            }
+        }
+        return chatStorage(chat)
+    }
+
+    private fun mediaMessages(): List<TextMessage> = store.conversations().values.flatten().filter { it.media != null && !it.deleted }
 
     companion object {
         const val MAX_ITEMS = 30
@@ -760,6 +1047,19 @@ internal class MediaSharing(
         /** Where an item's original blob id and its upload time are kept beside its source (MessagingStore.mediaSource). */
         private const val ORIGINAL_BLOB = "#original"
         private const val ORIGINAL_UPLOADED = "#uploaded"
+
+        /** Who told this phone what they hold of an item, and since when this phone's own shared file is gone. */
+        private const val HOLDERS = "#holders"
+        private const val SOURCE_GONE = "#gone"
+
+        /** At most this many holders kept per item (a group's phones). */
+        private const val MAX_HOLDERS = 64
+
+        /** Holdings that change together go in one message this long after the first change. */
+        const val REPORT_WAIT = 3_000L
+
+        /** Items per holdings message (well inside an envelope). */
+        const val HOLDINGS_PART = 200
 
         /** A preview is fetched whole into memory; one this big isn't a preview. */
         const val MAX_PREVIEW_BYTES = 64L shl 20

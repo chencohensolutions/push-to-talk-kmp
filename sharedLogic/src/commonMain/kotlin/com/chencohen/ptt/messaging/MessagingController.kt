@@ -199,6 +199,15 @@ class MessagingController internal constructor(
     /** Where a shared item is kept, here and on the others' phones (the viewer's Info). */
     suspend fun mediaKeeping(messageId: String, itemId: String): com.chencohen.ptt.media.MediaKeeping? = withContext(work) { messaging.mediaKeeping(messageId, itemId) }
 
+    /** Asks the chat's phones what they hold of an item (the viewer's Info). */
+    fun askHoldings(messageId: String, itemId: String) = messaging.askHoldings(messageId, itemId)
+
+    /** What this phone keeps of [chat]'s shared media (the chat's settings, Storage). */
+    suspend fun chatStorage(chat: String): com.chencohen.ptt.media.ChatStorage = withContext(work) { messaging.media.chatStorage(chat) }
+
+    /** Clears what of [chat]'s shared media can come again; answers what is kept then. */
+    suspend fun clearChatStorage(chat: String): com.chencohen.ptt.media.ChatStorage = withContext(work) { messaging.media.clearChat(chat) }
+
     /** Stops fetching an original (Cancel). */
     fun cancelOriginal(messageId: String, itemId: String) {
         scope.launch { withContext(work) { messaging.media.cancelOriginal(messageId, itemId) } }

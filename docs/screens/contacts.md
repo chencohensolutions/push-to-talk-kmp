@@ -61,6 +61,13 @@ sent.
 2026-11-28, hen): off, a shared video's preview is fetched when the chat is opened (and only then does it count as
 received); on, as soon as it comes. Pictures always come at once.
 
+**Storage** (a contact's page and a group's page, after Videos; 2026-11-28, hen, `ui/media/ChatStorageCard.kt`): the
+bytes this phone keeps of the chat's shared media, and what they are: previews of what I shared, previews I got,
+originals opened here, only copies kept; how many of mine are read from where I shared them, and how many originals
+aren't known to be anywhere. **Clear cache** removes what can come again (previews still on the server, originals
+someone else has) and says how much it cleared; my shared previews and the only copies stay (docs/design.md, "Who
+holds what").
+
 ## Urgent pushes and the shield (2026-11-25/26, hen)
 
 - **Urgent pushes › Let urgent pushes through Do Not Disturb**: see talk.md, "Who can hear you".

@@ -36,6 +36,7 @@ import com.chencohen.ptt.R
 import com.chencohen.ptt.media.MediaKeeping
 import com.chencohen.ptt.media.OriginalState
 import com.chencohen.ptt.messaging.AttachmentContent
+import com.chencohen.ptt.messaging.HeldOriginal
 import com.chencohen.ptt.messaging.TextMessage
 import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryType
@@ -63,7 +64,12 @@ internal fun MediaInfoSheet(
 ) {
     val context = LocalContext.current
     val ready = (original as? OriginalState.Ready)?.path
-    val kept by produceState<MediaKeeping?>(null, message.id, item.id, ready) { value = keeping(message.id, item.id) }
+    // Read again a moment later: the others answer what they hold (asked as the sheet opens).
+    val kept by produceState<MediaKeeping?>(null, message.id, item.id, ready) {
+        value = keeping(message.id, item.id)
+        kotlinx.coroutines.delay(INFO_REFRESH)
+        value = keeping(message.id, item.id)
+    }
     val path = ready ?: kept?.originalPath
     val exif by produceState<List<Pair<String, String>>?>(null, path) {
         value = path?.let { withContext(Dispatchers.IO) { exifOf(context, it) } }
@@ -117,6 +123,8 @@ internal fun MediaInfoSheet(
                         else -> stringResource(R.string.media_info_original_not_here)
                     },
                 )
+                if (k.onlyCopy) Line(stringResource(R.string.media_info_only_copy))
+                if (k.originalPath == null && !k.originalElsewhere) Muted(stringResource(R.string.media_info_nowhere))
                 if (k.originalUploadedAt > 0) Line(
                     stringResource(
                         R.string.media_info_on_server,
@@ -126,9 +134,22 @@ internal fun MediaInfoSheet(
             }
 
             Heading(stringResource(R.string.media_info_who))
+            val phones = kept?.peers.orEmpty().groupingBy { it.user }.eachCount()
             kept?.peers?.forEach { peer ->
-                val name = names(peer.user)
-                Line(
+                val name = names(peer.user).let { n -> if ((phones[peer.user] ?: 0) > 1 && peer.device > 0) stringResource(R.string.media_info_peer_phone, n, peer.device) else n }
+                if (peer.held >= 0) {
+                    val what = when (peer.held) {
+                        HeldOriginal.SOURCE -> stringResource(R.string.media_info_held_source, name)
+                        HeldOriginal.COPY -> stringResource(R.string.media_info_held_copy, name)
+                        HeldOriginal.KEPT -> stringResource(R.string.media_info_held_kept, name)
+                        else -> if (peer.keptWidth > 0) stringResource(R.string.media_info_held_preview, name, peer.keptWidth) else stringResource(R.string.media_info_held_nothing, name)
+                    }
+                    val extra = listOfNotNull(
+                        stringResource(R.string.media_info_held_journal).takeIf { peer.journal },
+                        peer.toldAt.takeIf { it > 0 }?.let { stringResource(R.string.media_info_told, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it))) },
+                    )
+                    Line((listOf(what) + extra).joinToString(" · "))
+                } else Line(
                     if (peer.original) stringResource(R.string.media_info_peer_original, name)
                     else stringResource(
                         when (peer.has) {
@@ -140,6 +161,7 @@ internal fun MediaInfoSheet(
                     ),
                 )
             }
+            Muted(stringResource(R.string.media_info_who_note))
         }
     }
 }
@@ -188,6 +210,9 @@ private fun read(exif: ExifInterface): List<kotlin.Pair<String, String>> =
         .distinct()
         .mapNotNull { tag -> exif.getAttribute(tag)?.trim()?.takeIf { it.isNotEmpty() && it.length < 200 }?.let { tag to it } }
         .sortedBy { it.first }
+
+/** How long after opening the sheet it reads again, once the others have answered what they hold. */
+private const val INFO_REFRESH = 4_000L
 
 /** How long the server keeps an original after it is uploaded (MediaSharing's, which this module can't see). */
 private const val ORIGINAL_KEPT = 29L * 24 * 60 * 60 * 1000

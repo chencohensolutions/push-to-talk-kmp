@@ -765,6 +765,34 @@ out at once; only the last 30 days' previews are fetched as the history comes, o
 chats only for now; groups and this user's other phones are next, and a backup on the Journal server later (hen).
 (`MessagingTest.aNewInstallGetsTheHistoryFromItsContact`.)
 
+## Who holds what (2026-11-28, hen)
+
+"Monitor who have what in a smart way, so the app could clear its cache but make sure all the original images exist
+somewhere; if my image is in the journal server it counts as existed." Each phone tells the chat what it holds of each
+shared item when that changes (`Content.holdings`, field 34, `HoldingsContent`; no push, batched 3 s, only what
+changed since it last said): the original (`HeldOriginal`: the shared file itself, a copy opened here, or a copy kept
+as the only one), the widest preview it keeps, and (the last phase) whether its Journal server has the original. The
+others keep it per item and phone (`MediaSharing.holdersOf`, `#holders` beside the item's source); the sharer's
+answer to a request for the original counts too (ready: its file is there; gone or changed: it isn't), so older apps
+are followed. The viewer's Info asks the chat again (`ask`) and shows what each phone said and when.
+
+The sharing phone checks its shared files once a day as it comes to the front (`checkSources`): one deleted or changed
+is told. A copy of an original opened on this phone that is then the only one known (the sharer's file gone, no one
+else has one, nor a Journal) is moved out of the cache (`MediaFiles.keepOriginal`, `media-originals-kept` in the app's
+no-backup files), so neither Android nor Clear deletes it; once another holder is known it goes back to the cache.
+
+A chat's settings show its Storage (`ChatStorage`: previews sent and got, originals opened here, only copies kept,
+how many of mine are read from where I shared them, and how many originals are known to be nowhere), and Clear cache
+removes only what can come again (`clearChat`): previews got that are still on the server (shared within 29 days) and
+copies of originals someone else has. My own shared previews (the others may ask for them) and the only copies stay.
+
+A picture deleted for everyone by its sender is gone for everyone (2026-11-28, hen: "if i delete image i sent from chat,
+the peer no longer have access to that image"): its previews, poster and uploaded original are deleted from the
+server and the sender's phone (`revoke`), the others' phones delete what they kept, the only copies too
+(`forgetTaken`), and a later request for the original finds no message and is refused. Delete for me only removes it
+from this phone. (`MediaOriginalTest`.) Next, the last phase: a Journal server's copy counts as existing, and the
+originals sent to me can be backed up there.
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.

@@ -97,6 +97,12 @@ internal data class Content(
     @ProtoNumber(32) val historyRequest: HistoryRequestContent? = null,
     /** One part of a chat's history, sent back for a [historyRequest]. */
     @ProtoNumber(33) val history: HistoryContent? = null,
+    /**
+     * What the sending phone holds of shared items (2026-11-28, hen: "monitor who have what in a smart way, so the app
+     * could clear its cache but make sure all the original images exist somewhere"), to the chat; or asks for that.
+     * Older apps skip it.
+     */
+    @ProtoNumber(34) val holdings: HoldingsContent? = null,
 )
 
 /** One message of shared items: its [id] (the message's), when it was sent, a caption, and up to 30 items. */
@@ -223,6 +229,40 @@ internal data class MediaReplyContent(
     @ProtoNumber(4) val status: Int = 0,
     @ProtoNumber(5) val upload: PartContent? = null,
 )
+
+/**
+ * What a phone holds of some shared items ([items]), sent to the chat when it changes; [ask]: the others answer with
+ * what they hold of the same items (all their items in the chat when [items] is empty).
+ */
+@Serializable
+internal data class HoldingsContent(
+    @ProtoNumber(1) val items: List<HoldingContent> = emptyList(),
+    @ProtoNumber(2) val ask: Boolean = false,
+)
+
+/** What the sending phone holds of item [attachmentId] of message [messageId]. */
+@Serializable
+internal data class HoldingContent(
+    @ProtoNumber(1) val messageId: String = "",
+    @ProtoNumber(2) val attachmentId: String = "",
+    /** One of [HeldOriginal]. */
+    @ProtoNumber(3) val original: Int = 0,
+    /** The width of the preview it keeps (0: none kept). */
+    @ProtoNumber(4) val previewWidth: Int = 0,
+    /** Its Journal server has the original (the last phase; nothing sets it yet). */
+    @ProtoNumber(5) val journal: Boolean = false,
+)
+
+/** `HoldingContent.original`. */
+object HeldOriginal {
+    const val NONE = 0
+    /** The shared file itself, where it was shared from (the sharing phone). */
+    const val SOURCE = 1
+    /** A copy fetched when it was opened. */
+    const val COPY = 2
+    /** A copy kept because it is the only one known: it stays when the cache is cleared. */
+    const val KEPT = 3
+}
 
 /** `MediaReplyContent.status`. */
 object MediaReplyStatus {

@@ -842,8 +842,21 @@ internal class Messaging(
                 com.chencohen.ptt.media.PeerHolds(user, original = false, previewWidth = width, has = has)
             }
         }
-        return kept.copy(peers = peers)
+        // What each phone said it holds wins over what is inferred; a user's phones each get a line.
+        val holders = media.holdersOf(messageId, itemId).filter { it.device != (device()?.deviceNumber ?: -1) || it.user != me }
+        val reported = holders.groupBy { it.user }
+        val merged = peers.flatMap { peer ->
+            reported[peer.user]?.map { h ->
+                peer.copy(original = h.original == HeldOriginal.SOURCE, device = h.device, held = h.original, keptWidth = h.previewWidth, journal = h.journal, toldAt = h.at, has = peer.has ?: (h.previewWidth > 0 || h.original != HeldOriginal.NONE))
+            } ?: listOf(peer)
+        } + reported.filterKeys { u -> peers.none { it.user == u } }.values.flatten().map { h ->
+            com.chencohen.ptt.media.PeerHolds(h.user, h.original == HeldOriginal.SOURCE, 0, true, h.device, h.original, h.previewWidth, h.journal, h.at)
+        }
+        return kept.copy(peers = merged)
     }
+
+    /** Asks the chat's phones what they hold of an item (the viewer's Info, so it is fresh). */
+    fun askHoldings(messageId: String, itemId: String) = media.askHoldings(messageId, itemId)
 
     /** The screen widths of the phones that see [chat]: this phone's, and the contact's or each member's as told. */
     private fun screensIn(chat: String): List<Int> {
@@ -994,6 +1007,8 @@ internal class Messaging(
     private fun deviceKey(): String? = device()?.let { "${it.user}/${it.deviceNumber}" }
 
     /** The app came to the front: keys, /ws, and the push registration. */
+    private var sourcesCheckedAt = Long.MIN_VALUE / 2
+
     suspend fun start() {
         foreground = true
         updateViewing()
@@ -1010,6 +1025,15 @@ internal class Messaging(
             scope.launch {
                 socket.state.first { it is SocketState.Live }
                 shareAbout()
+            }
+        }
+        // Coming to the front at most once a day: the files this phone shared are checked to be where they were (who
+        // holds what).
+        if (now() - sourcesCheckedAt >= SOURCES_CHECK_EVERY) {
+            sourcesCheckedAt = now()
+            scope.launch {
+                socket.state.first { it is SocketState.Live }
+                runCatching { media.checkSources() }
             }
         }
         // Once a run: history not answered yet is asked for again.
@@ -2575,8 +2599,9 @@ internal class Messaging(
         editWanted.remove(id)
         store.removeMessage(message)
         if (message.clip != null) talk.forgetClip(id)
-        // Shared pictures deleted for everyone: their previews go from the server too.
-        if (message.media != null) media.drop(listOf(message))
+        // Shared pictures deleted for everyone: no one has them any more (2026-11-28, hen): their previews and original
+        // go from the server, and the others' phones drop what they kept.
+        if (message.media != null) media.revoke(message)
         publish()
         val content = Content(delete = DeleteContent(id))
         try {
@@ -2612,8 +2637,10 @@ internal class Messaging(
             it.user == chat && it.outgoing == mine && !it.deleted && (author == null || mine || it.author == author)
         } ?: return
         if (message.clip != null) talk.forgetClip(message.id)
+        // Shared pictures deleted by their sender: this phone no longer has them (2026-11-28, hen).
+        if (message.media != null) media.forgetTaken(message)
         // Pictures taken back before their caption leave no mark: they were never announced.
-        if (mine || message.media?.quiet == true) store.removeMessage(message) else store.putMessage(message.copy(body = "", clip = null, deleted = true, editedAt = null))
+        if (mine || message.media?.quiet == true) store.removeMessage(message) else store.putMessage(message.copy(body = "", clip = null, media = null, deleted = true, editedAt = null))
         _state.update { it.copy(liveEdits = it.liveEdits - delete.id) }
         publish()
     }
@@ -2871,7 +2898,7 @@ internal class Messaging(
         content.reaction?.let { takeReaction(contact.user, contact.user, it) }
         content.about?.let { takeAbout(contact.user, envelope.senderDevice, it.version, it.screenWidthPx) }
         content.colors?.let { takeColors(contact.user, it) }
-        if (content.mediaRequest != null || content.mediaReply != null) media.took(contact.user, contact.user, envelope.senderDevice, content)
+        if (content.mediaRequest != null || content.mediaReply != null || content.holdings != null) media.took(contact.user, contact.user, envelope.senderDevice, content)
         content.profile?.let { profile ->
             if (profile.needPicture) {
                 // They don't have this user's picture after all: it goes again.
@@ -2968,6 +2995,9 @@ internal class Messaging(
     companion object {
         /** A history's pictures from these last days have their previews fetched as it comes; older ones on scroll. */
         const val HISTORY_PREVIEW_DAYS = 30
+
+        /** How often this phone checks that the files it shared are still where they were shared from. */
+        const val SOURCES_CHECK_EVERY = 24L * 60 * 60 * 1000
 
         /** Read or sent messages in a row after which older ones aren't looked at for the unread count. */
         const val UNREAD_LOOKBACK = 500

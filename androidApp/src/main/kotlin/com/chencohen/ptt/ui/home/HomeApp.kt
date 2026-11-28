@@ -538,7 +538,7 @@ fun HomeApp(
                             preview = { m, i -> messaging.mediaPreview(m, i) },
                             open = messaging::openOriginal,
                             cancel = messaging::cancelOriginal,
-                            keeping = { m, i -> messaging.mediaKeeping(m, i) },
+                            keeping = { m, i -> messaging.askHoldings(m, i); messaging.mediaKeeping(m, i) },
                             back = ::pop,
                         )
                         }
@@ -840,6 +840,7 @@ fun HomeApp(
                             com.chencohen.ptt.ui.talk.KeepInChatCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
                             com.chencohen.ptt.ui.talk.ChatColorsCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
                             com.chencohen.ptt.ui.talk.VideosAtOnceCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.media.ChatStorageCard(Group.chatOf(id), messaging::chatStorage, messaging::clearChatStorage)
                         },
                         liveTyping = messagingState.talkSettings.liveTypingTo(Group.chatOf(id)),
                         direction = messagingState.talkSettings.directionOf(Group.chatOf(id)),
@@ -995,6 +996,7 @@ fun HomeApp(
                             com.chencohen.ptt.ui.talk.KeepInChatCard(user, messagingState.talkSettings, onTalkSettings)
                             com.chencohen.ptt.ui.talk.ChatColorsCard(user, messagingState.talkSettings, onTalkSettings)
                             com.chencohen.ptt.ui.talk.VideosAtOnceCard(user, messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.media.ChatStorageCard(user, messaging::chatStorage, messaging::clearChatStorage)
                         },
                         versions = messagingState.versions[user].orEmpty(),
                         quickTalk = user in messagingState.talkSettings.quickTalk,
