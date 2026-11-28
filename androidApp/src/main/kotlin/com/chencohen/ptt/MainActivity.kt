@@ -197,7 +197,7 @@ class MainActivity : ComponentActivity() {
                     (m.call != null) to (m.call?.let { it.video && it.phase == com.chencohen.ptt.calls.CallPhase.ACTIVE } == true)
                 }
                 val callFlow = androidx.compose.runtime.remember { viewModel.messaging.state.map(callNow).distinctUntilChanged() }
-                val callState by callFlow.collectAsStateWithLifecycle(callNow(viewModel.messaging.state.value))
+                val callState by callFlow.collectAsStateWithLifecycle(androidx.compose.runtime.remember { callNow(viewModel.messaging.currentState) })
                 val callOn = callState.first
                 // Also while woken for a burst: this used to set both back to false as soon as the screen composed,
                 // undoing the wake-up's (2026-11-23, hen: "when the phone is sleeping I don't see the PTT screen").
