@@ -120,6 +120,18 @@ A row, "Save calls · Save calls on this phone", opens Settings › Calls (`Call
 storage and leaves it only through Share. **Automatic download** (off by default) fetches a call you saved to this
 phone when it ends, optionally only on Wi-Fi and/or while charging.
 
+## Storage
+
+A row, "Storage · Cache size, low storage, streaming videos", opens Settings › Storage (`StorageSettingsScreen.kt`,
+2026-11-28, hen):
+
+- **Pictures and videos you got › Cache limit**: a slider stopping at 1, 2, 3, 5, 10 (the default), 20, 30, 50 and
+  100 GB, with what the cache takes now under it. Over the limit, what was looked at longest ago goes first and comes
+  again from the server when opened; what is open stays, and so does a copy that is the only one.
+- **Clear when storage is low** (on by default): under 2 GB free on the phone, the cache is cleared.
+- **Videos › Stream original videos** (off by default): an original video plays from the server and is never kept on
+  the phone. A video bigger than the cache limit always streams.
+
 ## Your server
 
 One card, all selectable to copy:

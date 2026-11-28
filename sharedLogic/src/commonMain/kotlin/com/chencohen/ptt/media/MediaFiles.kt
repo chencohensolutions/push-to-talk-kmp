@@ -52,17 +52,57 @@ interface MediaFiles {
 
     /** The bytes the finished original [blob] takes here (0: not here). */
     fun originalSize(blob: String): Long = 0
+
+    /**
+     * What is in the cache now (what this phone got: previews and finished originals not kept out of it), each with
+     * when it was last read, so the cache limit lets the longest unread go first (2026-11-28, hen).
+     */
+    fun cached(): List<CachedPart> = emptyList()
+
+    /** The original [blob] was opened now (reading a preview counts by itself). */
+    fun touchOriginal(blob: String) = Unit
+
+    /** The bytes free on the storage the cache is on (-1: not known). */
+    fun freeBytes(): Long = -1
 }
+
+/** A part in the cache: a preview ([original] false, [name] its blob) or an original (by its blob). */
+data class CachedPart(val name: String, val original: Boolean, val bytes: Long, val lastRead: Long)
 
 class MemoryMediaFiles : MediaFiles {
     private val sentFiles = mutableMapOf<String, ByteArray>()
     private val gotFiles = mutableMapOf<String, ByteArray>()
 
+    /** A clock for the last reads (each read or write is one tick later than the one before). */
+    private var clock = 0L
+    private val lastRead = mutableMapOf<String, Long>()
+
+    /** What [freeBytes] answers (tests set it). */
+    var free = -1L
+
     override fun write(name: String, bytes: ByteArray, sent: Boolean) {
         (if (sent) sentFiles else gotFiles)[name] = bytes.copyOf()
+        lastRead[name] = ++clock
     }
 
-    override fun read(name: String): ByteArray? = (sentFiles[name] ?: gotFiles[name])?.copyOf()
+    override fun read(name: String): ByteArray? = (sentFiles[name] ?: gotFiles[name])?.copyOf()?.also { lastRead[name] = ++clock }
+
+    override fun has(name: String): Boolean = name in sentFiles || name in gotFiles
+
+    override fun sizeOf(name: String): Long = (sentFiles[name] ?: gotFiles[name])?.size?.toLong() ?: 0
+
+    /** What [cached] says each part takes, when set (tests of the cache limit, which is 1 GB at least). */
+    var claimedBytes: Long? = null
+
+    override fun cached(): List<CachedPart> =
+        gotFiles.map { (name, bytes) -> CachedPart(name, false, claimedBytes ?: bytes.size.toLong(), lastRead[name] ?: 0) } +
+            originals.filterKeys { it !in keptOriginals }.map { (blob, bytes) -> CachedPart(blob, true, claimedBytes ?: bytes.size.toLong(), lastRead["#$blob"] ?: 0) }
+
+    override fun touchOriginal(blob: String) {
+        lastRead["#$blob"] = ++clock
+    }
+
+    override fun freeBytes(): Long = free
 
     override fun delete(name: String) {
         sentFiles.remove(name)
@@ -89,6 +129,7 @@ class MemoryMediaFiles : MediaFiles {
     }
     override fun finishOriginal(blob: String) {
         originals[blob] = partials.remove(blob) ?: ByteArray(0)
+        lastRead["#$blob"] = ++clock
     }
     override fun deleteOriginal(blob: String) {
         originals.remove(blob)

@@ -211,6 +211,10 @@ class MessagingController internal constructor(
         scope.launch { withContext(work) { messaging.media.openOriginal(messageId, itemId) } }
     }
 
+    /** An original video read from the server from byte [position] as it plays (OriginalState.Streaming). */
+    fun streamOriginal(messageId: String, itemId: String, position: Long): com.chencohen.ptt.media.OriginalStream? =
+        messaging.media.streamOriginal(messageId, itemId, position)
+
     /** A message as kept, for the viewer. */
     fun mediaMessage(id: String): TextMessage? = messaging.media.message(id)
 
@@ -224,6 +228,9 @@ class MessagingController internal constructor(
     suspend fun chatStorage(chat: String): com.chencohen.ptt.media.ChatStorage = withContext(work) { messaging.media.chatStorage(chat) }
 
     /** Clears what of [chat]'s shared media can come again; answers what is kept then. */
+    /** What the cache of pictures and videos got takes now (Settings › Storage). */
+    suspend fun cacheBytes(): Long = withContext(work) { messaging.media.cacheBytes() }
+
     suspend fun clearChatStorage(chat: String): com.chencohen.ptt.media.ChatStorage = withContext(work) { messaging.media.clearChat(chat) }
 
     /** Every request for an original this phone got in [chat], oldest first (logged, refused ones too). */

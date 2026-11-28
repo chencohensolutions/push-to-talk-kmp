@@ -1059,4 +1059,18 @@
     <string name="media_videos_title">Videos</string>
     <string name="media_videos_at_once">Download videos at once</string>
     <string name="media_videos_at_once_body">Off: a video comes when you open this chat. Pictures always come at once.</string>
+    <string name="settings_storage_title">Storage</string>
+    <string name="settings_storage_body">Cache size, low storage, streaming videos</string>
+    <string name="storage_title">Storage</string>
+    <string name="storage_cache_section">Pictures and videos you got</string>
+    <string name="storage_cache_limit">Cache limit</string>
+    <string name="storage_gb">%1$d GB</string>
+    <string name="storage_cache_used">Using %1$s GB now</string>
+    <string name="storage_clear_low">Clear when storage is low</string>
+    <string name="storage_clear_low_body">When the phone has less than 2 GB free, the cache is cleared</string>
+    <string name="storage_cache_note">Over the limit, what you looked at longest ago goes first, and it comes again from the server when you open it. What you\'re looking at stays, and so does a copy that is the only one.</string>
+    <string name="storage_videos_section">Videos</string>
+    <string name="storage_stream_videos">Stream original videos</string>
+    <string name="storage_stream_videos_body">Played from the server, never kept on the phone</string>
+    <string name="storage_stream_note">A video bigger than the cache limit always streams.</string>
 </resources>

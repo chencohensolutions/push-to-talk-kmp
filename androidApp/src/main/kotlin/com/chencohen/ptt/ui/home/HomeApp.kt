@@ -572,6 +572,7 @@ fun HomeApp(
                             preview = { m, i -> messaging.mediaPreview(m, i) },
                             open = messaging::openOriginal,
                             cancel = messaging::cancelOriginal,
+                            stream = messaging::streamOriginal,
                             keeping = { m, i -> messaging.askHoldings(m, i); messaging.mediaKeeping(m, i) },
                             back = ::pop,
                             crop = if (message.outgoing && messaging.mediaSource(message.id, item) != null) { i -> cropSent(message, i) } else null,
@@ -660,6 +661,7 @@ fun HomeApp(
                         openTalk = { push("talksettings") },
                         chatColors = { com.chencohen.ptt.ui.talk.ChatColorsCard(com.chencohen.ptt.messaging.GLOBAL_COLORS, messagingState.talkSettings, onTalkSettings) },
                         openCalls = { push("callsettings") },
+                        openStorage = { push("storagesettings") },
                         updates = updates,
                         checkUpdates = { com.chencohen.ptt.AppUpdates.check(app) },
                         update = { release -> com.chencohen.ptt.AppUpdates.update(app, release) },
@@ -714,6 +716,12 @@ fun HomeApp(
                     openLayout = { push("videolayout") },
                 )
                 name == "videolayout" -> com.chencohen.ptt.ui.settings.VideoLayoutScreen(back = ::pop)
+                name == "storagesettings" -> com.chencohen.ptt.ui.settings.StorageSettingsScreen(
+                    settings = messagingState.talkSettings,
+                    used = messaging::cacheBytes,
+                    back = ::pop,
+                    change = { new -> onTalkSettings(new) },
+                )
                 name == "savingcalls" -> com.chencohen.ptt.ui.settings.SavingCallsScreen(
                     settings = messagingState.talkSettings,
                     back = ::pop,

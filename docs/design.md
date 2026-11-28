@@ -791,6 +791,19 @@ how many of mine are read from where I shared them, and how many originals are k
 removes only what can come again (`clearChat`): previews got that are still on the server (shared within 29 days) and
 copies of originals someone else has. My own shared previews (the others may ask for them) and the only copies stay.
 
+The whole cache has a limit (2026-11-28, hen: Settings › Storage, 10 GB by default, 1 GB at least; `trimCache`): over
+it, what was read longest ago goes first (`MediaFiles.cached`, each part's last read: a preview's file time is set when
+it is read, an original's when it is opened). Only what can come again goes, as with Clear cache, and nothing read in
+the last 10 minutes (on screen or playing). It runs a few seconds after the cache grows and each time the app comes to
+the front. With Clear when storage is low (on by default), under 2 GB free on the phone all of it that can go goes.
+
+Original videos can stream (2026-11-28, hen): a video bigger than the cache limit always does, and with Settings ›
+Storage › Stream original videos (off by default) every one does. Opening one gets its blob as usual (asking the
+sharing phone when the server doesn't have it) and then `OriginalState.Streaming` instead of fetching: the viewer's
+player reads it through `StreamDataSource`, which asks `streamOriginal` for the bytes from where it plays; that reads
+the blob from the chunk there (`Range: bytes=N-`), opens chunk by chunk in memory and writes nothing. A seek opens it
+again; a file still being uploaded is followed as it grows.
+
 Every request for an original is logged on the sharing phone (2026-11-28, hen: "every original image that requested
 will log somewhere; how can we be sure there isn't a way to download all my images"), refused ones too
 (`OriginalRequest`, `RequestResult`). A request names only a message and an item; it is answered only for a message

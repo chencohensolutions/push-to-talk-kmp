@@ -1062,4 +1062,18 @@
     <string name="media_videos_title">סרטונים</string>
     <string name="media_videos_at_once">הורדת סרטונים מיד</string>
     <string name="media_videos_at_once_body">כבוי: סרטון יורד כשפותחים את הצ׳אט. תמונות תמיד יורדות מיד.</string>
+    <string name="settings_storage_title">אחסון</string>
+    <string name="settings_storage_body">גודל המטמון, אחסון נמוך, הזרמת סרטונים</string>
+    <string name="storage_title">אחסון</string>
+    <string name="storage_cache_section">תמונות וסרטונים שקיבלת</string>
+    <string name="storage_cache_limit">מגבלת המטמון</string>
+    <string name="storage_gb">%1$d GB</string>
+    <string name="storage_cache_used">בשימוש עכשיו: %1$s GB</string>
+    <string name="storage_clear_low">ניקוי כשהאחסון נמוך</string>
+    <string name="storage_clear_low_body">כשבטלפון נשארים פחות מ־2 GB פנויים, המטמון מתנקה</string>
+    <string name="storage_cache_note">מעל המגבלה, מה שנצפה הכי מזמן יוצא ראשון, ויחזור מהשרת כשתפתחו אותו. מה שפתוח עכשיו נשאר, וכך גם עותק שהוא היחיד.</string>
+    <string name="storage_videos_section">סרטונים</string>
+    <string name="storage_stream_videos">הזרמת סרטונים מקוריים</string>
+    <string name="storage_stream_videos_body">מתנגנים מהשרת ולא נשמרים בטלפון</string>
+    <string name="storage_stream_note">סרטון גדול ממגבלת המטמון תמיד מוזרם.</string>
 </resources>

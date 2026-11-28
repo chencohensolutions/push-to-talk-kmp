@@ -25,6 +25,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,6 +106,12 @@ sealed interface OriginalState {
 
     /** Here: [path] is a file on this phone, or (on the phone that shared it) where it is ([local], a content URI). */
     data class Ready(val path: String, val local: Boolean = false) : OriginalState
+
+    /**
+     * A video played from the server as it is read, never kept here ([MediaSharing.streamOriginal]): Stream original
+     * videos is on, or it is bigger than the cache (2026-11-28, hen).
+     */
+    data class Streaming(val messageId: String, val itemId: String, val size: Long) : OriginalState
 
     /** The phone that shared it no longer has it. */
     data object Gone : OriginalState
@@ -240,6 +247,12 @@ internal class MediaSharing(
     private val scope: CoroutineScope? = null,
     /** Sends [content] in [chat]; [pushUser]: only that user's phones are woken ([pushKind]). */
     private val send: suspend (chat: String, content: Content, pushKind: Int, pushUser: String) -> Unit = { _, _, _, _ -> },
+    /** Settings › Storage › Cache limit, in bytes (2026-11-28, hen: 10 GB by default, 1 GB at least). */
+    private val cacheLimit: () -> Long = { DEFAULT_CACHE },
+    /** Settings › Storage › Clear the cache when the phone has less than 2 GB free. */
+    private val clearWhenLow: () -> Boolean = { true },
+    /** Settings › Storage › Stream original videos: none is kept (one bigger than the cache limit never is). */
+    private val streamVideos: () -> Boolean = { false },
 ) {
     var preparer: MediaPreparer? = null
 
@@ -703,7 +716,10 @@ internal class MediaSharing(
         if (!fetch) return waiter.await()
         val plain = try {
             val sealed = download(part.blob, MediaCrypto.sealedSize(part.size)) { done, total -> transfer(item.id, done, total) }
-            sealed?.let { MediaCrypto.openAll(key, part.blob, it) }?.also { files.write(part.blob, sealed, sent) }
+            sealed?.let { MediaCrypto.openAll(key, part.blob, it) }?.also {
+                files.write(part.blob, sealed, sent)
+                if (!sent) trimSoon()
+            }
         } catch (e: CancellationException) {
             waiter.complete(null)
             throw e
@@ -765,7 +781,12 @@ internal class MediaSharing(
             }
             return
         }
-        store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.let { blob -> files.originalPath(blob)?.let { return setOriginal(key, OriginalState.Ready(it)) } }
+        store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.let { blob ->
+            files.originalPath(blob)?.let {
+                files.touchOriginal(blob)
+                return setOriginal(key, OriginalState.Ready(it))
+            }
+        }
         opening[key] = scope.launch {
             try {
                 fetchOriginal(message, item, key)
@@ -828,7 +849,75 @@ internal class MediaSharing(
             }
         }
         val id = blob?.takeIf { validBlob(it) } ?: return setOriginal(key, OriginalState.Failed)
+        if (streams(item)) {
+            store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", id)
+            files.deleteOriginal(id)
+            return setOriginal(key, OriginalState.Streaming(message.id, item.id, item.size))
+        }
         download(id, item, key)
+    }
+
+    /** Whether [item]'s original is played from the server instead of fetched here. */
+    private fun streams(item: AttachmentContent): Boolean =
+        item.kind == MediaKind.VIDEO && (streamVideos() || item.size > cacheLimit())
+
+    /**
+     * The original of [itemId] of [messageId] read from the server from byte [position], opened chunk by chunk as it
+     * comes and never written here (the player's; a seek opens it again where it goes). A file still being uploaded
+     * by the phone that shared it is read as it grows. Null: not known here.
+     */
+    fun streamOriginal(messageId: String, itemId: String, position: Long): OriginalStream? {
+        val scope = scope ?: return null
+        val item = store.message(messageId)?.media?.items?.firstOrNull { it.id == itemId } ?: return null
+        val blob = store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.takeIf { validBlob(it) } ?: return null
+        if (position < 0 || position > item.size) return null
+        val partKey = MediaCrypto.partKey(item.key, blob, MediaCrypto.Part.ORIGINAL)
+        val chunks = MediaCrypto.chunkCount(item.size)
+        val lastSize = (MediaCrypto.sealedSize(item.size) - (chunks - 1) * MediaCrypto.SEALED).toInt()
+        val first = minOf(position / MediaCrypto.CHUNK, chunks - 1)
+        val pieces = Channel<ByteArray>(STREAM_AHEAD)
+        val job = scope.launch {
+            var done = first
+            var skip = (position - first * MediaCrypto.CHUNK).toInt()
+            var idle = 0
+            try {
+                while (done < chunks) {
+                    val before = done
+                    var pending = ByteArray(0)
+                    try {
+                        blobs.readFrom(blob, done * MediaCrypto.SEALED, follow = true) { bytes ->
+                            pending += bytes
+                            while (done < chunks) {
+                                val last = done == chunks - 1
+                                val need = if (last) lastSize else MediaCrypto.SEALED
+                                if (pending.size < need) break
+                                val plain = MediaCrypto.openChunk(partKey, blob, done, last, pending.copyOfRange(0, need))
+                                    ?: throw BlobException(0, "A piece of the original didn't open")
+                                pending = pending.copyOfRange(need, pending.size)
+                                done++
+                                val out = if (skip > 0) plain.copyOfRange(minOf(skip, plain.size), plain.size) else plain
+                                skip = 0
+                                if (out.isNotEmpty()) pieces.send(out)
+                            }
+                        }
+                    } catch (e: BlobException) {
+                        if (e.status == 404 || e.status == 0) throw e
+                    }
+                    idle = if (done == before) idle + 1 else 0
+                    if (done < chunks) {
+                        if (idle >= FETCH_TRIES) throw BlobException(0, "The original stopped coming")
+                        delay(RETRY_WAIT * idle)
+                    }
+                }
+                pieces.close()
+            } catch (e: CancellationException) {
+                pieces.close()
+                throw e
+            } catch (e: Exception) {
+                pieces.close(e)
+            }
+        }
+        return OriginalStream(item.size - position, pieces, job)
     }
 
     /** The original [blob] of [item] fetched as it grows, opened chunk by chunk into this phone's cache. */
@@ -885,6 +974,7 @@ internal class MediaSharing(
             }
         }
         files.finishOriginal(blob)
+        trimSoon()
         val path = files.originalPath(blob) ?: return setOriginal(key, OriginalState.Failed)
         reconsider(store.message(key.substringBefore('/')) ?: return setOriginal(key, OriginalState.Ready(path)), item)
         setOriginal(key, OriginalState.Ready(files.originalPath(blob) ?: path))
@@ -1315,6 +1405,64 @@ internal class MediaSharing(
 
     private fun mediaMessages(): List<TextMessage> = store.conversations().values.flatten().filter { it.media != null && !it.deleted }
 
+    /** What the cache takes now. */
+    fun cacheBytes(): Long = files.cached().sumOf { it.bytes }
+
+    private var trimming: Job? = null
+
+    /** The cache grew: kept within its limit a moment later (once for many parts that come together). */
+    private fun trimSoon() {
+        val scope = scope ?: return
+        if (trimming?.isActive == true) return
+        trimming = scope.launch {
+            delay(TRIM_WAIT)
+            runCatching { trimCache() }
+        }
+    }
+
+    /**
+     * Keeps the cache within Settings › Storage's limit (2026-11-28, hen): what was read longest ago goes first. With
+     * Clear when storage is low on and the phone under [LOW_FREE] free, all of it that can go goes. Only what can come
+     * again goes (the previews a received message still has on the server, copies of originals that are elsewhere too,
+     * parts no message names); nothing read in the last [IN_USE] (what is on screen or playing). Answers the bytes
+     * removed.
+     */
+    fun trimCache(): Long {
+        val parts = files.cached()
+        var total = parts.sumOf { it.bytes }
+        val free = files.freeBytes()
+        val low = clearWhenLow() && free in 0 until LOW_FREE
+        val limit = cacheLimit().coerceAtLeast(MIN_CACHE)
+        if (!low && total <= limit) return 0
+        val owners = mutableMapOf<String, Pair<TextMessage, String>>()
+        val lasting = mutableSetOf<String>()
+        for (message in mediaMessages()) for (item in message.media?.items.orEmpty()) {
+            for (part in item.previews + listOfNotNull(item.poster)) {
+                owners[part.blob] = message to item.id
+                if (message.outgoing || !refetchable(message)) lasting += part.blob
+            }
+            store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")?.let { owners["#$it"] = message to item.id }
+        }
+        val at = now()
+        var removed = 0L
+        for (part in parts.sortedBy { it.lastRead }) {
+            if (!low && total <= limit) break
+            if (at - part.lastRead < IN_USE) continue
+            val owner = owners[if (part.original) "#${part.name}" else part.name]
+            if (part.original) {
+                files.deleteOriginal(part.name)
+                owner?.let { (m, i) -> _originals.update { it - "${m.id}/$i" } }
+            } else {
+                if (part.name in lasting) continue
+                files.delete(part.name)
+            }
+            total -= part.bytes
+            removed += part.bytes
+            owner?.let { (m, i) -> changed(m, i) }
+        }
+        return removed
+    }
+
     companion object {
         const val MAX_ITEMS = 30
         const val MAX_CAPTION = 4000
@@ -1362,6 +1510,23 @@ internal class MediaSharing(
 
         /** A preview is fetched whole into memory; one this big isn't a preview. */
         const val MAX_PREVIEW_BYTES = 64L shl 20
+
+        /** Settings › Storage › Cache limit: 10 GB unless changed, 1 GB at least (2026-11-28, hen). */
+        const val GB = 1L shl 30
+        const val DEFAULT_CACHE = 10 * GB
+        const val MIN_CACHE = GB
+
+        /** Under this much free on the phone, Clear when storage is low clears the cache. */
+        const val LOW_FREE = 2 * GB
+
+        /** A part read this recently is in use (on screen or playing): the cache limit leaves it. */
+        const val IN_USE = 10L * 60 * 1000
+
+        /** The cache is trimmed this long after it grew. */
+        const val TRIM_WAIT = 5_000L
+
+        /** Pieces of a streamed original read ahead of the player. */
+        const val STREAM_AHEAD = 32
 
         fun validBlob(id: String): Boolean = id.length == 32 && id.all { it in '0'..'9' || it in 'a'..'f' }
 

@@ -183,6 +183,12 @@ data class TalkSettings(
     val liveTypingFor: Map<String, Boolean> = emptyMap(),
     /** The chats there were when [liveTyping] (the default for new ones) was turned on: they keep their own choice. */
     val liveTypingKnown: Set<String> = emptySet(),
+    /** Settings › Storage › Cache limit, in GB (2026-11-28, hen: 10 by default, 1 at least). */
+    val mediaCacheGb: Int = 10,
+    /** Settings › Storage › Clear the cache when the phone has less than 2 GB free (on by default). */
+    val clearCacheWhenLow: Boolean = true,
+    /** Settings › Storage › Stream original videos: played from the server, none kept here (off by default). */
+    val streamVideos: Boolean = false,
     /**
      * Voice or Video per contact or group (2026-11-23, hen: "remember that setting for that contact"): what the Talk
      * screen's and the reply bubble's Voice | Video chose last for it; [pushVideo] for one never chosen.
@@ -814,6 +820,9 @@ internal class Messaging(
             val group = Group.idOf(chat)
             if (group != null) groups.send(group, content, pushKind, pushUser = pushUser) else sender.send(chat, content, pushKind = pushKind, pushUser = pushUser)
         },
+        cacheLimit = { _state.value.talkSettings.mediaCacheGb.coerceAtLeast(1) * com.chencohen.ptt.media.MediaSharing.GB },
+        clearWhenLow = { _state.value.talkSettings.clearCacheWhenLow },
+        streamVideos = { _state.value.talkSettings.streamVideos },
     )
 
     /**
@@ -1035,6 +1044,8 @@ internal class Messaging(
         }
         // Coming to the front at most once a day: the files this phone shared are checked to be where they were (who
         // holds what).
+        // Coming to the front: the cache kept within its limit (and cleared when the phone runs low).
+        scope.launch { runCatching { media.trimCache() } }
         if (now() - sourcesCheckedAt >= SOURCES_CHECK_EVERY) {
             sourcesCheckedAt = now()
             scope.launch {
@@ -1304,6 +1315,9 @@ internal class Messaging(
         liveTyping = settings.liveTyping,
         liveTypingFor = settings.liveTypingFor,
         liveTypingKnown = settings.liveTypingKnown,
+        mediaCacheGb = settings.mediaCacheGb,
+        clearCacheWhenLow = settings.clearCacheWhenLow,
+        streamVideos = settings.streamVideos,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -1356,8 +1370,12 @@ internal class Messaging(
         // The default turned on: the chats there are now keep theirs (off unless set), only new ones follow it.
         val known = if (talk.liveTyping && !before.liveTyping) knownChats() else talk.liveTypingKnown
         if (known != before.liveTypingKnown) settings.liveTypingKnown = known
-        val talk = talk.copy(liveTypingKnown = known, colorsAt = stamped)
+        settings.mediaCacheGb = talk.mediaCacheGb.coerceAtLeast(1)
+        settings.clearCacheWhenLow = talk.clearCacheWhenLow
+        settings.streamVideos = talk.streamVideos
+        val talk = talk.copy(liveTypingKnown = known, colorsAt = stamped, mediaCacheGb = talk.mediaCacheGb.coerceAtLeast(1))
         _state.update { it.copy(talkSettings = talk) }
+        if (talk.mediaCacheGb < before.mediaCacheGb || (talk.clearCacheWhenLow && !before.clearCacheWhenLow)) scope.launch { runCatching { media.trimCache() } }
     }
 
     /**

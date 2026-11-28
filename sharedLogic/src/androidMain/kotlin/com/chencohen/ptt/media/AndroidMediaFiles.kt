@@ -80,8 +80,26 @@ class AndroidMediaFiles(context: Context) : MediaFiles {
 
     override fun read(name: String): ByteArray? {
         val file = fileOf(name) ?: return null
-        return listOf(sentDir, gotDir).map { File(it, file) }.firstOrNull { it.isFile }?.let { runCatching { it.readBytes() }.getOrNull() }
+        val found = listOf(sentDir, gotDir).map { File(it, file) }.firstOrNull { it.isFile } ?: return null
+        val bytes = runCatching { found.readBytes() }.getOrNull() ?: return null
+        // A file's time is when it was last read: the cache limit lets the longest unread go first.
+        if (found.parentFile == gotDir) found.setLastModified(System.currentTimeMillis())
+        return bytes
     }
+
+    override fun cached(): List<CachedPart> {
+        val previews = (gotDir.listFiles() ?: emptyArray()).filter { it.isFile && it.name.endsWith(".part") }
+            .map { CachedPart(it.name.removeSuffix(".part"), false, it.length(), it.lastModified()) }
+        val originals = (originalsDir.listFiles() ?: emptyArray()).filter { it.isFile && MediaSharing.validBlob(it.name) }
+            .map { CachedPart(it.name, true, it.length(), it.lastModified()) }
+        return previews + originals
+    }
+
+    override fun touchOriginal(blob: String) {
+        original(blob, false)?.takeIf { it.isFile }?.setLastModified(System.currentTimeMillis())
+    }
+
+    override fun freeBytes(): Long = runCatching { android.os.StatFs(gotDir.path).availableBytes }.getOrDefault(-1L)
 
     override fun has(name: String): Boolean {
         val file = fileOf(name) ?: return false

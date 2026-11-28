@@ -583,6 +583,79 @@ class MediaOriginalTest {
     }
 
     @Test
+    fun theCacheKeepsToItsLimitByLastReadAndClearsWhenThePhoneRunsLow() = runTest {
+        val (_, hen, dana) = paired()
+        val shared = listOf("a", "b", "c").map { source ->
+            val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf(source), "") }
+            advanceUntilIdle()
+            sent.await().single().let { it.id to it.media!!.items.single().id }
+        }
+        for ((m, i) in shared) dana.messaging.media.preview(m, i)
+        for ((m, i) in shared) dana.messaging.media.openOriginal(m, i)
+        advanceUntilIdle()
+        // The first picture's original opened again: read last now.
+        dana.messaging.media.openOriginal(shared[0].first, shared[0].second)
+        advanceUntilIdle()
+        // Each part counted as 400 MB: 3 previews and 3 originals, 2.4 GB, within the default 10 GB.
+        dana.files.claimedBytes = 400L shl 20
+        assertEquals(6, dana.files.cached().size)
+        assertEquals(0, dana.messaging.media.trimCache())
+        // 1 GB: the previews go first (read longest ago), then the original of b, the longest unread one.
+        dana.messaging.setTalkSettings(dana.messaging.state.value.talkSettings.copy(mediaCacheGb = 0))
+        advanceUntilIdle()
+        assertEquals(1, dana.messaging.state.value.talkSettings.mediaCacheGb, "1 GB at least")
+        val left = dana.files.cached()
+        assertEquals(2, left.size, "$left")
+        assertTrue(left.all { it.original })
+        assertNull(dana.messaging.media.originals.value["${shared[1].first}/${shared[1].second}"], "b's copy is gone")
+        assertTrue(dana.messaging.media.originals.value["${shared[0].first}/${shared[0].second}"] is OriginalState.Ready)
+        // Bigger now: c goes (a was read after it).
+        dana.files.claimedBytes = 600L shl 20
+        dana.messaging.media.trimCache()
+        assertEquals(1, dana.files.cached().size, "within 1 GB again")
+        assertTrue(dana.messaging.media.originals.value["${shared[0].first}/${shared[0].second}"] is OriginalState.Ready)
+        // Under 2 GB free on the phone: all of it goes, and all of it comes again.
+        dana.files.free = 1L shl 30
+        dana.messaging.media.trimCache()
+        assertTrue(dana.files.cached().isEmpty())
+        for ((m, i) in shared) assertNotNull(dana.messaging.media.preview(m, i))
+        // Turned off: kept again, however little is free.
+        dana.messaging.setTalkSettings(dana.messaging.state.value.talkSettings.copy(clearCacheWhenLow = false, mediaCacheGb = 10))
+        advanceUntilIdle()
+        assertEquals(0, dana.messaging.media.trimCache())
+        assertEquals(3, dana.files.cached().size)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun anOriginalStreamsFromTheServerFromAnyByteWithoutBeingKept() = runTest {
+        val (_, hen, dana) = paired()
+        val (message, item) = shared(hen)
+        // Fetched once, so the server has it; then cleared from dana's phone.
+        dana.messaging.media.openOriginal(message, item)
+        advanceUntilIdle()
+        dana.messaging.media.clear(sent = false)
+        assertTrue(dana.files.originals.isEmpty())
+        val from = MediaCrypto.CHUNK + 1000L
+        val stream = assertNotNull(dana.messaging.media.streamOriginal(message, item, from))
+        val whole = originalOf("a")
+        assertEquals(whole.size - from, stream.length)
+        val got = dana.work.async {
+            var out = ByteArray(0)
+            while (true) out += stream.read() ?: break
+            out
+        }
+        advanceUntilIdle()
+        assertContentEquals(whole.copyOfRange(from.toInt(), whole.size), got.await())
+        stream.close()
+        assertTrue(dana.files.originals.isEmpty(), "nothing kept")
+        assertTrue(dana.files.partials.isEmpty())
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun aPictureDeletedByItsSenderIsGoneForEveryone() = runTest {
         val (server, hen, dana) = paired()
         val (message, item) = shared(hen)

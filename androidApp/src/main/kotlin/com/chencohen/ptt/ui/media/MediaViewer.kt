@@ -97,6 +97,8 @@ internal fun MediaViewer(
     back: () -> Unit,
     /** My own picture's composition changed after it was sent (2026-11-28, hen); null: not mine. */
     crop: ((itemId: String) -> Unit)? = null,
+    /** An original video read from the server as it plays (OriginalState.Streaming). */
+    stream: (messageId: String, itemId: String, position: Long) -> com.chencohen.ptt.media.OriginalStream? = { _, _, _ -> null },
 ) {
     val media = message.media ?: return back()
     val items = media.items.filter { it.kind == MediaKind.IMAGE || it.kind == MediaKind.VIDEO || it.id == startItem }
@@ -245,7 +247,7 @@ internal fun MediaViewer(
                 translationY = lerp(chat.center.y - centre.y - start * keptShift, restY)
                 clipTo(minOf(at, unfolded))
             }) {
-                ItemPage(message, item, originals["${message.id}/${item.id}"], preview, zoomOf(item.id), tap = { chrome = !chrome }, whole = {
+                ItemPage(message, item, originals["${message.id}/${item.id}"], preview, zoomOf(item.id), stream = stream, tap = { chrome = !chrome }, whole = {
                     zoomScope.launch {
                         unfoldOf(item.id).animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease))
                     }
@@ -297,7 +299,16 @@ internal fun MediaViewer(
 }
 
 @Composable
-private fun ItemPage(message: TextMessage, item: AttachmentContent, state: OriginalState?, preview: suspend (String, String) -> ByteArray?, zoom: PhotoZoom, tap: () -> Unit, whole: () -> Unit = {}) {
+private fun ItemPage(
+    message: TextMessage,
+    item: AttachmentContent,
+    state: OriginalState?,
+    preview: suspend (String, String) -> ByteArray?,
+    zoom: PhotoZoom,
+    stream: (String, String, Long) -> com.chencohen.ptt.media.OriginalStream?,
+    tap: () -> Unit,
+    whole: () -> Unit = {},
+) {
     val context = LocalContext.current
     val ready = state as? OriginalState.Ready
     // The picture the chat drew, at once (so it is there as it flies in), else the preview read.
@@ -309,7 +320,8 @@ private fun ItemPage(message: TextMessage, item: AttachmentContent, state: Origi
         }
     }
     when {
-        item.kind == MediaKind.VIDEO && ready != null -> Player(ready)
+        item.kind == MediaKind.VIDEO && ready != null -> Player(ready.path) { MediaItem.fromUri(uriOf(ready.path)) }
+        item.kind == MediaKind.VIDEO && state is OriginalState.Streaming -> StreamedPlayer(state, stream)
         item.kind == MediaKind.IMAGE -> {
             val full by produceState<Bitmap?>(null, ready?.path) {
                 val path = ready?.path ?: return@produceState
@@ -378,11 +390,11 @@ private fun ItemPage(message: TextMessage, item: AttachmentContent, state: Origi
 
 /** A picture that pinches and pans; a double tap zooms in or back. */
 @Composable
-private fun Player(ready: OriginalState.Ready) {
+private fun Player(key: String, build: (ExoPlayer.Builder) -> ExoPlayer.Builder = { it }, media: () -> MediaItem) {
     val context = LocalContext.current
-    val player = remember(ready.path) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(uriOf(ready.path)))
+    val player = remember(key) {
+        build(ExoPlayer.Builder(context)).build().apply {
+            setMediaItem(media())
             prepare()
             playWhenReady = true
         }
@@ -393,11 +405,23 @@ private fun Player(ready: OriginalState.Ready) {
     }
 }
 
+/** An original video played from the server as it is read, never kept here (2026-11-28, hen). */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun StreamedPlayer(state: OriginalState.Streaming, stream: (String, String, Long) -> com.chencohen.ptt.media.OriginalStream?) {
+    val key = "stream:${state.messageId}/${state.itemId}"
+    Player(key, build = { builder ->
+        builder.setMediaSourceFactory(
+            androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(StreamDataSource.Factory { position -> stream(state.messageId, state.itemId, position) }),
+        )
+    }) { MediaItem.fromUri("talk://$key") }
+}
+
 /** How far the original got, at the bottom: "Getting the original · 3 of 8 MB" with ✕, or why it didn't come. */
 @Composable
 private fun OriginalPill(item: AttachmentContent, state: OriginalState?, again: () -> Unit, cancel: () -> Unit, allow: () -> Unit) {
     val text = when (state) {
-        null, is OriginalState.Ready -> return
+        null, is OriginalState.Ready, is OriginalState.Streaming -> return
         OriginalState.Asking -> stringResource(R.string.media_original_asking)
         is OriginalState.Coming -> stringResource(R.string.media_original_coming, mb(state.done), mb(state.total))
         OriginalState.Gone -> stringResource(R.string.media_original_gone)
