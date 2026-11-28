@@ -154,17 +154,55 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         val height = (full.height / scale).roundToInt()
         val previews = previews(full, widths(width))
         full.recycle()
-        val taken = exif?.let(::takenAt) ?: storeTakenAt(uri)?.let { at -> at to java.util.TimeZone.getDefault().getOffset(at) / 60_000 }
-        val place = exif?.let { e -> FloatArray(2).takeIf { @Suppress("DEPRECATION") e.getLatLong(it) }?.let { doubleArrayOf(it[0].toDouble(), it[1].toDouble()) } }
-        android.util.Log.i("TalkMedia", "picked ${uri.authority}: exif ${exif != null}, taken ${taken != null}, place ${place != null}")
+        val at = imageTakenWhere(uri, exif)
         return PreparedItem(
             kind = MediaKind.IMAGE, mime = mime, name = name, size = size, width = width, height = height,
-            takenAt = taken?.first ?: 0, takenOffsetMin = taken?.second ?: 0,
-            latE7 = place?.let { (it[0] * 1e7).roundToInt() } ?: 0, lonE7 = place?.let { (it[1] * 1e7).roundToInt() } ?: 0,
-            hasPlace = place != null && !(place[0] == 0.0 && place[1] == 0.0),
+            takenAt = at.takenAt, takenOffsetMin = at.takenOffsetMin, latE7 = at.latE7, lonE7 = at.lonE7, hasPlace = at.hasPlace,
             sha256 = sha, previews = previews, source = source,
         )
     }
+
+    /** When and where the picture at [uri] was taken: its EXIF ([exif]), else the date the gallery has. */
+    private fun imageTakenWhere(uri: Uri, exif: ExifInterface?): TakenWhere {
+        val taken = exif?.let(::takenAt) ?: storeTakenAt(uri)?.let { at -> at to java.util.TimeZone.getDefault().getOffset(at) / 60_000 }
+        val place = exif?.let { e -> FloatArray(2).takeIf { @Suppress("DEPRECATION") e.getLatLong(it) }?.let { doubleArrayOf(it[0].toDouble(), it[1].toDouble()) } }
+        Log.i(TAG, "picked ${uri.authority}: exif ${exif != null}, taken ${taken != null}, place ${place != null}")
+        return TakenWhere(
+            takenAt = taken?.first ?: 0, takenOffsetMin = taken?.second ?: 0,
+            latE7 = place?.let { (it[0] * 1e7).roundToInt() } ?: 0, lonE7 = place?.let { (it[1] * 1e7).roundToInt() } ?: 0,
+            hasPlace = place != null && !(place[0] == 0.0 && place[1] == 0.0),
+        )
+    }
+
+    override suspend fun takenWhere(source: String): TakenWhere? = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(source)
+        val mime = runCatching { resolver.getType(uri) }.getOrNull().orEmpty()
+        when {
+            mime.startsWith("image/") -> imageTakenWhere(uri, runCatching { openExif(original(uri)) ?: openExif(uri) }.getOrNull())
+            mime.startsWith("video/") -> {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(app, original(uri))
+                    val place = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LOCATION)?.let(::iso6709)
+                    TakenWhere(
+                        takenAt = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)?.let(::videoTakenAt) ?: 0,
+                        latE7 = place?.let { (it.first * 1e7).roundToInt() } ?: 0, lonE7 = place?.let { (it.second * 1e7).roundToInt() } ?: 0,
+                        hasPlace = place != null,
+                    )
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                } finally {
+                    runCatching { retriever.release() }
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun videoTakenAt(d: String): Long? =
+        runCatching { java.time.ZonedDateTime.parse(d, DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX")).toInstant().toEpochMilli() }.getOrNull()
 
     // By file descriptor first: the framework reads HEIF (what newer cameras save) only from a seekable file, not a stream.
     private fun openExif(uri: Uri): ExifInterface? =
@@ -198,9 +236,7 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
             val (width, height) = if (rotation == 90 || rotation == 270) h to w else w to h
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0
             val place = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LOCATION)?.let(::iso6709)
-            val taken = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)?.let { d ->
-                runCatching { java.time.ZonedDateTime.parse(d, DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX")).toInstant().toEpochMilli() }.getOrNull()
-            }
+            val taken = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE)?.let(::videoTakenAt)
             // Its first picture stands for it in the chat until its clip plays, and where there is none.
             val wanted = widths(width).maxOrNull() ?: width
             val frame = retriever.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, wanted, PreviewSpec.heightAt(width, height, wanted).coerceAtLeast(1))
