@@ -237,6 +237,18 @@ internal class MediaSharing(
     /** How far each message of this phone's being sent got uploading its previews (0 to 1), by message id. */
     val uploads: StateFlow<Map<String, Float>> = _uploads.asStateFlow()
 
+    private val _transfers = MutableStateFlow<Map<String, Float>>(emptyMap())
+
+    /**
+     * Each item's preview going up (mine) or coming down (theirs) from the server now, 0 to 1, by item id (2026-11-28,
+     * hen: "i want to see upload progress and download progress from server"). Gone once done.
+     */
+    val transfers: StateFlow<Map<String, Float>> = _transfers.asStateFlow()
+
+    private fun transfer(item: String, done: Long, total: Long) {
+        _transfers.update { it + (item to (done.toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f)) }
+    }
+
     /** [item] with its own key; its previews sealed and kept (this phone shows them, and uploads them). */
     private fun seal(message: String, item: PreparedItem): AttachmentContent {
         val key = random.nextBytes(MediaCrypto.KEY_BYTES)
@@ -274,21 +286,45 @@ internal class MediaSharing(
         _uploads.update { it + (message.id to 0f) }
         try {
             for (item in media.items) {
+                val itemTotal = item.previews.sumOf { MediaCrypto.sealedSize(it.size) }
+                var itemDone = 0L
                 for (part in item.previews) {
+                    if (part.blob !in uploaded) transfer(item.id, itemDone, itemTotal)
                     if (part.blob in uploaded) {
+                        itemDone += MediaCrypto.sealedSize(part.size)
                         done += MediaCrypto.sealedSize(part.size)
                         _uploads.update { it + (message.id to (done.toFloat() / total).coerceAtMost(1f)) }
                         continue
                     }
                     val sealed = files.read(part.blob) ?: throw MissingPreviewException()
-                    blobs.put(part.blob, if (group == null) message.user else null, group, sealed)
+                    val peer = if (group == null) message.user else null
+                    // In pieces, so the progress moves smoothly; whole when the server can't take pieces.
+                    var offset = 0L
+                    var stuck = 0
+                    try {
+                        while (offset < sealed.size) {
+                            val end = minOf(sealed.size.toLong(), offset + PREVIEW_PIECE).toInt()
+                            val got = blobs.putPiece(part.blob, peer, group, false, sealed.size.toLong(), offset, sealed.copyOfRange(offset.toInt(), end))
+                            stuck = if (got <= offset) stuck + 1 else 0
+                            if (stuck > 2) throw BlobException(409, "The server keeps another part")
+                            offset = got
+                            transfer(item.id, itemDone + offset, itemTotal)
+                            _uploads.update { it + (message.id to ((done + offset).toFloat() / total).coerceAtMost(1f)) }
+                        }
+                    } catch (e: BlobException) {
+                        if (e.status != 0) throw e
+                        blobs.put(part.blob, peer, group, sealed)
+                    }
                     uploaded += part.blob
+                    itemDone += sealed.size
+                    transfer(item.id, itemDone, itemTotal)
                     done += sealed.size
                     _uploads.update { it + (message.id to (done.toFloat() / total).coerceAtMost(1f)) }
                 }
             }
         } finally {
             _uploads.update { it - message.id }
+            _transfers.update { it - media.items.map { item -> item.id }.toSet() }
         }
     }
 
@@ -333,13 +369,15 @@ internal class MediaSharing(
         }
         if (!fetch) return waiter.await()
         val plain = try {
-            val sealed = download(part.blob, MediaCrypto.sealedSize(part.size))
+            val sealed = download(part.blob, MediaCrypto.sealedSize(part.size)) { done, total -> transfer(item.id, done, total) }
             sealed?.let { MediaCrypto.openAll(key, part.blob, it) }?.also { files.write(part.blob, sealed, sent) }
         } catch (e: CancellationException) {
             waiter.complete(null)
             throw e
         } catch (_: Exception) {
             null
+        } finally {
+            _transfers.update { it - item.id }
         }
         waiter.complete(plain)
         fetching.withLock { inFlight.remove(part.blob) }
@@ -347,14 +385,16 @@ internal class MediaSharing(
     }
 
     /** Blob [id] read whole; null when it isn't [expected] bytes (cut short, or not this part). */
-    private suspend fun download(id: String, expected: Long): ByteArray? {
+    private suspend fun download(id: String, expected: Long, progress: (done: Long, total: Long) -> Unit = { _, _ -> }): ByteArray? {
         if (expected > MAX_PREVIEW_BYTES) return null
         val chunks = mutableListOf<ByteArray>()
         var size = 0L
+        progress(0, expected)
         blobs.read(id) { bytes ->
             size += bytes.size
             if (size > expected) throw BlobException(0, "More than the preview's size")
             chunks += bytes
+            progress(size, expected)
         }
         if (size != expected) return null
         val out = ByteArray(size.toInt())
@@ -625,6 +665,9 @@ internal class MediaSharing(
     companion object {
         const val MAX_ITEMS = 30
         const val MAX_CAPTION = 4000
+
+        /** A preview goes up in pieces this big (its progress shown as it goes). */
+        const val PREVIEW_PIECE = 64L * 1024
         const val MAX_NAME = 200
 
         /** How long a request for an original waits for the sharing phone's answer (it may be asleep: a push wakes it). */

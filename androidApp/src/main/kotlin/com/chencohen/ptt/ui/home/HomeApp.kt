@@ -278,6 +278,7 @@ fun HomeApp(
         }
     }
     val uploads by messaging.uploads.collectAsStateWithLifecycle()
+    val transfers by messaging.transfers.collectAsStateWithLifecycle()
     // The phone's pictures and videos, with their place: the sender keeps no copy, so the original is read again from
     // there when someone opens it (asked once, the first time something is shared; it goes either way).
     var askedFor by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
@@ -509,6 +510,7 @@ fun HomeApp(
                     )
                 },
                 uploads = uploads,
+                transfers = transfers,
                 attach = if (writable) attachPicker else null,
             ),
             talk = messagingState.talk,

@@ -164,6 +164,9 @@ class MessagingController internal constructor(
     /** How far each of this phone's media messages being sent got uploading (0 to 1), by message id. */
     val uploads: kotlinx.coroutines.flow.StateFlow<Map<String, Float>> get() = messaging.media.uploads
 
+    /** Each shared item's preview going up or coming down now (0 to 1), by item id. */
+    val transfers: kotlinx.coroutines.flow.StateFlow<Map<String, Float>> get() = messaging.media.transfers
+
     fun shareMedia(chat: String, sources: List<String>, caption: String, done: (Int) -> Unit = {}) {
         scope.launch {
             val sent = withContext(work) {

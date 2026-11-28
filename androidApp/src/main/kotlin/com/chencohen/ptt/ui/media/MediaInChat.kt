@@ -41,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.fillMaxHeight
 import com.chencohen.ptt.ui.contacts.liveCaret
 import com.awxkee.jxlcoder.JxlCoder
 import com.chencohen.ptt.R
@@ -209,10 +210,20 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
                 Icon(LibraryIcons.Play, null, tint = Color.White, modifier = Modifier.size(28.dp))
             }
         }
+        // Going up to the server (mine) or coming down from it (theirs): a thin bar along the bottom, filling.
+        LocalTransfers.current[item.id]?.let { done ->
+            val shown by androidx.compose.animation.core.animateFloatAsState(done, label = "transfer")
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x55000000))) {
+                Box(Modifier.fillMaxWidth(shown).fillMaxHeight().background(if (message.outgoing) LibraryColors.Writing else LibraryColors.Accent))
+            }
+        }
         // A video's length (when it was taken is on the top half bubble, the time it was sent on the bottom one).
         item.durationMs.takeIf { it > 0 }?.let { Box(Modifier.align(Alignment.BottomStart).padding(8.dp)) { Chip(com.chencohen.ptt.ui.talk.clipLength(it)) } }
     }
 }
+
+/** Each item's preview going up or coming down now (0 to 1), by item id: MediaSharing.transfers. */
+internal val LocalTransfers = androidx.compose.runtime.staticCompositionLocalOf<Map<String, Float>> { emptyMap() }
 
 @Composable
 private fun Chip(text: String, warn: Boolean = false) {
