@@ -131,9 +131,9 @@ A row, "Storage · Cache size, low storage, streaming videos", opens Settings �
 - **Clear when storage is low** (on by default): under 2 GB free on the phone, the cache is cleared.
 - **Videos › Stream original videos** (off by default): an original video plays from the server and is never kept on
   the phone. A video bigger than the cache limit always streams.
-- **Keep what I share on the server**: 30 days, 1 year (the default) or 2 years, with a note that it is encrypted so
-  only the chat can open it, and that originals go up right after sharing, on Wi-Fi, so they open even when this
-  phone is off.
+- **On your server**: a note that what you share is kept there, encrypted so only the chat can open it; originals go
+  up right after sharing, on Wi-Fi, so they open even when this phone is off; when the server's 1 TB fills, what was
+  fetched longest ago goes first.
 
 ## Your server
 

@@ -23,6 +23,11 @@ internal object MediaCrypto {
 
     enum class Part(val info: String) { PREVIEW("preview"), POSTER("poster"), ORIGINAL("original") }
 
+    /**
+     * The key of one part: the item's key, the blob id and the part, through HKDF. Chunk nonces are only their index, so
+     * a blob id must never be sealed twice with different bytes: every seal takes a new random blob id (a recrop, an
+     * upload again), and a broken upload goes on only with the very same bytes.
+     */
     fun partKey(attachmentKey: ByteArray, blob: String, part: Part): ByteArray {
         require(attachmentKey.size == KEY_BYTES)
         return Seal.hkdfSha256(attachmentKey, blob.encodeToByteArray(), "talk media v1|${part.info}".encodeToByteArray(), KEY_BYTES)

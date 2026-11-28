@@ -253,8 +253,6 @@ internal class MediaSharing(
     private val clearWhenLow: () -> Boolean = { true },
     /** Settings › Storage › Stream original videos: none is kept (one bigger than the cache limit never is). */
     private val streamVideos: () -> Boolean = { false },
-    /** Settings › Storage › Keep on the server: the days what this phone shares is kept there (1 year by default). */
-    private val keepDays: () -> Int = { DEFAULT_KEEP_DAYS },
     /** Whether the phone is on Wi-Fi (or another network that isn't metered): originals go up at once then. */
     private val unmetered: () -> Boolean = { true },
 ) {
@@ -302,7 +300,7 @@ internal class MediaSharing(
             val at = now()
             val text = if (i == 0) caption.trim().take(MAX_CAPTION) else ""
             val attachments = chunk.map { item -> if (item is Again) again(id, item) else seal(id, item as PreparedItem) }
-            val media = MediaContent(id, at, text, attachments, keepDays = keepDays())
+            val media = MediaContent(id, at, text, attachments, keepDays = MediaContent.FOREVER)
             val message = TextMessage(id, chat, outgoing = true, body = fallback(media), at = at, status = MessageStatus.PENDING, media = media)
             if (keep) store.putMessage(message) else drafts[id] = message
             out += message
@@ -1031,6 +1029,12 @@ internal class MediaSharing(
             }
         }
         files.finishOriginal(blob)
+        // The untouched original the sharer's message named, or nothing (each chunk is authenticated, but anyone in the
+        // chat holds the item's key; 2026-11-28, Fable's review).
+        if (item.sha256.isNotEmpty() && files.originalSha256(blob)?.contentEquals(item.sha256) == false) {
+            files.deleteOriginal(blob)
+            return setOriginal(key, OriginalState.Changed)
+        }
         trimSoon()
         val path = files.originalPath(blob) ?: return setOriginal(key, OriginalState.Failed)
         reconsider(store.message(key.substringBefore('/')) ?: return setOriginal(key, OriginalState.Ready(path)), item)
@@ -1436,9 +1440,10 @@ internal class MediaSharing(
     /** A received message's previews are still on the server (fetched again after a clear). */
     private fun refetchable(message: TextMessage): Boolean = now() - message.at < keptFor(message)
 
-    /** How long the server keeps what [message] shared, as its sender asked, a day less to be safe. */
+    /** How long the server keeps what [message] shared (forever, from 2026-11-28; else its days, a day less to be safe). */
     private fun keptFor(message: TextMessage?): Long {
-        val days = message?.media?.keepDays?.takeIf { it > 0 } ?: return ORIGINAL_KEPT
+        val days = message?.media?.keepDays?.takeIf { it != 0 } ?: return ORIGINAL_KEPT
+        if (days < 0) return Long.MAX_VALUE
         return (days - 1L).coerceAtLeast(1) * DAY
     }
 
@@ -1547,9 +1552,6 @@ internal class MediaSharing(
         /** The server keeps an original 30 days (media_days); asked again a day before that. */
         const val ORIGINAL_KEPT = 29L * 24 * 60 * 60 * 1000
         const val DAY = 24L * 60 * 60 * 1000
-
-        /** Settings › Storage › Keep on the server: 1 year unless changed (30 days and 2 years too). */
-        const val DEFAULT_KEEP_DAYS = 365
 
         /** How long an original uploaded at once waits for its message to be on the server before telling the chat. */
         const val AHEAD_WAIT = 10L * 60 * 1000

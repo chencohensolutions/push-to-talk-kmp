@@ -8,6 +8,7 @@ import com.chencohen.ptt.crypto.DeviceAddress
 import com.chencohen.ptt.discovery.KeptDiscovery
 import com.chencohen.ptt.messaging.FakeCryptoEngine
 import com.chencohen.ptt.messaging.FakeServer
+import com.chencohen.ptt.messaging.MediaContent
 import com.chencohen.ptt.messaging.MediaKind
 import com.chencohen.ptt.messaging.MessageStatus
 import com.chencohen.ptt.messaging.Messaging
@@ -629,17 +630,16 @@ class MediaOriginalTest {
     }
 
     @Test
-    fun onWiFiAnOriginalGoesUpRightAfterSharingKeptTheDaysChosen() = runTest {
+    fun onWiFiAnOriginalGoesUpRightAfterSharingKeptForever() = runTest {
         val (server, hen, dana) = paired()
         hen.messaging.unmetered = { true }
         val (message, item) = shared(hen)
         val preparer = hen.messaging.media.preparer as FakePreparer
         assertEquals(1, preparer.opened, "read once, to upload it")
         val sent = hen.store.message(message)!!.media!!
-        assertEquals(365, sent.keepDays, "a year unless changed")
-        for (part in sent.items.single().previews) assertEquals(365, server.keptDays[part.blob])
-        val original = server.keptDays.keys.single { k -> sent.items.single().previews.none { it.blob == k } }
-        assertEquals(365, server.keptDays[original])
+        assertEquals(MediaContent.FOREVER, sent.keepDays, "kept on the server forever")
+        for (part in sent.items.single().previews) assertEquals(true, server.kept[part.blob])
+        val original = server.kept.keys.single { k -> sent.items.single().previews.none { it.blob == k } }
         // Dana opens it straight from the server: hen's phone isn't asked.
         dana.messaging.media.openOriginal(message, item)
         advanceUntilIdle()
@@ -649,16 +649,50 @@ class MediaOriginalTest {
         assertTrue(hen.messaging.media.originalRequests().isEmpty(), "nothing was asked")
         // Off Wi-Fi: it waits, and goes once on Wi-Fi.
         hen.messaging.unmetered = { false }
-        hen.messaging.setTalkSettings(hen.messaging.state.value.talkSettings.copy(serverKeepDays = 730))
         val (second, _) = hen.work.async { hen.messaging.shareMedia("dana", listOf("b"), "") }.let { advanceUntilIdle(); it.await().single().let { m -> m.id to m.media!!.items.single().id } }
         assertEquals(1, preparer.opened)
-        assertEquals(730, hen.store.message(second)!!.media!!.keepDays)
         hen.messaging.unmetered = { true }
         hen.messaging.media.uploadPending()
         advanceUntilIdle()
         assertEquals(2, preparer.opened)
         hen.stop()
         dana.stop()
+    }
+
+    @Test
+    fun anOriginalThatIsntTheOneSharedIsThrownAway() = runTest {
+        val (server, hen, dana) = paired()
+        val (message, item) = shared(hen)
+        // Hen's file changes after the original went up, sealed with the right key (anyone in the chat holds it).
+        dana.messaging.media.openOriginal(message, item)
+        advanceUntilIdle()
+        val ready = dana.messaging.media.originals.value["$message/$item"] as OriginalState.Ready
+        val blob = ready.path.removePrefix("memory:")
+        val attachment = dana.store.message(message)!!.media!!.items.single()
+        val other = ByteArray(originalOf("a").size) { 7 }
+        val partKey = MediaCrypto.partKey(attachment.key, blob, MediaCrypto.Part.ORIGINAL)
+        val chunks = MediaCrypto.chunkCount(other.size.toLong())
+        server.files[blob] = (0 until chunks).fold(ByteArray(0)) { acc, i ->
+            val from = (i * MediaCrypto.CHUNK).toInt()
+            acc + MediaCrypto.sealChunk(partKey, blob, i, i == chunks - 1, other.copyOfRange(from, minOf(other.size, from + MediaCrypto.CHUNK)))
+        }
+        dana.messaging.media.clear(sent = false)
+        dana.messaging.media.openOriginal(message, item)
+        advanceUntilIdle()
+        assertEquals(OriginalState.Changed, dana.messaging.media.originals.value["$message/$item"])
+        assertTrue(dana.files.originals.isEmpty(), "not kept")
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun everySealTakesANewBlobId() = runTest {
+        val (_, hen, _) = paired()
+        val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf("a", "b", "c"), "") }
+        advanceUntilIdle()
+        val blobs = sent.await().flatMap { m -> m.media!!.items.flatMap { it.previews.map { p -> p.blob } } }
+        assertEquals(blobs.size, blobs.toSet().size)
+        hen.stop()
     }
 
     @Test

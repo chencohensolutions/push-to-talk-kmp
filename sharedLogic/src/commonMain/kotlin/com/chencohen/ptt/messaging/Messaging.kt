@@ -189,8 +189,6 @@ data class TalkSettings(
     val clearCacheWhenLow: Boolean = true,
     /** Settings › Storage › Stream original videos: played from the server, none kept here (off by default). */
     val streamVideos: Boolean = false,
-    /** Settings › Storage › Keep on the server: the days what I share is kept there (30, 365 or 730; 1 year by default). */
-    val serverKeepDays: Int = 365,
     /**
      * Voice or Video per contact or group (2026-11-23, hen: "remember that setting for that contact"): what the Talk
      * screen's and the reply bubble's Voice | Video chose last for it; [pushVideo] for one never chosen.
@@ -418,7 +416,8 @@ internal class Messaging(
     connector: FrameConnector,
     private val scope: CoroutineScope,
     private val now: () -> Long,
-    private val random: Random = Random.Default,
+    /** Keys and secrets come from it: a cryptographic source (SecureRandom on Android), never Random.Default. */
+    private val random: Random,
     private val onRevoked: () -> Unit = {},
     clipFiles: ClipFiles = MemoryClipFiles(),
     blobApi: BlobApi? = null,
@@ -825,7 +824,6 @@ internal class Messaging(
         cacheLimit = { _state.value.talkSettings.mediaCacheGb.coerceAtLeast(1) * com.chencohen.ptt.media.MediaSharing.GB },
         clearWhenLow = { _state.value.talkSettings.clearCacheWhenLow },
         streamVideos = { _state.value.talkSettings.streamVideos },
-        keepDays = { _state.value.talkSettings.serverKeepDays },
         unmetered = { unmetered() },
     )
 
@@ -1330,7 +1328,6 @@ internal class Messaging(
         mediaCacheGb = settings.mediaCacheGb,
         clearCacheWhenLow = settings.clearCacheWhenLow,
         streamVideos = settings.streamVideos,
-        serverKeepDays = settings.serverKeepDays,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -1386,7 +1383,6 @@ internal class Messaging(
         settings.mediaCacheGb = talk.mediaCacheGb.coerceAtLeast(1)
         settings.clearCacheWhenLow = talk.clearCacheWhenLow
         settings.streamVideos = talk.streamVideos
-        settings.serverKeepDays = talk.serverKeepDays
         val talk = talk.copy(liveTypingKnown = known, colorsAt = stamped, mediaCacheGb = talk.mediaCacheGb.coerceAtLeast(1))
         _state.update { it.copy(talkSettings = talk) }
         if (talk.mediaCacheGb < before.mediaCacheGb || (talk.clearCacheWhenLow && !before.clearCacheWhenLow)) scope.launch { runCatching { media.trimCache() } }

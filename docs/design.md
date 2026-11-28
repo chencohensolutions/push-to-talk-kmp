@@ -797,11 +797,10 @@ it is read, an original's when it is opened). Only what can come again goes, as 
 the last 10 minutes (on screen or playing). It runs a few seconds after the cache grows and each time the app comes to
 the front. With Clear when storage is low (on by default), under 2 GB free on the phone all of it that can go goes.
 
-What I share is kept on the server for the days Settings › Storage › Keep what I share on the server chooses
-(2026-11-28, hen: 30 days, 1 year by default, or 2 years; the server's `media_max_days` and `media_quota_gb` bound
-it): previews and originals go up with `&keep=media&days=N` (`BlobApi.putMediaPiece`) and the message says how long
-(`MediaContent.keepDays`), so a phone that got it lets its previews go from the cache while the server still has
-them. On Wi-Fi (a network that isn't metered) an original goes up right after its message is on the server
+What I share is kept on the server forever (2026-11-28, hen: "don't use the 1 year, keep forever everything"; the
+server's `media_total_gb`, 1 TB, lets what was fetched longest ago go): previews and originals go up with
+`&keep=media` (`BlobApi.putMediaPiece`) and the message says so (`MediaContent.keepDays`, `FOREVER`; 0 from older
+apps means 30 days), so a phone that got it lets its previews go from the cache, to be fetched again. On Wi-Fi (a network that isn't metered) an original goes up right after its message is on the server
 (`uploadAhead`; off Wi-Fi, `uploadPending` sends it on the next start on Wi-Fi), and the chat is told with a READY
 reply as if someone had asked: it then opens for anyone straight from the server, even with my phone off or the file
 gone from it. Media is still sealed with each item's own key (2026-11-28, hen chose it over a chat key): shared to

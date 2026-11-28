@@ -74,15 +74,8 @@ internal fun StorageSettingsScreen(settings: TalkSettings, used: suspend () -> L
             }
         }
         PageNote(stringResource(R.string.storage_stream_note))
-        // How long the server keeps what I share (2026-11-28, hen: "the client can make the server keep it for one year").
+        // What I share stays on the server (2026-11-28, hen: "keep forever everything").
         SectionTitle(stringResource(R.string.storage_server_section))
-        SettingsCard {
-            val keeps = listOf(30 to R.string.storage_server_30, 365 to R.string.storage_server_365, 730 to R.string.storage_server_730)
-            keeps.forEachIndexed { i, (days, words) ->
-                if (i > 0) RowDivider()
-                com.chencohen.ptt.ui.talk.ChoiceRow(stringResource(words), null, settings.serverKeepDays == days) { change(settings.copy(serverKeepDays = days)) }
-            }
-        }
         PageNote(stringResource(R.string.storage_server_note))
     }
 }

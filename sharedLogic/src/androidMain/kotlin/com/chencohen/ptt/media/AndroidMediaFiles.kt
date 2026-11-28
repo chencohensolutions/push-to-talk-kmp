@@ -42,6 +42,21 @@ class AndroidMediaFiles(context: Context) : MediaFiles {
 
     override fun originalSize(blob: String): Long = originalPath(blob)?.let { File(it).length() } ?: 0
 
+    override fun originalSha256(blob: String): ByteArray? = originalPath(blob)?.let { path ->
+        runCatching {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            File(path).inputStream().buffered().use { input ->
+                val buffer = ByteArray(1 shl 16)
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    digest.update(buffer, 0, n)
+                }
+            }
+            digest.digest()
+        }.getOrNull()
+    }
+
     override fun sizeOf(name: String): Long {
         val file = fileOf(name) ?: return 0
         return listOf(sentDir, gotDir).map { File(it, file) }.firstOrNull { it.isFile }?.length() ?: 0

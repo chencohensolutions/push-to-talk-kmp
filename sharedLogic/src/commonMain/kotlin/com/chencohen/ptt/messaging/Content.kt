@@ -118,11 +118,16 @@ data class MediaContent(
      */
     @ProtoNumber(5) val quiet: Boolean = false,
     /**
-     * The days its sender asked the server to keep its previews and original (2026-11-28, hen: Settings › Storage ›
-     * Keep on the server); 0: 30 (older apps). A phone that got it may let its previews go from the cache until then.
+     * How long the server keeps its previews and original: [FOREVER] (2026-11-28, hen: "keep forever everything"; the
+     * server's 1 TB lets the least fetched go), or 0 from older apps: 30 days. A phone that got it lets its previews go
+     * from the cache while the server has them.
      */
     @ProtoNumber(6) val keepDays: Int = 0,
-)
+) {
+    companion object {
+        const val FOREVER = -1
+    }
+}
 
 /**
  * One shared item. [key] (32 random bytes) encrypts its parts (MediaCrypto); [sha256] is of the untouched original,

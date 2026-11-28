@@ -53,6 +53,9 @@ interface MediaFiles {
     /** The bytes the finished original [blob] takes here (0: not here). */
     fun originalSize(blob: String): Long = 0
 
+    /** The SHA-256 of the finished original [blob] (null: not here), checked against the one that was shared. */
+    fun originalSha256(blob: String): ByteArray? = null
+
     /**
      * What is in the cache now (what this phone got: previews and finished originals not kept out of it), each with
      * when it was last read, so the cache limit lets the longest unread go first (2026-11-28, hen).
@@ -148,4 +151,6 @@ class MemoryMediaFiles : MediaFiles {
     override fun keptOriginal(blob: String): Boolean = blob in keptOriginals
 
     override fun originalSize(blob: String): Long = originals[blob]?.size?.toLong() ?: 0
+
+    override fun originalSha256(blob: String): ByteArray? = originals[blob]?.let { okio.ByteString.of(*it).sha256().toByteArray() }
 }
