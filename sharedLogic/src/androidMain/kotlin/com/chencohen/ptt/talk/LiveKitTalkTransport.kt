@@ -149,7 +149,10 @@ class LiveKitTalkTransport(
     override fun stale(): Boolean = room != null && joinedAsCall && !TalkAudio.playAsCall()
 
     override fun leave() {
-        speakerphone.end()
+        talkingNow = false
+        liveNow = false
+        // After talkingNow: a tuning still on its way for a press (tune) finds the press over and doesn't begin.
+        synchronized(tuning) { speakerphone.end() }
         if (joinedAsCall) callSpeaker(false)
         SpeakerphoneMic.settle(appContext)
         silenced.clear()
@@ -158,7 +161,6 @@ class LiveKitTalkTransport(
         mic = null
         micHeard = false
         cameraSeen = false
-        talkingNow = false
         muting?.cancel()
         stopping?.cancel()
         camera?.let { c -> runCatching { c.stop() } }
@@ -197,8 +199,33 @@ class LiveKitTalkTransport(
      * before the press.
      */
     private val preparingMic = kotlinx.coroutines.sync.Mutex()
-    private var talkingNow = false
+    @Volatile private var talkingNow = false
     private var muting: Job? = null
+
+    /** The microphone's track is unmuted in the room now: a press is really going out through it. */
+    @Volatile private var liveNow = false
+
+    override val talkingLive: Boolean get() = liveNow && mic != null && room != null
+
+    /** One begin or end of the speakerphone tuning at a time, and none begun once its press is over. */
+    private val tuning = Any()
+
+    /**
+     * The speakerphone tuning for a press, after the microphone is live and off the caller's thread (2026-11-27, hen:
+     * "sometimes the partner doesn't hear my first words"): the audio mode and route change takes Android a few
+     * hundred ms, and it used to come before the unmute, on the thread that also asks for the floor, so the first
+     * words were said into a muted track.
+     */
+    private fun tune(room: Room) {
+        scope.launch(Dispatchers.IO) {
+            val started = android.os.SystemClock.elapsedRealtime()
+            synchronized(tuning) {
+                if (!talkingNow || this@LiveKitTalkTransport.room !== room) return@launch
+                speakerphone.begin()
+            }
+            Log.i(TAG, "speakerphone tuning took ${android.os.SystemClock.elapsedRealtime() - started} ms (after the unmute)")
+        }
+    }
 
     /** The muted microphone is wanted ready (the chat or the floating window's Push on screen). */
     @Volatile private var micWanted = false
@@ -245,6 +272,7 @@ class LiveKitTalkTransport(
         val track = mic ?: return
         if (talkingNow) return
         mic = null
+        liveNow = false
         micHeard = false
         MicGuard.roomClosed()
         sampleCapture.detach()
@@ -272,6 +300,10 @@ class LiveKitTalkTransport(
         // Test phones without a microphone (debug builds, turned on with adb): a test tune in its place.
         if (FakeMic.enabled(appContext)) track.setAudioBufferCallback(FakeMic.callback())
         sampleCapture.attach(track)
+        // Silent from before it is published: nothing of the microphone leaves the phone between the publish and the
+        // mute below (2026-11-27: the server's recorder kept audio that came with no press, right as a track was
+        // published). The publication's mute then only tells the room; a press enables it again.
+        track.enabled = false
         if (!local.publishAudioTrack(track)) {
             Log.w(TAG, "the microphone wasn't published")
             sampleCapture.detach()
@@ -306,14 +338,23 @@ class LiveKitTalkTransport(
         if (on) {
             muting?.cancel()
             talkingNow = true
-            prepareMic(room, press = true) ?: return
+            val pressed = android.os.SystemClock.elapsedRealtime()
+            val ready = mic != null
+            val track = prepareMic(room, press = true) ?: return
+            // Let go while the track was being published: it stays muted.
+            if (!talkingNow) return
+            // The unmute first: the first words go out at once. The tuning follows (tune).
+            val pub = publication() ?: return
+            pub.muted = false
+            // The publication enables its track only when its own mute changes: said outright, whatever it believed.
+            track.enabled = true
+            liveNow = true
+            Log.i(TAG, "microphone live in the room, ${android.os.SystemClock.elapsedRealtime() - pressed} ms after the press reached it${if (ready) "" else " (its track was published for this press)"}")
             // Not while someone else is live here: communication mode makes what the room plays sound like a phone
             // call (2026-11-27, hen: "sometimes sound very low", both talking at once; TalkSound.micTuning). One who
             // goes live during the press ends it (onEvent, TrackUnmuted).
             if (othersLive(room)) Log.i(TAG, "someone is live here: no speakerphone tuning for this press")
-            speakerphone.begin()
-            publication()?.muted = false
-            Log.i(TAG, "microphone live in the room")
+            tune(room)
         } else {
             talkingNow = false
             muting?.cancel()
@@ -321,7 +362,9 @@ class LiveKitTalkTransport(
                 kotlinx.coroutines.delay(TAIL_MS)
                 if (talkingNow) return@launch
                 publication()?.muted = true
-                speakerphone.end()
+                mic?.enabled = false
+                liveNow = false
+                synchronized(tuning) { if (!talkingNow) speakerphone.end() }
                 // Its clearing took the call audio's speaker too.
                 if (joinedAsCall && this@LiveKitTalkTransport.room != null) callSpeaker(true)
             }
@@ -447,6 +490,12 @@ class LiveKitTalkTransport(
 
     /** Their microphone's audio decrypts and is unmuted (a press), not just published and waiting. */
     override val micReady: Boolean get() = mic != null
+
+    /** A press before the microphone's track was there: published now, muted (the press's unmute follows). */
+    override suspend fun readyMic(): Boolean {
+        val room = room ?: return false
+        return prepareMic(room, press = true) != null
+    }
 
     override fun hears(identity: String): Boolean {
         if (identity !in decrypting) return false
@@ -580,7 +629,8 @@ class LiveKitTalkTransport(
                 (event.track as? RemoteAudioTrack)?.let {
                     // Live already as they are first heard here, during this phone's own press: as media too.
                     if (!event.publication.muted) SpeakerphoneMic.yieldToTalk(appContext)
-                    val gain = roomGain()
+                    // Silenced for this burst (its clip plays) before their track was here: still not played over it.
+                    val gain = if (who in silenced) 0.0 else roomGain()
                     if (gain != 1.0) it.setVolume(gain)
                     volumes[who] = gain
                 }
@@ -622,9 +672,15 @@ class LiveKitTalkTransport(
                 LiveTalkVideo.gone(it)
             }
             is RoomEvent.Disconnected -> {
-                LiveTalkVideo.gone(null)
-                decrypting.clear()
-                listener?.left()
+                // The room is gone (the network, the server, this device joined again elsewhere): everything of it
+                // goes here too, as when it is left, so no press stays "live" into nothing, the speakerphone tuning
+                // doesn't stay on (the next room would sound like a phone call) and the room itself is released.
+                Log.i(TAG, "the room was lost (${event.reason})")
+                // Only the room this phone is in: an older one's late end says nothing about the one joined since.
+                if (room === event.room) {
+                    leave()
+                    listener?.left()
+                }
             }
             else -> {}
         }

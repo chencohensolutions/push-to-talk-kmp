@@ -374,7 +374,15 @@ internal class Calls(
             val group = Group.idOf(call.chat)
             val token = tokens(call.id, if (group == null) call.chat else null, group)
             if (current?.id != call.id) return true
-            t.join(LiveTalk.origin(serverUrl()), token.token, callKey, call.video).also { joined = it }
+            val ok = t.join(LiveTalk.origin(serverUrl()), token.token, callKey, call.video)
+            // Ended while its room was connecting (hung up, declined, a newer call): nothing of this join is kept,
+            // and the room is left in case it opened after all.
+            if (current?.id != call.id) {
+                if (ok && current == null) runCatching { t.leave() }
+                return true
+            }
+            joined = ok
+            ok
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -415,7 +423,8 @@ internal class Calls(
         // The saved file first: leaving stops the recorder too, and its name would be lost. Only this phone's own
         // recorder: when the server keeps the call there is none here.
         if (call.saving && savingHere) transport?.stopRecording()?.let { savedAs = it }
-        if (joined) runCatching { transport?.leave() }
+        // Also a room still being joined (not "joined" yet): the transport lets it go when its connect returns.
+        runCatching { transport?.leave() }
         joined = false
         key = null
         savingHere = false

@@ -276,6 +276,17 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   one line "You · 0:03". Both at once: two pills side by side, centred, theirs at the start side. In a group it is the
   floor holder's face and name. When one side is on video and the other on voice, the pill sits beside the video box,
   top-aligned. Voice turning into video: the pill itself grows into the box (above), here and in the floating window.
+  **Still connecting** (2026-11-27, hen: "livekit only, show connection indication without words, only visual", in
+  the pill, "not spinning, something with less movement"): a push pressed before the chat's room is ready (right
+  after the chat opens, the floating window, the Talk tab) isn't live yet, and nothing is sent. My pill comes down at
+  once all the same, but in still grey dashes: its outline (6 dp of every 11) and the ring round my face (twelve
+  dashes), "You" greyed, no time. The moment my voice is really going out the dashes lengthen until they meet (300 ms,
+  a morph like a message's dashed border, not a fade), take the coral colour, the ring glows with my voice and the
+  time starts from 0:00. Nothing turns or runs. A video push shows this pill too while it connects, and grows into
+  its box once live. Let go while connecting: the pill goes back up, nothing was sent. The room can't be reached
+  (10 s), or is lost during a push: the pill goes back up and the phone gives one short buzz; no words
+  (`OwnTalk.ROOM`). The same in the floating window's row and, as a small "You" chip in dashes, in the Talk tab's row
+  (`LocalMyPushConnecting`, `joiningBorder`; `LiveCell.connecting`, `GlowRing.connecting`).
   It goes back up under the header when the talking ends. The header's "talking" line is gone (the bar or the panel says it); the
   line under the header is kept only for the rest (busy, refused, offline, recording a voice message, my other phone).
 - **Not kept by default.** A push-to-talk burst stays in the chat as a voice or video message only when the chat's

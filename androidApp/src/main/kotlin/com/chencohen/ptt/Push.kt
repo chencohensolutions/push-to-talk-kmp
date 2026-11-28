@@ -73,6 +73,19 @@ class TalkApp : Application() {
                 .distinctUntilChanged()
                 .collect { AndroidContacts.sync(this@TalkApp, messagingState(this@TalkApp).value.contacts) }
         }
+        // A push whose room couldn't be reached, or was lost under it: one short buzz as it falls back to ready, and
+        // no words (2026-11-27, hen: "show connection indication without words, only visual").
+        scope.launch {
+            messagingState(this@TalkApp)
+                .map { s -> s.talk.own?.takeIf { it.phase == com.chencohen.ptt.talk.TalkPhase.REFUSED && it.refusal == com.chencohen.ptt.talk.OwnTalk.ROOM }?.startedAt }
+                .distinctUntilChanged()
+                .collect { failed ->
+                    if (failed != null) runCatching {
+                        getSystemService(android.os.Vibrator::class.java)
+                            ?.vibrate(android.os.VibrationEffect.createOneShot(70, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                    }
+                }
+        }
         // Download saved calls automatically (Settings › Calls › Save calls › Download saved calls, 2026-11-23, hen):
         // when a call this phone saved ends, CallDownloads schedules the fetch under the chosen Wi-Fi/charging terms.
         scope.launch {

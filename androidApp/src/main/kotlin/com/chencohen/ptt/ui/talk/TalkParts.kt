@@ -281,10 +281,16 @@ internal fun talkLine(chat: String, talk: TalkUiState, nameOf: (String) -> Strin
     val talker = talk.talkers[chat]
     return when {
         own != null -> when (own.phase) {
-            TalkPhase.REQUESTING -> stringResource(R.string.talk_requesting)
+            // Waiting for the chat's room: shown without words (2026-11-27, hen), where the push itself shows.
+            TalkPhase.REQUESTING -> if (own.connecting) "" else stringResource(R.string.talk_requesting)
             TalkPhase.TALKING -> stringResource(R.string.talk_live)
             TalkPhase.BUSY -> com.chencohen.ptt.genderedString(R.string.talk_busy, own.busyWith, nameOf(own.busyWith.orEmpty()))
-            TalkPhase.REFUSED -> if (own.refusal == OwnTalk.MIC) stringResource(R.string.talk_no_mic) else stringResource(R.string.talk_refused)
+            // The room couldn't be reached, or was lost: no words either, one short buzz (TalkApp).
+            TalkPhase.REFUSED -> when (own.refusal) {
+                OwnTalk.MIC -> stringResource(R.string.talk_no_mic)
+                OwnTalk.ROOM -> ""
+                else -> stringResource(R.string.talk_refused)
+            }
             TalkPhase.OFFLINE -> stringResource(R.string.talk_offline)
             TalkPhase.VOICE -> stringResource(R.string.voice_recording)
         }
