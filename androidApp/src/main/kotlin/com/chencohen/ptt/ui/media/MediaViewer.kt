@@ -114,12 +114,11 @@ internal fun MediaViewer(
     // Opening has begun: a cropped picture whose original is drawn after this opens out in a move of its own.
     var opening by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        // A cropped picture whose original is already on this phone opens straight to the whole picture, in one move
-        // (2026-11-28, hen: "preferred as one move if the full image exists"): its decoding is waited for, briefly.
+        // A cropped picture whose original is on this phone (mine) opens straight to the whole picture, in one move
+        // (2026-11-28, hen: "preferred as one move if the full image exists"), at once: its decoding isn't waited for
+        // (hen: "why it takes a little time to open the image?"); the rest of it is drawn as soon as it is decoded.
         val first = items.firstOrNull { it.id == startItem }
-        if (first?.crop != null && (message.outgoing || originals["${message.id}/${first.id}"] is OriginalState.Ready)) {
-            kotlinx.coroutines.withTimeoutOrNull(400) { androidx.compose.runtime.snapshotFlow { unfoldOf(first.id).value >= 1f }.first { it } }
-        }
+        if (first?.crop != null && (message.outgoing || originals["${message.id}/${first.id}"] is OriginalState.Ready)) unfoldOf(first.id).snapTo(1f)
         opening = true
         shown.animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease))
     }

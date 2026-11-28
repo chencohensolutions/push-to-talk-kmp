@@ -73,5 +73,5 @@ Opening a cropped picture (2026-11-28, hen: "the transition should be seamless",
 image arrives", "preferred as one move when the full image arrives"): its kept part starts exactly where the chat shows
 it and grows to fill the screen as far as it can. When the whole original is drawn, the picture opens out above and below
 while it fits to the screen, in one move (300 ms). When the original is already on the phone (mine, or a copy kept), the picture opens straight to the whole of it in one
-move (hen: "preferred as one move if the full image exists"; its decoding is waited for, at most 0.4 s).
+move (hen: "preferred as one move if the full image exists"), at once: the rest of it is drawn as soon as it is decoded.
 Closing folds it back into the crop.
