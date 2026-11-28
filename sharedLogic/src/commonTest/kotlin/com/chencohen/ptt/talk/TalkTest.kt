@@ -520,6 +520,32 @@ class TalkTest {
     }
 
     @Test
+    fun aPushThatStopsComingStopsPlayingLiveWithinThreeSeconds() = runTest {
+        // 2026-11-27 (hen, with Sharon): her pill stayed "talking" with its time counting after she had let go. Her
+        // segments stopped and the floor's end never came here: the live playback ends by itself.
+        val (server, hen, dana) = paired()
+        dana.work.launch { dana.talk.press("hen") }
+        advanceTimeBy(500)
+        dana.mic.say(0, 20)
+        advanceTimeBy(500)
+        runCurrent()
+        assertEquals(true, hen.state.talk.playing?.live, "playing her push live")
+        // From here nothing more of it comes: no segment, no beat, no end.
+        server.dropTalkStates = true
+        server.dropForwarded = true
+        hen.clock += 1_000
+        advanceTimeBy(1_000)
+        assertEquals(true, hen.state.talk.playing?.live, "a second of quiet: still hers")
+        hen.clock += 3_000
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertTrue(hen.state.talk.playing?.live != true, "no longer playing live")
+        assertFalse(hen.state.talk.talkers.containsKey("dana"), "nor shown as talking")
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun severalMembersTalkAtOnceInAGroupAndEachIsShownUntilTheirsEnds() = runTest {
         // 2026-11-25 (hen): the server gives every talker a floor of their own, in groups too; the app shows them all.
         val server = FakeServer()

@@ -769,6 +769,8 @@ internal class Talk(
                     val talker = chat?.let { c -> _state.value.talking[c]?.firstOrNull { it.clip == id } }
                     signs.forget(id)
                     if (chat != null && talker != null) loseTheirs(chat, talker)
+                    // Off the live row already (its floor went stale): its playback still mustn't stay live.
+                    else bursts[id]?.takeIf { !it.ended }?.let { endTheirs(it.chat, id) }
                 }
             }
         }
@@ -916,6 +918,14 @@ internal class Talk(
         var told = 0
         val splitter = TalkVideo.Splitter()
         val createdAt = now()
+        /** When its last segment came here (live or fetched); 0 before any. Beats count through [signs]. */
+        var lastSign = 0L
+            set(value) {
+                field = value
+                if (playing) watchPlayback(this)
+            }
+        /** The check that ends its live playback when nothing more of it comes ([watchPlayback]). */
+        var quiet: Job? = null
     }
 
     private val bursts = mutableMapOf<String, Incoming>()
@@ -1074,6 +1084,7 @@ internal class Talk(
         // start the watch: off the room the server's own end comes within 3 s of the talker's connection closing.
         if (live && segment.burstId in cleared) alive(segment.burstId)
         val burst = bursts[segment.burstId] ?: if (live) incoming(segment.burstId, "", "") else return
+        burst.lastSign = now()
         if (segment.index < burst.next || burst.segments.containsKey(segment.index)) return
         if (burst.lastIndex != null && segment.index > burst.lastIndex!!) return
         if (burst.segments.size > MAX_BUFFERED) return
@@ -1287,6 +1298,35 @@ internal class Talk(
             onDone = { scope.launch { done(burst.id) } },
         )
         drain(burst)
+        watchPlayback(burst)
+    }
+
+    /**
+     * Someone's push playing live here ends when nothing of it comes for TalkBeat.LOST_MS (2026-11-27, hen: Sharon's
+     * pill stayed "talking" and its time kept counting after she let go): no segment, no beat, and its floor not listed
+     * any more (or never said to have ended). What was buffered still plays; then it stops, as if its end had come.
+     */
+    private fun watchPlayback(burst: Incoming) {
+        // One check, TalkBeat.LOST_MS after its last sign; each new sign starts it again (no loop left running).
+        burst.quiet?.cancel()
+        burst.quiet = scope.launch {
+            delay(TalkBeat.LOST_MS + WATCH_EVERY)
+            if (!burst.playing || _state.value.playing?.let { it.clip == burst.id && it.live } != true) return@launch
+            if (burst.kept || burst.lastIndex != null) return@launch
+            // Only a push that was coming here (a talker heard only in the room has no sign: left to its floor's end).
+            if (burst.lastSign == 0L || now() - burst.lastSign < TalkBeat.LOST_MS) return@launch
+            // Still listed with a fresh beat (a silent hold in the room): not over.
+            val listed = _state.value.talking.values.any { list -> list.any { it.clip == burst.id } } &&
+                signs.freshWithin(TalkBeat.LOST_MS).contains(burst.id)
+            if (listed) {
+                watchPlayback(burst)
+                return@launch
+            }
+            if (!burst.ended) endTheirs(burst.chat, burst.id)
+            burst.fetch?.cancel()
+            burst.lastIndex = maxOf(burst.next - 1, burst.segments.keys.maxOrNull() ?: -1)
+            if (burst.key == null) burst.playback?.finish() else drain(burst)
+        }
     }
 
     /** Plays what can be played of [burst], in order; keeps the clip once it is whole. */
