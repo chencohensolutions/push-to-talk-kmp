@@ -16,6 +16,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -190,8 +192,13 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(wokeForTalk) { if (wokeForTalk) backAfterWake() }
                 LaunchedEffect(afterTalk) { if (afterTalk) watchAfterTalk() }
                 // A call rings or runs: the app shows over the lock screen and wakes the screen for it.
-                val ringing by viewModel.messaging.state.collectAsStateWithLifecycle()
-                val callOn = ringing.call != null
+                // Only whether a call is on is read here: the whole state changing would rebuild the whole app.
+                val callNow = { m: com.chencohen.ptt.messaging.MessagingState ->
+                    (m.call != null) to (m.call?.let { it.video && it.phase == com.chencohen.ptt.calls.CallPhase.ACTIVE } == true)
+                }
+                val callFlow = androidx.compose.runtime.remember { viewModel.messaging.state.map(callNow).distinctUntilChanged() }
+                val callState by callFlow.collectAsStateWithLifecycle(callNow(viewModel.messaging.state.value))
+                val callOn = callState.first
                 // Also while woken for a burst: this used to set both back to false as soon as the screen composed,
                 // undoing the wake-up's (2026-11-23, hen: "when the phone is sleeping I don't see the PTT screen").
                 LaunchedEffect(callOn, wokeForTalk) {
@@ -204,7 +211,7 @@ class MainActivity : ComponentActivity() {
                 }
                 // A video call goes on in a small floating window (picture-in-picture) when the app is left: it can be
                 // dragged and resized, and Hang up is on it (2026-11-22, hen).
-                val activeVideo = ringing.call?.let { it.video && it.phase == com.chencohen.ptt.calls.CallPhase.ACTIVE } == true
+                val activeVideo = callState.second
                 LaunchedEffect(activeVideo) { setPictureInPictureParams(pipParams(activeVideo)) }
                 // Without an identity the phone has to be registered first.
                 var showWizard by rememberSaveable { mutableStateOf(!viewModel.connection.currentState.enrolled) }

@@ -540,8 +540,10 @@ internal class MediaSharing(
         val message = store.message(messageId) ?: drafts[messageId] ?: return null
         val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return null
         val part = PreviewSpec.pick(item.previews, myScreen().takeIf { it > 0 } ?: PreviewSpec.DEFAULT_WIDTH) ?: return null
+        // Only a preview that just came changes what this phone holds: one read from here as the chat scrolls tells nobody.
+        val kept = files.has(part.blob)
         return part(item, part, MediaCrypto.Part.PREVIEW, sent = message.outgoing).also {
-            if (it != null) {
+            if (it != null && !kept) {
                 checkAll(messageId)
                 if (message.id !in drafts) changed(message, item.id)
             }
