@@ -985,6 +985,7 @@
     <string name="crop_bottom">Drag to trim the bottom</string>
     <string name="crop_focus">Point of interest</string>
     <string name="crop_picture">Picture %1$d</string>
+    <string name="crop_failed">The crop didn\'t change: the original can\'t be read here, or no network</string>
     <string name="media_info_close">Close info</string>
     <string name="media_info_original">The original</string>
     <string name="media_info_exif_later">Its EXIF shows once the original is on this phone.</string>
