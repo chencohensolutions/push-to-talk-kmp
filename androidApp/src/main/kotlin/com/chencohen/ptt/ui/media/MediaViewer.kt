@@ -67,7 +67,9 @@ import com.chencohen.ptt.ui.style.LibraryType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.boundsInWindow
 import java.io.File
 import java.text.DateFormat
@@ -115,9 +117,43 @@ internal fun MediaViewer(
     var info by remember { mutableStateOf(false) }
     BackHandler { if (info) info = false else close() }
     var box by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    // Each picture's zoom (Journal's, ViewerZoom.kt); one swiped away goes back to fitted.
+    val zoomScope = androidx.compose.runtime.rememberCoroutineScope()
+    val zooms = remember { mutableMapOf<String, PhotoZoom>() }
+    fun zoomOf(id: String) = zooms.getOrPut(id) { PhotoZoom(zoomScope, keptZooms["${message.id}/$id"]) }
+    LaunchedEffect(pager.currentPage) { val now = items.getOrNull(pager.currentPage)?.id; zooms.forEach { (id, z) -> if (id != now) z.reset() } }
+    // Leaving a picture (a swipe, or closing): where it was zoomed is kept; fitted forgets it.
+    val currentId = items.getOrNull(pager.currentPage)?.id
+    DisposableEffect(currentId) {
+        onDispose {
+            val id = currentId ?: return@onDispose
+            val part = zooms[id]?.zoomedPart
+            if (part != null) keptZooms["${message.id}/$id"] = part else keptZooms.remove("${message.id}/$id")
+        }
+    }
+    // A picture zoomed last time opens as usual, then glides there once the opening move and any swipe have settled.
+    LaunchedEffect(currentId) {
+        val id = currentId ?: return@LaunchedEffect
+        val zoom = zoomOf(id)
+        if (!zoom.hasSaved) return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow { shown.value >= 1f && !pager.isScrollInProgress }.first { it }
+        zoom.resume()
+    }
+    // A tap hides the bars and the system's, so the picture has the whole screen; another brings them back (as Journal).
+    var chrome by remember { mutableStateOf(true) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    DisposableEffect(chrome) {
+        val window = (view.context as? android.app.Activity)?.window
+        val bars = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+        bars?.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (chrome) bars?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) else bars?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        onDispose { bars?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
+    }
+    val bar by androidx.compose.animation.core.animateFloatAsState(if (chrome) 1f else 0f, androidx.compose.animation.core.tween(200), label = "viewer bars")
+    val zoomedNow = items.getOrNull(pager.currentPage)?.let { zooms[it.id]?.isZoomed } == true
     val p = shown.value
     Box(Modifier.fillMaxSize().onGloballyPositioned { box = it.boundsInWindow() }.background(Color.Black.copy(alpha = p))) {
-        HorizontalPager(pager, Modifier.fillMaxSize(), key = { items[it].id }, userScrollEnabled = p >= 1f) { page ->
+        HorizontalPager(pager, Modifier.fillMaxSize(), key = { items[it].id }, userScrollEnabled = p >= 1f && !zoomedNow) { page ->
             val item = items[page]
             // Each item on screen is asked for: the original comes while the preview shows.
             LaunchedEffect(item.id) { open(message.id, item.id) }
@@ -141,12 +177,12 @@ internal fun MediaViewer(
                 translationX = lerp(from.center.x - centre.x, 0f)
                 translationY = lerp(from.center.y - centre.y, 0f)
             }) {
-                ItemPage(message, item, originals["${message.id}/${item.id}"], preview)
+                ItemPage(message, item, originals["${message.id}/${item.id}"], preview, zoomOf(item.id), tap = { chrome = !chrome })
             }
         }
         val item = items.getOrNull(pager.currentPage)
-        Row(
-            Modifier.fillMaxWidth().graphicsLayer { alpha = p }.background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent)))
+        if (bar > 0f) Row(
+            Modifier.fillMaxWidth().graphicsLayer { alpha = p * bar }.background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent)))
                 .statusBarsPadding().padding(horizontal = 4.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -163,17 +199,29 @@ internal fun MediaViewer(
                 Icon(LibraryIcons.Info, stringResource(R.string.media_info), tint = Color.White)
             }
         }
-        if (item != null) {
-            Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp).graphicsLayer { alpha = p }) {
+        if (item != null && bar > 0f) {
+            Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp).graphicsLayer { alpha = p * bar }) {
                 OriginalPill(item, originals["${message.id}/${item.id}"], again = { open(message.id, item.id) }, cancel = { cancel(message.id, item.id) })
             }
+        }
+        // Where the screen is on the whole picture while zoomed (Journal's minimap): shown with the bars, or while moving.
+        val zoomHere = item?.let { zooms[it.id] }
+        val small = zoomHere?.picture
+        val part = if (zoomHere?.isZoomed == true) zoomHere.visibleRect(0f) else null
+        androidx.compose.animation.AnimatedVisibility(
+            small != null && part != null && !info,
+            Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 64.dp, end = 12.dp),
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
+            if (small != null && part != null) ZoomMinimap(small, part, sharp = zoomHere?.atOriginalQuality == true)
         }
         if (info && item != null) MediaInfoSheet(message, item, originals["${message.id}/${item.id}"], keeping, close = { info = false })
     }
 }
 
 @Composable
-private fun ItemPage(message: TextMessage, item: AttachmentContent, state: OriginalState?, preview: suspend (String, String) -> ByteArray?) {
+private fun ItemPage(message: TextMessage, item: AttachmentContent, state: OriginalState?, preview: suspend (String, String) -> ByteArray?, zoom: PhotoZoom, tap: () -> Unit) {
     val context = LocalContext.current
     val ready = state as? OriginalState.Ready
     // The picture the chat drew, at once (so it is there as it flies in), else the preview read.
@@ -189,9 +237,40 @@ private fun ItemPage(message: TextMessage, item: AttachmentContent, state: Origi
         item.kind == MediaKind.IMAGE -> {
             val full by produceState<Bitmap?>(null, ready?.path) {
                 val path = ready?.path ?: return@produceState
-                value = withContext(Dispatchers.IO) { decodeOriginal(context, path) }
+                value = withContext(Dispatchers.IO) { decodeOriginal(context, path, OPEN_SIDE) }
             }
-            Zoomable { (full ?: small)?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } }
+            // Zoomed in for the first time: the original at its own pixels (as many as can be drawn), as Journal does.
+            var wantSharp by remember(item.id) { mutableStateOf(false) }
+            LaunchedEffect(zoom.isZoomed) { if (zoom.isZoomed) wantSharp = true }
+            val sharp by produceState<Bitmap?>(null, ready?.path, wantSharp) {
+                val path = ready?.path ?: return@produceState
+                if (wantSharp) value = withContext(Dispatchers.IO) { decodeOriginal(context, path, zoomSide(item)) }
+            }
+            val image = sharp ?: full ?: small
+            val whole = small ?: full
+            val minimapPicture = remember(whole) { whole?.asImageBitmap() }
+            androidx.compose.runtime.SideEffect { zoom.picture = minimapPicture }
+            val shownSide = image?.let { maxOf(it.width, it.height) } ?: 0
+            val detail = rememberDetailLayer(item, zoom, shownSide) { ready?.path?.let { openOriginalRegions(context, it) } }
+            ReportQuality(zoom, item, sharp = sharp != null, shownSide = shownSide, detail = detail)
+            val ratio = when {
+                item.width > 0 && item.height > 0 -> item.width.toFloat() / item.height
+                image != null -> image.width.toFloat() / image.height
+                else -> 1f
+            }
+            val pixelSide = maxOf(item.width, item.height).takeIf { it > 0 } ?: image?.let { maxOf(it.width, it.height) } ?: 0
+            var screen by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
+            androidx.compose.runtime.SideEffect { if (!screen.isEmpty()) zoom.layout(screen, ratio, pixelSide) }
+            Box(
+                Modifier.fillMaxSize()
+                    .onSizeChanged { screen = androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat()) }
+                    .zoomGestures { zoom }
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { tap() }, onDoubleTap = { at -> zoom.step(at - Offset(size.width / 2f, size.height / 2f)) })
+                    },
+            ) {
+                image?.let { Image(remember(it) { it.asImageBitmap() }, null, Modifier.zoomedLayout(zoom, ratio).detailOver(detail), contentScale = ContentScale.FillBounds) }
+            }
         }
         item.kind == MediaKind.VIDEO -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             small?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
@@ -207,37 +286,6 @@ private fun ItemPage(message: TextMessage, item: AttachmentContent, state: Origi
 }
 
 /** A picture that pinches and pans; a double tap zooms in or back. */
-@Composable
-private fun Zoomable(content: @Composable () -> Unit) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    Box(
-        Modifier.fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures(onDoubleTap = {
-                    if (scale > 1f) {
-                        scale = 1f
-                        offset = Offset.Zero
-                    } else {
-                        scale = 2.5f
-                    }
-                })
-            }
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 8f)
-                    offset = if (scale == 1f) Offset.Zero else offset + pan
-                }
-            }
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                translationX = offset.x
-                translationY = offset.y
-            },
-    ) { content() }
-}
-
 @Composable
 private fun Player(ready: OriginalState.Ready) {
     val context = LocalContext.current
@@ -298,18 +346,36 @@ private fun mb(bytes: Long): String = if (bytes < 1_000_000) "%.1f".format(bytes
 private fun uriOf(path: String): Uri = if (path.startsWith("content:") || path.startsWith("file:")) Uri.parse(path) else Uri.fromFile(File(path))
 
 /** The original picture, upright, no bigger than 4096 on its long side (a 200 MP photo would not fit in memory). */
-private fun decodeOriginal(context: Context, path: String): Bitmap? = runCatching {
+/** The original, its longer side at most [side], in graphics memory (drawn without a copy). */
+private fun decodeOriginal(context: Context, path: String, side: Int): Bitmap? = runCatching {
     val source = if (path.startsWith("content:")) ImageDecoder.createSource(context.contentResolver, Uri.parse(path)) else ImageDecoder.createSource(File(path))
     ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+        decoder.allocator = ImageDecoder.ALLOCATOR_HARDWARE
         val long = maxOf(info.size.width, info.size.height)
-        if (long > MAX_SIDE) {
-            val scale = MAX_SIDE.toFloat() / long
+        if (long > side) {
+            val scale = side.toFloat() / long
             decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
         }
     }
 }.getOrNull()
 
-private const val MAX_SIDE = 4096
+/** The longer side an original opens at (sharp on any screen); zooming in decodes it again at [zoomSide]. */
+private const val OPEN_SIDE = 4096
+
+/** Most pixels of an original decoded for zooming (Journal's): under Android's limit for drawing a bitmap. */
+private const val ZOOM_MAX_PIXELS = 24_000_000L
+
+/** Longest side of an original decoded for zooming (larger textures fail on some GPUs). */
+private const val ZOOM_MAX_SIDE = 8192
+
+/** The longer side [item]'s original is decoded at for zooming: its own, unless that is too many pixels to draw. */
+private fun zoomSide(item: AttachmentContent): Int {
+    val pixels = item.width.toLong() * item.height
+    val longer = maxOf(item.width, item.height)
+    if (pixels <= 0) return ZOOM_MAX_SIDE
+    val side = if (pixels <= ZOOM_MAX_PIXELS) longer else (longer * kotlin.math.sqrt(ZOOM_MAX_PIXELS.toDouble() / pixels)).toInt()
+    return minOf(side, ZOOM_MAX_SIDE)
+}
 
 /** A file opened in an app that reads it: the one on this phone where it is, or the copy that came (FileProvider). */
 private fun openFile(context: Context, ready: OriginalState.Ready, item: AttachmentContent) {

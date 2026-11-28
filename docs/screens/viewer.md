@@ -12,7 +12,22 @@ A shared picture, video or file full screen (2026-11-28, hen), opened by a tap o
   original is asked for quietly (`MessagingController.openOriginal`): on the phone that shared it, it is read from where
   it is; elsewhere it comes from the sharing phone through the server and is kept in the cache. A picture switches to
   the original (no bigger than 4096 on its long side); a video plays the original; a file opens in an app that reads it.
-- **Zoom.** Pinch, pan, and a double tap zooms in to 2.5× or back.
+- **The whole screen.** Not zoomed, the picture is as large as the screen allows (fitted, edge to edge, under the
+  system bars; the bars float over it). A tap hides the top bar, the pill and the system's bars, so nothing covers
+  it; another tap brings them back.
+- **Zoom, as Journal's** (`ui/media/ViewerZoom.kt`, copied from Journal's): a double tap steps fitted → filling the
+  screen → the original's own pixels (1:1) → fitted, around the tapped point (a step too close to the one before is
+  left out). A pinch zooms around the fingers, from a little below fitted (it springs back) to twice the original's
+  pixels, and let go within 15% of fitted, filling or 1:1 it snaps there. Zoomed, one finger pans and a flick glides
+  on and slows down; the picture never moves past its edges, and a side smaller than the screen stays centred. While
+  zoomed a swipe pans instead of changing pictures; a picture swiped away goes back to fitted. The original opens at
+  4096 on its long side and, once zoomed in, is decoded again at its own pixels (at most 24 MP, 8192 a side).
+- **The minimap and the sharp detail, as Journal's** (`ui/media/ViewerDetail.kt`): while zoomed, the whole picture
+  small at the top right with the part on screen outlined and the rest dimmed; grey until what is on screen is at the
+  original's quality, its colour then fading in. Zoomed past what the decoded picture holds, the part on screen (and
+  15% around it) is decoded from the original at the screen's detail each time the picture stops for 150 ms, and
+  fades in over it (JPEG, PNG, WebP, HEIF; the EXIF turn kept). A picture left zoomed opens there again (a 550 ms
+  glide after it lands) while the app runs; Journal keeps that in the photo's note, Talk has none.
 - **The original's pill**, at the bottom while it isn't here: "Asking for the original", then "Getting the original ·
   3 of 8 MB" with a thin red bar and ✕ (stops; what came is kept and opening it again goes on). If it can't come:
   "The original is no longer on their phone", "The file on their phone was changed since it was shared", or "The

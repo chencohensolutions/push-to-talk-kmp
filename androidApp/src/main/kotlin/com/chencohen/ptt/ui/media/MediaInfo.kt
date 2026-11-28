@@ -113,7 +113,7 @@ internal fun MediaInfoSheet(
                 Line(
                     when {
                         k.originalIsSource -> stringResource(R.string.media_info_original_source)
-                        k.originalPath != null -> stringResource(R.string.media_info_original_copy, sizeOf(fileSize(context, k.originalPath)) ?: "")
+                        k.originalPath != null -> stringResource(R.string.media_info_original_copy, sizeOf(fileSize(context, k.originalPath.orEmpty())) ?: "")
                         else -> stringResource(R.string.media_info_original_not_here)
                     },
                 )
