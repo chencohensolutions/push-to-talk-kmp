@@ -462,6 +462,16 @@ class MediaSharingTest {
         assertEquals(1_000, c.bottom)
         assertNull(com.chencohen.ptt.messaging.CropContent().clean(), "nothing trimmed and no point: no crop")
         assertEquals(0.5f to 0.25f, com.chencohen.ptt.messaging.CropContent(top = 2_000, bottom = 0, focusX = 5_000, focusY = 4_000, hasFocus = true).focusInCrop)
+        // The sides too (zoomed in): a tenth of the width stays, and the point is placed within the kept part.
+        val sides = com.chencohen.ptt.messaging.CropContent(left = 9_500, right = 2_000).clean()!!
+        assertEquals(9_000, sides.left)
+        assertEquals(0, sides.right)
+        assertEquals(1_000, sides.keptWidth)
+        val zoomed = com.chencohen.ptt.messaging.CropContent(left = 2_000, right = 4_000, focusX = 4_000, focusY = 5_000, hasFocus = true)
+        assertEquals(0.5f, zoomed.focusInCrop.first)
+        val item = com.chencohen.ptt.messaging.AttachmentContent(width = 4000, height = 3000, crop = zoomed)
+        assertEquals(1600, item.shownWidth)
+        assertEquals(3000, item.shownHeight)
     }
 
     @Test

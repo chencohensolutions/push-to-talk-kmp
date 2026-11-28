@@ -500,7 +500,7 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
     }
     // Its composition (2026-11-28, hen): the part of the original the sender kept, cut around their point of interest
     // where this box is another shape.
-    val ratio = if (item.width > 0 && item.height > 0) (item.width.toFloat() / item.shownHeight).coerceIn(0.4f, 3f) else 1f
+    val ratio = if (item.width > 0 && item.height > 0) (item.shownWidth.toFloat() / item.shownHeight).coerceIn(0.4f, 3f) else 1f
     val focus = item.crop?.focusInCrop
     val align = if (focus == null) Alignment.Center else androidx.compose.ui.BiasAlignment(focus.first * 2 - 1, focus.second * 2 - 1)
     val label = stringResource(if (item.kind == MediaKind.VIDEO) R.string.media_video else R.string.media_picture)

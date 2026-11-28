@@ -90,12 +90,14 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         }.getOrNull() ?: return@withContext null
         val top = (full.height.toLong() * crop.top / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt()
         val kept = (full.height.toLong() * crop.kept / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt().coerceIn(1, full.height - top)
-        val part = if (top == 0 && kept == full.height) full else Bitmap.createBitmap(full, 0, top, full.width, kept)
+        val left = (full.width.toLong() * crop.left / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt()
+        val across = (full.width.toLong() * crop.keptWidth / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt().coerceIn(1, full.width - left)
+        val part = if (top == 0 && kept == full.height && left == 0 && across == full.width) full else Bitmap.createBitmap(full, left, top, across, kept)
         val started = System.nanoTime()
-        val previews = previews(part, widths((full.width / scale).roundToInt()))
+        val previews = previews(part, widths((across / scale).roundToInt()))
         if (part !== full) part.recycle()
         full.recycle()
-        Log.i(TAG, "Cropped ${crop.top}/${crop.bottom}: previews " + previews.joinToString { "${it.width}px ${it.bytes.size / 1024} KB" } + " in ${(System.nanoTime() - started) / 1_000_000} ms")
+        Log.i(TAG, "Cropped ${crop.top}/${crop.bottom}/${crop.left}/${crop.right}: previews " + previews.joinToString { "${it.width}px ${it.bytes.size / 1024} KB" } + " in ${(System.nanoTime() - started) / 1_000_000} ms")
         PreparedCrop(previews)
     }
 

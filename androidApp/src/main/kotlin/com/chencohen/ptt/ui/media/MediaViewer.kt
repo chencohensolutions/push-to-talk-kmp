@@ -191,12 +191,18 @@ internal fun MediaViewer(
                     }
                     val top = crop.top.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
                     val bottom = crop.bottom.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
+                    val left = crop.left.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
+                    val right = crop.right.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
                     val boxTop = size.height / 2 - fitH / 2
+                    val boxLeft = size.width / 2 - fitW / 2
                     val shownTop = boxTop + fitH * top * (1f - open)
                     val shownBottom = boxTop + fitH - fitH * bottom * (1f - open)
+                    // Only a crop of the sides cuts them; else the picture keeps the screen's width.
+                    val shownLeft = if (crop.left > 0 || crop.right > 0) boxLeft + fitW * left * (1f - open) else 0f
+                    val shownRight = if (crop.left > 0 || crop.right > 0) boxLeft + fitW - fitW * right * (1f - open) else size.width
                     shape = object : androidx.compose.ui.graphics.Shape {
                         override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
-                            androidx.compose.ui.graphics.Outline.Rectangle(androidx.compose.ui.geometry.Rect(0f, shownTop, size.width, shownBottom))
+                            androidx.compose.ui.graphics.Outline.Rectangle(androidx.compose.ui.geometry.Rect(shownLeft, shownTop, shownRight, shownBottom))
                     }
                     clip = true
                 }
@@ -224,26 +230,29 @@ internal fun MediaViewer(
                 val top = crop.top.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
                 val kept = crop.kept.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
                 val keptShift = fitH * (top + kept / 2) - fitH / 2
-                val cropScale = minOf(size.width / fitW, size.height / (fitH * kept))
+                val across = crop.keptWidth.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
+                val keptShiftX = fitW * (crop.left.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE + across / 2) - fitW / 2
+                val cropScale = minOf(size.width / (fitW * across), size.height / (fitH * kept))
                 // Where it rests now: its crop filling the screen, or the whole picture fitted, or between.
                 val restScale = cropScale + (1f - cropScale) * unfolded
                 val restY = -cropScale * keptShift * (1f - unfolded)
+                val restX = -cropScale * keptShiftX * (1f - unfolded)
                 if (chat == null) {
                     alpha = if (from == null && current) p else 1f
                     scaleX = restScale
                     scaleY = restScale
-                    translationX = 0f
+                    translationX = restX
                     translationY = restY
                     clipTo(unfolded)
                     return@graphicsLayer
                 }
                 val centre = androidx.compose.ui.geometry.Offset(window!!.left + size.width / 2, window.top + size.height / 2)
                 fun lerp(a: Float, b: Float) = a + (b - a) * at
-                val start = chat.width / fitW
+                val start = chat.width / (fitW * across)
                 val scale = lerp(start, restScale)
                 scaleX = scale
                 scaleY = scale
-                translationX = lerp(chat.center.x - centre.x, 0f)
+                translationX = lerp(chat.center.x - centre.x - start * keptShiftX, restX)
                 translationY = lerp(chat.center.y - centre.y - start * keptShift, restY)
                 clipTo(minOf(at, unfolded))
             }) {
@@ -370,7 +379,9 @@ private fun ItemPage(
                     else Box(Modifier.zoomedLayout(zoom, ratio).drawBehind {
                         val top = size.height * cropped.top / com.chencohen.ptt.messaging.CropContent.WHOLE
                         val tall = size.height * cropped.kept / com.chencohen.ptt.messaging.CropContent.WHOLE
-                        drawImage(bitmap, dstOffset = androidx.compose.ui.unit.IntOffset(0, top.toInt()), dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), tall.toInt().coerceAtLeast(1)))
+                        val left = size.width * cropped.left / com.chencohen.ptt.messaging.CropContent.WHOLE
+                        val wide = size.width * cropped.keptWidth / com.chencohen.ptt.messaging.CropContent.WHOLE
+                        drawImage(bitmap, dstOffset = androidx.compose.ui.unit.IntOffset(left.toInt(), top.toInt()), dstSize = androidx.compose.ui.unit.IntSize(wide.toInt().coerceAtLeast(1), tall.toInt().coerceAtLeast(1)))
                     })
                 }
             }

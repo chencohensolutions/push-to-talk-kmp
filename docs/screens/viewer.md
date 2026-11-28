@@ -63,11 +63,16 @@ picture has a composition): it opens the crop editor on the message's pictures, 
 everyone (docs/design.md, "Sharing media"). The viewer always shows the whole original; until it is here, a cropped
 preview is drawn where its part lies in the picture.
 
-The editor (`ui/media/CropEditor.kt`, 2026-11-28, hen: "interact with no text, only icons") is black, icons only: Close,
-the counter ("1 / N"), and the corners icon (the whole picture) on top; the original with the trimmed parts dimmed, a
-white line and a handle at the top and bottom edge, thirds inside; under it the shape icons (free, 4:5, 1:1, 16:9; the
-one the crop is at is filled). Drag an edge to trim (it snaps at 4:5, 1:1 and 16:9 with a light tick), drag inside to
-move the kept part, tap to set the point of interest (a ring with a dot). With several pictures, a filmstrip picks one
+The editor (`ui/media/CropEditor.kt`, 2026-11-28, hen: "interact with no text, only icons") is black: Close and the
+counter ("1 / N") on top; the picture with a frame across it (white lines and handles at its top and bottom, thirds
+inside), the rest dimmed. Drag a line from anywhere near it to trim (the picture stays put), pinch to zoom in so the
+sides are trimmed too (`CropContent.left`/`right`), drag with one finger to move the picture under the frame, tap to set
+the point of interest (a ring with a dot) (hen: "i want to be able to move the lines"; "zoom the image so also part of
+the sides will get cropped"). A line on the frame says the kept part's size in the original's pixels and the widest
+screen it fills without being enlarged ("2412 × 1810 · up to 2160p"); narrower than 1080 it and the frame turn red,
+with a tick ("i want to know when i zooming pass of 1080p"; "see the dimensions of the cropped section and what is the
+maximum resolution it is without scaling"). Under the picture, the reset icon brings the whole picture back (the
+ratio shapes are gone: "remove the ratio buttons, add reset button"). With several pictures, a filmstrip picks one
 (a teal dot on those set) and the copy icon gives them all this one's crop. The coral check applies the changes.
 
 

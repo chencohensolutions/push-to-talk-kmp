@@ -1080,4 +1080,6 @@
     <string name="storage_stream_note">סרטון גדול ממגבלת המטמון תמיד מוזרם.</string>
     <string name="storage_server_section">בשרת שלך</string>
     <string name="storage_server_note">מה שמשתפים נשמר בשרת שלך, מוצפן כך שרק הצ׳אט יכול לפתוח. המקוריים עולים מיד אחרי השיתוף, ב־Wi-Fi, כך שהם נפתחים גם כשהטלפון הזה כבוי. כשה־1 TB בשרת מתמלא, מה שנפתח הכי מזמן יוצא ראשון.</string>
+    <string name="crop_size">%1$d × %2$d · עד %3$dp</string>
+    <string name="crop_size_below">%1$d × %2$d · פחות מ־%3$dp</string>
 </resources>

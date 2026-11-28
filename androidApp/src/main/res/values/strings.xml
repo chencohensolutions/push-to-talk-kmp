@@ -1077,4 +1077,6 @@
     <string name="storage_stream_note">A video bigger than the cache limit always streams.</string>
     <string name="storage_server_section">On your server</string>
     <string name="storage_server_note">What you share is kept on your server, encrypted so only the chat can open it. Originals go up right after sharing, on Wi-Fi, so they open even when this phone is off. When the server\'s 1 TB fills, what was fetched longest ago goes first.</string>
+    <string name="crop_size">%1$d × %2$d · up to %3$dp</string>
+    <string name="crop_size_below">%1$d × %2$d · below %3$dp</string>
 </resources>

@@ -6,7 +6,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +37,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -73,10 +77,12 @@ class CropTarget(val messageId: String, val item: AttachmentContent, val source:
 /**
  * Crop and focus (2026-11-28, hen: "pick the point of interest of every image i send ... when composing an image, by
  * default its the full width of the image and the top and bottom border can be trimmed"; "interact with no text, only
- * icons"; mocks: the Picture crop and focus design). The whole original, the part outside the crop dimmed: drag the
- * top or bottom edge to trim it (it snaps to 4:5, 1:1 and 16:9 with a tick), drag inside to move the kept part, tap to
- * set the point of interest. The shape icons set a ratio around the point; the corners icon brings the whole picture
- * back. With several pictures, a filmstrip picks one (a dot on those set), and the copy icon gives them all this one's
+ * icons"; mocks: the Picture crop and focus design). The picture with a frame across it, the part outside dimmed: drag the
+ * frame's top or bottom line (from anywhere near it) to trim, pinch to zoom in so the sides are trimmed too, drag with
+ * one finger to move the picture under the frame, tap to set the point of interest (2026-11-28, hen: "i want to be
+ * able to move the lines"; "zoom the image so also part of the sides will get cropped"). Narrower than 1080 pixels of
+ * the original, the frame turns red and says how many are left (hen: "i want to know when i zooming pass of 1080p").
+ * The reset icon brings the whole picture back ("remove the ratio buttons, add reset button"). With several pictures, a filmstrip picks one (a dot on those set), and the copy icon gives them all this one's
  * crop. The check gives [done] each changed picture's crop (null: the whole picture).
  */
 @Composable
@@ -102,19 +108,16 @@ internal fun CropEditor(
             Spacer(Modifier.weight(1f))
             if (targets.size > 1) Text("${index + 1} / ${targets.size}", color = Color(0xFFB9B4AE), style = LibraryType.Caption)
             Spacer(Modifier.weight(1f))
-            IconCircle(LibraryIcons.Expand, stringResource(R.string.crop_whole), onClick = { set(CropContent()) })
+            Spacer(Modifier.size(48.dp))
         }
-        CropArea(target, crop, preview, Modifier.weight(1f).fillMaxWidth(), ::set)
-        val shape = shapeOf(target.item, crop)
-        Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
-            RatioChip(stringResource(R.string.crop_free), selected = shape == null, onClick = {}) {
-                Icon(LibraryIcons.Crop, null, Modifier.size(20.dp))
-            }
-            for ((ratio, label, w, h) in listOf(Ratio(0.8f, R.string.crop_4_5, 16, 20), Ratio(1f, R.string.crop_square, 18, 18), Ratio(16f / 9, R.string.crop_16_9, 22, 13))) {
-                RatioChip(stringResource(label), selected = shape == ratio, onClick = { set(withRatio(target.item, crop, ratio)) }) {
-                    Box(Modifier.size(w.dp, h.dp).border(2.dp, androidx.compose.material3.LocalContentColor.current, RoundedCornerShape(2.dp)))
-                }
-            }
+        // A reset brings the frame back to where the whole picture shows.
+        var resets by remember(targets) { mutableIntStateOf(0) }
+        CropArea(target, crop, resets, preview, Modifier.weight(1f).fillMaxWidth(), ::set)
+        Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.Center) {
+            IconCircle(LibraryIcons.Expand, stringResource(R.string.crop_whole), outlined = true, onClick = {
+                set(CropContent())
+                resets++
+            })
         }
         Spacer(Modifier.height(12.dp))
         if (targets.size > 1) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -142,31 +145,16 @@ internal fun CropEditor(
     }
 }
 
-private data class Ratio(val ratio: Float, val label: Int, val w: Int, val h: Int)
+/** A preview this wide is what a 1080p screen shows; kept narrower than this, the picture is enlarged there. */
+private const val SHARP_WIDTH = 1080
 
-/** The ratio chip the crop is at now (within 1%), null: free. */
-private fun shapeOf(item: AttachmentContent, crop: CropContent): Float? {
-    if (crop.top == 0 && crop.bottom == 0) return null
-    val ratio = item.width.toFloat() / (item.height.toFloat() * crop.kept / CropContent.WHOLE).coerceAtLeast(1f)
-    return SNAPS.firstOrNull { abs(ratio - it) / it < 0.01f }
-}
-
-private val SNAPS = listOf(0.8f, 1f, 16f / 9)
-
-/** [crop] at [ratio] (width to height), the kept part centred on the point of interest (or where it is now). */
-private fun withRatio(item: AttachmentContent, crop: CropContent, ratio: Float): CropContent {
-    if (item.width <= 0 || item.height <= 0) return crop
-    val kept = (item.width / ratio / item.height * CropContent.WHOLE).roundToInt()
-    if (kept >= CropContent.WHOLE) return crop.copy(top = 0, bottom = 0)
-    val centre = if (crop.hasFocus) crop.focusY else crop.top + crop.kept / 2
-    val top = (centre - kept / 2).coerceIn(0, CropContent.WHOLE - kept)
-    return crop.copy(top = top, bottom = CropContent.WHOLE - kept - top)
-}
+/** Screen widths the size line names: the widest of these the kept part fills without being enlarged. */
+private val SCREENS = listOf(1080, 1440, 2160, 2880, 4320)
 
 private enum class Drag { TOP, BOTTOM, MOVE }
 
 @Composable
-private fun CropArea(target: CropTarget, crop: CropContent, preview: suspend (String, String) -> ByteArray?, modifier: Modifier, set: (CropContent) -> Unit) {
+private fun CropArea(target: CropTarget, crop: CropContent, resets: Int, preview: suspend (String, String) -> ByteArray?, modifier: Modifier, set: (CropContent) -> Unit) {
     val context = LocalContext.current
     val side = with(LocalDensity.current) { maxOf(LocalConfiguration.current.screenWidthDp, LocalConfiguration.current.screenHeightDp).dp.roundToPx() }
     // The original as it is on this phone; until it is read (or when it can't be), the preview the chat shows.
@@ -179,99 +167,187 @@ private fun CropArea(target: CropTarget, crop: CropContent, preview: suspend (St
     }
     val haptics = LocalHapticFeedback.current
     val current = androidx.compose.runtime.rememberUpdatedState(crop)
-    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+    BoxWithConstraints(modifier.clipToBounds()) {
         val item = target.item
         val ratio = if (item.width > 0 && item.height > 0) item.width.toFloat() / item.height else bitmap?.let { it.width.toFloat() / it.height } ?: 1f
         val boxW = constraints.maxWidth.toFloat()
         val boxH = constraints.maxHeight.toFloat()
-        val w = minOf(boxW, boxH * ratio)
-        val h = w / ratio
+        // The frame's width: the whole picture's when it fits, which zooming in spreads over the kept part.
+        val frameW = minOf(boxW, boxH * ratio)
+        val frameLeft = (boxW - frameW) / 2
+        val whole = CropContent.WHOLE.toFloat()
+        fun drawnW(c: CropContent) = frameW * whole / c.keptWidth.coerceAtLeast(1)
+        fun drawnH(c: CropContent) = drawnW(c) / ratio
+        fun frameH(c: CropContent) = drawnH(c) * c.kept / whole
+        // Where the frame's top is on screen: it moves only when its lines are dragged, so the picture stays put then,
+        // and moves under it when dragged, pinched or reset.
+        var frameTop by remember(target.item.id, resets, boxH) {
+            androidx.compose.runtime.mutableFloatStateOf(((boxH - drawnH(crop)) / 2 + drawnH(crop) * crop.top / whole).coerceIn(0f, (boxH - frameH(crop)).coerceAtLeast(0f)))
+        }
         val density = LocalDensity.current
-        val grab = with(density) { 28.dp.toPx() }
+        val grab = with(density) { 40.dp.toPx() }
+        val sharpWidth = (item.width.toLong() * crop.keptWidth / CropContent.WHOLE).toInt()
+        val sharpHeight = (item.height.toLong() * crop.kept / CropContent.WHOLE).toInt()
+        val blurry = item.width > SHARP_WIDTH && sharpWidth < SHARP_WIDTH
+        androidx.compose.runtime.LaunchedEffect(blurry) { if (blurry) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
         Box(
-            Modifier.size(with(density) { w.toDp() }, with(density) { h.toDp() })
-                .pointerInput(target.item.id, h) {
+            Modifier.fillMaxSize()
+                .pointerInput(target.item.id, boxW, boxH) {
                     detectTapGestures { at ->
                         val c = current.value
-                        val x = (at.x / w * CropContent.WHOLE).roundToInt().coerceIn(0, CropContent.WHOLE)
-                        val y = (at.y / h * CropContent.WHOLE).roundToInt().coerceIn(c.top, CropContent.WHOLE - c.bottom)
+                        val dw = drawnW(c)
+                        val dh = drawnH(c)
+                        val left = frameLeft - dw * c.left / whole
+                        val top = frameTop - dh * c.top / whole
+                        val x = ((at.x - left) / dw * whole).roundToInt().coerceIn(c.left, CropContent.WHOLE - c.right)
+                        val y = ((at.y - top) / dh * whole).roundToInt().coerceIn(c.top, CropContent.WHOLE - c.bottom)
                         set(c.copy(focusX = x, focusY = y, hasFocus = true))
                     }
                 }
-                .pointerInput(target.item.id, h) {
-                    var mode = Drag.MOVE
-                    var snapped: Float? = null
-                    var top = 0f
-                    var bottom = 0f
-                    detectDragGestures(
-                        onDragStart = { at ->
+                .pointerInput(target.item.id, boxW, boxH) {
+                    androidx.compose.foundation.gestures.awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val start = current.value
+                        val topY = frameTop
+                        val bottomY = frameTop + frameH(start)
+                        var mode = when {
+                            abs(down.position.y - topY) <= grab && abs(down.position.y - topY) <= abs(down.position.y - bottomY) -> Drag.TOP
+                            abs(down.position.y - bottomY) <= grab -> Drag.BOTTOM
+                            else -> Drag.MOVE
+                        }
+                        var moved = false
+                        val slop = viewConfiguration.touchSlop
+                        var travelled = 0f
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val pressed = event.changes.filter { it.pressed }
+                            if (pressed.isEmpty()) break
                             val c = current.value
-                            top = c.top.toFloat()
-                            bottom = c.bottom.toFloat()
-                            val topY = h * c.top / CropContent.WHOLE
-                            val bottomY = h * (CropContent.WHOLE - c.bottom) / CropContent.WHOLE
-                            mode = when {
-                                abs(at.y - topY) <= grab && abs(at.y - topY) <= abs(at.y - bottomY) -> Drag.TOP
-                                abs(at.y - bottomY) <= grab -> Drag.BOTTOM
-                                else -> Drag.MOVE
+                            val most = (CropContent.WHOLE - CropContent.MIN_KEPT).toFloat()
+                            if (pressed.size >= 2) {
+                                // Pinch: the picture grows or shrinks around the fingers under a frame that keeps its size.
+                                mode = Drag.MOVE
+                                val zoom = event.calculateZoom()
+                                val centroid = event.calculateCentroid()
+                                val pan = event.calculatePan()
+                                if (zoom != 1f || pan != Offset.Zero) {
+                                    moved = true
+                                    val dw = drawnW(c)
+                                    val dh = drawnH(c)
+                                    val left = frameLeft - dw * c.left / whole
+                                    val top = frameTop - dh * c.top / whole
+                                    val fh = frameH(c)
+                                    // The kept part, as parts of the picture: its width and height shrink as it grows.
+                                    var kw = (c.keptWidth / zoom).coerceIn(CropContent.MIN_KEPT.toFloat(), whole)
+                                    var kh = (c.kept * kw / c.keptWidth.coerceAtLeast(1)).coerceAtMost(whole)
+                                    if (kh < CropContent.MIN_KEPT) { kh = CropContent.MIN_KEPT.toFloat(); kw = c.keptWidth * kh / c.kept.coerceAtLeast(1) }
+                                    val dw2 = frameW * whole / kw
+                                    val dh2 = dw2 / ratio
+                                    val u = (centroid.x - left) / dw
+                                    val v = (centroid.y - top) / dh
+                                    val left2 = centroid.x + pan.x - u * dw2
+                                    val top2 = centroid.y + pan.y - v * dh2
+                                    val l = ((frameLeft - left2) / dw2 * whole).coerceIn(0f, whole - kw)
+                                    val t = ((frameTop - top2) / dh2 * whole).coerceIn(0f, whole - kh)
+                                    // A frame taller than the picture now shows: it shrinks to it.
+                                    val khShown = minOf(kh, fh / dh2 * whole)
+                                    var next = c.copy(left = l.roundToInt(), right = (whole - kw - l).roundToInt().coerceAtLeast(0), top = t.roundToInt(), bottom = (whole - khShown - t).roundToInt().coerceAtLeast(0))
+                                    if (next.hasFocus) next = next.copy(focusX = next.focusX.coerceIn(next.left, CropContent.WHOLE - next.right), focusY = next.focusY.coerceIn(next.top, CropContent.WHOLE - next.bottom))
+                                    set(next)
+                                }
+                                event.changes.forEach { it.consume() }
+                                continue
                             }
-                            snapped = shapeOf(item, c)
-                        },
-                    ) { change, delta ->
-                        change.consume()
-                        val d = delta.y / h * CropContent.WHOLE
-                        val most = (CropContent.WHOLE - CropContent.MIN_KEPT).toFloat()
-                        when (mode) {
-                            Drag.TOP -> top = (top + d).coerceIn(0f, most - bottom)
-                            Drag.BOTTOM -> bottom = (bottom - d).coerceIn(0f, most - top)
-                            Drag.MOVE -> {
-                                val move = d.coerceIn(-top, bottom)
-                                top += move
-                                bottom -= move
+                            val change = pressed.first()
+                            val delta = change.position - change.previousPosition
+                            travelled += delta.getDistance()
+                            if (!moved && travelled < slop) continue
+                            moved = true
+                            change.consume()
+                            val dh = drawnH(c)
+                            val dw = drawnW(c)
+                            val d = delta.y / dh * whole
+                            when (mode) {
+                                Drag.TOP -> {
+                                    // The line follows the finger over a picture that stays put.
+                                    val t = (c.top + d).coerceIn(0f, most - c.bottom).coerceAtLeast(c.top - frameTop / dh * whole)
+                                    frameTop += (t - c.top) / whole * dh
+                                    set(c.copy(top = t.roundToInt()).let { if (it.hasFocus) it.copy(focusY = it.focusY.coerceIn(it.top, CropContent.WHOLE - it.bottom)) else it })
+                                }
+                                Drag.BOTTOM -> {
+                                    val room = (boxH - frameTop - frameH(c)) / dh * whole
+                                    val b = (c.bottom - d).coerceIn(0f, most - c.top).coerceAtLeast(c.bottom - room)
+                                    set(c.copy(bottom = b.roundToInt()).let { if (it.hasFocus) it.copy(focusY = it.focusY.coerceIn(it.top, CropContent.WHOLE - it.bottom)) else it })
+                                }
+                                Drag.MOVE -> {
+                                    // The picture follows the finger under the frame.
+                                    val dy = (-d).coerceIn(-c.top.toFloat(), c.bottom.toFloat())
+                                    val dx = (-delta.x / dw * whole).coerceIn(-c.left.toFloat(), c.right.toFloat())
+                                    set(c.copy(top = (c.top + dy).roundToInt(), bottom = (c.bottom - dy).roundToInt(), left = (c.left + dx).roundToInt(), right = (c.right - dx).roundToInt()))
+                                }
                             }
                         }
-                        val c = current.value
-                        var next = c.copy(top = top.roundToInt(), bottom = bottom.roundToInt())
-                        if (mode != Drag.MOVE) {
-                            // Snap stops at 4:5, 1:1 and 16:9, with a light tick as one is reached.
-                            val keptPx = item.height.toFloat() * next.kept / CropContent.WHOLE
-                            val now = item.width / keptPx.coerceAtLeast(1f)
-                            val stop = SNAPS.firstOrNull { abs(now - it) / it < 0.03f }
-                            if (stop != null) {
-                                val kept = (item.width / stop / item.height * CropContent.WHOLE).roundToInt()
-                                next = if (mode == Drag.TOP) next.copy(top = (CropContent.WHOLE - kept - next.bottom).coerceAtLeast(0)) else next.copy(bottom = (CropContent.WHOLE - kept - next.top).coerceAtLeast(0))
-                            }
-                            if (stop != null && stop != snapped) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            snapped = stop
-                        }
-                        // The point stays inside what is kept.
-                        if (next.hasFocus) next = next.copy(focusY = next.focusY.coerceIn(next.top, CropContent.WHOLE - next.bottom))
-                        set(next)
+                        if (!moved) return@awaitEachGesture
                     }
                 },
         ) {
-            bitmap?.let { Image(remember(it) { it.asImageBitmap() }, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds) }
-            val topPx = h * crop.top / CropContent.WHOLE
-            val bottomPx = h * (CropContent.WHOLE - crop.bottom) / CropContent.WHOLE
+            val dw = drawnW(crop)
+            val dh = drawnH(crop)
+            val imageLeft = frameLeft - dw * crop.left / whole
+            val imageTop = frameTop - dh * crop.top / whole
+            val fh = frameH(crop)
+            val edge = if (blurry) Color(0xFFFF5A4E) else Color.White
+            bitmap?.let { b ->
+                val image = remember(b) { b.asImageBitmap() }
+                Box(Modifier.fillMaxSize().drawBehind {
+                    drawImage(
+                        image,
+                        dstOffset = androidx.compose.ui.unit.IntOffset(imageLeft.roundToInt(), imageTop.roundToInt()),
+                        dstSize = androidx.compose.ui.unit.IntSize(dw.roundToInt().coerceAtLeast(1), dh.roundToInt().coerceAtLeast(1)),
+                    )
+                })
+            }
             Box(Modifier.fillMaxSize().drawBehind {
                 val dim = Color(0x99000000)
-                drawRect(dim, Offset.Zero, Size(size.width, topPx))
-                drawRect(dim, Offset(0f, bottomPx), Size(size.width, size.height - bottomPx))
+                val right = frameLeft + frameW
+                val bottom = frameTop + fh
+                drawRect(dim, Offset.Zero, Size(size.width, frameTop))
+                drawRect(dim, Offset(0f, bottom), Size(size.width, size.height - bottom))
+                drawRect(dim, Offset(0f, frameTop), Size(frameLeft, fh))
+                drawRect(dim, Offset(right, frameTop), Size(size.width - right, fh))
                 val line = 2.dp.toPx()
-                drawRect(Color.White, Offset(0f, topPx), Size(size.width, line))
-                drawRect(Color.White, Offset(0f, bottomPx - line), Size(size.width, line))
+                drawRect(edge, Offset(frameLeft, frameTop), Size(frameW, line))
+                drawRect(edge, Offset(frameLeft, bottom - line), Size(frameW, line))
+                if (crop.left > 0 || crop.right > 0 || frameW < size.width) {
+                    drawRect(edge, Offset(frameLeft, frameTop), Size(line, fh))
+                    drawRect(edge, Offset(right - line, frameTop), Size(line, fh))
+                }
                 // Thirds, as a guide to the composition.
                 val faint = Color(0x59FFFFFF)
                 for (i in 1..2) {
-                    drawRect(faint, Offset(size.width * i / 3, topPx), Size(1f, bottomPx - topPx))
-                    drawRect(faint, Offset(0f, topPx + (bottomPx - topPx) * i / 3), Size(size.width, 1f))
+                    drawRect(faint, Offset(frameLeft + frameW * i / 3, frameTop), Size(1f, fh))
+                    drawRect(faint, Offset(frameLeft, frameTop + fh * i / 3), Size(frameW, 1f))
                 }
             })
-            Handle(stringResource(R.string.crop_top), with(density) { topPx.toDp() }, w)
-            Handle(stringResource(R.string.crop_bottom), with(density) { bottomPx.toDp() }, w)
+            Handle(stringResource(R.string.crop_top), with(density) { frameTop.toDp() }, boxW, edge)
+            Handle(stringResource(R.string.crop_bottom), with(density) { (frameTop + fh).toDp() }, boxW, edge)
+            // The kept part's size in the original's pixels, and the widest screen it fills without being enlarged
+            // (2026-11-28, hen: "see the dimensions of the cropped section and what is the maximum resolution it is
+            // without scaling"); red below 1080 ("i want to know when i zooming pass of 1080p").
+            if (item.width > 0 && item.height > 0) Box(
+                Modifier.align(Alignment.TopCenter).offset(y = with(density) { (frameTop + 14.dp.toPx()).toDp() })
+                    .background(if (blurry) Color(0xFFFF5A4E) else Color(0x99000000), RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 3.dp),
+            ) {
+                val fills = SCREENS.lastOrNull { it <= sharpWidth }
+                Text(
+                    if (fills == null) stringResource(R.string.crop_size_below, sharpWidth, sharpHeight, SHARP_WIDTH)
+                    else stringResource(R.string.crop_size, sharpWidth, sharpHeight, fills),
+                    color = Color.White, style = LibraryType.Caption,
+                )
+            }
             if (crop.hasFocus) {
-                val x = with(density) { (w * crop.focusX / CropContent.WHOLE).toDp() }
-                val y = with(density) { (h * crop.focusY / CropContent.WHOLE).toDp() }
+                val x = with(density) { (imageLeft + dw * crop.focusX / whole).toDp() }
+                val y = with(density) { (imageTop + dh * crop.focusY / whole).toDp() }
                 val focusLabel = stringResource(R.string.crop_focus)
                 Box(
                     Modifier.offset(x - 22.dp, y - 22.dp).size(44.dp).border(2.dp, Color.White, CircleShape).semantics { contentDescription = focusLabel },
@@ -283,10 +359,10 @@ private fun CropArea(target: CropTarget, crop: CropContent, preview: suspend (St
 }
 
 @Composable
-private fun Handle(label: String, y: Dp, width: Float) {
+private fun Handle(label: String, y: Dp, width: Float, color: Color) {
     val w = with(LocalDensity.current) { width.toDp() }
     Box(Modifier.offset(w / 2 - 32.dp, y - 12.dp).size(64.dp, 24.dp).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
-        Box(Modifier.size(48.dp, 6.dp).background(Color.White, RoundedCornerShape(3.dp)))
+        Box(Modifier.size(48.dp, 6.dp).background(color, RoundedCornerShape(3.dp)))
     }
 }
 
@@ -297,19 +373,6 @@ private fun IconCircle(icon: androidx.compose.ui.graphics.vector.ImageVector, la
             .then(if (outlined) Modifier.border(1.dp, Color(0xFF555555), CircleShape) else Modifier).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, label, tint = Color(0xFFF2F0ED), modifier = Modifier.size(22.dp)) }
-}
-
-@Composable
-private fun RatioChip(label: String, selected: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
-    Box(
-        Modifier.size(48.dp, 44.dp).clip(RoundedCornerShape(22.dp))
-            .background(if (selected) Color.White else Color.Transparent)
-            .border(1.dp, if (selected) Color.White else Color(0xFF555555), RoundedCornerShape(22.dp))
-            .clickable(onClick = onClick).semantics { contentDescription = label },
-        contentAlignment = Alignment.Center,
-    ) {
-        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides if (selected) Color(0xFF111111) else Color(0xFFF2F0ED)) { content() }
-    }
 }
 
 @Composable
