@@ -46,4 +46,29 @@ class CanHearTest {
     fun aGroupCountsWhoCanHearNow() {
         assertEquals(2 to 4, CanHearRules.canHearCount(listOf(Hear.OK, Hear.DND, Hear.UNKNOWN, Hear.OFFLINE)))
     }
+
+    @Test
+    fun aContactsHearStateFlappingWhileTheyReconnectDoesntFlashTheBadge() {
+        // 2026-11-27 (hen): Sharon's phone reconnected every 1.5 s for half a minute; her DND badge flickered.
+        val steady = SteadyHear()
+        assertEquals(Hear.DND to false, steady.offer("sharon", Hear.DND, 0))
+        var t = 0L
+        repeat(15) {
+            t += 750
+            // Gone, then back before her phone says DND again: neither shows.
+            assertEquals(Hear.DND, steady.offer("sharon", Hear.OFFLINE, t).first)
+            assertEquals(Hear.DND, steady.settle("sharon", t + 500))
+            t += 750
+            assertEquals(Hear.DND, steady.offer("sharon", Hear.UNKNOWN, t).first)
+            assertEquals(Hear.DND, steady.offer("sharon", Hear.DND, t + 100).first)
+            assertEquals(Hear.DND, steady.settle("sharon", t + 2_200))
+        }
+        // A real change shows once it has held 2 s.
+        t += 1_000
+        steady.offer("sharon", Hear.OK, t)
+        assertEquals(Hear.DND, steady.settle("sharon", t + 1_000))
+        assertEquals(Hear.OK, steady.settle("sharon", t + 2_000))
+        // Another contact isn't held by hers.
+        assertEquals(Hear.OK to false, steady.offer("testbot", Hear.OK, t))
+    }
 }
