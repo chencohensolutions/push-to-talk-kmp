@@ -963,6 +963,7 @@
     <string name="chat_attach">Attach</string>
     <string name="chat_attach_gallery">Gallery</string>
     <string name="chat_attach_file">File</string>
+    <string name="chat_attach_camera">Camera</string>
     <string name="media_picture">Picture</string>
     <string name="media_video">Video</string>
     <string name="media_file">File</string>

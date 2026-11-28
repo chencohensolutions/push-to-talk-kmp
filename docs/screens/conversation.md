@@ -638,3 +638,10 @@ Pictures in the writing bubble each have a crop icon in their bottom start corne
 focus (docs/screens/viewer.md, "Crop and focus") on the draft's pictures; their previews are made again before Send.
 A picture in the chat is drawn at its composition's shape, cut around its point of interest. Of several pictures, each
 one's place and time sit right under it, the room before the next picture below the line (2026-11-28, hen).
+
+The composer's + has Camera too (2026-11-28, hen: "open the native camera app ... also saved on the device"; "many in
+one go"): the phone's own camera opens. With access to all photos (asked the first time), it opens as itself, and back
+in Talk everything taken since then (pictures and videos, at most 30) joins a draft here. Without it, the camera is
+asked for one shot at a time into a gallery entry Talk makes in DCIM/Camera and opens again after each shot; Back ends
+the round and its shots join the draft. Either way every shot is an ordinary photo in the gallery, kept after it is sent
+(`rememberCamera` in ui/media/MediaPickers.kt).

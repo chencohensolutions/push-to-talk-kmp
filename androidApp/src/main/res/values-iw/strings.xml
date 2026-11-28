@@ -966,6 +966,7 @@
     <string name="chat_attach">צירוף</string>
     <string name="chat_attach_gallery">גלריה</string>
     <string name="chat_attach_file">קובץ</string>
+    <string name="chat_attach_camera">מצלמה</string>
     <string name="media_picture">תמונה</string>
     <string name="media_video">סרטון</string>
     <string name="media_file">קובץ</string>

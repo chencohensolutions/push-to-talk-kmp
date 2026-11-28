@@ -382,6 +382,7 @@ fun HomeApp(
         val writable = if (Group.idOf(user) != null) group != null && !group.gone && group.isReader(state.device?.user.orEmpty())
             else messagingState.contacts.firstOrNull { it.user == user }?.let { it.paired && !it.blocked } == true
         val attachPicker = com.chencohen.ptt.ui.media.rememberMediaPicker { uris -> shareIn(user, uris.map { it.toString() }) }
+        val camera = com.chencohen.ptt.ui.media.rememberCamera { uris -> sendShared(user, uris.map { it.toString() }) }
         val groupTyping = messagingState.typing.filterKeys { it.startsWith("$user/") }
         val typingUntil = if (Group.idOf(user) != null) groupTyping.values.maxOrNull() else messagingState.typing[user]
         LaunchedEffect(typingUntil) {
@@ -544,6 +545,7 @@ fun HomeApp(
                 uploads = uploads,
                 transfers = transfers,
                 attach = if (writable) attachPicker else null,
+                camera = if (writable) camera else null,
             ),
             talk = messagingState.talk,
             talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),

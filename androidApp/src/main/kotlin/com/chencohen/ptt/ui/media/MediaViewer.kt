@@ -235,7 +235,7 @@ private fun ItemPage(message: TextMessage, item: AttachmentContent, state: Origi
     val ready = state as? OriginalState.Ready
     // The picture the chat drew, at once (so it is there as it flies in), else the preview read.
     val small by produceState<Bitmap?>(drawnPicture(message.id, item), message.id, item.id, item.previews.firstOrNull()?.blob) {
-        if (value != null) return@produceState
+        drawnPicture(message.id, item)?.let { value = it; return@produceState }
         val bytes = preview(message.id, item.id) ?: return@produceState
         value = withContext(Dispatchers.Default) {
             runCatching { if (JxlCoder.isJXL(bytes)) JxlCoder.decode(bytes) else android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()

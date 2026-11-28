@@ -384,6 +384,13 @@ internal fun ChatButtons(
                                 leadingIcon = { Icon(LibraryIcons.Photo, null) },
                                 onClick = { menu = false; attach(true) },
                             )
+                            actions.camera?.let { camera ->
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.chat_attach_camera)) },
+                                    leadingIcon = { Icon(LibraryIcons.Video, null) },
+                                    onClick = { menu = false; camera() },
+                                )
+                            }
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text(stringResource(R.string.chat_attach_file)) },
                                 leadingIcon = { Icon(LibraryIcons.Paste, null) },

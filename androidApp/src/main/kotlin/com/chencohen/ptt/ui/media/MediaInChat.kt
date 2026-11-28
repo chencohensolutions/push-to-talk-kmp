@@ -458,9 +458,11 @@ private suspend fun placeName(context: android.content.Context, lat: Double, lon
 internal fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, select: (() -> Unit)?, onClick: () -> Unit) {
     val key = "${message.id}/${item.id}"
     val drawnAs = drawnKey(message.id, item)
+    // A new key (a new composition's preview) keeps the state, not its first value: the old picture shows until the
+    // new one is decoded, then is replaced (2026-11-28, hen: "the cropped image in chat is not as the original crop").
     val bitmap by produceState(drawn.get(drawnAs), drawnAs) {
-        if (value != null) return@produceState
-        value = loadPicture(message.id, item, preview)
+        drawn.get(drawnAs)?.let { value = it; return@produceState }
+        loadPicture(message.id, item, preview)?.let { value = it }
     }
     // Its composition (2026-11-28, hen): the part of the original the sender kept, cut around their point of interest
     // where this box is another shape.

@@ -167,6 +167,8 @@ class ConversationActions(
     val openMedia: (messageId: String, itemId: String) -> Unit = { _, _ -> },
     /** The composer's +: pick pictures and videos ([gallery]) or files to share here; null: not here. */
     val attach: ((gallery: Boolean) -> Unit)? = null,
+    /** The composer's + › Camera: the phone's own camera, its shots into a draft here (2026-11-28, hen); null: not here. */
+    val camera: (() -> Unit)? = null,
     /** Pictures picked here, not sent yet: in the writing bubble, the caption written under them. */
     val mediaDraft: com.chencohen.ptt.ui.media.MediaDraft? = null,
     /** Pictures sent before their caption: the caption box under them, until it is sent. */
@@ -1500,7 +1502,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
-    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach, mediaDraft = a.mediaDraft, mediaCaption = a.mediaCaption, uploads = a.uploads, transfers = a.transfers,
+    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach, camera = a.camera, mediaDraft = a.mediaDraft, mediaCaption = a.mediaCaption, uploads = a.uploads, transfers = a.transfers,
 )
 
 
