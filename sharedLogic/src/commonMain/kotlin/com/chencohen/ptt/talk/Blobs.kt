@@ -38,6 +38,13 @@ internal interface BlobApi {
     suspend fun putPiece(id: String, peer: String?, group: String?, keepMedia: Boolean, total: Long, offset: Long, bytes: ByteArray): Long =
         throw BlobException(0, "Not supported")
 
+    /**
+     * [putPiece] for shared media kept [keepDays] on the server (2026-11-28, hen: Settings › Storage › Keep on the
+     * server; the server keeps it up to its media_max_days).
+     */
+    suspend fun putMediaPiece(id: String, peer: String?, group: String?, keepDays: Int, total: Long, offset: Long, bytes: ByteArray): Long =
+        putPiece(id, peer, group, true, total, offset, bytes)
+
     /** Deletes blob [id] this phone made (an upload given up, or one that turned out not to be the shared file). */
     suspend fun delete(id: String): Unit = Unit
 
@@ -108,10 +115,15 @@ internal class KtorBlobApi(private val http: ServerHttp) : BlobApi {
         }
     }
 
-    override suspend fun putPiece(id: String, peer: String?, group: String?, keepMedia: Boolean, total: Long, offset: Long, bytes: ByteArray): Long {
+    override suspend fun putPiece(id: String, peer: String?, group: String?, keepMedia: Boolean, total: Long, offset: Long, bytes: ByteArray): Long =
+        putWith(id, peer, group, if (keepMedia) "&keep=media" else "", total, offset, bytes)
+
+    override suspend fun putMediaPiece(id: String, peer: String?, group: String?, keepDays: Int, total: Long, offset: Long, bytes: ByteArray): Long =
+        putWith(id, peer, group, "&keep=media" + if (keepDays > 0) "&days=$keepDays" else "", total, offset, bytes)
+
+    private suspend fun putWith(id: String, peer: String?, group: String?, keep: String, total: Long, offset: Long, bytes: ByteArray): Long {
         val client = http.client() ?: throw IllegalStateException("This phone isn't registered")
-        val query = (if (group != null) "group=${group.encodeURLParameter()}" else "peer=${peer.orEmpty().encodeURLParameter()}") +
-            if (keepMedia) "&keep=media" else ""
+        val query = (if (group != null) "group=${group.encodeURLParameter()}" else "peer=${peer.orEmpty().encodeURLParameter()}") + keep
         val response = client.put(http.url("/blob/$id", query)) {
             header(HEADER_TOTAL, total.toString())
             header(HEADER_OFFSET, offset.toString())

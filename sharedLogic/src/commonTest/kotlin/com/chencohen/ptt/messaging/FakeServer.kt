@@ -569,6 +569,9 @@ internal class FakeServer {
             return offset + bytes.size
         }
 
+        override suspend fun putMediaPiece(id: String, peer: String?, group: String?, keepDays: Int, total: Long, offset: Long, bytes: ByteArray): Long =
+            putPiece(id, peer, group, true, total, offset, bytes).also { keptDays[id] = keepDays }
+
         override suspend fun delete(id: String) {
             files.remove(id)
             shares.remove(id)
@@ -594,6 +597,9 @@ internal class FakeServer {
 
     /** Whether each blob was uploaded as a shared original (?keep=media). */
     val kept = mutableMapOf<String, Boolean>()
+
+    /** The days each shared media blob was asked to be kept (&days=N). */
+    val keptDays = mutableMapOf<String, Int>()
 
     /** Closes [device]'s connection with [code], as the server does on 4001 and 4003. */
     fun close(device: DeviceAddress, code: Int) {

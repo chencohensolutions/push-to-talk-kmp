@@ -298,6 +298,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_CLEAR_CACHE_LOW) != "false"
         set(value) = store.putString(KEY_CLEAR_CACHE_LOW, value.toString())
 
+    /** Settings › Storage › Keep on the server, in days (TalkSettings.serverKeepDays): 365 unless set. */
+    var serverKeepDays: Int
+        get() = store.getString(KEY_SERVER_KEEP_DAYS)?.toIntOrNull()?.takeIf { it > 0 } ?: 365
+        set(value) = store.putString(KEY_SERVER_KEEP_DAYS, value.toString())
+
     /** Settings › Storage › Stream original videos (default off). */
     var streamVideos: Boolean
         get() = store.getString(KEY_STREAM_VIDEOS) == "true"
@@ -396,6 +401,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_MEDIA_CACHE_GB = "media_cache_gb"
         private const val KEY_CLEAR_CACHE_LOW = "media_clear_cache_low"
         private const val KEY_STREAM_VIDEOS = "media_stream_videos"
+        private const val KEY_SERVER_KEEP_DAYS = "media_server_keep_days"
         private const val KEY_BUBBLE_VIDEO = "talk_bubble_video"
         private const val KEY_UNMUTE_FOR_TALK = "unmute_for_talk"
         private const val KEY_LOWER_OTHERS_FOR_TALK = "lower_others_for_talk"

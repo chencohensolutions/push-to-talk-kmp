@@ -117,6 +117,11 @@ data class MediaContent(
      * notification; the caption, an [EditContent] with `notify`, notifies. Older apps skip it.
      */
     @ProtoNumber(5) val quiet: Boolean = false,
+    /**
+     * The days its sender asked the server to keep its previews and original (2026-11-28, hen: Settings › Storage ›
+     * Keep on the server); 0: 30 (older apps). A phone that got it may let its previews go from the cache until then.
+     */
+    @ProtoNumber(6) val keepDays: Int = 0,
 )
 
 /**

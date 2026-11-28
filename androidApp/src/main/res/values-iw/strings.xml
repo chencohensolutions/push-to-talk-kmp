@@ -1076,4 +1076,9 @@
     <string name="storage_stream_videos">הזרמת סרטונים מקוריים</string>
     <string name="storage_stream_videos_body">מתנגנים מהשרת ולא נשמרים בטלפון</string>
     <string name="storage_stream_note">סרטון גדול ממגבלת המטמון תמיד מוזרם.</string>
+    <string name="storage_server_section">שמירת מה שאני משתף בשרת</string>
+    <string name="storage_server_30">30 יום</string>
+    <string name="storage_server_365">שנה</string>
+    <string name="storage_server_730">שנתיים</string>
+    <string name="storage_server_note">מוצפן, כך שרק הצ׳אט יכול לפתוח. המקוריים עולים מיד אחרי השיתוף, ב־Wi-Fi, כך שהם נפתחים גם כשהטלפון הזה כבוי.</string>
 </resources>

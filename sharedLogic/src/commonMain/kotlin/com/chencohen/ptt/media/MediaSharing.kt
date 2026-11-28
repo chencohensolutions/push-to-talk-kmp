@@ -253,6 +253,10 @@ internal class MediaSharing(
     private val clearWhenLow: () -> Boolean = { true },
     /** Settings › Storage › Stream original videos: none is kept (one bigger than the cache limit never is). */
     private val streamVideos: () -> Boolean = { false },
+    /** Settings › Storage › Keep on the server: the days what this phone shares is kept there (1 year by default). */
+    private val keepDays: () -> Int = { DEFAULT_KEEP_DAYS },
+    /** Whether the phone is on Wi-Fi (or another network that isn't metered): originals go up at once then. */
+    private val unmetered: () -> Boolean = { true },
 ) {
     var preparer: MediaPreparer? = null
 
@@ -298,7 +302,7 @@ internal class MediaSharing(
             val at = now()
             val text = if (i == 0) caption.trim().take(MAX_CAPTION) else ""
             val attachments = chunk.map { item -> if (item is Again) again(id, item) else seal(id, item as PreparedItem) }
-            val media = MediaContent(id, at, text, attachments)
+            val media = MediaContent(id, at, text, attachments, keepDays = keepDays())
             val message = TextMessage(id, chat, outgoing = true, body = fallback(media), at = at, status = MessageStatus.PENDING, media = media)
             if (keep) store.putMessage(message) else drafts[id] = message
             out += message
@@ -585,6 +589,59 @@ internal class MediaSharing(
         draftUploads.remove(message.id)?.join()
         putPreviews(message)
         message.media?.items?.forEach { changed(message, it.id) }
+        uploadAhead(message.id)
+    }
+
+    /**
+     * Uploads the originals of what this phone shared in [messageId] now, on Wi-Fi (2026-11-28, hen: "right away, on
+     * Wi-Fi"), so they open for anyone at once, even with this phone off or the file gone from it, for as long as the
+     * server keeps them. The chat is told as when someone asks (a READY reply). Off Wi-Fi: later ([uploadPending]).
+     */
+    fun uploadAhead(messageId: String) {
+        val scope = scope ?: return
+        if (!unmetered()) return
+        val message = store.message(messageId)?.takeIf { it.outgoing && !it.deleted } ?: return
+        for (item in message.media?.items.orEmpty()) {
+            val key = "${message.id}/${item.id}"
+            val source = store.mediaSource(message.id, item.id) ?: continue
+            if (store.mediaSource(message.id, "${item.id}$SOURCE_GONE") != null) continue
+            if (uploading[key]?.isActive == true || uploadedRecently(message.id, item.id)) continue
+            // Shared again from an earlier message: its original is already there (shared to this chat on request).
+            if (store.mediaSource(message.id, "${item.id}$FROM") != null) continue
+            uploading[key] = scope.launch {
+                val id = blobId()
+                val result = try {
+                    uploadOriginal(message.user, message, item, source, id) {}
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    runCatching { blobs.delete(id) }
+                    null
+                }
+                when (result) {
+                    MediaReplyStatus.READY -> {
+                        store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", id)
+                        store.putMediaSource(message.id, "${item.id}$ORIGINAL_UPLOADED", now().toString())
+                        // Told once the message itself is on the server (the reply names it).
+                        val waited = withTimeoutOrNull(AHEAD_WAIT) {
+                            while (store.message(message.id)?.status == MessageStatus.PENDING) delay(RETRY_WAIT)
+                        }
+                        if (waited != null) {
+                            val reply = MediaReplyContent(message.id, item.id, MediaPart.ORIGINAL, MediaReplyStatus.READY, part(id, item, growing = false))
+                            runCatching { send(message.user, Content(mediaReply = reply), PushKind.NONE, "") }
+                        }
+                    }
+                    MediaReplyStatus.GONE, MediaReplyStatus.CHANGED -> sourceGone(message, item.id)
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    /** What this phone shared and hasn't uploaded the originals of yet goes up now (on Wi-Fi; at start, and on Wi-Fi). */
+    fun uploadPending() {
+        if (!unmetered()) return
+        for (message in mediaMessages().filter { it.outgoing && it.status != MessageStatus.PENDING && refetchable(it) }) uploadAhead(message.id)
     }
 
     private suspend fun putPreviews(message: TextMessage) {
@@ -617,7 +674,7 @@ internal class MediaSharing(
                     try {
                         while (offset < sealed.size) {
                             val end = minOf(sealed.size.toLong(), offset + PREVIEW_PIECE).toInt()
-                            val got = blobs.putPiece(part.blob, peer, group, false, sealed.size.toLong(), offset, sealed.copyOfRange(offset.toInt(), end))
+                            val got = blobs.putMediaPiece(part.blob, peer, group, media.keepDays, sealed.size.toLong(), offset, sealed.copyOfRange(offset.toInt(), end))
                             stuck = if (got <= offset) stuck + 1 else 0
                             if (stuck > 2) throw BlobException(409, "The server keeps another part")
                             offset = got
@@ -987,7 +1044,7 @@ internal class MediaSharing(
     /** Whether the original was uploaded for this item within the server's media_days (so it is still there). */
     private fun uploadedRecently(message: String, item: String): Boolean {
         val at = store.mediaSource(message, "$item$ORIGINAL_UPLOADED")?.toLongOrNull() ?: return false
-        return at > 0 && now() - at < ORIGINAL_KEPT
+        return at > 0 && now() - at < keptFor(store.message(message))
     }
 
     /**
@@ -1142,7 +1199,7 @@ internal class MediaSharing(
                 while (at < piece.size) {
                     val bytes = piece.copyOfRange(at, piece.size)
                     val server = try {
-                        blobs.putPiece(id, peer, group, keepMedia = true, total = total, offset = offset + at, bytes = bytes)
+                        blobs.putMediaPiece(id, peer, group, message.media?.keepDays ?: 0, total = total, offset = offset + at, bytes = bytes)
                     } catch (e: BlobException) {
                         if (e.status in 400..499 && e.status != 408 && e.status != 429 || ++tries >= FETCH_TRIES) throw e
                         delay(RETRY_WAIT * tries)
@@ -1377,7 +1434,13 @@ internal class MediaSharing(
     }
 
     /** A received message's previews are still on the server (fetched again after a clear). */
-    private fun refetchable(message: TextMessage): Boolean = now() - message.at < ORIGINAL_KEPT
+    private fun refetchable(message: TextMessage): Boolean = now() - message.at < keptFor(message)
+
+    /** How long the server keeps what [message] shared, as its sender asked, a day less to be safe. */
+    private fun keptFor(message: TextMessage?): Long {
+        val days = message?.media?.keepDays?.takeIf { it > 0 } ?: return ORIGINAL_KEPT
+        return (days - 1L).coerceAtLeast(1) * DAY
+    }
 
     /**
      * Clears what this phone keeps of [chat]'s shared media that can come again: the previews it got that are still on
@@ -1483,6 +1546,13 @@ internal class MediaSharing(
 
         /** The server keeps an original 30 days (media_days); asked again a day before that. */
         const val ORIGINAL_KEPT = 29L * 24 * 60 * 60 * 1000
+        const val DAY = 24L * 60 * 60 * 1000
+
+        /** Settings › Storage › Keep on the server: 1 year unless changed (30 days and 2 years too). */
+        const val DEFAULT_KEEP_DAYS = 365
+
+        /** How long an original uploaded at once waits for its message to be on the server before telling the chat. */
+        const val AHEAD_WAIT = 10L * 60 * 1000
 
         /** Where an item's original blob id and its upload time are kept beside its source (MessagingStore.mediaSource). */
         private const val ORIGINAL_BLOB = "#original"

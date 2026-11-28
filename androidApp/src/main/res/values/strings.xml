@@ -1073,4 +1073,9 @@
     <string name="storage_stream_videos">Stream original videos</string>
     <string name="storage_stream_videos_body">Played from the server, never kept on the phone</string>
     <string name="storage_stream_note">A video bigger than the cache limit always streams.</string>
+    <string name="storage_server_section">Keep what I share on the server</string>
+    <string name="storage_server_30">30 days</string>
+    <string name="storage_server_365">1 year</string>
+    <string name="storage_server_730">2 years</string>
+    <string name="storage_server_note">Encrypted, so only the chat can open it. Originals go up right after sharing, on Wi-Fi, so they open even when this phone is off.</string>
 </resources>

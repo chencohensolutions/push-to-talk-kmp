@@ -189,6 +189,8 @@ data class TalkSettings(
     val clearCacheWhenLow: Boolean = true,
     /** Settings › Storage › Stream original videos: played from the server, none kept here (off by default). */
     val streamVideos: Boolean = false,
+    /** Settings › Storage › Keep on the server: the days what I share is kept there (30, 365 or 730; 1 year by default). */
+    val serverKeepDays: Int = 365,
     /**
      * Voice or Video per contact or group (2026-11-23, hen: "remember that setting for that contact"): what the Talk
      * screen's and the reply bubble's Voice | Video chose last for it; [pushVideo] for one never chosen.
@@ -823,7 +825,12 @@ internal class Messaging(
         cacheLimit = { _state.value.talkSettings.mediaCacheGb.coerceAtLeast(1) * com.chencohen.ptt.media.MediaSharing.GB },
         clearWhenLow = { _state.value.talkSettings.clearCacheWhenLow },
         streamVideos = { _state.value.talkSettings.streamVideos },
+        keepDays = { _state.value.talkSettings.serverKeepDays },
+        unmetered = { unmetered() },
     )
+
+    /** Whether the phone is on Wi-Fi or another network that isn't metered (the platform sets it): originals go up at once. */
+    var unmetered: () -> Boolean = { false }
 
     /**
      * What this phone keeps of a shared item, and who else holds what (the viewer's Info): the one who shared it has the
@@ -1046,6 +1053,11 @@ internal class Messaging(
         // holds what).
         // Coming to the front: the cache kept within its limit (and cleared when the phone runs low).
         scope.launch { runCatching { media.trimCache() } }
+        // And the originals of what I shared that haven't gone up yet, on Wi-Fi.
+        scope.launch {
+            socket.state.first { it is SocketState.Live }
+            runCatching { media.uploadPending() }
+        }
         if (now() - sourcesCheckedAt >= SOURCES_CHECK_EVERY) {
             sourcesCheckedAt = now()
             scope.launch {
@@ -1318,6 +1330,7 @@ internal class Messaging(
         mediaCacheGb = settings.mediaCacheGb,
         clearCacheWhenLow = settings.clearCacheWhenLow,
         streamVideos = settings.streamVideos,
+        serverKeepDays = settings.serverKeepDays,
     )
 
     fun setTalkSettings(talk: TalkSettings) {
@@ -1373,6 +1386,7 @@ internal class Messaging(
         settings.mediaCacheGb = talk.mediaCacheGb.coerceAtLeast(1)
         settings.clearCacheWhenLow = talk.clearCacheWhenLow
         settings.streamVideos = talk.streamVideos
+        settings.serverKeepDays = talk.serverKeepDays
         val talk = talk.copy(liveTypingKnown = known, colorsAt = stamped, mediaCacheGb = talk.mediaCacheGb.coerceAtLeast(1))
         _state.update { it.copy(talkSettings = talk) }
         if (talk.mediaCacheGb < before.mediaCacheGb || (talk.clearCacheWhenLow && !before.clearCacheWhenLow)) scope.launch { runCatching { media.trimCache() } }

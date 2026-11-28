@@ -629,6 +629,39 @@ class MediaOriginalTest {
     }
 
     @Test
+    fun onWiFiAnOriginalGoesUpRightAfterSharingKeptTheDaysChosen() = runTest {
+        val (server, hen, dana) = paired()
+        hen.messaging.unmetered = { true }
+        val (message, item) = shared(hen)
+        val preparer = hen.messaging.media.preparer as FakePreparer
+        assertEquals(1, preparer.opened, "read once, to upload it")
+        val sent = hen.store.message(message)!!.media!!
+        assertEquals(365, sent.keepDays, "a year unless changed")
+        for (part in sent.items.single().previews) assertEquals(365, server.keptDays[part.blob])
+        val original = server.keptDays.keys.single { k -> sent.items.single().previews.none { it.blob == k } }
+        assertEquals(365, server.keptDays[original])
+        // Dana opens it straight from the server: hen's phone isn't asked.
+        dana.messaging.media.openOriginal(message, item)
+        advanceUntilIdle()
+        assertTrue(dana.messaging.media.originals.value["$message/$item"] is OriginalState.Ready)
+        assertContentEquals(originalOf("a"), dana.files.originals[original])
+        assertEquals(1, preparer.opened)
+        assertTrue(hen.messaging.media.originalRequests().isEmpty(), "nothing was asked")
+        // Off Wi-Fi: it waits, and goes once on Wi-Fi.
+        hen.messaging.unmetered = { false }
+        hen.messaging.setTalkSettings(hen.messaging.state.value.talkSettings.copy(serverKeepDays = 730))
+        val (second, _) = hen.work.async { hen.messaging.shareMedia("dana", listOf("b"), "") }.let { advanceUntilIdle(); it.await().single().let { m -> m.id to m.media!!.items.single().id } }
+        assertEquals(1, preparer.opened)
+        assertEquals(730, hen.store.message(second)!!.media!!.keepDays)
+        hen.messaging.unmetered = { true }
+        hen.messaging.media.uploadPending()
+        advanceUntilIdle()
+        assertEquals(2, preparer.opened)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun anOriginalStreamsFromTheServerFromAnyByteWithoutBeingKept() = runTest {
         val (_, hen, dana) = paired()
         val (message, item) = shared(hen)
