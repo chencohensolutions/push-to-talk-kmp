@@ -672,6 +672,31 @@ whether the phone was in the room before a push.
 - "Make it a call" starts an ordinary video call (phase 6) and marks it shown inside the chat; the other phone, both
   live in that chat, accepts a call from it at once and shows it inside the chat too. Nothing changes on the server.
 
+## Sharing media (2026-11-28, hen; being built)
+
+Pictures, videos and files shared into a chat from Android's Share menu (or the composer's + button), one or many at
+a time. The build plan is https://claude.ai/artifact/M4ptCwXCPZgeMMtK1v1zY9 and the design is
+https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-server PR #24: open, growing blobs,
+`?keep=media` kept `media_days`, `PUSH_MEDIA` with `push_user`, the disk guard). Built so far in the app (A1):
+
+- **What goes in the message.** `Content.media` (`MediaContent`: id, time sent, caption, items) with one
+  `AttachmentContent` per item: its own random 32-byte key, the original's SHA-256, size, type, name, picture size,
+  length, when and where it was taken (from EXIF; each phone names the place itself), its previews and a video's
+  poster (`PartContent`: blob, size, codec, HDR, `growing`), which of the sender's devices holds the original, and a
+  ThumbHash. `mediaRequest` asks that device for a part, and `mediaReply` answers (ready, waiting for Wi-Fi, gone,
+  changed). `AboutContent` now carries the screen size, so the sender makes each preview as wide as that screen.
+- **Caps.** `CAPS_MEDIA` (it takes shared media) and `CAPS_HEVC10` (HDR video previews keep their HDR for it).
+- **Encryption** (`media/MediaCrypto.kt`). Each part has its own key, HKDF-SHA256 of the item's key (salt: the blob
+  id; info: `talk media v1|preview`, `|poster` or `|original`). Parts are AES-256-GCM in 64 KiB chunks. The nonce is
+  the chunk index, and the authenticated data binds the blob, the index and the last flag, so the server can't change,
+  move, reorder or cut a part. Chunk i starts at i × (64 KiB + 16), so a video seek reads only the chunks it needs.
+  The key is only on the sender's and recipients' phones, never the server's or Journal's.
+- **Frames.** `Send.push_user` and `PushKind.MEDIA` (7), synced from the server's ptt.proto.
+
+Still to build: the Share target and + button, JPEG XL previews, originals on request, video previews (1080p HEVC at
+3 Mbps, original fps and HDR), files, albums, the viewer and its details. Journal as a source for originals that
+are gone from the phone is the next phase (shed).
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.
