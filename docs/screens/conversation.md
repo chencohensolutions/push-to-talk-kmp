@@ -618,7 +618,8 @@ nothing moves when it comes.
 **Writing a caption first** (`ui/media/MediaDraftBox.kt`; hen: "the image should be 100% width and the textbox
 should be its max width of a bubble", mock `mockups/share-media/caption-in-box-v2.png`). What is picked (the +
 button, or Talk in Android's Share menu) isn't sent at once: it is laid out as the message it will become, the
-pictures edge to edge (✕ takes one out; more than half the screen scrolls) between two half bubbles outlined in the
+pictures edge to edge (taking the whole height when they need it, the caption box kept in view under them; more scroll;
+2026-11-28, hen: "make it full height if needed so i could view all images before i send") between two half bubbles outlined in the
 writing colour on my side, a bubble's widest (78% of the screen, as the sent ones). The bottom one is the text box: a
 bin (don't send), the caption and Send. The top half already says where and when they were taken. Sent with a caption, the whole box (a picture of it as
 drawn) flies into the message's place in the chat, as a sent text does, and the message shows the frame it lands;
@@ -643,8 +644,9 @@ pictures and videos in Samsung's Gallery (Android's photo picker on phones witho
 document, kept readable). What is picked is shared in this chat at once. The first time, Android asks for the phone's
 pictures and videos and their places: the original is read again from there when someone opens it.
 
-Pictures in the writing bubble each have a crop icon in their bottom start corner (teal once set): it opens crop and
-focus (docs/screens/viewer.md, "Crop and focus") on the draft's pictures; their previews are made again before Send.
+Pictures in the writing bubble each have Aa (words above it), crop (teal once set) and ✕ (take it out) together in their
+top end corner, held at the top of what shows of the picture while the draft scrolls (2026-11-28, hen: "keep the x and
+crop and text button in view, at the same top corner"). Crop opens crop and focus (docs/screens/viewer.md, "Crop and focus") on the draft's pictures; their previews are made again before Send.
 A picture in the chat is drawn at its composition's shape, cut around its point of interest.
 
 The composer's + has Camera too (2026-11-28, hen: "open the native camera app ... also saved on the device"; "many in
