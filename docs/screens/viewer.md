@@ -69,7 +69,8 @@ move the kept part, tap to set the point of interest (a ring with a dot). With s
 (a teal dot on those set) and the copy icon gives them all this one's crop. The coral check applies the changes.
 
 
-Opening a cropped picture is one move (2026-11-28, hen: "the full image should extend quickly from the cropped image";
-"preferred in one move"): the kept part starts exactly where the chat shows it, and as the picture grows to the screen
-the rest of it opens out above and below in the same move; closing folds it back into the crop. Until the original
-is here, the parts outside the crop are black.
+Opening a cropped picture (2026-11-28, hen: "the transition should be seamless", "make expanding animation when full
+image arrives", "preferred as one move when the full image arrives"): its kept part starts exactly where the chat shows
+it and grows to fill the screen as far as it can. When the whole original is drawn, the picture opens out above and below
+while it fits to the screen, in one move (300 ms). An original already on the phone does this as the picture opens.
+Closing folds it back into the crop.

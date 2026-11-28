@@ -126,6 +126,9 @@ internal fun MediaViewer(
     val zoomScope = androidx.compose.runtime.rememberCoroutineScope()
     val zooms = remember { mutableMapOf<String, PhotoZoom>() }
     fun zoomOf(id: String) = zooms.getOrPut(id) { PhotoZoom(zoomScope, keptZooms["${message.id}/$id"]) }
+    // How far each cropped picture has opened out to the whole original (0: its crop), once the original is drawn.
+    val unfolds = remember { mutableMapOf<String, androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>>() }
+    fun unfoldOf(id: String) = unfolds.getOrPut(id) { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(pager.currentPage) { val now = items.getOrNull(pager.currentPage)?.id; zooms.forEach { (id, z) -> if (id != now) z.reset() } }
     // Leaving a picture (a swipe, or closing): where it was zoomed is kept; fitted forgets it.
     val currentId = items.getOrNull(pager.currentPage)?.id
@@ -167,49 +170,79 @@ internal fun MediaViewer(
                 val at = if (current) p else 1f
                 val from = pictureBounds["${message.id}/${item.id}"]
                 val window = box
-                if (at >= 1f || from == null || window == null) {
-                    alpha = if (from == null && current) p else 1f
-                    clip = false
-                    return@graphicsLayer
-                }
-                // The picture's place on screen when it fits, and where it lies in the chat.
+                val crop = item.crop
+                // The picture's place on screen when it fits.
                 val ratio = if (item.width > 0 && item.height > 0) item.width.toFloat() / item.height else 1f
                 val fitW = minOf(size.width, size.height * ratio)
                 val fitH = fitW / ratio
-                val centre = androidx.compose.ui.geometry.Offset(window.left + size.width / 2, window.top + size.height / 2)
-                fun lerp(a: Float, b: Float) = a + (b - a) * at
-                val crop = item.crop
+                // A cropped picture shows its kept part until the whole original is here, then opens out above and
+                // below it (2026-11-28, hen: "make expanding animation when full image arrives"); [open] 0: the crop.
+                fun clipTo(open: Float) {
+                    if (crop == null || open >= 1f) {
+                        clip = false
+                        return
+                    }
+                    val top = crop.top.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
+                    val bottom = crop.bottom.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
+                    val boxTop = size.height / 2 - fitH / 2
+                    val shownTop = boxTop + fitH * top * (1f - open)
+                    val shownBottom = boxTop + fitH - fitH * bottom * (1f - open)
+                    shape = object : androidx.compose.ui.graphics.Shape {
+                        override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
+                            androidx.compose.ui.graphics.Outline.Rectangle(androidx.compose.ui.geometry.Rect(0f, shownTop, size.width, shownBottom))
+                    }
+                    clip = true
+                }
+                val unfolded = if (crop == null) 1f else unfoldOf(item.id).value
+                val chat = if (from != null && window != null && at < 1f) from else null
                 if (crop == null) {
-                    scaleX = lerp(from.width / fitW, 1f)
-                    scaleY = lerp(from.height / fitH, 1f)
-                    translationX = lerp(from.center.x - centre.x, 0f)
-                    translationY = lerp(from.center.y - centre.y, 0f)
+                    if (chat == null) {
+                        alpha = if (from == null && current) p else 1f
+                        clip = false
+                        return@graphicsLayer
+                    }
+                    val centre = androidx.compose.ui.geometry.Offset(window!!.left + size.width / 2, window.top + size.height / 2)
+                    fun lerp(a: Float, b: Float) = a + (b - a) * at
+                    scaleX = lerp(chat.width / fitW, 1f)
+                    scaleY = lerp(chat.height / fitH, 1f)
+                    translationX = lerp(chat.center.x - centre.x, 0f)
+                    translationY = lerp(chat.center.y - centre.y, 0f)
                     clip = false
                     return@graphicsLayer
                 }
-                // A cropped picture (2026-11-28, hen: "the transition should be seamless, the full image should extend
-                // quickly from the cropped image"): its kept part lies exactly where the chat shows it, and the rest of
-                // the picture opens out above and below it as it grows to the screen, in one move.
+                // A cropped picture (2026-11-28, hen): until the whole original is here, its kept part fills the
+                // screen as it can; when the original comes, the picture opens out above and below while it fits to the
+                // screen, in one move ("preferred as one move when the full image arrives"). Opening, its kept part
+                // starts exactly where the chat shows it ("the transition should be seamless"); closing folds back.
                 val top = crop.top.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
                 val kept = crop.kept.toFloat() / com.chencohen.ptt.messaging.CropContent.WHOLE
-                val bottom = 1f - top - kept
-                val start = from.width / fitW
                 val keptShift = fitH * (top + kept / 2) - fitH / 2
-                val scale = lerp(start, 1f)
+                val cropScale = minOf(size.width / fitW, size.height / (fitH * kept))
+                // Where it rests now: its crop filling the screen, or the whole picture fitted, or between.
+                val restScale = cropScale + (1f - cropScale) * unfolded
+                val restY = -cropScale * keptShift * (1f - unfolded)
+                if (chat == null) {
+                    alpha = if (from == null && current) p else 1f
+                    scaleX = restScale
+                    scaleY = restScale
+                    translationX = 0f
+                    translationY = restY
+                    clipTo(unfolded)
+                    return@graphicsLayer
+                }
+                val centre = androidx.compose.ui.geometry.Offset(window!!.left + size.width / 2, window.top + size.height / 2)
+                fun lerp(a: Float, b: Float) = a + (b - a) * at
+                val start = chat.width / fitW
+                val scale = lerp(start, restScale)
                 scaleX = scale
                 scaleY = scale
-                translationX = lerp(from.center.x - centre.x, 0f)
-                translationY = lerp(from.center.y - centre.y - start * keptShift, 0f)
-                val boxTop = size.height / 2 - fitH / 2
-                val shownTop = boxTop + fitH * top * (1f - at)
-                val shownBottom = boxTop + fitH - fitH * bottom * (1f - at)
-                shape = object : androidx.compose.ui.graphics.Shape {
-                    override fun createOutline(size: androidx.compose.ui.geometry.Size, layoutDirection: androidx.compose.ui.unit.LayoutDirection, density: androidx.compose.ui.unit.Density) =
-                        androidx.compose.ui.graphics.Outline.Rectangle(androidx.compose.ui.geometry.Rect(0f, shownTop, size.width, shownBottom))
-                }
-                clip = true
+                translationX = lerp(chat.center.x - centre.x, 0f)
+                translationY = lerp(chat.center.y - centre.y - start * keptShift, restY)
+                clipTo(minOf(at, unfolded))
             }) {
-                ItemPage(message, item, originals["${message.id}/${item.id}"], preview, zoomOf(item.id), tap = { chrome = !chrome })
+                ItemPage(message, item, originals["${message.id}/${item.id}"], preview, zoomOf(item.id), tap = { chrome = !chrome }, whole = {
+                    zoomScope.launch { unfoldOf(item.id).animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease)) }
+                })
             }
         }
         val item = items.getOrNull(pager.currentPage)
@@ -257,7 +290,7 @@ internal fun MediaViewer(
 }
 
 @Composable
-private fun ItemPage(message: TextMessage, item: AttachmentContent, state: OriginalState?, preview: suspend (String, String) -> ByteArray?, zoom: PhotoZoom, tap: () -> Unit) {
+private fun ItemPage(message: TextMessage, item: AttachmentContent, state: OriginalState?, preview: suspend (String, String) -> ByteArray?, zoom: PhotoZoom, tap: () -> Unit, whole: () -> Unit = {}) {
     val context = LocalContext.current
     val ready = state as? OriginalState.Ready
     // The picture the chat drew, at once (so it is there as it flies in), else the preview read.
@@ -282,6 +315,8 @@ private fun ItemPage(message: TextMessage, item: AttachmentContent, state: Origi
                 val path = ready?.path ?: return@produceState
                 if (wantSharp) value = withContext(Dispatchers.IO) { decodeOriginal(context, path, zoomSide(item)) }
             }
+            // The whole original is drawn: a cropped picture opens out to it.
+            LaunchedEffect(full != null || sharp != null) { if (full != null || sharp != null) whole() }
             val image = sharp ?: full ?: small
             val whole = small ?: full
             val minimapPicture = remember(whole) { whole?.asImageBitmap() }
