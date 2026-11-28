@@ -456,6 +456,30 @@ class MediaSharingTest {
     }
 
     @Test
+    fun onePictureTakenOutOfASentMessageIsGoneForThemAndFromTheServer() = runTest {
+        val (server, hen, dana) = paired()
+        val message = hen.work.async { hen.messaging.shareMedia("dana", listOf("a", "b"), "two") }.also { advanceUntilIdle() }.await().single()
+        val (keep, gone) = message.media!!.items
+        val shown = dana.work.async { dana.messaging.media.preview(message.id, gone.id) }
+        advanceUntilIdle()
+        assertNotNull(shown.await())
+        val blobs = gone.previews.map { it.blob }
+        assertTrue(blobs.all { it in server.files })
+        assertTrue(hen.work.async { hen.messaging.removeMediaItem(message.id, gone.id) }.also { advanceUntilIdle() }.await())
+        for (phone in listOf(hen, dana)) {
+            val items = phone.store.message(message.id)!!.media!!.items
+            assertEquals(listOf(keep.id), items.map { it.id })
+            assertTrue(blobs.none { phone.files.read(it) != null }, "its previews are gone from the phone")
+        }
+        assertTrue(blobs.none { it in server.files }, "and from the server: the key alone opens nothing")
+        assertEquals("two", dana.store.message(message.id)!!.media!!.caption)
+        // The last one is deleting the message, not this.
+        assertFalse(hen.work.async { hen.messaging.removeMediaItem(message.id, keep.id) }.also { advanceUntilIdle() }.await())
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun aCropKeepsATenthAtLeast() {
         val c = com.chencohen.ptt.messaging.CropContent(top = 8_000, bottom = 5_000).clean()!!
         assertEquals(8_000, c.top)

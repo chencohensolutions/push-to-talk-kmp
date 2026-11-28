@@ -165,6 +165,11 @@ class MessagingController internal constructor(
         scope.launch { withContext(work) { runCatching { messaging.setMediaText(messageId, itemId, text) } } }
     }
 
+    /** Takes item [itemId] out of my message [messageId] for everyone. */
+    fun removeMediaItem(messageId: String, itemId: String) {
+        scope.launch { withContext(work) { runCatching { messaging.removeMediaItem(messageId, itemId) } } }
+    }
+
     fun recrop(crops: Map<Pair<String, String>, CropContent?>, done: (List<Pair<String, AttachmentContent>>) -> Unit) {
         scope.launch {
             val out = withContext(work) {

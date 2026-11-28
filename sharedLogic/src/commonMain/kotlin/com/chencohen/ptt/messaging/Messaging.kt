@@ -897,6 +897,9 @@ internal class Messaging(
     /** The words above item [itemId] of my message [messageId], set after sending (a quiet edit). */
     suspend fun setMediaText(messageId: String, itemId: String, text: String): Boolean = media.setText(messageId, itemId, text)
 
+    /** Takes item [itemId] out of my message [messageId] for everyone (a message's last item: delete the message instead). */
+    suspend fun removeMediaItem(messageId: String, itemId: String): Boolean = media.removeItem(messageId, itemId)
+
     /** Sends a draft [draftMedia] made, with [caption]. */
     suspend fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), texts: Map<String, String> = emptyMap()): List<TextMessage> =
         media.keep(drafts, caption, removed, texts = texts).map { deliver(it) }
@@ -2757,6 +2760,11 @@ internal class Messaging(
         if (message == null) return
         when (edit.stage) {
             EditContent.FINAL -> {
+                // One item taken out of the message by its sender (2026-11-28, hen).
+                if (edit.removedItem.isNotEmpty()) {
+                    media.takeRemoval(message, edit.removedItem)
+                    return
+                }
                 // A picture's new composition, or the words above a picture or video (2026-11-28, hen).
                 if (edit.item != null) {
                     media.takeRecrop(message, edit.item)

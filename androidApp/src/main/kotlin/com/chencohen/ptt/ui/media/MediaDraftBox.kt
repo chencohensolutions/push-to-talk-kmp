@@ -153,7 +153,7 @@ internal fun MediaDraftBox(
                     val aboveFocus = remember(item.id) { FocusRequester() }
                     LaunchedEffect(writingAbove == item.id) { if (writingAbove == item.id) runCatching { aboveFocus.requestFocus() } }
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral).padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = if (change != null) 0.dp else 4.dp)) {
+                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral).padding(start = 14.dp, end = 14.dp, top = if (index == 0) 0.dp else 10.dp, bottom = if (change != null) 0.dp else 4.dp)) {
                             if (above.isEmpty()) Text(stringResource(R.string.media_text_above_hint), color = LibraryColors.Muted, style = LibraryType.Message)
                             BasicTextField(
                                 above, { v -> texts = texts + (item.id to v) }, Modifier.fillMaxWidth().focusRequester(aboveFocus),

@@ -465,6 +465,11 @@ internal data class EditContent(
      * after message sent"): the same item (its id and key), its new [AttachmentContent.crop] and the previews made for it.
      */
     @ProtoNumber(9) val item: AttachmentContent? = null,
+    /**
+     * FINAL: a picture, video or file taken out of the message after it was sent (2026-11-28, hen: "i want to be able
+     * to delete image from message"), by item id: gone from their phone, and the server no longer gives it to them.
+     */
+    @ProtoNumber(10) val removedItem: String = "",
 ) {
     companion object {
         const val FINAL = 0

@@ -216,6 +216,8 @@ internal fun MediaMessage(
     /** Mine, selected by a long press: Aa on each picture and video, to write the words above it (2026-11-28, hen). */
     texting: Boolean = false,
     setText: (itemId: String, text: String) -> Unit = { _, _ -> },
+    /** Mine, selected: takes one picture, video or file out of the message for everyone. */
+    removeItem: (itemId: String) -> Unit = {},
 ) {
     val media = message.media ?: return
     // The item whose words above it are being written now (after Aa), and what is written so far.
@@ -271,7 +273,7 @@ internal fun MediaMessage(
                 Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
                     // Close to its picture (2026-11-28, hen: "the text should be closer to the related image ... above the
                     // time without spacing"): room above it, none under it when the time follows.
-                    Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = if (change != null) 0.dp else 4.dp))
+                    Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = if (index == 0) 0.dp else 10.dp, bottom = if (change != null) 0.dp else 4.dp))
                 }
             }
             // Its own place and time, right above it, under the words above it (2026-11-28, hen: "the date belongs to
@@ -284,6 +286,7 @@ internal fun MediaMessage(
                     message, item, preview, select = select,
                     // Aa writes above it; the selection ends so the keyboard and taps belong to the words.
                     words = if (texting && mine && !media.quiet) ({ writing = item.id; select?.invoke(); Unit }) else null,
+                    remove = if (texting && mine && !media.quiet && media.items.size > 1) ({ removeItem(item.id); select?.invoke(); Unit }) else null,
                 ) {
                     when {
                         selecting && select != null -> select()
@@ -493,7 +496,7 @@ private suspend fun placeName(context: android.content.Context, lat: Double, lon
 
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-internal fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, select: (() -> Unit)?, words: (() -> Unit)? = null, onClick: () -> Unit) {
+internal fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, select: (() -> Unit)?, words: (() -> Unit)? = null, remove: (() -> Unit)? = null, onClick: () -> Unit) {
     val key = "${message.id}/${item.id}"
     val drawnAs = drawnKey(message.id, item)
     // A new key (a new composition's preview) keeps the state, not its first value: the old picture shows until the
@@ -588,6 +591,15 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
                     .clickable(onClickLabel = label, onClick = write).semantics { contentDescription = label },
                 contentAlignment = Alignment.Center,
             ) { Text("Aa", color = Color.White, style = LibraryType.Tiny) }
+        }
+        // Take it out of the message, for everyone (my message of several, selected; 2026-11-28, hen).
+        remove?.let { out ->
+            val label = stringResource(R.string.media_remove_item)
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(8.dp).size(36.dp).clip(CircleShape).background(Color(0x99000000))
+                    .clickable(onClickLabel = label, onClick = out).semantics { contentDescription = label },
+                contentAlignment = Alignment.Center,
+            ) { Icon(LibraryIcons.Trash, null, tint = Color.White, modifier = Modifier.size(18.dp)) }
         }
         // A video's length (when it was taken is on the top half bubble, the time it was sent on the bottom one).
         item.durationMs.takeIf { it > 0 }?.let { Box(Modifier.align(Alignment.BottomStart).padding(8.dp)) { Chip(com.chencohen.ptt.ui.talk.clipLength(it)) } }

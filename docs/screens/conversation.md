@@ -614,7 +614,11 @@ the app closes); once it ended, the first frame and ▶ show again (2026-11-28, 
 loop, unmute button"; `ClipInChat`). A file is a row with its name and size in the same frame. A long press
 selects it, as any message; a tap opens the viewer (docs/screens/viewer.md). Until the preview is there
 (downloading, or fetched again after the cache was cleared), the picture's shape is held in the Raised colour, so
-nothing moves when it comes.
+nothing moves when it comes. In a message of several, the same long press puts a bin in each one's top end corner (2026-11-28, hen:
+"i want to be able to delete image from message"): it takes that one out for everyone (`EditContent.removedItem`, field
+10, a quiet edit); its previews, clip and original leave this chat on the server and both phones, so the key their
+phone had opens nothing any more ("can the peer download it again because he have the key"). A message's last one goes
+by deleting the message.
 
 **Writing a caption first** (`ui/media/MediaDraftBox.kt`; hen: "the image should be 100% width and the textbox
 should be its max width of a bubble", mock `mockups/share-media/caption-in-box-v2.png`). What is picked (the +
