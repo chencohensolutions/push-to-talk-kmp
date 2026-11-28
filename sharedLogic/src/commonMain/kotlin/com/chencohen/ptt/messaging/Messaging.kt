@@ -2787,16 +2787,37 @@ internal class Messaging(
         }
     }
 
+    /**
+     * Unread counts. A chat is walked from its newest message back until [UNREAD_LOOKBACK] read or sent ones in a row,
+     * so a very long history isn't walked through on every change.
+     */
+    private fun unreadIn(conversations: Map<String, List<TextMessage>>): Map<String, Int> =
+        conversations.mapValues { (_, list) ->
+            var n = 0
+            var quiet = 0
+            for (i in list.indices.reversed()) {
+                val m = list[i]
+                if (m.outgoing || m.read) {
+                    if (++quiet > UNREAD_LOOKBACK) break
+                } else {
+                    quiet = 0
+                    n++
+                }
+            }
+            n
+        }.filterValues { it > 0 }
+
     /** Publishes what the store holds now. */
     fun publish() {
-        val messages = store.messages()
+        // Each chat's list as the store keeps it (only a changed chat's is made again): no sort of the whole history.
+        val conversations = store.conversations()
         _state.update { state ->
             state.copy(
                 contacts = store.contacts().sortedBy { it.user.lowercase() },
                 requests = store.requests().sortedBy { it.receivedAt },
-                lastMessages = messages.groupBy { it.user }.mapValues { (_, list) -> list.last() },
-                conversations = messages.groupBy { it.user },
-                unread = messages.filter { !it.outgoing && !it.read }.groupingBy { it.user }.eachCount(),
+                lastMessages = conversations.mapValues { (_, list) -> list.last() },
+                conversations = conversations,
+                unread = unreadIn(conversations),
                 groups = store.groups().sortedBy { it.createdAt },
                 pictures = store.pictureIds(),
             )
@@ -2804,6 +2825,9 @@ internal class Messaging(
     }
 
     companion object {
+        /** Read or sent messages in a row after which older ones aren't looked at for the unread count. */
+        const val UNREAD_LOOKBACK = 500
+
         /** How long the camera stays open after the last screen let go of it, for the next to take it over. */
         const val COOL_AFTER_MS = 1_500L
 

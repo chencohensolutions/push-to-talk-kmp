@@ -349,8 +349,15 @@ private fun ConversationScreenIn(
         }
     }
     val allMessages = messages
+    // A very long history (2026-11-28, hen): only the newest [CHAT_WINDOW] are laid out, and as many again each time
+    // the scroll comes near the oldest shown, so the chat's work doesn't grow with how long it is.
+    var window by remember(user) { androidx.compose.runtime.mutableIntStateOf(CHAT_WINDOW) }
+    val total = androidx.compose.runtime.rememberUpdatedState(allMessages.size)
     @Suppress("NAME_SHADOWING")
-    val messages = remember(messages, pendingDelete) { pendingDelete?.let { d -> messages.filter { it.id !in d.ids } } ?: messages }
+    val messages = remember(messages, pendingDelete, window) {
+        val shown = if (messages.size > window) messages.subList(messages.size - window, messages.size) else messages
+        pendingDelete?.let { d -> shown.filter { it.id !in d.ids } } ?: shown
+    }
     Box(
         Modifier.fillMaxSize().onGloballyPositioned { flight.origin = it.positionInWindow() }.pointerInput(Unit) {
             // Every touch counts (the camera's idle time).
@@ -624,6 +631,13 @@ private fun ConversationScreenIn(
         val list = androidx.compose.foundation.lazy.rememberLazyListState(
             cacheWindow = androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow(aheadFraction = 1f, behindFraction = 0.5f),
         )
+        // Near the oldest shown (the list is upside down: its end), older messages join the window.
+        LaunchedEffect(list, user) {
+            androidx.compose.runtime.snapshotFlow {
+                val info = list.layoutInfo
+                (info.visibleItemsInfo.lastOrNull()?.index ?: 0) >= info.totalItemsCount - CHAT_WINDOW_EDGE
+            }.collect { near -> if (near && total.value > window) window += CHAT_WINDOW }
+        }
         // The pictures about to scroll in are loaded first, in the background (2026-11-28, hen).
         com.chencohen.ptt.ui.media.PrefetchPictures(list, messages, actions.mediaPreview)
         val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -2312,6 +2326,11 @@ private fun ChatSheetView(sheet: ChatSheet?, messages: List<TextMessage>, group:
  * double tap, a tap or focus on the writing bubble, Back or a tap outside end the one in progress unchanged (it turns
  * back, and its cancel goes to them).
  */
+/** How many of a chat's newest messages are laid out at first, and how many more join each time (a long history). */
+private const val CHAT_WINDOW = 200
+/** How close (in rows) to the oldest shown the scroll comes before more join. */
+private const val CHAT_WINDOW_EDGE = 40
+
 /** A picture message's caption being edited, with what its field does. */
 internal class MediaEdit(
     val edit: Editing,
