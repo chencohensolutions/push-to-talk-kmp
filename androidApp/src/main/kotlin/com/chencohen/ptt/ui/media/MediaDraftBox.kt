@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import com.chencohen.ptt.R
 import com.chencohen.ptt.messaging.MediaKind
