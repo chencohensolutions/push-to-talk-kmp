@@ -119,7 +119,7 @@ internal fun MediaMessage(
     Column(modifier.fillMaxWidth(), horizontalAlignment = side) {
         // The top half bubble: who, in a group; else when they were taken.
         val taken = takenLine(media.items)
-        Column(Modifier.padding(horizontal = 12.dp).fillMaxWidth(HALF).half(top = true).padding(horizontal = 14.dp, vertical = if (author != null || taken != null) 6.dp else 5.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).half(top = true).padding(horizontal = 14.dp, vertical = if (author != null || taken != null) 6.dp else 5.dp)) {
             if (author != null) Text(author, color = if (com.chencohen.ptt.ui.contacts.LocalMemberHues.current.isEmpty()) LibraryColors.Accent else LibraryColors.OnTheirs, style = LibraryType.Small)
             if (taken != null) Text(taken, color = muted, style = LibraryType.Tiny, maxLines = 1)
         }
@@ -138,7 +138,7 @@ internal fun MediaMessage(
         }
         // The bottom half bubble: the caption and the time.
         Column(
-            Modifier.padding(horizontal = 12.dp).fillMaxWidth(HALF).half(top = false)
+            Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).half(top = false)
                 .then(if (failed) Modifier.clickable { retry(message.id) } else Modifier)
                 .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 7.dp),
         ) {
@@ -150,9 +150,6 @@ internal fun MediaMessage(
         }
     }
 }
-
-/** The half bubbles' width: a text bubble's, about two thirds of the chat. */
-private const val HALF = 0.64f
 
 private fun halfShape(top: Boolean) = if (top) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp) else RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
 

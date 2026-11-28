@@ -741,7 +741,9 @@ https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-
 - **Drafts and half bubbles** (2026-11-28, hen). `Messaging.draftMedia` prepares what was picked without keeping it
   (`MediaSharing.prepare(keep = false)`; its previews show from `MediaSharing.drafts`), the writing bubble shows it
   (`MediaDraftBox`), and `sendDraft` keeps it with the caption, less the items taken out, and delivers it;
-  `MediaSharing.drop` deletes a dropped draft's previews. `MediaSharing.uploads` says how far each message's previews
+  the previews start uploading on `prepare` (`draftUploads`; `upload` on Send waits for that job and skips what
+  went up), and `MediaSharing.drop` (or an item taken out) deletes the previews here and, with `BlobApi.delete`, on
+  the server. `MediaSharing.uploads` says how far each message's previews
   uploaded, which my half bubbles' dashes show. Pictures in the chat sit between half bubbles
   (docs/screens/conversation.md).
 

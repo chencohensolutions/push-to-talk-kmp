@@ -179,14 +179,17 @@ class MediaSharingTest {
     }
 
     @Test
-    fun aDraftIsWrittenOnBeforeItGoes() = runTest {
+    fun aDraftUploadsWhileWrittenAndGoesOnSend() = runTest {
         val (server, hen, dana) = paired()
         val draft = hen.work.async { hen.messaging.draftMedia("dana", listOf("a", "b")) }
         advanceUntilIdle()
         val drafts = draft.await()
         assertEquals(1, drafts.size)
         assertNull(hen.store.message(drafts[0].id), "a draft isn't a message yet")
-        assertTrue(server.files.isEmpty(), "nothing uploaded")
+        val previews = drafts[0].media!!.items.flatMap { it.previews }.map { it.blob }
+        assertTrue(previews.all { it in server.files }, "its previews go up while the caption is written")
+        val unread = dana.store.message(drafts[0].id)
+        assertNull(unread, "but nothing reaches Dana before Send")
         val sent = hen.work.async { hen.messaging.sendDraft(drafts, " the sea ") }
         advanceUntilIdle()
         val message = sent.await().single()
@@ -200,8 +203,11 @@ class MediaSharingTest {
         val dropped = other.await()
         val blob = dropped[0].media!!.items[0].previews[0].blob
         assertNotNull(hen.files.read(blob))
+        assertTrue(blob in server.files)
         hen.messaging.media.drop(dropped)
+        advanceUntilIdle()
         assertNull(hen.files.read(blob))
+        assertTrue(blob !in server.files, "a dropped draft's previews are deleted from the server")
         hen.stop()
         dana.stop()
     }

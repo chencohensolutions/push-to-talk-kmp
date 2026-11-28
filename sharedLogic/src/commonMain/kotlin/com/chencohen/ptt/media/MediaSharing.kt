@@ -168,6 +168,9 @@ internal class MediaSharing(
             if (keep) store.putMessage(message) else drafts[id] = message
             out += message
         }
+        // A draft's previews go up while the caption is written (2026-11-28, hen: "start sending the images to server
+        // before writing"); the message that names them goes only on Send, and a dropped draft's are deleted.
+        if (!keep) scope?.let { scope -> for (m in out) draftUploads[m.id] = scope.launch { runCatching { putPreviews(m) } } }
         if (keep) publish()
         return out
     }
@@ -178,7 +181,11 @@ internal class MediaSharing(
      */
     fun keep(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet()): List<TextMessage> {
         val at = now()
-        drop(drafts.map { m -> m.copy(media = m.media?.copy(items = m.media.items.filter { it.id in removed })) })
+        // Only what was taken out is dropped: the upload of the rest goes on, and Send waits for it.
+        for (m in drafts) {
+            val gone = m.media?.items.orEmpty().filter { it.id in removed }
+            for (item in gone) for (p in item.previews) forget(p.blob)
+        }
         val out = drafts.mapNotNull { m ->
             this.drafts.remove(m.id)
             val items = m.media!!.items.filter { it.id !in removed }
@@ -194,10 +201,33 @@ internal class MediaSharing(
     /** A draft dropped: its previews are deleted. */
     fun drop(drafts: List<TextMessage>) {
         for (m in drafts) {
-            if (m.media?.items?.size == this.drafts[m.id]?.media?.items?.size) this.drafts.remove(m.id)
-            for (item in m.media?.items.orEmpty()) for (p in item.previews) files.delete(p.blob)
+            this.drafts.remove(m.id)
+            val job = draftUploads.remove(m.id)
+            val parts = m.media?.items.orEmpty().flatMap { it.previews }.map { it.blob }
+            job?.cancel()
+            for (blob in parts) files.delete(blob)
+            // What already went up is deleted from the server, once the upload has stopped.
+            scope?.launch {
+                job?.join()
+                for (blob in parts) if (uploaded.remove(blob)) runCatching { blobs.delete(blob) }
+            }
         }
     }
+
+    /** A preview taken out of a draft: gone from this phone, and from the server if it went up. */
+    private fun forget(blob: String) {
+        files.delete(blob)
+        scope?.launch {
+            for (job in draftUploads.values.toList()) job.join()
+            if (uploaded.remove(blob)) runCatching { blobs.delete(blob) }
+        }
+    }
+
+    /** The drafts' preview uploads, started on [prepare], by message id. */
+    private val draftUploads = mutableMapOf<String, Job>()
+
+    /** The previews this phone has put on the server (an upload after a draft's skips them). */
+    private val uploaded = mutableSetOf<String>()
 
     /** Drafts not sent yet, by message id (their previews show while the caption is written). */
     private val drafts = mutableMapOf<String, TextMessage>()
@@ -232,6 +262,11 @@ internal class MediaSharing(
      * [MissingPreviewException] when a preview to upload is gone from this phone.
      */
     suspend fun upload(message: TextMessage) {
+        draftUploads.remove(message.id)?.join()
+        putPreviews(message)
+    }
+
+    private suspend fun putPreviews(message: TextMessage) {
         val media = message.media ?: return
         val group = Group.idOf(message.user)
         val total = media.items.sumOf { item -> item.previews.sumOf { MediaCrypto.sealedSize(it.size) } }.coerceAtLeast(1)
@@ -240,8 +275,14 @@ internal class MediaSharing(
         try {
             for (item in media.items) {
                 for (part in item.previews) {
+                    if (part.blob in uploaded) {
+                        done += MediaCrypto.sealedSize(part.size)
+                        _uploads.update { it + (message.id to (done.toFloat() / total).coerceAtMost(1f)) }
+                        continue
+                    }
                     val sealed = files.read(part.blob) ?: throw MissingPreviewException()
                     blobs.put(part.blob, if (group == null) message.user else null, group, sealed)
+                    uploaded += part.blob
                     done += sealed.size
                     _uploads.update { it + (message.id to (done.toFloat() / total).coerceAtMost(1f)) }
                 }

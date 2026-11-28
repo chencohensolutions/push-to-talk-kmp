@@ -34,12 +34,18 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.chencohen.ptt.ui.contacts.bubbleMaxWidth
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import com.chencohen.ptt.R
 import com.chencohen.ptt.messaging.MediaKind
 import com.chencohen.ptt.messaging.TextMessage
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryIcons
-import com.chencohen.ptt.ui.style.LibraryShapes
 import com.chencohen.ptt.ui.style.LibraryType
 
 /** Pictures picked for a chat, not sent yet: shown in the writing bubble, the caption written under them. */
@@ -52,10 +58,12 @@ class MediaDraft(
 )
 
 /**
- * The writing bubble with pictures in it (2026-11-28, hen: "feel inside the textbox, the image just above it"): one
- * outline in the writing colour round the pictures, each as wide as the box in its own shape with ✕ to take it out,
- * and under them the caption and Send. More than fit (about half the screen) scroll inside the box. Send sends them
- * as one message; ✕ on the last one drops the draft.
+ * The writing bubble with pictures in it (2026-11-28, hen: "the image should be 100% width and the textbox should be
+ * its max width of a bubble"): the pictures edge to edge across the screen, each in its own shape with ✕ to take it
+ * out, between two half bubbles outlined in the writing colour on my side, a bubble's widest. The bottom one is the
+ * text box: the caption, Send, and the trash that drops them all. So the draft already looks like the message it
+ * becomes (MediaMessage), and Send moves nothing sideways. More pictures than fit (about half the screen) scroll.
+ * ✕ on the last one drops the draft.
  */
 @Composable
 internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: String, itemId: String) -> ByteArray?, modifier: Modifier = Modifier) {
@@ -70,14 +78,11 @@ internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: Strin
         return
     }
     val maxPictures = (LocalConfiguration.current.screenHeightDp * 0.45f).dp
-    Column(
-        modifier.padding(horizontal = 12.dp, vertical = 6.dp).fillMaxWidth()
-            .clip(LibraryShapes.Card)
-            .background(LibraryColors.Background)
-            .border(1.5.dp, coral, LibraryShapes.Card),
-    ) {
+    val width = bubbleMaxWidth()
+    Column(modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.End) {
+        Box(Modifier.padding(horizontal = 12.dp).width(width).height(10.dp).writingHalf(coral, top = true))
         Column(
-            Modifier.heightIn(max = maxPictures).verticalScroll(rememberScrollState()).padding(top = 10.dp),
+            Modifier.fillMaxWidth().heightIn(max = maxPictures).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items.forEach { (message, item) ->
@@ -96,8 +101,14 @@ internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: Strin
                 }
             }
         }
-        Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
-            Box(Modifier.weight(1f).padding(vertical = 8.dp)) {
+        Row(
+            Modifier.padding(horizontal = 12.dp).width(width).writingHalf(coral, top = false).padding(start = 4.dp, end = 6.dp, top = 4.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Box(Modifier.size(40.dp).clip(CircleShape).clickable(onClick = draft.drop), contentAlignment = Alignment.Center) {
+                Icon(LibraryIcons.Trash, stringResource(R.string.media_draft_drop), tint = LibraryColors.Muted, modifier = Modifier.size(20.dp))
+            }
+            Box(Modifier.weight(1f).padding(vertical = 10.dp)) {
                 if (caption.isEmpty()) Text(stringResource(R.string.media_caption_hint), color = LibraryColors.Muted, style = LibraryType.Message)
                 BasicTextField(
                     caption, { caption = it }, Modifier.fillMaxWidth().focusRequester(focus),
@@ -105,9 +116,6 @@ internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: Strin
                     cursorBrush = SolidColor(LibraryColors.OnBackground),
                     maxLines = 6,
                 )
-            }
-            Box(Modifier.size(40.dp).clip(CircleShape).clickable(onClick = draft.drop), contentAlignment = Alignment.Center) {
-                Icon(LibraryIcons.Trash, stringResource(R.string.media_draft_drop), tint = LibraryColors.Muted, modifier = Modifier.size(20.dp))
             }
             Box(
                 Modifier.size(40.dp).clip(CircleShape).background(coral).clickable { draft.send(caption, removed) },
@@ -117,4 +125,24 @@ internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: Strin
             }
         }
     }
+}
+
+/** A half bubble's outline in [color], open on the side the pictures touch (the writing look of myHalfBubble). */
+private fun Modifier.writingHalf(color: Color, top: Boolean, radius: Dp = 16.dp): Modifier = drawWithCache {
+    val w = 1.5.dp.toPx()
+    val r = radius.toPx()
+    val h = size.height
+    val x0 = w / 2f
+    val x1 = size.width - w / 2f
+    val y = if (top) w / 2f else h - w / 2f
+    val corner = if (top) r else h - r
+    val line = Path().apply {
+        moveTo(x0, if (top) h else 0f)
+        lineTo(x0, corner)
+        quadraticBezierTo(x0, y, r, y)
+        lineTo(x1 - r, y)
+        quadraticBezierTo(x1, y, x1, corner)
+        lineTo(x1, if (top) h else 0f)
+    }
+    onDrawBehind { drawPath(line, color, style = Stroke(w)) }
 }
