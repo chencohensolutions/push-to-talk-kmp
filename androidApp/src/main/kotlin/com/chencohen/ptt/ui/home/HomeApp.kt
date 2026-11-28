@@ -26,6 +26,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.core.content.edit
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -281,7 +282,7 @@ fun HomeApp(
         val missing = wanted.filter { context.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
         val prefs = context.getSharedPreferences("media", android.content.Context.MODE_PRIVATE)
         if (missing.isEmpty() || prefs.getBoolean("asked", false)) return sendShared(chat, uris)
-        prefs.edit().putBoolean("asked", true).apply()
+        prefs.edit { putBoolean("asked", true) }
         askedFor = chat to uris
         askMedia.launch(missing.toTypedArray())
     }

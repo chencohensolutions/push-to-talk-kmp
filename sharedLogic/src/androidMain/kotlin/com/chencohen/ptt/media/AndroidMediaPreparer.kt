@@ -92,7 +92,7 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         val full = runCatching {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
                 decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                val turned = exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) in TURNED
+                val turned = (exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) ?: 0) in TURNED
                 val upright = if (turned) info.size.height else info.size.width
                 val most = widths(upright).maxOrNull() ?: upright
                 sample = maxOf(1, upright / most)
@@ -104,7 +104,7 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         val previews = previews(full, widths(width))
         full.recycle()
         val taken = exif?.let(::takenAt)
-        val place = exif?.latLong
+        val place = exif?.let { e -> FloatArray(2).takeIf { @Suppress("DEPRECATION") e.getLatLong(it) }?.let { doubleArrayOf(it[0].toDouble(), it[1].toDouble()) } }
         return PreparedItem(
             kind = MediaKind.IMAGE, mime = mime, name = name, size = size, width = width, height = height,
             takenAt = taken?.first ?: 0, takenOffsetMin = taken?.second ?: 0,

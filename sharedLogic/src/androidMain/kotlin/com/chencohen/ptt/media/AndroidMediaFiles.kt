@@ -11,10 +11,10 @@ class AndroidMediaFiles(context: Context) : MediaFiles {
     private val sentDir = File(context.noBackupFilesDir, "media-sent").apply { mkdirs() }
     private val gotDir = File(context.cacheDir, "media").apply { mkdirs() }
 
-    private fun name(id: String): String? = id.takeIf { MediaSharing.validBlob(it) }?.let { "$it.part" }
+    private fun fileOf(id: String): String? = id.takeIf { MediaSharing.validBlob(it) }?.let { "$it.part" }
 
     override fun write(name: String, bytes: ByteArray, sent: Boolean) {
-        val file = name(name) ?: return
+        val file = fileOf(name) ?: return
         val dir = if (sent) sentDir else gotDir
         dir.mkdirs()
         val partial = File(dir, "$name.tmp")
@@ -23,12 +23,12 @@ class AndroidMediaFiles(context: Context) : MediaFiles {
     }
 
     override fun read(name: String): ByteArray? {
-        val file = name(name) ?: return null
+        val file = fileOf(name) ?: return null
         return listOf(sentDir, gotDir).map { File(it, file) }.firstOrNull { it.isFile }?.let { runCatching { it.readBytes() }.getOrNull() }
     }
 
     override fun delete(name: String) {
-        val file = name(name) ?: return
+        val file = fileOf(name) ?: return
         File(sentDir, file).delete()
         File(gotDir, file).delete()
     }
