@@ -499,8 +499,18 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
         var playing by remember(key) { mutableStateOf(false) }
         if (item.kind == MediaKind.VIDEO && item.clip != null) ClipInChat(message.id, item, onPlaying = { playing = it })
         if (item.kind == MediaKind.VIDEO && !playing) {
+            // While its clip is made here (mine, in a draft or waiting to go), a ring round ▶ fills as it goes.
+            val encodings = LocalEncoding.current
+            val making by androidx.compose.runtime.remember(encodings, item.id) { androidx.compose.runtime.derivedStateOf { encodings.value[item.id] } }
             Box(Modifier.align(Alignment.Center).size(56.dp).background(Color(0x99000000), CircleShape), contentAlignment = Alignment.Center) {
                 Icon(LibraryIcons.Play, null, tint = Color.White, modifier = Modifier.size(28.dp))
+                making?.let { done ->
+                    val shown by androidx.compose.animation.core.animateFloatAsState(done, label = "clip")
+                    androidx.compose.material3.CircularProgressIndicator(
+                        progress = { shown }, modifier = Modifier.size(56.dp), color = LibraryColors.Writing, strokeWidth = 3.dp,
+                        trackColor = Color.White.copy(alpha = 0.25f),
+                    )
+                }
             }
         }
         // Going up to the server (mine) or coming down from it (theirs): a small cloud (the server) in the end corner
@@ -554,6 +564,9 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
         item.durationMs.takeIf { it > 0 }?.let { Box(Modifier.align(Alignment.BottomStart).padding(8.dp)) { Chip(com.chencohen.ptt.ui.talk.clipLength(it)) } }
     }
 }
+
+/** Each video of mine whose clip is being made now (0 to 1), by item id: MediaSharing.encoding. */
+internal val LocalEncoding = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.State<Map<String, Float>>> { com.chencohen.ptt.ui.contacts.NoProgress }
 
 /** A video's clip, opened (MediaSharing.clip); null: none, or can't be had now. */
 internal val LocalClips = androidx.compose.runtime.staticCompositionLocalOf<suspend (messageId: String, itemId: String) -> ByteArray?> { { _, _ -> null } }

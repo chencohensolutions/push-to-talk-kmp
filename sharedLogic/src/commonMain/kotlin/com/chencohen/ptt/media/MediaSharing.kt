@@ -55,8 +55,6 @@ class PreparedItem(
     val thumb: ByteArray = ByteArray(0),
     /** A picture's previews, one per width asked for (JPEG XL). */
     val previews: List<PreparedPreview> = emptyList(),
-    /** A video's preview: the whole video in 1080p HEVC (an MP4); null when it couldn't be made, or is too long. */
-    val clip: PreparedPreview? = null,
     /** Where it is on this phone (a content URI), to read the original when someone asks for it. */
     val source: String = "",
 )
@@ -82,6 +80,12 @@ interface MediaPreparer {
      * width [widths] gives for that part's width; null when it can't be read.
      */
     suspend fun crop(source: String, crop: CropContent, widths: (croppedWidth: Int) -> List<Int>): PreparedCrop? = null
+
+    /**
+     * The clip of the video at [source] ([width] x [height] upright, [durationMs] long): the whole video in 1080p HEVC,
+     * an MP4, telling [progress] (0 to 1) as it is made; null when it is too long for one or can't be made.
+     */
+    suspend fun clip(source: String, width: Int, height: Int, durationMs: Long, progress: (Float) -> Unit): PreparedPreview? = null
 }
 
 /** A shared file read again from where it is on this phone, with its SHA-256 worked out as it is read. */
@@ -313,7 +317,17 @@ internal class MediaSharing(
         }
         // A draft's previews go up while the caption is written (2026-11-28, hen: "start sending the images to server
         // before writing"); the message that names them goes only on Send, and a dropped draft's are deleted.
-        if (!keep) scope?.let { scope -> for (m in out) draftUploads[m.id] = scope.launch { runCatching { putPreviews(m) } } }
+        // Videos' clips are made meanwhile too (2026-11-28, hen: "the encoding should happen while writing a message with
+        // progress indication"): the draft shows at once, and Send (or the outbox) waits for them.
+        scope?.let { scope ->
+            for (m in out) draftUploads[m.id] = scope.launch {
+                if (keep) return@launch makeClips(m.id)
+                val previews = launch { runCatching { putPreviews(m) } }
+                makeClips(m.id)
+                previews.join()
+                (drafts[m.id] ?: store.message(m.id))?.let { runCatching { putPreviews(it) } }
+            }
+        }
         if (keep) publish()
         return out
     }
@@ -329,7 +343,7 @@ internal class MediaSharing(
         val drafts = drafts.map { this.drafts[it.id] ?: it }
         for (m in drafts) {
             val gone = m.media?.items.orEmpty().filter { it.id in removed }
-            for (item in gone) for (p in item.previews) forget(p.blob, m)
+            for (item in gone) for (p in item.uploaded) forget(p.blob, m)
         }
         val out = drafts.mapNotNull { m ->
             this.drafts.remove(m.id)
@@ -350,7 +364,7 @@ internal class MediaSharing(
             val m = this.drafts[d.id] ?: d
             this.drafts.remove(m.id)
             val job = draftUploads.remove(m.id)
-            val parts = m.media?.items.orEmpty().flatMap { it.previews }.map { it.blob }
+            val parts = m.media?.items.orEmpty().flatMap { it.uploaded }.map { it.blob }
             job?.cancel()
             // A preview another message names too stays (the same picture in another chat).
             for (blob in parts) if (!named(blob, m.id)) files.delete(blob)
@@ -501,9 +515,10 @@ internal class MediaSharing(
         if (draft != null) {
             // A draft: the new previews go up with the rest, the old ones are deleted here and on the server.
             drafts[messageId] = updated
-            draftUploads.remove(messageId)?.cancel()
+            // A clip still being made goes on (it is put on the draft as it is then); the upload starts again after it.
+            val before = draftUploads.remove(messageId)
             for (blob in old) forget(blob, updated)
-            scope?.let { scope -> draftUploads[messageId] = scope.launch { runCatching { putPreviews(updated) } } }
+            scope?.let { scope -> draftUploads[messageId] = scope.launch { before?.join(); (drafts[messageId] ?: store.message(messageId))?.let { runCatching { putPreviews(it) } } } }
             return now
         }
         try {
@@ -620,8 +635,48 @@ internal class MediaSharing(
             name = item.name.take(MAX_NAME), width = item.width, height = item.height, durationMs = item.durationMs,
             takenAt = item.takenAt, takenOffsetMin = item.takenOffsetMin, latE7 = item.latE7, lonE7 = item.lonE7,
             hasPlace = item.hasPlace, previews = previews, thumb = item.thumb,
-            clip = item.clip?.let { sealPreview(key, it, MediaCrypto.Part.CLIP) },
         )
+    }
+
+    private val _encoding = MutableStateFlow<Map<String, Float>>(emptyMap())
+
+    /** Each video of mine whose clip is being made now, 0 to 1, by item id; gone once done. */
+    val encoding: StateFlow<Map<String, Float>> = _encoding.asStateFlow()
+
+    /**
+     * Makes the clips of message [messageId]'s videos (a draft's, or one kept to send) that have none, one at a time, and
+     * puts each on its item (2026-11-28, hen). A video taken out meanwhile, or a message gone already, drops its clip.
+     */
+    private suspend fun makeClips(messageId: String) {
+        val preparer = preparer ?: return
+        val message = drafts[messageId] ?: store.message(messageId) ?: return
+        for (item in message.media?.items.orEmpty()) {
+            if (item.kind != MediaKind.VIDEO || item.clip != null || item.key.size != MediaCrypto.KEY_BYTES) continue
+            val source = store.mediaSource(messageId, item.id) ?: continue
+            _encoding.update { it + (item.id to 0f) }
+            val made = try {
+                preparer.clip(source, item.width, item.height, item.durationMs) { f -> _encoding.update { it + (item.id to f.coerceIn(0f, 1f)) } }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            } finally {
+                _encoding.update { it - item.id }
+            }
+            made?.let { putClip(messageId, item.id, sealPreview(item.key, it, MediaCrypto.Part.CLIP)) }
+        }
+    }
+
+    private fun putClip(messageId: String, itemId: String, clip: PartContent) {
+        fun with(m: TextMessage) = m.copy(media = m.media?.copy(items = m.media.items.map { if (it.id == itemId) it.copy(clip = clip) else it }))
+        drafts[messageId]?.let { draft ->
+            if (draft.media?.items?.any { it.id == itemId } == true) drafts[messageId] = with(draft) else files.delete(clip.blob)
+            return
+        }
+        val kept = store.message(messageId)?.takeIf { m -> m.status == MessageStatus.PENDING && m.media?.items?.any { it.id == itemId } == true }
+            ?: return files.delete(clip.blob)
+        store.putMessage(with(kept))
+        publish()
     }
 
     /**
@@ -629,8 +684,10 @@ internal class MediaSharing(
      * upload, from where it left off. Throws [BlobException] when the server refuses one (403: no longer allowed),
      * [MissingPreviewException] when a preview to upload is gone from this phone.
      */
-    suspend fun upload(message: TextMessage) {
-        draftUploads.remove(message.id)?.join()
+    suspend fun upload(sending: TextMessage) {
+        draftUploads.remove(sending.id)?.join()
+        // As kept now: a video's clip may have been put on it meanwhile.
+        val message = store.message(sending.id) ?: sending
         putPreviews(message)
         message.media?.items?.forEach { changed(message, it.id) }
         uploadAhead(message.id)

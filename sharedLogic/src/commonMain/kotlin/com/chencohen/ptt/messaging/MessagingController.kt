@@ -185,6 +185,9 @@ class MessagingController internal constructor(
     /** Each shared item's preview going up or coming down now (0 to 1), by item id. */
     val transfers: kotlinx.coroutines.flow.StateFlow<Map<String, Float>> get() = messaging.media.transfers
 
+    /** Each video of mine whose clip is being made now, 0 to 1, by item id. */
+    val encoding: kotlinx.coroutines.flow.StateFlow<Map<String, Float>> get() = messaging.media.encoding
+
     fun shareMedia(chat: String, sources: List<String>, caption: String, done: (Int) -> Unit = {}) {
         scope.launch {
             val sent = withContext(work) {

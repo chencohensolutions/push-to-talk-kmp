@@ -399,9 +399,26 @@ private fun Player(key: String, build: (ExoPlayer.Builder) -> ExoPlayer.Builder 
             playWhenReady = true
         }
     }
-    DisposableEffect(player) { onDispose { player.release() } }
+    // The surface takes the video's own shape, fitted whole in the screen: a full-screen surface stretched it to the
+    // screen's shape (2026-11-28, hen: "when i play video full screen i think it cropped").
+    var ratio by remember(player) { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    DisposableEffect(player) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onVideoSizeChanged(size: androidx.media3.common.VideoSize) {
+                if (size.width > 0 && size.height > 0) ratio = size.width * size.pixelWidthHeightRatio / size.height
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
+    }
     Box(Modifier.fillMaxSize().clickable { player.playWhenReady = !player.playWhenReady }, contentAlignment = Alignment.Center) {
-        AndroidView(factory = { android.view.SurfaceView(it).also { view -> player.setVideoSurfaceView(view) } }, modifier = Modifier.fillMaxSize())
+        AndroidView(
+            factory = { android.view.SurfaceView(it).also { view -> player.setVideoSurfaceView(view) } },
+            modifier = if (ratio > 0f) Modifier.aspectRatio(ratio, matchHeightConstraintsFirst = ratio < 1f) else Modifier.size(1.dp),
+        )
     }
 }
 

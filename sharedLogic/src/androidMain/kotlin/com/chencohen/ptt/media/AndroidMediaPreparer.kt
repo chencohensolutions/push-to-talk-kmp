@@ -209,7 +209,7 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
                 kind = MediaKind.VIDEO, mime = mime, name = name, size = size, width = width, height = height, durationMs = duration,
                 takenAt = taken ?: 0, latE7 = place?.let { (it.first * 1e7).roundToInt() } ?: 0,
                 lonE7 = place?.let { (it.second * 1e7).roundToInt() } ?: 0, hasPlace = place != null,
-                sha256 = sha, previews = previews, source = source, clip = clip(uri, width, height, duration),
+                sha256 = sha, previews = previews, source = source,
             )
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -227,7 +227,12 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
      * fit [MAX_CLIP_BYTES] at that rate, or can't be made here.
      */
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private suspend fun clip(uri: Uri, width: Int, height: Int, durationMs: Long): PreparedPreview? {
+    override suspend fun clip(source: String, width: Int, height: Int, durationMs: Long, progress: (Float) -> Unit): PreparedPreview? = withContext(Dispatchers.IO) {
+        makeClip(Uri.parse(source), width, height, durationMs, progress)
+    }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private suspend fun makeClip(uri: Uri, width: Int, height: Int, durationMs: Long, progress: (Float) -> Unit): PreparedPreview? {
         if (durationMs <= 0 || durationMs * (CLIP_BITRATE + CLIP_AUDIO) / 8 / 1000 > MAX_CLIP_BYTES) return null
         val out = java.io.File(app.cacheDir, "clip-${System.nanoTime()}.mp4")
         val started = System.nanoTime()
@@ -260,7 +265,18 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
                     } else androidx.media3.transformer.Effects.EMPTY
                     val edited = androidx.media3.transformer.EditedMediaItem.Builder(androidx.media3.common.MediaItem.fromUri(original(uri))).setEffects(effects).build()
                     transformer.start(edited, out.absolutePath)
-                    done.invokeOnCancellation { android.os.Handler(android.os.Looper.getMainLooper()).post { transformer.cancel() } }
+                    // How far it got, read on the main thread as Transformer wants, every quarter second.
+                    val main = android.os.Handler(android.os.Looper.getMainLooper())
+                    val holder = androidx.media3.transformer.ProgressHolder()
+                    val poll = object : Runnable {
+                        override fun run() {
+                            if (!done.isActive) return
+                            if (transformer.getProgress(holder) == androidx.media3.transformer.Transformer.PROGRESS_STATE_AVAILABLE) progress(holder.progress / 100f)
+                            main.postDelayed(this, 250)
+                        }
+                    }
+                    main.post(poll)
+                    done.invokeOnCancellation { main.post { main.removeCallbacks(poll); transformer.cancel() } }
                 }
             }
             if (!made || !out.exists() || out.length() == 0L || out.length() > MAX_CLIP_BYTES) return null

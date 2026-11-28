@@ -805,7 +805,11 @@ reply as if someone had asked: it then opens for anyone straight from the server
 gone from it.
 
 **Video clips** (2026-11-28, hen: 1080p HEVC at 3 Mbit/s flat, the video's own frame rate and HDR, autoplay muted, no
-loop). `AndroidMediaPreparer.clip` makes it with Media3 Transformer (`Presentation.createForShortSide(1080)` when the
+loop). It is made after the draft shows, while the caption is written (hen: "the encoding should happen while writing
+a message with progress indication"): `MediaSharing.makeClips` runs in the draft's upload job, one video at a time,
+says how far each got (`encoding`, by item id; a ring round the video's ▶), and puts the clip on the draft, or on the
+kept message when Send came first (the outbox's `upload` waits for it, then sends the message with it).
+`AndroidMediaPreparer.clip` makes it with Media3 Transformer (`Presentation.createForShortSide(1080)` when the
 video is larger, `DefaultEncoderFactory` at 3 Mbit/s, HDR kept as Transformer does by default, the sound as it is) into
 an MP4, when the video fits 60 MB at that rate (about two and a half minutes; longer ones have only their first frame
 and open their original). It is sealed as `AttachmentContent.clip` (field 22, `MediaCrypto.Part.CLIP`, its own blob)

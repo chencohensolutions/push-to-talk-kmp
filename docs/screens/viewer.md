@@ -12,7 +12,8 @@ A shared picture, video or file full screen (2026-11-28, hen), opened by a tap o
   original is asked for quietly (`MessagingController.openOriginal`): on the phone that shared it, it is read from where
   it is; elsewhere it comes from the sharing phone through the server and is kept in the cache. A picture switches to
   the original (no bigger than 4096 on its long side); a video plays the original (streamed from the server, never kept, when it is bigger than the cache limit or Settings ›
-  Storage › Stream original videos is on); a file opens in an app that reads it.
+  Storage › Stream original videos is on), fitted whole in the screen at its own shape, black around it (hen: "when i play
+  video full screen i think it cropped"); a file opens in an app that reads it.
 - **The whole screen.** Not zoomed, the picture is as large as the screen allows (fitted, edge to edge, under the
   system bars; the bars float over it). A tap hides the top bar, the pill and the system's bars, so nothing covers
   it; another tap brings them back.

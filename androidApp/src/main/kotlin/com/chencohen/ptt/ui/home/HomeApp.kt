@@ -308,6 +308,7 @@ fun HomeApp(
     // Held, not read here: each progress step rebuilt the whole app (2026-11-28); the pictures read them as they draw.
     val uploads = messaging.uploads.collectAsStateWithLifecycle()
     val transfers = messaging.transfers.collectAsStateWithLifecycle()
+    val encoding = messaging.encoding.collectAsStateWithLifecycle()
     // The phone's pictures and videos, with their place: the sender keeps no copy, so the original is read again from
     // there when someone opens it (asked once, the first time something is shared; it goes either way).
     var askedFor by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
@@ -545,6 +546,7 @@ fun HomeApp(
                 },
                 uploads = uploads,
                 transfers = transfers,
+                encoding = encoding,
                 attach = if (writable) attachPicker else null,
                 camera = if (writable) camera else null,
             ),

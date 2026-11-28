@@ -62,7 +62,6 @@ private class FakePreparer : MediaPreparer {
         return PreparedItem(
             kind = if (source.startsWith("video")) MediaKind.VIDEO else MediaKind.IMAGE,
             mime = if (source.startsWith("video")) "video/mp4" else "image/jpeg", name = "$source.jpg", size = original.size.toLong(), width = 4000, height = 3000,
-            clip = if (source.startsWith("video")) PreparedPreview(1440, 1080, "clip $source".encodeToByteArray(), "video/mp4") else null,
             sha256 = sha256(original),
             takenAt = 1_790_000_000_000, hasPlace = true, latE7 = 320_000_000, lonE7 = 340_000_000,
             previews = w.map { PreparedPreview(it, PreviewSpec.heightAt(4000, 3000, it), "preview $source $it".encodeToByteArray()) },
@@ -74,6 +73,17 @@ private class FakePreparer : MediaPreparer {
         if ((files[source] ?: files["content://media/$source"]) == null) return null
         val height = 3000 * crop.kept / com.chencohen.ptt.messaging.CropContent.WHOLE
         return PreparedCrop(widths(4000).map { PreparedPreview(it, PreviewSpec.heightAt(4000, height, it), "crop $source ${crop.top} ${crop.bottom} $it".encodeToByteArray()) })
+    }
+
+    /** Clips made, and a gate a test can hold them at. */
+    var clips = 0
+    var clipGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+
+    override suspend fun clip(source: String, width: Int, height: Int, durationMs: Long, progress: (Float) -> Unit): PreparedPreview? {
+        progress(0.5f)
+        clipGate?.await()
+        clips++
+        return PreparedPreview(1440, 1080, "clip ${source.removePrefix("content://media/")}".encodeToByteArray(), "video/mp4")
     }
 
     override suspend fun sizeOf(source: String): Long = (files[source] ?: files["content://media/$source"])?.size?.toLong() ?: -1
@@ -192,6 +202,34 @@ class MediaSharingTest {
         assertContentEquals("preview a 1440".encodeToByteArray(), own.await())
         hen.stop()
         dana.stop()
+    }
+
+    @Test
+    fun aVideosClipIsMadeWhileTheCaptionIsWrittenAndSendWaitsForIt() = runTest {
+        val (server, hen, dana) = paired()
+        val preparer = hen.messaging.media.preparer as FakePreparer
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        preparer.clipGate = gate
+        val draft = hen.work.async { hen.messaging.draftMedia("dana", listOf("video1")) }
+        advanceUntilIdle()
+        val drafts = draft.await()
+        val item = drafts.single().media!!.items.single()
+        assertNull(item.clip, "the draft shows before its clip is made")
+        assertEquals(0.5f, hen.messaging.media.encoding.value[item.id], "and says how far the clip got")
+        assertTrue(item.previews.all { it.blob in server.files }, "its first frame went up meanwhile")
+
+        // Send before it is ready: the message waits for it, and goes with it.
+        val sent = hen.work.async { hen.messaging.sendDraft(drafts, "") }
+        advanceUntilIdle()
+        assertNull(dana.store.message(drafts.single().id), "not yet")
+        gate.complete(Unit)
+        advanceUntilIdle()
+        val message = sent.await().single()
+        assertTrue(hen.messaging.media.encoding.value.isEmpty())
+        val clip = assertNotNull(dana.store.message(message.id)?.media?.items?.single()?.clip)
+        assertTrue(clip.blob in server.files)
+        assertContentEquals("clip video1".encodeToByteArray(), dana.work.async { dana.messaging.media.clip(message.id, item.id) }.also { advanceUntilIdle() }.await())
+        assertEquals(1, preparer.clips)
     }
 
     @Test
