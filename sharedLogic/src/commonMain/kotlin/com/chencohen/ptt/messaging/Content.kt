@@ -80,7 +80,147 @@ internal data class Content(
      * sender's words: its [ColorsContent.mine] is the sender's bubbles, so it is "their messages" here. Older apps skip it.
      */
     @ProtoNumber(28) val colors: ColorsContent? = null,
+    /**
+     * Shared pictures, videos or files (2026-11-28, hen; docs/design.md, "Sharing media"): each with its own key, its
+     * previews on the server, and its original kept on the sending phone until someone asks. Sent with a [text]
+     * fallback ("Photo") that older apps show; newer apps show [media] and ignore that text.
+     */
+    @ProtoNumber(29) val media: MediaContent? = null,
+    /** Asks the phone that shared an item for a part of it (its original, or a preview at this phone's width). */
+    @ProtoNumber(30) val mediaRequest: MediaRequestContent? = null,
+    /** The sharing phone's answer to [mediaRequest], to the whole chat: where the part is now, or why it can't come. */
+    @ProtoNumber(31) val mediaReply: MediaReplyContent? = null,
 )
+
+/** One message of shared items: its [id] (the message's), when it was sent, a caption, and up to 30 items. */
+@Serializable
+data class MediaContent(
+    @ProtoNumber(1) val id: String = "",
+    @ProtoNumber(2) val sentAt: Long = 0,
+    @ProtoNumber(3) val caption: String = "",
+    @ProtoNumber(4) val items: List<AttachmentContent> = emptyList(),
+)
+
+/**
+ * One shared item. [key] (32 random bytes) encrypts its parts (MediaCrypto); [sha256] is of the untouched original,
+ * which the receiver checks, and is also the item's id on the sender's Journal server (the next phase). Sizes are the
+ * upright picture's. The place and time taken come from the original's EXIF; each phone names the place itself, in
+ * its own language, from [latE7]/[lonE7].
+ */
+@Serializable
+data class AttachmentContent(
+    @ProtoNumber(1) val id: String = "",
+    /** One of [MediaKind]. */
+    @ProtoNumber(2) val kind: Int = 0,
+    @ProtoNumber(3) val key: ByteArray = ByteArray(0),
+    @ProtoNumber(4) val sha256: ByteArray = ByteArray(0),
+    @ProtoNumber(5) val size: Long = 0,
+    @ProtoNumber(6) val mime: String = "",
+    @ProtoNumber(7) val name: String = "",
+    @ProtoNumber(8) val width: Int = 0,
+    @ProtoNumber(9) val height: Int = 0,
+    @ProtoNumber(10) val durationMs: Long = 0,
+    /** When it was taken (ms since 1970, UTC) and that place's offset from UTC in minutes; 0: not known. */
+    @ProtoNumber(11) val takenAt: Long = 0,
+    @ProtoNumber(12) val takenOffsetMin: Int = 0,
+    /** Where it was taken, in degrees times 10^7; [hasPlace] says whether they are set. */
+    @ProtoNumber(13) val latE7: Int = 0,
+    @ProtoNumber(14) val lonE7: Int = 0,
+    @ProtoNumber(15) val hasPlace: Boolean = false,
+    /** Its previews: an image's, one per receiving screen width; a video's, one 1080p HEVC. */
+    @ProtoNumber(16) val previews: List<PartContent> = emptyList(),
+    /** A video's first frame, a JPEG XL. */
+    @ProtoNumber(17) val poster: PartContent? = null,
+    /** The sender's device that holds the original: only it answers a [MediaRequestContent]. */
+    @ProtoNumber(18) val originDevice: Int = 0,
+    /** A ThumbHash, about 25 bytes, drawn while the preview downloads. */
+    @ProtoNumber(19) val thumb: ByteArray = ByteArray(0),
+) {
+    override fun equals(other: Any?): Boolean = other is AttachmentContent && id == other.id && kind == other.kind &&
+        key.contentEquals(other.key) && sha256.contentEquals(other.sha256) && size == other.size && mime == other.mime &&
+        name == other.name && width == other.width && height == other.height && durationMs == other.durationMs &&
+        takenAt == other.takenAt && takenOffsetMin == other.takenOffsetMin && latE7 == other.latE7 &&
+        lonE7 == other.lonE7 && hasPlace == other.hasPlace && previews == other.previews && poster == other.poster &&
+        originDevice == other.originDevice && thumb.contentEquals(other.thumb)
+    override fun hashCode(): Int = id.hashCode()
+}
+
+/** `AttachmentContent.kind`. */
+object MediaKind {
+    const val IMAGE = 1
+    const val VIDEO = 2
+    const val FILE = 3
+}
+
+/**
+ * One uploaded part of an item: its blob on the server, its plaintext size, its picture's size, and for a video its
+ * codec and HDR. [growing]: still being uploaded when the message went (a video's preview, read with follow).
+ */
+@Serializable
+data class PartContent(
+    @ProtoNumber(1) val blob: String = "",
+    @ProtoNumber(2) val size: Long = 0,
+    @ProtoNumber(3) val width: Int = 0,
+    @ProtoNumber(4) val height: Int = 0,
+    @ProtoNumber(5) val mime: String = "",
+    /** One of [MediaCodec]; 0 for a picture. */
+    @ProtoNumber(6) val codec: Int = 0,
+    /** One of [MediaHdr]. */
+    @ProtoNumber(7) val hdr: Int = 0,
+    @ProtoNumber(8) val growing: Boolean = false,
+)
+
+/** `PartContent.codec`. */
+object MediaCodec {
+    const val HEVC = 1
+    const val H264 = 2
+}
+
+/** `PartContent.hdr`. */
+object MediaHdr {
+    const val SDR = 0
+    const val HLG = 1
+    const val HDR10 = 2
+}
+
+/** Which part of an item ([MediaRequestContent.part], [MediaReplyContent.part]). */
+object MediaPart {
+    const val PREVIEW = 1
+    const val ORIGINAL = 2
+    const val POSTER = 3
+}
+
+/** A request for [part] of item [attachmentId] of message [messageId]; [width] for a preview, [now] from Get it now. */
+@Serializable
+internal data class MediaRequestContent(
+    @ProtoNumber(1) val messageId: String = "",
+    @ProtoNumber(2) val attachmentId: String = "",
+    @ProtoNumber(3) val part: Int = 0,
+    @ProtoNumber(4) val width: Int = 0,
+    @ProtoNumber(5) val now: Boolean = false,
+)
+
+/** The answer: [status] (one of [MediaReplyStatus]) and, when ready or uploading, the part. */
+@Serializable
+internal data class MediaReplyContent(
+    @ProtoNumber(1) val messageId: String = "",
+    @ProtoNumber(2) val attachmentId: String = "",
+    @ProtoNumber(3) val part: Int = 0,
+    @ProtoNumber(4) val status: Int = 0,
+    @ProtoNumber(5) val upload: PartContent? = null,
+)
+
+/** `MediaReplyContent.status`. */
+object MediaReplyStatus {
+    /** Uploaded, or uploading (the part's growing). */
+    const val READY = 1
+    /** Over 50 MB and the sender's phone waits for Wi-Fi (its setting); Get it now asks again with now. */
+    const val WAITING_WIFI = 2
+    /** The sender's phone no longer has the file. */
+    const val GONE = 3
+    /** The file there isn't the one that was shared any more (edited). */
+    const val CHANGED = 4
+}
 
 /** Chat colours as the sender chose them: swatch indexes, -1 "like everyone", and when (ms) they chose. */
 @Serializable
@@ -90,9 +230,16 @@ internal data class ColorsContent(
     @ProtoNumber(3) val at: Long = 0,
 )
 
-/** About the sending phone: its app's version ("1.4.28"). */
+/**
+ * About the sending phone: its app's version ("1.4.28"), and its screen in physical pixels, short side first, so a
+ * phone sharing a picture makes a preview exactly as wide as this screen (2026-11-28, hen). 0: not said (older apps).
+ */
 @Serializable
-internal data class AboutContent(@ProtoNumber(1) val version: String = "")
+internal data class AboutContent(
+    @ProtoNumber(1) val version: String = "",
+    @ProtoNumber(2) val screenWidthPx: Int = 0,
+    @ProtoNumber(3) val screenHeightPx: Int = 0,
+)
 
 /** A push's fate at one listener: [burstId] and one of HeardStatus. */
 @Serializable
@@ -421,6 +568,10 @@ internal object ContentCodec {
     const val CAPS_SAID = 0x80
     /** It decodes H.265, so push-to-video may send it H.265 (2026-11-22). */
     const val CAPS_H265 = 1
+    /** It takes shared media (2026-11-28): a sender gives it previews and originals, not only a text fallback. */
+    const val CAPS_MEDIA = 2
+    /** It plays 10-bit HEVC (HDR video previews keep their HDR for it; otherwise it gets an SDR preview). */
+    const val CAPS_HEVC10 = 4
 
     /** This phone's caps, sent with everything it sends (the platform sets them). */
     var myCaps = CAPS_SAID
@@ -447,6 +598,12 @@ internal object ContentCodec {
 
     /** Whether [user]'s phone said it decodes H.265 (unknown: no). */
     fun decodesH265(user: String): Boolean = (heard[user] ?: 0) and CAPS_H265 != 0
+
+    /** Whether [user]'s phone said it takes shared media (unknown: no). */
+    fun takesMedia(user: String): Boolean = (heard[user] ?: 0) and CAPS_MEDIA != 0
+
+    /** Whether [user]'s phone said it plays 10-bit HEVC (unknown: no). */
+    fun playsHevc10(user: String): Boolean = (heard[user] ?: 0) and CAPS_HEVC10 != 0
 
     /** [content] encoded and padded: a 0x80 byte after it, then zeros to a multiple of [BLOCK] (Signal's padding). */
     fun encode(content: Content): ByteArray {

@@ -1,5 +1,6 @@
 package com.chencohen.ptt.ui.contacts
 
+import com.chencohen.ptt.ui.media.bleed
 import androidx.compose.foundation.background
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.clipToBounds
@@ -159,6 +160,12 @@ class ConversationActions(
      * it can't show (the push then ends here). Null: not here.
      */
     val handOver: ((video: Boolean, urgent: Boolean) -> Boolean)? = null,
+    /** Shared media's preview for this screen (2026-11-28, hen): opened, or null when it can't be had now. */
+    val mediaPreview: suspend (messageId: String, itemId: String) -> ByteArray? = { _, _ -> null },
+    /** A shared picture or video tapped: the viewer (its original comes with it). */
+    val openMedia: (messageId: String, itemId: String) -> Unit = { _, _ -> },
+    /** The composer's +: pick pictures and videos ([gallery]) or files to share here; null: not here. */
+    val attach: ((gallery: Boolean) -> Unit)? = null,
 )
 
 /** A video call shown inside the chat (2026-11-24, hen): theirs under the header, mine with the call's bar at the bottom. */
@@ -371,7 +378,7 @@ private fun ConversationScreenIn(
                 SelectionBar(
                     count = selected.size,
                     close = { selected.clear() },
-                    edit = one?.takeIf { it.outgoing && it.face == 0 && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
+                    edit = one?.takeIf { it.outgoing && it.face == 0 && it.media == null && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
                         { selected.clear(); edits.start(Editing(m.id, m.body, m.body.length, 0)) }
                     },
                     info = one?.let { m -> { sheet = ChatSheet.Info(m.id) } },
@@ -1149,7 +1156,7 @@ private fun ConversationScreenIn(
                                     bubbleModifier = if (slot) Modifier.onGloballyPositioned { flight.to = androidx.compose.ui.geometry.Rect(it.positionInWindow(), androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat())) }.graphicsLayer { alpha = 0f }
                                     else Modifier.graphicsLayer { alpha = seeThrough },
                                     liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
-                                    startEdit = if (!slot && message.outgoing && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
+                                    startEdit = if (!slot && message.outgoing && message.media == null && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
                                     doubleTap = if (message.clip?.video == true && selected.isEmpty()) { { actions.playClip(message.id) } } else null,
                                     selected = message.id in selected,
                                     select = { if (message.id in selected) selected.remove(message.id) else selected.add(message.id) },
@@ -1444,6 +1451,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
+    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach,
 )
 
 
@@ -1700,6 +1708,14 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     /** Mine, in Send's slot while the draft flies into it: shown as still on its way, so what came meanwhile is seen once it lands. */
     held: Boolean = false,
 ) {
+    // Shared media (2026-11-28, hen): as wide as the screen, outside a bubble.
+    if (message.media != null && !message.deleted) {
+        Box(Modifier.fillMaxWidth().bleed(12.dp).background(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent)) {
+            com.chencohen.ptt.ui.media.MediaMessage(message, actions.mediaPreview, actions.openMedia, actions.retry, select = select, selecting = selecting)
+        }
+        if (message.reactions.isNotEmpty()) com.chencohen.ptt.ui.face.Reactions(message.reactions, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+        return
+    }
     var bubbleWidth by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     // Where the text lies in the bubble and its layout: a double tap anywhere on the bubble finds its character.
     val textPlace = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(2) }

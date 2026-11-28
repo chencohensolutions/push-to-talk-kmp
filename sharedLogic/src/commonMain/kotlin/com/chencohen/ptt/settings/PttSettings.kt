@@ -313,6 +313,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         get() = store.getString(KEY_CONTACT_VERSIONS)?.let { runCatching { json.decodeFromString<Map<String, Map<String, List<String>>>>(it) }.getOrNull() }.orEmpty()
         set(value) = store.putString(KEY_CONTACT_VERSIONS, json.encodeToString(value))
 
+    /** Each contact's screen width as their phone said (AboutContent; 2026-11-28, hen: previews as wide as it). */
+    var contactScreens: Map<String, Int>
+        get() = store.getString(KEY_CONTACT_SCREENS)?.let { runCatching { json.decodeFromString<Map<String, Int>>(it) }.getOrNull() }.orEmpty()
+        set(value) = store.putString(KEY_CONTACT_SCREENS, json.encodeToString(value))
+
     /** The app version this phone last told each contact. */
     var versionToldTo: Map<String, String>
         get() = store.getString(KEY_VERSION_TOLD)?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }.orEmpty()
@@ -363,6 +368,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_IGNORE_SYNCED = "chat_colors_ignore_synced"
         private const val KEY_CONTACT_VERSIONS = "contact_versions"
         private const val KEY_VERSION_TOLD = "version_told_to"
+        private const val KEY_CONTACT_SCREENS = "contact_screens"
         private const val KEY_LIVE_TYPING = "live_typing"
         private const val KEY_LIVE_TYPING_FOR = "live_typing_for"
         private const val KEY_MY_GENDER = "my_gender"

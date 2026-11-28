@@ -38,6 +38,8 @@ class MainActivity : ComponentActivity() {
 
     /** A conversation to open: a notification was tapped. */
     private var openedChat by mutableStateOf<String?>(null)
+    /** Pictures, videos or files shared to Talk (2026-11-28, hen), until Send to took them. */
+    private var openedShare by mutableStateOf<List<String>?>(null)
 
     /** Shown as a small floating window (picture-in-picture) during a video call. */
     private var inPip by mutableStateOf(false)
@@ -238,6 +240,8 @@ class MainActivity : ComponentActivity() {
                         onInviteTaken = { openedInvite = null },
                         openedChat = openedChat,
                         onChatTaken = { openedChat = null },
+                        openedShare = openedShare,
+                        onShareTaken = { openedShare = null },
                         openedCall = openedCall,
                         onCallTaken = { openedCall = null },
                         inPip = inPip,
@@ -448,6 +452,13 @@ class MainActivity : ComponentActivity() {
         // Answer on a ringing call's notification: the app opens on the call screen and answers.
         if (intent?.action == CallNotifications.ACTION_ANSWER) {
             viewModel.messaging.acceptCall()
+            return
+        }
+        // Shared to Talk from another app's Share menu: Send to picks the chat (2026-11-28, hen).
+        if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE) {
+            val uris = com.chencohen.ptt.ui.media.urisOf(intent)
+            uris.forEach { com.chencohen.ptt.ui.media.keep(this, it) }
+            if (uris.isNotEmpty()) openedShare = uris.map { it.toString() }
             return
         }
         if (intent?.action == AppUpdates.ACTION_UPDATE) {

@@ -222,6 +222,9 @@ internal data class Send(
     @ProtoNumber(5) val groupDevices: List<UserDevices> = emptyList(),
     /** Only to the devices connected now: never queued, never pushed (live typing's drafts). Older servers ignore it. */
     @ProtoNumber(6) val ephemeral: Boolean = false,
+    /** Wake only this user's devices with [pushKind]; the other recipients get no push (2026-11-28: a request for a
+     *  shared original wakes only the member who shared it). Empty: every recipient. */
+    @ProtoNumber(7) val pushUser: String = "",
 )
 
 /** ptt.proto's PushKind: which FCM push a recipient without an open /ws gets. */
@@ -233,6 +236,9 @@ internal object PushKind {
     const val CALL = 5
     /** Someone opened a chat with this user: join its talk room quietly (2026-11-24, hen; the server's PUSH_WARM). */
     const val WARM = 6
+    /** Someone asks this phone for the original of a picture, video or file it shared (2026-11-28, hen; the server's
+     *  PUSH_MEDIA): high priority always, kept a day. */
+    const val MEDIA = 7
 }
 
 @Serializable

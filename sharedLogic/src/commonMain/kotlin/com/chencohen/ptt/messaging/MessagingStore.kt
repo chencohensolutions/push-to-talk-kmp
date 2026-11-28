@@ -109,6 +109,8 @@ data class TextMessage(
     val face: Int = 0,
     /** Reactions with faces, by who reacted ("" this user): their Expression code + 1. */
     val reactions: Map<String, Int> = emptyMap(),
+    /** Shared pictures, videos or files ([body] is then the caption, or the fallback older apps show; 2026-11-28, hen). */
+    val media: MediaContent? = null,
 )
 
 /** How a call went, for the chat and the Calls tab. */
@@ -438,6 +440,14 @@ internal class MessagingStore(val store: SecureStore) {
     fun pictureSent(chat: String): String? = store.get(Spaces.PICTURE_SENT, chat)?.decodeToString()
 
     fun putPictureSent(chat: String, id: String) = store.put(Spaces.PICTURE_SENT, chat, id.encodeToByteArray())
+
+    /**
+     * Where the original of shared item [item] of message [message] is on this phone (a content URI this phone sent
+     * it from; the app holds the permission to read it, and keeps no copy; 2026-11-27, hen).
+     */
+    fun mediaSource(message: String, item: String): String? = store.get(Spaces.MEDIA_SOURCES, "$message/$item")?.decodeToString()
+
+    fun putMediaSource(message: String, item: String, source: String) = store.put(Spaces.MEDIA_SOURCES, "$message/$item", source.encodeToByteArray())
 
     fun groups(): List<Group> = all(Spaces.GROUPS, Group.serializer())
 

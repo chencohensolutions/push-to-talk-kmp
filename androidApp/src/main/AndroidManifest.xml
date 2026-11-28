@@ -29,6 +29,12 @@
     <!-- Show in Android Contacts (Settings, off by default): Talk's contacts with Message and calls (AndroidContacts). -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+    <!-- Shared media (2026-11-28, hen): the sender keeps no copy, so the original is read again from the phone's
+         pictures and videos when someone opens it; with its place (EXIF location). -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- No backup and no phone-to-phone transfer: a copied app would think it is enrolled without its key, which
@@ -66,6 +72,19 @@
                 <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.message" />
                 <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.voice" />
                 <data android:mimeType="vnd.android.cursor.item/vnd.com.chencohen.ptt.video" />
+            </intent-filter>
+            <!-- Share to Talk (2026-11-28, hen): pictures, videos and files from any app's Share menu; Send to picks
+                 the chat. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="application/*" />
+                <data android:mimeType="audio/*" />
             </intent-filter>
             <!-- ptt://enroll?code=…&server=…: the QR code `ptt-server enroll-code` prints. -->
             <intent-filter>
