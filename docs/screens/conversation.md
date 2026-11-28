@@ -592,7 +592,8 @@ the top line holds all their places (each once, in order, three then "+2") and t
 ("Yesterday 18:40 – 21:05"), said once (2026-11-28, hen: "show less redundancy about time and location", chose "once
 on top, changes only", then "no chip, make the details above the image"): a picture whose place differs from the one
 above it, or taken 5 minutes or more after it, has what changed ("Jaffa · 21:05", the day too when that changed) in a
-strip of the bubble right above it (in the draft too); the others have none, and follow each other with a 2-dp gap. Words may be
+strip of the bubble right above it, under the words written above it ("the date belongs to the lower image, it
+should be below the text"; in the draft too); the others have none, and follow each other with a 2-dp gap. Words may be
 written above any picture (`AttachmentContent.text`, field 20; "Aa" on the picture in the draft opens a field in a strip
 above it), shown in a strip of the bubble above it; the caption stays under the last. After sending too (2026-11-28, hen:
 "when i long tap of an image the text icon appears on all images and videos of that message"): a long press on my

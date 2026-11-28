@@ -259,9 +259,6 @@ internal fun MediaMessage(
             // in a strip of the bubble (2026-11-28, hen: "show less redundancy about time and location"; "no chip, make
             // the details above the image").
             val change = if (index > 0) changeFrom(media.items[index - 1], item) else null
-            if (change != null) Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
-                PictureNote(change, color = muted)
-            }
             // Words written above this picture, in a strip of the bubble (2026-11-28, hen: "add text above any image").
             if (writing == item.id) {
                 Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
@@ -274,7 +271,12 @@ internal fun MediaMessage(
                 Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
                     Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
                 }
-            } else if (index > 0 && change == null) Spacer(Modifier.height(2.dp))
+            }
+            // Its own place and time, right above it, under the words above it (2026-11-28, hen: "the date belongs to
+            // the lower image, it should be below the text").
+            if (change != null) Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
+                PictureNote(change, color = muted)
+            } else if (index > 0 && writing != item.id && item.text.isBlank()) Spacer(Modifier.height(2.dp))
             when (item.kind) {
                 MediaKind.IMAGE, MediaKind.VIDEO -> Picture(
                     message, item, preview, select = select,

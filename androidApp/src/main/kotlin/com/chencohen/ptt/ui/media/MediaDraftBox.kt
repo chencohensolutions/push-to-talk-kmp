@@ -147,9 +147,6 @@ internal fun MediaDraftBox(
             items.forEachIndexed { index, (message, item) ->
                 // As on the message it becomes: what changed from the picture above, in a strip above it.
                 val change = if (index > 0) changeFrom(items[index - 1].second, item) else null
-                if (change != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(change) }
-                }
                 // Words above this picture: a field in a strip of the writing outline, as on the message it becomes.
                 val above = texts[item.id].orEmpty()
                 if (writingAbove == item.id || above.isNotEmpty()) {
@@ -166,7 +163,11 @@ internal fun MediaDraftBox(
                             )
                         }
                     }
-                } else if (index > 0 && change == null) androidx.compose.foundation.layout.Spacer(Modifier.height(2.dp))
+                }
+                // Its own place and time right above it, under the words above it (hen: "it should be below the text").
+                if (change != null) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(change) }
+                } else if (index > 0 && writingAbove != item.id && above.isEmpty()) androidx.compose.foundation.layout.Spacer(Modifier.height(2.dp))
                 // Where this picture lies in the scrolled column, so its buttons can stay in view.
                 var top by remember(item.id) { androidx.compose.runtime.mutableFloatStateOf(0f) }
                 var tall by remember(item.id) { androidx.compose.runtime.mutableFloatStateOf(0f) }
