@@ -29,22 +29,59 @@ object MicGuard {
     /** The room microphone is about to open: what records now isn't it. */
     fun roomOpening() {
         roomSessions.clear()
-        roomBefore = recordings().map { it.session }.toSet()
+        val now = recordings()
+        roomBefore = now.map { it.session }.toSet()
+        openedAt = System.currentTimeMillis()
     }
 
-    /** The room microphone went. */
+    @Volatile private var openedAt = 0L
+    @Volatile private var closedAt = 0L
+    @Volatile private var openBefore: Set<Int> = emptySet()
+
+    /** When each recording was first seen here (a room's own shows up a moment after it opens, or after it closes). */
+    private val firstSeen = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+
+    /**
+     * The room microphone went. Its recordings stay this app's: Android can keep one going a moment after it is let go,
+     * and the next open (the screen changing while the app starts) found it and called the microphone busy, every two
+     * seconds, with only Talk recording (2026-11-28, the S25's audio log at 13:10:58).
+     */
     fun roomClosed() {
+        roomBefore?.let { before ->
+            room(recordings())
+            openBefore = before
+            closedAt = System.currentTimeMillis()
+        }
+        synchronized(roomSessions) { formerRoom += roomSessions }
         roomBefore = null
         roomSessions.clear()
     }
 
-    private fun recordings(): List<MicRules.Recording> =
-        audio()?.activeRecordingConfigurations.orEmpty().map { MicRules.Recording(it.clientAudioSessionId, it.isClientSilenced) }
+    /** Recordings the room microphone made before (this app's own, if Android still lists them). */
+    private val formerRoom: MutableSet<Int> = java.util.Collections.synchronizedSet(LinkedHashSet())
+
+    /** This app's own recordings: the clip recorder's and the room's earlier ones. */
+    private fun own(): Set<Int> = synchronized(ownSessions) { ownSessions.toSet() } + synchronized(formerRoom) { formerRoom.toSet() }
+
+    private fun recordings(): List<MicRules.Recording> {
+        val now = audio()?.activeRecordingConfigurations.orEmpty().map { MicRules.Recording(it.clientAudioSessionId, it.isClientSilenced) }
+        val at = System.currentTimeMillis()
+        for (r in now) {
+            val seen = firstSeen.getOrPut(r.session) { at }
+            // Started while the room microphone was opening or open (up to a second after it closed, as Android lists it
+            // late), and not there before it opened: the room's own, even if it was let go before it was recognised.
+            if (closedAt > 0 && seen >= openedAt && seen <= closedAt + LATE_MS && r.session !in openBefore) formerRoom += r.session
+        }
+        if (firstSeen.size > 64) firstSeen.keys.retainAll(now.map { it.session }.toSet())
+        return now
+    }
+
+    private const val LATE_MS = 1_000L
 
     /** The room's recordings so far, adding any that appeared since it opened. */
     private fun room(now: List<MicRules.Recording>): Set<Int> {
         val before = roomBefore ?: return emptySet()
-        roomSessions += MicRules.roomSessions(before, now, synchronized(ownSessions) { ownSessions.toSet() })
+        roomSessions += MicRules.roomSessions(before, now, own())
         return synchronized(roomSessions) { roomSessions.toSet() }
     }
 
@@ -56,6 +93,8 @@ object MicGuard {
         val am = audio() ?: return
         am.registerAudioRecordingCallback(object : AudioManager.AudioRecordingCallback() {
             override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
+                // Each change seen as it happens, so a recording's first-seen time is when it started.
+                runCatching { recordings() }
                 listeners.forEach { runCatching { it() } }
             }
         }, Handler(Looper.getMainLooper()))
@@ -83,7 +122,7 @@ object MicGuard {
     fun busy(): Boolean {
         if (audio() == null) return false
         val now = recordings()
-        val busy = MicRules.busy(now, synchronized(ownSessions) { ownSessions.toSet() }, room(now), phoneCall())
+        val busy = MicRules.busy(now, own(), room(now), phoneCall())
         if (busy) Log.i(TAG, "microphone in use: ${now.size} recording(s), call ${phoneCall()}")
         return busy
     }
