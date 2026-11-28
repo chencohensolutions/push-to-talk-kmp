@@ -2420,6 +2420,8 @@ internal class Messaging(
         editWanted.remove(id)
         store.removeMessage(message)
         if (message.clip != null) talk.forgetClip(id)
+        // Shared pictures deleted for everyone: their previews go from the server too.
+        if (message.media != null) media.drop(listOf(message))
         publish()
         val content = Content(delete = DeleteContent(id))
         try {
@@ -2455,7 +2457,8 @@ internal class Messaging(
             it.user == chat && it.outgoing == mine && !it.deleted && (author == null || mine || it.author == author)
         } ?: return
         if (message.clip != null) talk.forgetClip(message.id)
-        if (mine) store.removeMessage(message) else store.putMessage(message.copy(body = "", clip = null, deleted = true, editedAt = null))
+        // Pictures taken back before their caption leave no mark: they were never announced.
+        if (mine || message.media?.quiet == true) store.removeMessage(message) else store.putMessage(message.copy(body = "", clip = null, deleted = true, editedAt = null))
         _state.update { it.copy(liveEdits = it.liveEdits - delete.id) }
         publish()
     }

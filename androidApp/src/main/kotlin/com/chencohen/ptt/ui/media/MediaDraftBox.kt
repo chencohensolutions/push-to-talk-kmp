@@ -136,6 +136,8 @@ class MediaCaption(
     val live: (text: String, selStart: Int, selEnd: Int) -> Unit,
     /** Sends the caption (empty: none); this is what notifies them. */
     val commit: (caption: String) -> Unit,
+    /** Takes the pictures back: deleted for everyone, from the server too, and no notification. */
+    val abort: () -> Unit,
 )
 
 /**
@@ -165,9 +167,18 @@ internal fun MediaCaptionBox(caption: MediaCaption, modifier: Modifier = Modifie
     androidx.compose.runtime.DisposableEffect(caption.messageId) { onDispose { commit("") } }
     Column(modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalAlignment = Alignment.End) {
         Row(
-            Modifier.padding(horizontal = 12.dp).width(bubbleMaxWidth()).writingHalf(coral, top = false).padding(start = 14.dp, end = 6.dp, top = 2.dp, bottom = 6.dp),
+            Modifier.padding(horizontal = 12.dp).width(bubbleMaxWidth()).writingHalf(coral, top = false).padding(start = 4.dp, end = 6.dp, top = 2.dp, bottom = 6.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).clickable {
+                    done = true
+                    caption.abort()
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(LibraryIcons.Trash, stringResource(R.string.media_draft_drop), tint = LibraryColors.Muted, modifier = Modifier.size(20.dp))
+            }
             Box(Modifier.weight(1f).padding(vertical = 10.dp)) {
                 if (text.text.isEmpty()) Text(stringResource(R.string.media_caption_hint), color = LibraryColors.Muted, style = LibraryType.Message)
                 BasicTextField(

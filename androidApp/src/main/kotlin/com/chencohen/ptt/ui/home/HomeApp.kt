@@ -502,6 +502,10 @@ fun HomeApp(
                             mediaCaptions.remove(user)
                             messaging.commitCaption(id, caption)
                         },
+                        abort = {
+                            mediaCaptions.remove(user)
+                            messaging.deleteMessages(listOf(id), true)
+                        },
                     )
                 },
                 uploads = uploads,

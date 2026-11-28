@@ -601,7 +601,8 @@ taken out, or the whole draft dropped, is deleted from the server too.
 (`MediaCaptionBox`); on their phones the pictures come in at once between outlined half bubbles, like a live draft, and
 with Live typing on the caption forms under them with my caret ("Writing…"). Send then sends the caption (an edit with
 `notify`), their bubbles turn solid as a message, and only that notifies them. Left empty (the chat closed, or two
-minutes without a letter), they are notified of the pictures alone. Send with text written first still sends both at
+minutes without a letter), they are notified of the pictures alone. The bin at the start of the box takes them back: deleted for everyone
+(previews from the server too), and nobody is notified. Send with text written first still sends both at
 once, as before.
 
 
