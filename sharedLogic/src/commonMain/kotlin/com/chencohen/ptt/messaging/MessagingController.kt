@@ -118,6 +118,28 @@ class MessagingController internal constructor(
     /** Sends [body] to [user] end to end; offline, it waits in the outbox. [done] says Failed only for an error before it was kept. */
     fun sendText(user: String, body: String, done: (ContactResult) -> Unit) = act(done) { messaging.sendText(user, body) }
 
+    /**
+     * Shares [sources] (content URIs: pictures, videos, files) in [chat] with [caption] (2026-11-28, hen): previews made
+     * for the screens there, then sent. [done] gets how many messages went (0: nothing could be read).
+     */
+    fun shareMedia(chat: String, sources: List<String>, caption: String, done: (Int) -> Unit = {}) {
+        scope.launch {
+            val sent = withContext(work) {
+                try {
+                    messaging.shareMedia(chat, sources, caption).size
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    0
+                }
+            }
+            done(sent)
+        }
+    }
+
+    /** The preview of item [itemId] of message [messageId] for this screen, opened (JPEG XL); null: can't be had now. */
+    suspend fun mediaPreview(messageId: String, itemId: String): ByteArray? = withContext(work) { messaging.media.preview(messageId, itemId) }
+
     /** Tries a text that failed again. */
     fun retry(id: String) {
         scope.launch { withContext(work) { messaging.retry(id) } }

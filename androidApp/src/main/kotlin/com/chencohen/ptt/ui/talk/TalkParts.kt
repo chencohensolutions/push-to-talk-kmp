@@ -251,17 +251,26 @@ internal fun Modifier.holdOrLock(
         down.consume()
         onPress()
         var up = 0f
-        while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Main)
-            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-            up = (down.position.y - change.position.y).coerceAtLeast(0f)
-            // Sideways first, so the lift knows which way the thumb is going (towards the side target, or up to the lock).
-            onSide((down.position.x - change.position.x).coerceAtLeast(0f))
-            onLift(up)
-            change.consume()
-            if (!change.pressed) break
+        var released = false
+        try {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Main)
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                up = (down.position.y - change.position.y).coerceAtLeast(0f)
+                // Sideways first, so the lift knows which way the thumb is going (towards the side target, or up to the lock).
+                onSide((down.position.x - change.position.x).coerceAtLeast(0f))
+                onLift(up)
+                change.consume()
+                if (!change.pressed) break
+            }
+            released = true
+            onRelease(up >= lockAt)
+        } finally {
+            // The gesture went away under the finger (the button left the screen, the press was cancelled): a held press
+            // is let go as if the finger came up, so it can't stay open until the server's limit (2026-11-27: Sharon's
+            // push stayed live for 60 s after she had let go). Not at the lock: that one already went hands-free.
+            if (!released) onRelease(false)
         }
-        onRelease(up >= lockAt)
     }
 }
 
@@ -272,10 +281,16 @@ internal fun talkLine(chat: String, talk: TalkUiState, nameOf: (String) -> Strin
     val talker = talk.talkers[chat]
     return when {
         own != null -> when (own.phase) {
-            TalkPhase.REQUESTING -> stringResource(R.string.talk_requesting)
+            // Waiting for the chat's room: shown without words (2026-11-27, hen), where the push itself shows.
+            TalkPhase.REQUESTING -> if (own.connecting) "" else stringResource(R.string.talk_requesting)
             TalkPhase.TALKING -> stringResource(R.string.talk_live)
             TalkPhase.BUSY -> com.chencohen.ptt.genderedString(R.string.talk_busy, own.busyWith, nameOf(own.busyWith.orEmpty()))
-            TalkPhase.REFUSED -> if (own.refusal == OwnTalk.MIC) stringResource(R.string.talk_no_mic) else stringResource(R.string.talk_refused)
+            // The room couldn't be reached, or was lost: no words either, one short buzz (TalkApp).
+            TalkPhase.REFUSED -> when (own.refusal) {
+                OwnTalk.MIC -> stringResource(R.string.talk_no_mic)
+                OwnTalk.ROOM -> ""
+                else -> stringResource(R.string.talk_refused)
+            }
             TalkPhase.OFFLINE -> stringResource(R.string.talk_offline)
             TalkPhase.VOICE -> stringResource(R.string.voice_recording)
         }

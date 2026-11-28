@@ -249,6 +249,14 @@ the setting prefers it, this phone has an H.265 encoder, and every other phone i
 otherwise VP8 for everyone. When a phone's H.265 decoder fails for real (no decoder, or a non-transient decoder
 error), it stops saying so for good (remembered), so everyone sends it VP8 from their next push or call.
 
+## A push that is still connecting (2026-11-27, hen)
+
+A push goes through the chat's talk room and nowhere else ("livekit only"). Pressed before the room is ready, it waits
+for the room: my pill shows it in still grey dashes with no time and no words, and turns solid coral, glowing, with
+its time, the moment my voice is really going out (conversation.md, "Voice pills"). What is said before that isn't
+sent. The Push button itself doesn't change. A room that can't be reached in 10 s, or is lost during a push, ends it
+with one short buzz (`TalkApp`), no words.
+
 ## The floating bar (2026-11-26, hen: the floating-bar mock, "option A + button layout 1")
 
 The floating window's bottom pill is a bar that stands out over any app, and is swiped away.

@@ -412,6 +412,9 @@ internal fun LiveStage(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val motion = remember { LiveMotion() }
+    // My pill's outline while my push connects: grey dashes that join into its line (LocalMyPushConnecting).
+    val myJoined = myPillJoined()
+    val dashInk = LibraryColors.Muted
     // Each pill's own size, measured; each side as it last was (kept while it goes); each box's size.
     val pills = remember { androidx.compose.runtime.mutableStateMapOf<String, androidx.compose.ui.unit.IntSize>() }
     val known = remember { HashMap<String, LiveSide>() }
@@ -498,10 +501,15 @@ internal fun LiveStage(
                         val p = rects[k]?.video ?: if (s.video) 1f else 0f
                         val shape = RoundedCornerShape(androidx.compose.ui.unit.lerp(32.dp, 18.dp, p))
                         val size = boxes[k]
+                        val joined = if (k == LiveLayout.MINE) myJoined else 1f
+                        val line = androidx.compose.ui.graphics.lerp(dashInk, ring(s), joined).copy(alpha = 1f - 0.6f * p)
                         Box(
                             Modifier.testTag("live-$k").shadow(6.dp, shape).clip(shape)
                                 .background(androidx.compose.ui.graphics.lerp(LibraryColors.Raised, Color.Black, p))
-                                .border(1.dp, ring(s).copy(alpha = 1f - 0.6f * p), shape),
+                                .then(
+                                    if (joined < 1f) Modifier.joiningBorder(line, androidx.compose.ui.unit.lerp(32.dp, 18.dp, p), joined)
+                                    else Modifier.border(1.dp, line, shape),
+                                ),
                             contentAlignment = Alignment.Center,
                         ) {
                             if ((s.video || p > 0f) && size != null) box(s, with(density) { size.first.toDp() }, with(density) { size.second.toDp() }, p)
@@ -593,6 +601,41 @@ private fun BigFace(side: VoiceSide) {
 /** Someone pushing voice in the chat, for the [VoiceBar]: their face ("" is mine), name, and when they started. */
 internal data class VoiceSide(val user: String, val name: String, val mine: Boolean, val since: Long)
 
+/**
+ * My own push is still connecting (2026-11-27, hen: "livekit only, show connection indication without words, only
+ * visual", shown in the pill, "not spinning, something with less movement"): its chat's room isn't ready, so nothing
+ * goes out yet. My pill then shows still grey dashes, round it and round my face, and no time; they join into the solid
+ * line the moment the push is live. Nothing turns or runs.
+ */
+internal val LocalMyPushConnecting = androidx.compose.runtime.compositionLocalOf { false }
+
+/** How far my pill's dashes have joined into its solid line: 0 while my push connects, 1 once live, in one 300 ms move. */
+@Composable
+internal fun myPillJoined(): Float =
+    androidx.compose.animation.core.animateFloatAsState(if (LocalMyPushConnecting.current) 0f else 1f, tween(300), label = "my pill joins").value
+
+/**
+ * A frame's 1 dp outline in [color], its corners [corner] round. [joined] below 1 draws it in dashes, 6 dp of every
+ * 11 at 0, that lengthen until they meet at 1 (the same dashes as a message still being sent): a morph, not a fade.
+ */
+internal fun Modifier.joiningBorder(color: Color, corner: Dp, joined: Float): Modifier = drawWithContent {
+    drawContent()
+    val w = 1.dp.toPx()
+    val period = 11.dp.toPx()
+    val on = 6.dp.toPx() + (period - 6.dp.toPx()) * joined.coerceIn(0f, 1f)
+    val r = (corner.toPx().coerceAtMost(size.minDimension / 2) - w / 2).coerceAtLeast(0f)
+    drawRoundRect(
+        color,
+        topLeft = androidx.compose.ui.geometry.Offset(w / 2, w / 2),
+        size = androidx.compose.ui.geometry.Size(size.width - w, size.height - w),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(
+            width = w,
+            pathEffect = if (joined < 1f) androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(on, period - on)) else null,
+        ),
+    )
+}
+
 @Composable
 private fun VoicePill(side: VoiceSide) {
     val ring = if (side.mine) com.chencohen.ptt.ui.style.Pink else LibraryColors.Accent
@@ -610,7 +653,9 @@ private fun VoicePillRow(side: VoiceSide, ring: Color) {
         TalkingFace(side, ring)
         val time = elapsedSince(side.since)
         if (side.mine) {
-            Text("${side.name} · $time", color = LibraryColors.OnBackground, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textDirection = layoutTextDirection()), maxLines = 1)
+            // Still connecting: who, greyed, and no time; the time starts when the push is live.
+            val connecting = LocalMyPushConnecting.current
+            Text(if (connecting) side.name else "${side.name} · $time", color = if (connecting) LibraryColors.Muted else LibraryColors.OnBackground, style = LibraryType.Small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textDirection = layoutTextDirection()), maxLines = 1)
         } else {
             Column {
                 // The name wrapped, the line in the screen's direction: a Latin name doesn't turn a Hebrew line around.
@@ -625,10 +670,14 @@ private fun VoicePillRow(side: VoiceSide, ring: Color) {
 @Composable
 private fun TalkingFace(side: VoiceSide, color: Color) {
     val face = com.chencohen.ptt.ui.face.faceOf(if (side.mine) "" else side.user)
-    val level by voiceLevel(side.mine)
+    val voice by voiceLevel(side.mine)
+    // Mine while my push connects: twelve still grey dashes and no glow; they join into the ring when it is live.
+    val joined = if (side.mine) myPillJoined() else 1f
+    val dashInk = LibraryColors.Muted
     Box(
         Modifier.size(52.dp).drawBehind {
             val r = 18.dp.toPx()
+            val level = voice * joined
             val thick = (2f + 2.5f * level).dp.toPx()
             val glow = 7.dp.toPx() * level
             var g = glow
@@ -636,7 +685,16 @@ private fun TalkingFace(side: VoiceSide, color: Color) {
                 drawCircle(color.copy(alpha = 0.35f * level * (1 - g / (glow + 0.01f))), radius = r + thick / 2 + g, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
                 g -= 1.5.dp.toPx()
             }
-            drawCircle(color.copy(alpha = 0.55f + 0.45f * level), radius = r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = thick))
+            val period = (2 * Math.PI * r / 12).toFloat()
+            val on = period * (0.53f + 0.47f * joined)
+            drawCircle(
+                androidx.compose.ui.graphics.lerp(dashInk, color, joined).copy(alpha = 0.55f + 0.45f * level + 0.35f * (1f - joined)),
+                radius = r,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = thick,
+                    pathEffect = if (joined < 1f) androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(on, period - on)) else null,
+                ),
+            )
         },
         contentAlignment = Alignment.Center,
     ) {

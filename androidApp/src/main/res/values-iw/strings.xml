@@ -958,4 +958,16 @@
     <string name="push_hearing_f">%1$s שומעת אותך</string>
     <string name="push_group_hear">%1$d שומעים · %2$d יקבלו אחר כך</string>
     <string name="push_cant_hear_group">%1$s · %2$s · יגיע אחר כך</string>
+    <!-- Sharing media (2026-11-28, hen; docs/screens/share.md). -->
+    <string name="share_title">שליחה אל</string>
+    <string name="share_count">%1$d לשליחה</string>
+    <string name="share_none">אין עדיין צ׳אטים. קודם מוסיפים איש קשר.</string>
+    <string name="share_failed">לא ניתן לקרוא את מה ששותף</string>
+    <string name="chat_attach">צירוף</string>
+    <string name="chat_attach_gallery">גלריה</string>
+    <string name="chat_attach_file">קובץ</string>
+    <string name="media_picture">תמונה</string>
+    <string name="media_video">סרטון</string>
+    <string name="media_file">קובץ</string>
+    <string name="media_loading">התמונה נטענת</string>
 </resources>

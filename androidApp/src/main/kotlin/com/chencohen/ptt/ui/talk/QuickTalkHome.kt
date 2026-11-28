@@ -76,6 +76,7 @@ import com.chencohen.ptt.messaging.TextMessage
 import com.chencohen.ptt.talk.TalkPhase
 import com.chencohen.ptt.talk.TalkUiState
 import com.chencohen.ptt.ui.contacts.Avatar
+import com.chencohen.ptt.ui.contacts.joiningBorder
 import com.chencohen.ptt.ui.contacts.morphRing
 import com.chencohen.ptt.ui.contacts.previewOf
 import com.chencohen.ptt.ui.groups.GroupAvatar
@@ -257,7 +258,8 @@ private fun TalkRow(
     val clipVideo = talk.playing?.takeIf { it.chat == item.chat && it.video && it.from != me } != null
     val theirVideoNow = roomVideo != null || clipVideo
     // Mine: kept a moment over a hands-free renewal's gap, so the box doesn't leave and come back.
-    val myVideoNow = own != null && myVideo
+    // Not while my push still connects: then it is my pill, in its dashes.
+    val myVideoNow = own != null && myVideo && !own.connecting
     var myVideoShown by remember { mutableStateOf(false) }
     // One time for the whole run, its renewals included.
     var mySince by remember { mutableLongStateOf(0L) }
@@ -321,7 +323,7 @@ private fun TalkRow(
                 }
             }
             when {
-                own != null && !myVideoShown -> MyPill(own.urgent, own.startedAt)
+                own != null && !myVideoShown -> MyPill(own.urgent, own.startedAt, own.connecting)
                 item.unread > 0 -> Text(
                     item.unread.toString(), color = Color.White, style = LibraryType.Tiny,
                     modifier = Modifier.background(com.chencohen.ptt.ui.style.Pink, CircleShape).padding(horizontal = 8.dp, vertical = 2.dp),
@@ -385,12 +387,18 @@ private fun VideoTile(who: String, since: Long, mine: Boolean, content: @Composa
 
 /** My voice push, at the chosen row's end: "You · 0:03" in a coral ring (red when urgent). */
 @Composable
-private fun MyPill(urgent: Boolean, since: Long) {
+private fun MyPill(urgent: Boolean, since: Long, connecting: Boolean) {
     val ring = if (urgent) LibraryColors.Error else com.chencohen.ptt.ui.style.Pink
+    // Still connecting (its room isn't ready; 2026-11-27, hen: no words, nothing spinning): "You" alone, greyed, in
+    // still dashes that join and fill with its colour when the push is live.
+    val joined by animateFloatAsState(if (connecting) 0f else 1f, tween(300), label = "my pill joins")
+    val dashInk = LibraryColors.Muted
     Text(
-        stringResource(R.string.talk_you) + " · " + elapsed(since),
-        color = LibraryColors.OnBackground, style = LibraryType.Tiny,
-        modifier = Modifier.background(ring.copy(alpha = 0.12f), CircleShape).padding(horizontal = 10.dp, vertical = 4.dp),
+        if (connecting) stringResource(R.string.talk_you) else stringResource(R.string.talk_you) + " · " + elapsed(since),
+        color = if (connecting) LibraryColors.Muted else LibraryColors.OnBackground, style = LibraryType.Tiny,
+        modifier = Modifier.background(ring.copy(alpha = 0.12f * joined), CircleShape)
+            .then(if (joined < 1f) Modifier.joiningBorder(dashInk.copy(alpha = 1f - joined), 100.dp, joined) else Modifier)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
 

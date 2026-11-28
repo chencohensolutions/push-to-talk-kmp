@@ -367,6 +367,32 @@ internal fun ChatButtons(
             // Hands-free (voice or video, until Stop; 2026-11-26, hen): Voice message is hidden the same way, and comes
             // back when the push stops.
             val aside by androidx.compose.animation.core.animateFloatAsState(if (lifting >= 0f || handsFree) 1f else 0f, tween(180), label = "voice message aside")
+            // +: share pictures, videos or files here (2026-11-28, hen): Gallery (Samsung's, else Android's photo
+            // picker) or File. Out of the way while Push is held or hands-free, as Voice message.
+            actions.attach?.let { attach ->
+                var menu by remember { androidx.compose.runtime.mutableStateOf(false) }
+                Box(Modifier.graphicsLayer { alpha = 1f - aside }) {
+                    if (aside < 0.99f) {
+                        RoundButton(LibraryIcons.Plus, stringResource(R.string.chat_attach), small) { menu = true }
+                    } else {
+                        Spacer(Modifier.size(small))
+                    }
+                    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides reading) {
+                        androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(stringResource(R.string.chat_attach_gallery)) },
+                                leadingIcon = { Icon(LibraryIcons.Photo, null) },
+                                onClick = { menu = false; attach(true) },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(stringResource(R.string.chat_attach_file)) },
+                                leadingIcon = { Icon(LibraryIcons.Paste, null) },
+                                onClick = { menu = false; attach(false) },
+                            )
+                        }
+                    }
+                }
+            }
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 val sideLine = pushTo?.takeIf { !handsFree && lifting < 0f }?.let { stringResource(R.string.talk_push_to, android.text.BidiFormatter.getInstance().unicodeWrap(it)) }
                 if (sideLine != null) {
@@ -382,10 +408,10 @@ internal fun ChatButtons(
                 Box(Modifier.graphicsLayer { alpha = 1f - aside; scaleX = 1f - 0.2f * aside; scaleY = 1f - 0.2f * aside }) {
                     if (recording) {
                         RoundButton(LibraryIcons.ArrowUp, stringResource(R.string.voice_send), small, filled = true) { actions.finishVoice(true) }
-                    } else if (aside < 0.99f) {
-                        RoundButton(LibraryIcons.Mic, stringResource(R.string.voice_message), small) { microphone(actions.startVoiceMessage) }
                     } else {
-                        // Hidden: its place kept (nothing moves), nothing to tap.
+                        // No Voice message button (2026-11-27, hen: "remove the microphone button, keep only the push
+                        // to transmit button"): its place is kept for the side target while Push is held, so nothing
+                        // moves.
                         Spacer(Modifier.size(small))
                     }
                 }
@@ -419,6 +445,21 @@ internal fun ChatButtons(
             val onPressed by androidx.compose.runtime.rememberUpdatedState(pressed)
             val onRelease by androidx.compose.runtime.rememberUpdatedState(release)
             val onPress by androidx.compose.runtime.rememberUpdatedState(press ?: actions.startVoice)
+            // Held (not hands-free) and the screen turns off or locks: let go at once (2026-11-27: a press left open
+            // stayed live until the server's 60 s limit). Hands-free goes on, as it does over the lock screen.
+            var heldNow by remember { androidx.compose.runtime.mutableStateOf(false) }
+            if (heldNow && !handsFree) androidx.compose.runtime.DisposableEffect(Unit) {
+                val receiver = object : android.content.BroadcastReceiver() {
+                    override fun onReceive(c: android.content.Context, i: android.content.Intent) {
+                        if (!heldNow) return
+                        heldNow = false
+                        val r = onRelease
+                        if (r != null) r(PushLock.NONE) else actions.finishVoice(true)
+                    }
+                }
+                context.registerReceiver(receiver, android.content.IntentFilter(android.content.Intent.ACTION_SCREEN_OFF))
+                onDispose { runCatching { context.unregisterReceiver(receiver) } }
+            }
             Box(Modifier.size(big)) {
                 if (handsFree) {
                     StopLive(big, stopLive, urgent)
@@ -429,7 +470,7 @@ internal fun ChatButtons(
                         .semantics { contentDescription = talkLabel }
                         .holdOrLock(
                             lockAt = lockAt,
-                            onPress = { lifting = 0f; side = 0f; onTarget = false; urgentNow = false; lockedNow = false; slidingNow = false; onPressed(true); microphone(onPress) },
+                            onPress = { lifting = 0f; side = 0f; onTarget = false; urgentNow = false; lockedNow = false; slidingNow = false; heldNow = true; onPressed(true); microphone(onPress) },
                             onSide = { left ->
                                 side = left
                                 if (left >= sideAt && !onTarget && !lockedNow) {
@@ -463,6 +504,13 @@ internal fun ChatButtons(
                                 }
                             },
                             onRelease = { locked ->
+                                // Already let go (the screen went off while it was held).
+                                if (!heldNow && !lockedNow) {
+                                    lifting = -1f
+                                    onPressed(false)
+                                    return@holdOrLock
+                                }
+                                heldNow = false
                                 lifting = -1f
                                 side = 0f
                                 // Let go on the side target: the push goes on hands-free until Stop (2026-11-26, hen):
@@ -488,7 +536,7 @@ internal fun ChatButtons(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    com.chencohen.ptt.ui.style.IconsOnAccent { Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Talk, null, tint = Color.White, modifier = Modifier.size(big * 0.42f)) }
+                    com.chencohen.ptt.ui.style.IconsOnAccent { Icon(if (urgent || urgentNow) LibraryIcons.Bell else LibraryIcons.Mic, null, tint = Color.White, modifier = Modifier.size(big * 0.42f)) }
                 }
                 // The side target, left of Push while it is held: it fills as the thumb nears it. The microphone
                 // turns into the bell (and back) in one move when someone stops hearing while it is held.

@@ -268,7 +268,10 @@ analytics are off. `Push.register` gives the server the FCM token and whether no
 (`registerPush`, only when one of them changed, kept as `PttSettings.pushRegistered`): when the app comes to the
 front, after enrolling, and when FCM makes a new token. `TalkMessagingService.onMessageReceived` gets only
 `{"kind": …}` and calls `Messaging.wake`: open `/ws` unless the app is on screen, take the queue, send the outbox and
-pending receipts, close again (at most ~20 s). The texts it took show as **notifications**
+pending receipts, close again (at most ~20 s). A wake-up that ends while another still holds the connection (a
+burst playing, its reply time, a warm room) leaves it open: the last one closes it (2026-11-27: the server also
+pushes a connected phone that is slow to say it plays a burst, so a run of pushes left a line of wake-ups, and each
+closed `/ws` under the one before, 15 times in 25 seconds in the server's log). The texts it took show as **notifications**
 ([screens/notifications.md](screens/notifications.md)) through `MessageNotifier`, which the app sets on the hub; a
 conversation on screen reads them instead. The hub (`AndroidPtt.hub`) is one per process, shared by the screens
 and the push service.
@@ -435,10 +438,21 @@ through ptt-server's `/rtc` (mTLS, like `/ws`), and `serverInfo.liveTalk` says w
   shows only while talking (R3). While in the room the clip records from that same microphone (the track's sink,
   encoded to Opus by `SampleCapture`), so it isn't opened twice. The talker's phone publishes at the press, without
   waiting for the grant; Busy stops it like the clip. LiveKit's track has WebRTC's echo canceller, noise suppressor
-  and gain control, and the press takes the speakerphone tuning (`SpeakerphoneMic`) like the clip path.
-- **Hearing.** A listener in the room waits up to 400 ms at STARTED for the talker's live audio to decrypt
-  (`hearsLive`); if it does, the burst's clip is kept but not played (and acked). Otherwise the clip plays and that
-  talker's live track for this burst is silenced, so the two never play over each other.
+  and gain control, and the press takes the speakerphone tuning (`SpeakerphoneMic`) like the clip path. The unmute
+  comes first and the tuning after it, off the messaging thread (2026-11-27, hen: "sometimes the partner doesn't hear
+  my first words"): Android takes a few hundred ms over the audio mode and route, and that used to pass before the
+  unmute, on the thread that also asks for the floor. The log says how long each took ("microphone live in the
+  room, N ms after the press reached it", "speakerphone tuning took N ms"). The track is disabled before it is
+  published, so nothing of the microphone leaves the phone between the publish and its mute.
+- **Hearing.** A listener in the room with the talker waits up to 400 ms at STARTED for the talker's live audio to
+  decrypt (`hearsLive`); if it does, the burst's clip is kept but not played (and acked). If the clip's segments have
+  come by then, the clip plays, from its first segment, and that talker's live track for this burst is silenced, so
+  the two never play over each other. If neither has come, the phone goes on waiting for whichever comes first (it
+  acks at 400 ms, so the server doesn't wake it by FCM): the live track used to be silenced at 400 ms whatever
+  happened, and a room-only push whose microphone opened late was then not heard at all. A talker who isn't in the
+  room is not waited for. While a burst's way of playing is being decided (this wait, or readying a talk session
+  off screen, which takes seconds), its segments wait (`Incoming.deciding`); they used to be taken unplayed, and the
+  clip then began after them.
 - **Debug readout.** In Talk mode a debug build shows "Live: in the room", then "Live: heard 230 ms after the press"
   (STARTED to the first decrypted live audio on this phone).
 
@@ -672,6 +686,45 @@ whether the phone was in the room before a push.
 - "Make it a call" starts an ordinary video call (phase 6) and marks it shown inside the chat; the other phone, both
   live in that chat, accepts a call from it at once and shows it inside the chat too. Nothing changes on the server.
 
+## Sharing media (2026-11-28, hen; being built)
+
+Pictures, videos and files shared into a chat from Android's Share menu (or the composer's + button), one or many at
+a time. The build plan is https://claude.ai/artifact/M4ptCwXCPZgeMMtK1v1zY9 and the design is
+https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-server PR #24: open, growing blobs,
+`?keep=media` kept `media_days`, `PUSH_MEDIA` with `push_user`, the disk guard). Built so far in the app (A1):
+
+- **What goes in the message.** `Content.media` (`MediaContent`: id, time sent, caption, items) with one
+  `AttachmentContent` per item: its own random 32-byte key, the original's SHA-256, size, type, name, picture size,
+  length, when and where it was taken (from EXIF; each phone names the place itself), its previews and a video's
+  poster (`PartContent`: blob, size, codec, HDR, `growing`), which of the sender's devices holds the original, and a
+  ThumbHash. `mediaRequest` asks that device for a part, and `mediaReply` answers (ready, waiting for Wi-Fi, gone,
+  changed). `AboutContent` now carries the screen size, so the sender makes each preview as wide as that screen.
+- **Caps.** `CAPS_MEDIA` (it takes shared media) and `CAPS_HEVC10` (HDR video previews keep their HDR for it).
+- **Encryption** (`media/MediaCrypto.kt`). Each part has its own key, HKDF-SHA256 of the item's key (salt: the blob
+  id; info: `talk media v1|preview`, `|poster` or `|original`). Parts are AES-256-GCM in 64 KiB chunks. The nonce is
+  the chunk index, and the authenticated data binds the blob, the index and the last flag, so the server can't change,
+  move, reorder or cut a part. Chunk i starts at i × (64 KiB + 16), so a video seek reads only the chunks it needs.
+  The key is only on the sender's and recipients' phones, never the server's or Journal's.
+- **Frames.** `Send.push_user` and `PushKind.MEDIA` (7), synced from the server's ptt.proto.
+
+- **Sending (A2).** `MediaSharing.prepare` reads each item through the platform's `MediaPreparer`
+  (`AndroidMediaPreparer`: name, size, type, SHA-256, EXIF time and place with `setRequireOriginal`, a video's own
+  metadata; for pictures one JPEG XL per width, upright, quality 95, effort 7: hen chose Journal's "max" preview
+  quality, and on hen's photos a 1080 × 1440 preview is about 450 to 500 KB). The widths are `PreviewSpec.widths`:
+  each receiving screen's (from `AboutContent`, kept in `contact_screens`; 1080 when a phone didn't say) and this
+  phone's, none wider than the picture, at most three. Each item gets its own key; its previews are sealed and kept in
+  `MediaFiles` (the sender's in app storage, `media-sent`; what came in the cache, `media`). The message is a text
+  (caption, or 📷 / 🎬 / 📎 for older apps) with `media`; `deliver` uploads the previews first, so the outbox retries
+  a broken upload with the message. The original isn't copied: its URI is kept (`media_sources`).
+- **Receiving.** The three text paths (one to one, a copy from another of this user's phones, a group) keep
+  `MediaSharing.accept`'s checked media on the message. `MediaSharing.preview` picks the preview for this screen
+  (`PreviewSpec.pick`), opens it from `MediaFiles`, else downloads it once (several asks share one download), checks
+  its size and every chunk, and keeps it; a cleared cache is fetched again the same way.
+
+Still to build: originals on request, video previews (1080p HEVC at 3 Mbps, original fps and HDR), files' copies,
+albums, the viewer and its details. Journal as a source for originals that
+are gone from the phone is the next phase (shed).
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.
@@ -739,10 +792,29 @@ phone never uploads a second copy.
 
 **Sending.** Nobody waits to send, and there is no "Waiting for …" anywhere: in a one-to-one chat and in a group,
 every talker has a floor of their own (a group no longer has one floor for all). A press unmutes the microphone track
-(and, for video, the camera track) already published, muted, in the room. A hardware button pressed with no room
-joined records on the phone from the press, and that backlog goes into the room as soon as it is joined, so no first
-words are lost. The phone uploads no clip by default; the older clip upload stays only as a setting, "Send through
-the server when they're away" (off), for a server without the buffer.
+(and, for video, the camera track) already published, muted, in the room.
+
+**LiveKit only** (2026-11-27, hen: "livekit only, show connection indication without words, only visual"). A push goes
+into the room and nowhere else: nothing is uploaded beside it. A press the room can't take yet waits for it instead
+of going another way (the phone isn't in the room yet: right after a chat opens, a hardware button, the floating
+window, the widget, a notification's talk-back, the car; or the room has no microphone track of this phone's):
+
+- `Talk.connect` shows the press as `TalkPhase.REQUESTING` (the Push button's connecting look, no words) while
+  `LiveTalk.readyForPress` joins the room and publishes the microphone's track, asking again every 500 ms for 10 s at
+  most. Nothing is recorded meanwhile: what is said before the press is live isn't sent.
+- The moment the room can take it, and the button is still held, the press begins like any other: the unmute, then
+  the floor. The floor is asked for only once the voice is live in the room (`Outgoing.room`, `LiveTalk.talking`'s
+  answer), so the others are never told of a push that reaches nobody. `TalkPhase.TALKING` shows from the grant.
+- Let go while connecting: back to ready, nothing sent or kept.
+- The room can't be reached in 10 s, or doesn't take the unmute: the press ends as `TalkPhase.REFUSED` with
+  `OwnTalk.ROOM` (the button falls back to ready with a short buzz, no words), nothing sent or kept.
+- The room is lost during a push (`LiveTalk.onLost`, or a segment recorded while the microphone is no longer live
+  there): the press ends the same way; what went into the room until then is the push, kept on the talker's phone
+  as its clip.
+
+The older clip upload stays as a setting, "Send through the server when they're away" (off), for a server without the
+buffer; with it on, or on a server without live talk, a press goes by its clip from the moment before the press, as
+before.
 
 **The recorder in the room.** ptt-server's recorder (package recorder, as for saved calls) joins a chat's talk room as
 a hidden participant right after the first phone joins it (on its talk token), so it is there before any press. It

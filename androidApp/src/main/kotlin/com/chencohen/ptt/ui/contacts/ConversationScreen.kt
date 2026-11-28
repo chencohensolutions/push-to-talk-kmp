@@ -1,5 +1,6 @@
 package com.chencohen.ptt.ui.contacts
 
+import com.chencohen.ptt.ui.media.bleed
 import androidx.compose.foundation.background
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.draw.clipToBounds
@@ -159,6 +160,12 @@ class ConversationActions(
      * it can't show (the push then ends here). Null: not here.
      */
     val handOver: ((video: Boolean, urgent: Boolean) -> Boolean)? = null,
+    /** Shared media's preview for this screen (2026-11-28, hen): opened, or null when it can't be had now. */
+    val mediaPreview: suspend (messageId: String, itemId: String) -> ByteArray? = { _, _ -> null },
+    /** A shared picture or video tapped: the viewer (its original comes with it). */
+    val openMedia: (messageId: String, itemId: String) -> Unit = { _, _ -> },
+    /** The composer's +: pick pictures and videos ([gallery]) or files to share here; null: not here. */
+    val attach: ((gallery: Boolean) -> Unit)? = null,
 )
 
 /** A video call shown inside the chat (2026-11-24, hen): theirs under the header, mine with the call's bar at the bottom. */
@@ -371,7 +378,7 @@ private fun ConversationScreenIn(
                 SelectionBar(
                     count = selected.size,
                     close = { selected.clear() },
-                    edit = one?.takeIf { it.outgoing && it.face == 0 && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
+                    edit = one?.takeIf { it.outgoing && it.face == 0 && it.media == null && it.clip == null && it.call == null && !it.deleted && canWriteHere(group, contact) }?.let { m ->
                         { selected.clear(); edits.start(Editing(m.id, m.body, m.body.length, 0)) }
                     },
                     info = one?.let { m -> { sheet = ChatSheet.Info(m.id) } },
@@ -403,7 +410,7 @@ private fun ConversationScreenIn(
         // (busy, refused, offline, a voice message, my other phone).
         val talkingShown = talk.own?.takeIf { it.chat == user }?.phase.let { it == TalkPhase.TALKING || it == TalkPhase.REQUESTING } ||
             (talk.own?.chat != user && talk.talkers[user] != null)
-        if (talkLine != null && !videoPanel && !talkingShown && (talk.talkers[user] != null || talk.own?.chat == user)) {
+        if (!talkLine.isNullOrEmpty() && !videoPanel && !talkingShown && (talk.talkers[user] != null || talk.own?.chat == user)) {
             Text(
                 talkLine,
                 color = LibraryColors.Accent,
@@ -413,7 +420,8 @@ private fun ConversationScreenIn(
             )
         }
         // Live in the chat (2026-11-24, hen): what this phone sends with its camera, and hands-free (below).
-        val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
+        // Not while it still connects (its room isn't ready): then it is my pill, in its dashes (myVoice below).
+        val sendingVideo = talk.own?.takeIf { it.chat == user && pushVideo && !it.connecting && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
         var handsFree by remember(user) { mutableStateOf(false) }
         // Hands-free on the urgent bell (2026-11-26, hen): voice, urgent, until Stop; each renewal urgent again.
         var urgentHandsFree by remember(user) { mutableStateOf(false) }
@@ -450,7 +458,8 @@ private fun ConversationScreenIn(
         // counting.
         val ownActive = talk.own?.takeIf { it.chat == user && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
         var runSince by remember(user) { androidx.compose.runtime.mutableLongStateOf(0L) }
-        if (ownActive != null && runSince == 0L) runSince = ownActive.startedAt
+        // Counted from when it is live, not from a press that still connects.
+        if (ownActive != null && !ownActive.connecting && runSince == 0L) runSince = ownActive.startedAt
         LaunchedEffect(ownActive != null || goingLive || handsFree) {
             if (ownActive == null && !goingLive && !handsFree) {
                 delay(1_500)
@@ -490,8 +499,10 @@ private fun ConversationScreenIn(
                     VoiceSide(theirTalker.user, if (group != null) theirTalker.user else contact?.name ?: user, false, theirRun[0].takeIf { it > 0 } ?: theirTalker.since)
                 else -> null
             }
-            val myVoice = talk.own?.takeIf { it.chat == user && !pushVideo && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
+            val myVoice = talk.own?.takeIf { it.chat == user && (!pushVideo || it.connecting) && (it.phase == TalkPhase.TALKING || it.phase == TalkPhase.REQUESTING) }
                 ?.let { VoiceSide("", youLabel(it.urgent), true, runSince.takeIf { r -> r > 0 } ?: it.startedAt) }
+            // My push still connects (its room isn't ready; 2026-11-27, hen): my pill in still dashes, no time.
+            val myConnecting = talk.own?.let { it.chat == user && it.connecting } == true
             // My push now is urgent (the red bell): "You · Urgent" in red, in the row and the floating window's.
             val myUrgent = talk.own?.let { it.chat == user && it.urgent } == true
             // Their voice turning into video: their pill stays a moment after the voice ends, so their video, starting
@@ -552,9 +563,11 @@ private fun ConversationScreenIn(
                     pretendMine == LiveKind.Voice -> GroupTalker(com.chencohen.ptt.ui.live.LiveLayout.MINE, "", me, false, mySinceNow, mine = true)
                     else -> null
                 }
-                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), myUrgent = myUrgent)
+                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) androidx.compose.runtime.CompositionLocalProvider(LocalMyPushConnecting provides myConnecting) {
+                    GroupLivePanel(heldTalkers(user, others + listOfNotNull(mine)), myUrgent = myUrgent)
+                }
             } else {
-                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) LivePanel(
+                if (!com.chencohen.ptt.ui.talk.LocalLiveInRows.current) androidx.compose.runtime.CompositionLocalProvider(LocalMyPushConnecting provides myConnecting) { LivePanel(
                     theirVideo, if (group != null) (theirs?.from ?: talker?.user) else null, theirSinceNow,
                     myPanel, mySinceNow,
                     handsFree,
@@ -564,7 +577,7 @@ private fun ConversationScreenIn(
                     behindMs = theirs?.behindMs,
                     voices = voicesNow,
                     myUrgent = myUrgent,
-                )
+                ) }
                 // Full screen (2026-11-27, hen: "'Full screen' is enough"): while their video or both of us are live; my
                 // push ends (full screen starts muted).
                 FullScreenChip((bothShown || theirVideo) && actions.fullScreen != null) {
@@ -1149,7 +1162,7 @@ private fun ConversationScreenIn(
                                     bubbleModifier = if (slot) Modifier.onGloballyPositioned { flight.to = androidx.compose.ui.geometry.Rect(it.positionInWindow(), androidx.compose.ui.geometry.Size(it.size.width.toFloat(), it.size.height.toFloat())) }.graphicsLayer { alpha = 0f }
                                     else Modifier.graphicsLayer { alpha = seeThrough },
                                     liveEdit = liveEdits[message.id]?.takeIf { System.currentTimeMillis() - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS },
-                                    startEdit = if (!slot && message.outgoing && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
+                                    startEdit = if (!slot && message.outgoing && message.media == null && message.clip == null && message.call == null && !message.deleted && canWrite && selected.isEmpty()) { offset, width -> edits.start(Editing(message.id, message.body, offset, width)) } else null,
                                     doubleTap = if (message.clip?.video == true && selected.isEmpty()) { { actions.playClip(message.id) } } else null,
                                     selected = message.id in selected,
                                     select = { if (message.id in selected) selected.remove(message.id) else selected.add(message.id) },
@@ -1444,6 +1457,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
+    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach,
 )
 
 
@@ -1700,6 +1714,14 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     /** Mine, in Send's slot while the draft flies into it: shown as still on its way, so what came meanwhile is seen once it lands. */
     held: Boolean = false,
 ) {
+    // Shared media (2026-11-28, hen): as wide as the screen, outside a bubble.
+    if (message.media != null && !message.deleted) {
+        Box(Modifier.fillMaxWidth().bleed(12.dp).background(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent)) {
+            com.chencohen.ptt.ui.media.MediaMessage(message, actions.mediaPreview, actions.openMedia, actions.retry, select = select, selecting = selecting)
+        }
+        if (message.reactions.isNotEmpty()) com.chencohen.ptt.ui.face.Reactions(message.reactions, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+        return
+    }
     var bubbleWidth by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     // Where the text lies in the bubble and its layout: a double tap anywhere on the bubble finds its character.
     val textPlace = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(2) }

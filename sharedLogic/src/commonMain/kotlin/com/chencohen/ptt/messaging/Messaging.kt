@@ -51,6 +51,11 @@ data class MessagingState(
     val linkedDevice: Int? = null,
     /** Contacts online now, or when last seen, by user (presence; only contacts who show theirs). */
     val presence: Map<String, UserPresence> = emptyMap(),
+    /**
+     * Whether each contact can hear a push, as shown (SteadyHear: a change shows once it held 2 s; 2026-11-27, hen:
+     * the Do Not Disturb badge flickered while a phone kept reconnecting).
+     */
+    val hearShown: Map<String, com.chencohen.ptt.talk.Hear> = emptyMap(),
     /** Whether this phone's user can hear talk now (setHear; 2026-11-25, hen). */
     val hearNow: com.chencohen.ptt.talk.Hear = com.chencohen.ptt.talk.Hear.OK,
     /** Contacts typing to this user now: until when, milliseconds since 1970. */
@@ -404,6 +409,7 @@ internal class Messaging(
     private val onRevoked: () -> Unit = {},
     clipFiles: ClipFiles = MemoryClipFiles(),
     blobApi: BlobApi? = null,
+    mediaFiles: com.chencohen.ptt.media.MediaFiles = com.chencohen.ptt.media.MemoryMediaFiles(),
 ) {
     /** Android's notifications; set by the app. */
     var notifier: MessageNotifier? = null
@@ -682,6 +688,7 @@ internal class Messaging(
     private val sender: Sender = Sender(engine, api, socket::send, { settings.device })
 
     val groups: Groups = Groups(
+        acceptMedia = { m, d -> media.accept(m, d) },
         engine = engine, store = store, api = api, sender = sender, send = socket::send, scope = scope, now = now, random = random,
         me = ::device, publish = ::publish,
         onText = { group, message ->
@@ -785,6 +792,34 @@ internal class Messaging(
         awake = { foreground || stayConnected },
     ).also { it.hearNow = { hearNow } }
 
+    /** This phone's screen, physical pixels, short side first (the platform sets it): told to contacts (AboutContent). */
+    var screenWidthPx = 0
+    var screenHeightPx = 0
+
+    /** Shared pictures, videos and files (2026-11-28, hen). */
+    val media: com.chencohen.ptt.media.MediaSharing = com.chencohen.ptt.media.MediaSharing(
+        store = store, files = mediaFiles, blobs = blobs, random = random, now = now,
+        screens = ::screensIn, myScreen = { screenWidthPx }, publish = ::publish, newId = ::newId,
+    )
+
+    /** The screen widths of the phones that see [chat]: this phone's, and the contact's or each member's as told. */
+    private fun screensIn(chat: String): List<Int> {
+        val told = settings.contactScreens
+        val others = Group.idOf(chat)?.let { id -> store.group(id)?.readers?.map { it.user }.orEmpty() } ?: listOf(chat)
+        val me = device()?.user
+        return (others.filter { it != me }.map { told[it] ?: com.chencohen.ptt.media.PreviewSpec.DEFAULT_WIDTH } +
+            (screenWidthPx.takeIf { it > 0 } ?: com.chencohen.ptt.media.PreviewSpec.DEFAULT_WIDTH)).distinct()
+    }
+
+    /**
+     * Shares [sources] (content URIs the user picked or shared to Talk) in [chat]: read, previews made for the screens
+     * there, kept as messages and sent (uploaded first). Answers the messages.
+     */
+    suspend fun shareMedia(chat: String, sources: List<String>, caption: String): List<TextMessage> {
+        val messages = media.prepare(chat, sources, caption)
+        return messages.map { deliver(it) }
+    }
+
     val live: com.chencohen.ptt.talk.LiveTalk = com.chencohen.ptt.talk.LiveTalk(
         scope = scope,
         tokens = { peer, group -> api.talkToken(peer, group) },
@@ -841,6 +876,7 @@ internal class Messaging(
         // Live for exactly as long as they transmit (2026-11-25, hen): their beats, and their microphone going quiet.
         live.onBeat = { identity, burst -> talk.onBeat(identity, burst) }
         live.onStopped = { identity -> talk.onStopped(identity) }
+        live.onLost = { chat -> talk.onRoomLost(chat) }
         talk.sendVideo = { chat -> talkSettings().pushVideoFor(chat) }
         talk.clipUpload = { _ -> talkSettings().clipUpload }
         talk.keepsPush = { chat, video -> talkSettings().let { if (video) chat in it.keepVideo else chat in it.keepVoice } }
@@ -903,14 +939,16 @@ internal class Messaging(
     /** Tells each paired contact this phone's app version, when it isn't the one last told them. */
     internal fun shareAbout() {
         val version = appVersion.ifEmpty { return }
+        // The screen goes with it (2026-11-28): told again when either changes.
+        val said = if (screenWidthPx > 0) "$version|${screenWidthPx}x$screenHeightPx" else version
         val told = settings.versionToldTo
-        val contacts = store.contacts().filter { it.paired && !it.blocked && told[it.user] != version }
+        val contacts = store.contacts().filter { it.paired && !it.blocked && told[it.user] != said }
         if (contacts.isEmpty()) return
         scope.launch {
             for (c in contacts) {
                 try {
-                    sender.send(c.user, Content(about = AboutContent(version)), pushKind = PushKind.NONE)
-                    settings.versionToldTo = settings.versionToldTo + (c.user to version)
+                    sender.send(c.user, Content(about = AboutContent(version, screenWidthPx, screenHeightPx)), pushKind = PushKind.NONE)
+                    settings.versionToldTo = settings.versionToldTo + (c.user to said)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -920,7 +958,8 @@ internal class Messaging(
     }
 
     /** [user]'s phone [device] runs [version] (it said so now). */
-    internal fun takeAbout(user: String, device: Int, version: String) {
+    internal fun takeAbout(user: String, device: Int, version: String, screenWidth: Int = 0) {
+        if (screenWidth in 240..8192 && settings.contactScreens[user] != screenWidth) settings.contactScreens = settings.contactScreens + (user to screenWidth)
         val v = version.trim().take(32).ifEmpty { return }
         val all = settings.contactVersions
         val mine = all[user].orEmpty() + (device.toString() to listOf(v, now().toString()))
@@ -955,6 +994,23 @@ internal class Messaging(
      */
     suspend fun wake(limit: Long = 20_000) {
         if (foreground || device() == null) return
+        waking++
+        try {
+            wakeNow(limit)
+        } finally {
+            waking--
+        }
+    }
+
+    /**
+     * The wake-ups running now. A second push while one is still held (a burst playing, its reply time, a warm room)
+     * runs its own beside it and ends within seconds: it must not close the connection the first still uses
+     * (2026-11-27: a push to a connected phone that is slow to say it plays also sends it a talk push, so a run of
+     * pushes left a line of wake-ups, and each closed /ws and the next opened it again, 15 times in 25 seconds).
+     */
+    private var waking = 0
+
+    private suspend fun wakeNow(limit: Long) {
         open()
         kotlinx.coroutines.withTimeoutOrNull(limit) {
             socket.state.first { it is SocketState.Live || it is SocketState.Revoked || it is SocketState.Replaced }
@@ -978,6 +1034,8 @@ internal class Messaging(
         // Warmed (someone has this chat open): the connection and the room stay, quietly, until they leave it, its
         // refresh stops coming, or nobody talks for 10 minutes.
         while (!foreground && live.warmFor() > now()) kotlinx.coroutines.delay(1_000)
+        // Another wake-up still holds the connection: it closes it when it is done.
+        if (waking > 1) return
         host?.warm(null, false)
         if (!foreground && !stayConnected) socket.stop()
     }
@@ -1255,7 +1313,16 @@ internal class Messaging(
 
     private fun updatePresence(p: UserPresence) {
         _state.update { it.copy(presence = it.presence + (p.user to p)) }
+        val (shown, waiting) = steadyHear.offer(p.user, com.chencohen.ptt.talk.Hear.of(p.online, p.hear), now())
+        if (_state.value.hearShown[p.user] != shown) _state.update { it.copy(hearShown = it.hearShown + (p.user to shown)) }
+        if (waiting) scope.launch {
+            delay(com.chencohen.ptt.talk.SteadyHear.HOLD_MS)
+            val settled = steadyHear.settle(p.user, now()) ?: return@launch
+            if (_state.value.hearShown[p.user] != settled) _state.update { it.copy(hearShown = it.hearShown + (p.user to settled)) }
+        }
     }
+
+    private val steadyHear = com.chencohen.ptt.talk.SteadyHear()
 
     // --- Who can hear you (2026-11-25, hen) -------------------------------------------------------------------
 
@@ -2009,7 +2076,9 @@ internal class Messaging(
             return store.message(message.id) ?: message
         }
         val status = try {
-            val text = Content(text = TextContent(message.body, message.at, message.id, face = message.face))
+            // Shared media: its previews go up first (again after a broken upload), then the message that names them.
+            if (message.outgoing && message.media != null) media.upload(message)
+            val text = Content(text = TextContent(message.body, message.at, message.id, face = message.face), media = message.media)
             val group = Group.idOf(message.user)
             if (group != null) groups.send(group, text, PushKind.MESSAGE) else sender.send(message.user, text, pushKind = PushKind.MESSAGE)
             MessageStatus.SENT
@@ -2019,6 +2088,11 @@ internal class Messaging(
             MessageStatus.PENDING
         } catch (e: GroupUnavailableException) {
             MessageStatus.FAILED
+        } catch (e: com.chencohen.ptt.media.MissingPreviewException) {
+            MessageStatus.FAILED
+        } catch (e: BlobException) {
+            // Refused for good (not allowed now, too big); otherwise (no network, the server down) tried again later.
+            if (e.status in 400..499 && e.status != 408 && e.status != 409 && e.status != 429) MessageStatus.FAILED else MessageStatus.PENDING
         } catch (e: SendRefusedException) {
             if (e.status == com.chencohen.ptt.relay.SendStatus.NOT_MEMBER || e.toPairingError() != PairingError.UNREACHABLE) MessageStatus.FAILED else MessageStatus.PENDING
         } catch (e: Exception) {
@@ -2465,7 +2539,7 @@ internal class Messaging(
             val to = content.destination.takeIf { it.isNotEmpty() } ?: return
             content.text?.let { text ->
                 val id = text.id.ifEmpty { envelope.id }
-                if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt, face = text.face))
+                if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt, face = text.face, media = media.accept(content.media, envelope.senderDevice)))
             }
             content.reaction?.let { takeReaction(to, null, it) }
             content.edit?.let { takeEdit(to, null, mine = true, it) }
@@ -2486,7 +2560,7 @@ internal class Messaging(
             val id = text.id.ifEmpty { envelope.id }
             if (store.message(id) != null) return
             val read = readsAtOnce(contact.user)
-            store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read, face = text.face))
+            store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read, face = text.face, media = media.accept(content.media, envelope.senderDevice)))
             _state.update { it.copy(typing = it.typing - contact.user, drafts = it.drafts - contact.user) }
             scope.launch {
                 sendReceipt(contact.user, read = false, listOf(id))
@@ -2536,7 +2610,7 @@ internal class Messaging(
             }
         }
         content.reaction?.let { takeReaction(contact.user, contact.user, it) }
-        content.about?.let { takeAbout(contact.user, envelope.senderDevice, it.version) }
+        content.about?.let { takeAbout(contact.user, envelope.senderDevice, it.version, it.screenWidthPx) }
         content.colors?.let { takeColors(contact.user, it) }
         content.profile?.let { profile ->
             if (profile.needPicture) {

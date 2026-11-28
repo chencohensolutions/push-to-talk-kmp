@@ -117,8 +117,27 @@ internal class FakeServer {
         groups.getValue(id).members += user
     }
 
+    /** The server has LiveKit beside it (serverInfo.liveTalk): talk rooms can be joined. */
+    var liveTalk = false
+
+    /** The next asks whether the server has live talk fail (the phone is offline, the server not found yet). */
+    var liveTalkFails = 0
+
     fun api(device: DeviceAddress): MessagingApi = object : MessagingApi {
         override suspend fun myIdentityKey(): ByteArray? = identityKeys[device.user]
+
+        override suspend fun liveTalk(): Boolean {
+            if (liveTalkFails > 0) {
+                liveTalkFails--
+                throw ApiException("NETWORK", "unreachable")
+            }
+            return liveTalk
+        }
+
+        override suspend fun talkToken(peer: String?, group: String?): LiveToken {
+            if (!liveTalk) throw ApiException("LIVE_OFF", "No live talk")
+            return LiveToken("t", "room", "${device.user}.${device.device}", "/rtc", "")
+        }
 
         override suspend fun uploadPrekeys(upload: PrekeyUpload): PrekeyCount {
             val held = identityKeys[device.user]

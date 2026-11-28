@@ -63,6 +63,8 @@ kotlin {
             // Silero VAD for hands-free bursts in the car on LiteRT from Google Play services (talk/SileroSpeechDetector.kt):
             // the runtime isn't bundled.
             implementation(libs.play.services.tflite.java)
+            // Shared media's previews (media/AndroidMediaPreparer.kt), JPEG XL; the app draws them with it too.
+            api(libs.jxl.coder)
         }
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)

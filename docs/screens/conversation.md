@@ -117,8 +117,10 @@ above it and scrolls behind nothing. On Send the message fills in at the end of 
 
 
 **The button row, on the screen itself** (2026-11-24, hen): laid out left to right the same in Hebrew and English, so
-the thumb finds it in one place: Voice message, then the big push-to-talk button near the right edge, both under the
-right thumb. No call buttons in the chat (2026-11-25, hen: "in chat screen, remove the video and voice call buttons"),
+the thumb finds it in one place: the big push-to-talk button near the right edge, under the right thumb, with a
+microphone on it (the bell while urgent). There is no Voice message button (2026-11-27, hen: "remove the microphone
+button, keep only the push to transmit button, use the mic icon for the main button"): its place on Push's left stays
+empty for the side target while Push is held. No call buttons in the chat (2026-11-25, hen: "in chat screen, remove the video and voice call buttons"),
 in the full chat and the floating chat alike: voice and video calls start from Talk mode's actions and from a call's
 row in the Calls tab ([calls.md](calls.md)).
 
@@ -274,6 +276,17 @@ comes after it is ignored (each live frame carries when it was written), so "Edi
   one line "You · 0:03". Both at once: two pills side by side, centred, theirs at the start side. In a group it is the
   floor holder's face and name. When one side is on video and the other on voice, the pill sits beside the video box,
   top-aligned. Voice turning into video: the pill itself grows into the box (above), here and in the floating window.
+  **Still connecting** (2026-11-27, hen: "livekit only, show connection indication without words, only visual", in
+  the pill, "not spinning, something with less movement"): a push pressed before the chat's room is ready (right
+  after the chat opens, the floating window, the Talk tab) isn't live yet, and nothing is sent. My pill comes down at
+  once all the same, but in still grey dashes: its outline (6 dp of every 11) and the ring round my face (twelve
+  dashes), "You" greyed, no time. The moment my voice is really going out the dashes lengthen until they meet (300 ms,
+  a morph like a message's dashed border, not a fade), take the coral colour, the ring glows with my voice and the
+  time starts from 0:00. Nothing turns or runs. A video push shows this pill too while it connects, and grows into
+  its box once live. Let go while connecting: the pill goes back up, nothing was sent. The room can't be reached
+  (10 s), or is lost during a push: the pill goes back up and the phone gives one short buzz; no words
+  (`OwnTalk.ROOM`). The same in the floating window's row and, as a small "You" chip in dashes, in the Talk tab's row
+  (`LocalMyPushConnecting`, `joiningBorder`; `LiveCell.connecting`, `GlowRing.connecting`).
   It goes back up under the header when the talking ends. The header's "talking" line is gone (the bar or the panel says it); the
   line under the header is kept only for the rest (busy, refused, offline, recording a voice message, my other phone).
 - **Not kept by default.** A push-to-talk burst stays in the chat as a voice or video message only when the chat's
@@ -557,3 +570,19 @@ everyone goes back. It stays on this phone (not synced: each phone and theme dif
 
 In a group the sender's name is inside their bubble, at its top, and only on the first of their messages in a row,
 until someone else's comes; the bubble's time is in the same colour as the name (2026-11-27, hen).
+
+## Shared pictures, videos and files (2026-11-28, hen; being built)
+
+`ui/media/MediaInChat.kt`. Shared media isn't in a bubble: each picture or video is as wide as the screen (out through
+the chat's side padding), in its own shape (kept between 0.4 and 3 wide to high), drawn from its JPEG XL preview made
+for this screen's width. Over its bottom edge, small dark chips: at the start when it was taken (and, next, the place's
+name) and a video's length; at the end the time it was sent, orange when it failed (a tap tries again). A video shows its
+first picture with a Play circle until its own preview is built. A caption comes under them in a bubble of its own; a
+file is a bubble with its name, its size and the time. A long press selects it, as any message; a tap will open the
+viewer. Until the preview is there (downloading, or fetched again after the cache was cleared), the picture's shape is
+held in the Raised colour, so nothing moves when it comes.
+
+**The + button** (left of Voice message in the bottom row, hidden while Push is held or hands-free): Gallery picks
+pictures and videos in Samsung's Gallery (Android's photo picker on phones without it), File picks files (Open
+document, kept readable). What is picked is shared in this chat at once. The first time, Android asks for the phone's
+pictures and videos and their places: the original is read again from there when someone opens it.

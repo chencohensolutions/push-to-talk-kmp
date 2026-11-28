@@ -44,10 +44,13 @@ import kotlin.random.Random
 
 /** Where this phone's own talking stands. */
 enum class TalkPhase {
-    /** Recording; waiting for the server to give the floor. */
+    /**
+     * Pressed, not live yet: the chat's room is being joined, or the server is asked for the floor. Shown as
+     * connecting, without words (2026-11-27, hen); what is said meanwhile isn't sent.
+     */
     REQUESTING,
 
-    /** The floor is this phone's: what it records goes out live. */
+    /** The floor is this phone's and its voice is going out live. */
     TALKING,
 
     /** Someone else holds the floor ([OwnTalk.busyWith]); nothing was sent. */
@@ -76,8 +79,17 @@ data class OwnTalk(
     /** An urgent push (2026-11-25, hen: the red bell). */
     val urgent: Boolean = false,
 ) {
+    /**
+     * Pressed before the chat's room could take it: the room is being joined, and nothing is recorded or sent yet
+     * (Talk.connect). Shown as connecting, without words; never as live.
+     */
+    val connecting: Boolean get() = phase == TalkPhase.REQUESTING && clip.isEmpty()
+
     companion object {
         const val MIC = -1
+
+        /** The chat's room couldn't be reached for the press, or was lost under it: nothing more of it goes out. */
+        const val ROOM = -2
     }
 }
 
@@ -276,7 +288,15 @@ internal class Talk(
         data object End : Captured
     }
 
-    private inner class Outgoing(val chat: String, val voiceOnly: Boolean) {
+    /**
+     * A press waiting for its chat's room (LiveKit only; 2026-11-27, hen: "livekit only, show connection indication"):
+     * nothing is recorded or sent until the room has its microphone, and the press begins there if still held.
+     */
+    private class Connecting(val chat: String, val video: Boolean?, var urgent: Boolean)
+
+    private var connecting: Connecting? = null
+
+    private inner class Outgoing(val chat: String, val voiceOnly: Boolean, val roomMode: Boolean) {
         val id = newClipId()
         val key = random.nextBytes(ClipCrypto.KEY_BYTES)
         var startedAt = now()
@@ -304,6 +324,11 @@ internal class Talk(
         var holdClip = false
         /** Into the room only: the server's recorder keeps it for whoever is away (no clip upload at all). */
         var roomOnly = false
+        /**
+         * [roomMode]: whether this press went live in the chat's room (LiveTalk.talking's answer). The floor is asked
+         * for only once it did; one that didn't ends there, with nothing sent or kept (2026-11-27, hen: LiveKit only).
+         */
+        val room = kotlinx.coroutines.CompletableDeferred<Boolean>()
         /** Still this phone's live press: the room's microphone may come on for it. */
         fun liveNow() = outgoing === this && !released
         var consumer: Job? = null
@@ -330,6 +355,11 @@ internal class Talk(
      * the clip say so from here. True when a press is going on.
      */
     fun markUrgent(): Boolean {
+        connecting?.let { c ->
+            c.urgent = true
+            _state.update { s -> s.copy(own = s.own?.takeIf { it.chat == c.chat && it.clip.isEmpty() }?.copy(urgent = true) ?: s.own) }
+            return true
+        }
         val out = outgoing?.takeIf { !it.voiceOnly } ?: return false
         if (out.urgent) return true
         out.urgent = true
@@ -351,13 +381,21 @@ internal class Talk(
     /** The composer's microphone went down: a voice message, without the floor. */
     fun startVoice(chat: String) = begin(chat, voiceOnly = true)
 
-    private fun begin(chat: String, voiceOnly: Boolean, video: Boolean? = null, urgent: Boolean = false) {
-        if (outgoing != null) return
+    private fun begin(chat: String, voiceOnly: Boolean, video: Boolean? = null, urgent: Boolean = false, waited: Boolean = false) {
+        if (outgoing != null || connecting != null) return
         // Never taken from a call or another app (2026-11-25, hen: "don't hijack it"): refused, so nothing looks live.
         if (micBusy()) return refuse(chat, OwnTalk.MIC)
+        // In the conversation's room with its microphone track there (published, muted): this press can go live in
+        // the room at once, by an unmute.
+        val roomReady = !voiceOnly && live?.captureFor(chat) != null
+        // Into the room only (2026-11-27, hen: "livekit only"): the server's recorder keeps it for whoever is away,
+        // and nothing is uploaded. A press before the room is ready waits for it, shown as connecting ([connect]).
+        // Not with the old clip upload turned on, or a server without live talk.
+        val roomMode = !voiceOnly && live?.takesVoice == true && !clipUpload(chat)
+        if (roomMode && !roomReady) return if (waited) refuse(chat, OwnTalk.ROOM) else connect(chat, video, urgent)
         // In the conversation's room, the room's microphone feeds the clip too.
         val mic = captureOverride ?: (if (voiceOnly) null else live?.captureFor(chat)) ?: capture ?: return refuse(chat, OwnTalk.MIC)
-        val out = Outgoing(chat, voiceOnly)
+        val out = Outgoing(chat, voiceOnly, roomMode)
         out.urgent = urgent && !voiceOnly
         out.mic = mic
         // One to one, both talk at once: what they say now goes on playing while I talk (2026-11-25, hen). Anything
@@ -385,7 +423,31 @@ internal class Talk(
         if (!voiceOnly) {
             live?.burst(chat, null)
             // The live path doesn't wait for the grant; a Busy stops it again.
-            scope.launch { live?.talking(chat, true, out.video) { out.liveNow() } }
+            scope.launch {
+                if (out.roomMode) {
+                    // The unmute, at once; the floor is asked for when it took (below).
+                    val inRoom = try {
+                        live?.talking(chat, true, out.video) { out.liveNow() } == true
+                    } catch (e: CancellationException) {
+                        out.room.complete(false)
+                        throw e
+                    } catch (_: Exception) {
+                        false
+                    }
+                    out.room.complete(inRoom)
+                } else if (roomReady || out.video) {
+                    // The old clip upload: the clip goes from the moment before the press whatever the room does. A
+                    // room that can't take the press at once (not joined yet, no microphone track) doesn't get its
+                    // voice late: a listener who then heard it live would have missed what was said before. A video
+                    // burst's pictures still go through the room once it is joined.
+                    try {
+                        live?.talking(chat, true, out.video) { out.liveNow() }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                    }
+                }
+            }
         }
         // My last burst may still be letting go of its floor (its last segments going up, its end not sent yet): a
         // hands-free renewal, or the floating window taking over from the chat. Each talker has one floor per chat, so
@@ -402,10 +464,19 @@ internal class Talk(
             if (connected()) {
                 scope.launch {
                     if (before != null) withTimeoutOrNull(PREVIOUS_END_WAIT) { before.join() }
+                    // Into the room only: the floor is asked for once the voice is live there, so the others are
+                    // never told of a push that reaches nobody.
+                    val inRoom = !out.roomMode || out.room.await()
                     if (outgoing !== out || out.released) {
                         // Let go before it was even asked for: nothing went out, nothing is kept.
                         out.decided = true
                         finish(out)
+                        return@launch
+                    }
+                    if (!inRoom) {
+                        // The room didn't take it (lost just now, its microphone couldn't be had): the press ends,
+                        // shown as failed, with nothing sent or kept.
+                        lost(out, TalkPhase.REFUSED, refusal = OwnTalk.ROOM)
                         return@launch
                     }
                     if (!sendFrame(TalkStartFrame(talkStart(chat, out.id, out.urgent)))) {
@@ -443,8 +514,48 @@ internal class Talk(
         clearOwnLater()
     }
 
+    /**
+     * A press before its chat's room is ready (into the room only): shown as connecting while the room is joined and
+     * its microphone's track published, then begun like any press if the button is still held. Nothing is recorded
+     * meanwhile: what is said before it goes live isn't sent (2026-11-27, hen: no upload beside the room).
+     */
+    private fun connect(chat: String, video: Boolean?, urgent: Boolean) {
+        if (!connected()) {
+            _state.update { it.copy(own = OwnTalk(chat, "", TalkPhase.OFFLINE, now())) }
+            return clearOwnLater()
+        }
+        val waiting = Connecting(chat, video, urgent)
+        connecting = waiting
+        _state.update { it.copy(own = OwnTalk(chat, "", TalkPhase.REQUESTING, now(), urgent = urgent)) }
+        scope.launch {
+            val ready = try {
+                live?.readyForPress(chat) { connecting === waiting } == true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+            // Let go meanwhile (release): nothing was begun.
+            if (connecting !== waiting) return@launch
+            connecting = null
+            // Ready, or the server turned out to have no live talk (the first ask of this run): begun, by the room or
+            // by the old clip path. Else the room couldn't be reached: shown as failed, nothing sent.
+            if (ready || live?.takesVoice != true) begin(chat, voiceOnly = false, video = waiting.video, urgent = waiting.urgent, waited = true)
+            else refuse(chat, OwnTalk.ROOM)
+        }
+    }
+
+    /** A press is waiting for its room in [chat] (shown as connecting). */
+    val connectingIn: String? get() = connecting?.chat
+
     /** The button came up: the clip ends (and a voice message is sent, unless [send] is false: cancelled). */
     fun release(send: Boolean = true) {
+        connecting?.let { c ->
+            // Let go while still connecting: nothing was recorded or sent.
+            connecting = null
+            _state.update { s -> if (s.own?.let { it.chat == c.chat && it.clip.isEmpty() && it.phase == TalkPhase.REQUESTING } == true) s.copy(own = null) else s }
+            return
+        }
         val out = outgoing ?: return
         out.released = true
         if (!send) out.cancelled = true
@@ -492,6 +603,8 @@ internal class Talk(
         out.pendingAudio = 0
         if (out.voiceOnly || out.phase == TalkPhase.OFFLINE || out.cancelled) return
         out.unsent += segment
+        // The room stopped taking it (lost, left): the press ends here; what went into the room is the push.
+        if (out.roomOnly && !out.released && live?.sendingLive(out.chat) != true) return roomLost(out)
         // Someone stopped hearing it live (left the room, the room failed): the clip goes now, from its start.
         if (out.holdClip && !out.roomOnly && live?.allHearing(out.chat, out.video) != true) out.holdClip = false
         if (out.granted && !out.holdClip) drain(out)
@@ -526,6 +639,23 @@ internal class Talk(
             return
         }
         lost(out, TalkPhase.OFFLINE)
+    }
+
+    /**
+     * [chat]'s room was lost under this phone (LiveTalk.onLost). A press going into it ends there, shown as failed
+     * (the button falls back, without words), so the screen never shows live with nothing going out; what went into
+     * the room until then is the push. A press still connecting goes on waiting: the room is asked for again.
+     */
+    fun onRoomLost(chat: String) {
+        val out = outgoing?.takeIf { it.chat == chat && it.roomMode } ?: return
+        scope.launch { roomLost(out) }
+    }
+
+    private fun roomLost(out: Outgoing) {
+        if (outgoing !== out || out.released) return
+        release()
+        _state.update { it.copy(own = OwnTalk(out.chat, "", TalkPhase.REFUSED, now(), refusal = OwnTalk.ROOM, urgent = out.urgent)) }
+        clearOwnLater()
     }
 
     private suspend fun finish(out: Outgoing) {
@@ -626,8 +756,9 @@ internal class Talk(
             )
         )
         publish()
-        // Into the room only (the server buffer keeps it for whoever is away), unless the old clip upload is on.
-        if (live?.transport != null && !clipUpload(out.chat)) {
+        // Into the room only (the server buffer keeps it for whoever is away): its voice is live there already, and
+        // no clip goes up. The old clip upload, when on, goes as it did.
+        if (out.roomMode) {
             out.holdClip = true
             out.roomOnly = true
         } else if (!keepsPush(out.chat, out.video) && live != null) out.holdClip = true
@@ -769,6 +900,8 @@ internal class Talk(
                     val talker = chat?.let { c -> _state.value.talking[c]?.firstOrNull { it.clip == id } }
                     signs.forget(id)
                     if (chat != null && talker != null) loseTheirs(chat, talker)
+                    // Off the live row already (its floor went stale): its playback still mustn't stay live.
+                    else bursts[id]?.takeIf { !it.ended }?.let { endTheirs(it.chat, id) }
                 }
             }
         }
@@ -898,6 +1031,14 @@ internal class Talk(
         var playing = false
         var play = false
         var decidedPlay = false
+        /**
+         * Waiting to know how it is heard here, live in the room or by its clip ([consider]): its segments wait
+         * unplayed until then. They used to be taken, unplayed, while it waited, and a clip that then played began
+         * after them: its first words were missing (2026-11-27).
+         */
+        var deciding = false
+        /** This phone told the server it has the burst (TalkAck). */
+        var acked = false
         var playback: Playback? = null
         var fetch: Job? = null
         var sentAt = 0L
@@ -916,6 +1057,14 @@ internal class Talk(
         var told = 0
         val splitter = TalkVideo.Splitter()
         val createdAt = now()
+        /** When its last segment came here (live or fetched); 0 before any. Beats count through [signs]. */
+        var lastSign = 0L
+            set(value) {
+                field = value
+                if (playing) watchPlayback(this)
+            }
+        /** The check that ends its live playback when nothing more of it comes ([watchPlayback]). */
+        var quiet: Job? = null
     }
 
     private val bursts = mutableMapOf<String, Incoming>()
@@ -1074,6 +1223,7 @@ internal class Talk(
         // start the watch: off the room the server's own end comes within 3 s of the talker's connection closing.
         if (live && segment.burstId in cleared) alive(segment.burstId)
         val burst = bursts[segment.burstId] ?: if (live) incoming(segment.burstId, "", "") else return
+        burst.lastSign = now()
         if (segment.index < burst.next || burst.segments.containsKey(segment.index)) return
         if (burst.lastIndex != null && segment.index > burst.lastIndex!!) return
         if (burst.segments.size > MAX_BUFFERED) return
@@ -1206,12 +1356,23 @@ internal class Talk(
             // Off screen, the talk session or Talk ready comes first, before any of it plays (2026-11-27: Android mutes
             // an app's sound in the background without one, "AudioHardening background playback muted"; it was asked
             // only once the room's audio was already playing).
+            burst.deciding = true
             prepared = if (!awake()) runCatching { host?.prepareToPlay(burst.chat, burst.from) }.getOrNull() else null
             var waited = 0L
-            while (live?.hearsLive(burst.chat, identity) != true && waited < LIVE_WAIT) {
-                delay(50)
-                waited += 50
+            // Their phone is in the room: their voice is on its way, or their clip is (a press the room didn't take).
+            // LIVE_WAIT for the voice; past it, whichever comes first, as long as nothing has. The voice used to be
+            // silenced for good at LIVE_WAIT, with nothing to play instead when the push went into the room only: a
+            // talker whose microphone opened a little late wasn't heard at all (2026-11-27).
+            // Not in the room: nothing to wait for, their clip plays.
+            if (live?.inRoomWith(burst.chat, burst.from) == true) {
+                while (live?.hearsLive(burst.chat, identity) != true && !burst.ended && (waited < LIVE_WAIT || burst.segments.isEmpty() && waited < LIVE_OR_CLIP_WAIT)) {
+                    delay(50)
+                    waited += 50
+                    // Here and waiting for it: said by LIVE_WAIT, so the server doesn't wake this phone by FCM.
+                    if (waited >= LIVE_WAIT && !burst.acked) ack(burst)
+                }
             }
+            burst.deciding = false
             if (live?.hearsLive(burst.chat, identity) == true) {
                 burst.heardLive = true
                 live?.heard(waited)
@@ -1222,10 +1383,11 @@ internal class Talk(
                 // Talk ready for its sound, the floating window) (2026-11-25, hen: "i didn't see the testbot push").
                 if (!awake() && prepared == null) runCatching { host?.prepareToPlay(burst.chat, burst.from) }
                 if (burst.video) videoOut?.begin(burst.id)
-                sendFrame(TalkAckFrame(TalkAck(burst.id)))
+                ack(burst)
                 return drain(burst)
             }
-            live?.silence(burst.chat, identity)
+            // Its clip plays instead; nothing came at all (it ended first): nothing is silenced.
+            if (burst.segments.isNotEmpty() || live?.inRoomWith(burst.chat, burst.from) != true) live?.silence(burst.chat, identity)
         }
         when {
             !fresh -> {
@@ -1237,14 +1399,29 @@ internal class Talk(
             prefs.notifyOnly(burst.chat) -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
             // Already readied above, for the room's audio: not asked twice (a second talk session).
             prepared == true -> burst.play = true
-            host?.prepareToPlay(burst.chat, burst.from) == true -> burst.play = true
-            else -> host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
+            else -> {
+                // Readying to play off screen takes a while (a talk session: seconds): what comes meanwhile waits.
+                burst.deciding = true
+                val ready = try {
+                    host?.prepareToPlay(burst.chat, burst.from) == true
+                } finally {
+                    burst.deciding = false
+                }
+                if (ready) burst.play = true else host?.talkNotify(burst.chat, burst.from, burst.id, burst.video, 0)
+            }
         }
         if (!burst.play) return drain(burst)
-        if (burst.announced) sendFrame(TalkAckFrame(TalkAck(burst.id)))
+        if (burst.announced) ack(burst)
         // Woken, or late: nothing forwarded comes, so read the server's copy from its start.
         if (!burst.announced || burst.ended) follow(burst)
         enqueue(burst)
+    }
+
+    /** Tells the server this phone has [burst] (it plays or hears it): no FCM wake for it. Once. */
+    private suspend fun ack(burst: Incoming) {
+        if (burst.acked) return
+        burst.acked = true
+        sendFrame(TalkAckFrame(TalkAck(burst.id)))
     }
 
     private fun follow(burst: Incoming) {
@@ -1287,13 +1464,42 @@ internal class Talk(
             onDone = { scope.launch { done(burst.id) } },
         )
         drain(burst)
+        watchPlayback(burst)
+    }
+
+    /**
+     * Someone's push playing live here ends when nothing of it comes for TalkBeat.LOST_MS (2026-11-27, hen: Sharon's
+     * pill stayed "talking" and its time kept counting after she let go): no segment, no beat, and its floor not listed
+     * any more (or never said to have ended). What was buffered still plays; then it stops, as if its end had come.
+     */
+    private fun watchPlayback(burst: Incoming) {
+        // One check, TalkBeat.LOST_MS after its last sign; each new sign starts it again (no loop left running).
+        burst.quiet?.cancel()
+        burst.quiet = scope.launch {
+            delay(TalkBeat.LOST_MS + WATCH_EVERY)
+            if (!burst.playing || _state.value.playing?.let { it.clip == burst.id && it.live } != true) return@launch
+            if (burst.kept || burst.lastIndex != null) return@launch
+            // Only a push that was coming here (a talker heard only in the room has no sign: left to its floor's end).
+            if (burst.lastSign == 0L || now() - burst.lastSign < TalkBeat.LOST_MS) return@launch
+            // Still listed with a fresh beat (a silent hold in the room): not over.
+            val listed = _state.value.talking.values.any { list -> list.any { it.clip == burst.id } } &&
+                signs.freshWithin(TalkBeat.LOST_MS).contains(burst.id)
+            if (listed) {
+                watchPlayback(burst)
+                return@launch
+            }
+            if (!burst.ended) endTheirs(burst.chat, burst.id)
+            burst.fetch?.cancel()
+            burst.lastIndex = maxOf(burst.next - 1, burst.segments.keys.maxOrNull() ?: -1)
+            if (burst.key == null) burst.playback?.finish() else drain(burst)
+        }
     }
 
     /** Plays what can be played of [burst], in order; keeps the clip once it is whole. */
     private fun drain(burst: Incoming) {
         val key = burst.key ?: return
         // Waiting its turn to play (or for the decision): its segments wait too.
-        if ((burst.play || !burst.decidedPlay) && !burst.playing) return
+        if ((burst.play || !burst.decidedPlay || burst.deciding) && !burst.playing) return
         while (true) {
             val segment = burst.segments[burst.next] ?: break
             val packets = ClipCrypto.open(key, burst.id, segment.index, segment.last, segment.ciphertext)
@@ -1450,7 +1656,7 @@ internal class Talk(
     val busy: Boolean
         get() {
             val s = _state.value
-            return s.playing != null || s.queued.isNotEmpty() || outgoing != null || s.talkers.isNotEmpty() ||
+            return s.playing != null || s.queued.isNotEmpty() || outgoing != null || connecting != null || s.talkers.isNotEmpty() ||
                 bursts.values.any { it.play && !it.kept && now() - it.createdAt < KEEP_BURST }
         }
 
@@ -1520,6 +1726,12 @@ internal class Talk(
 
         /** How long a phone in the room waits at a STARTED for the talker's live audio before it plays the clip. */
         const val LIVE_WAIT = 400L
+
+        /**
+         * How long a burst whose talker is in the room, with neither their voice nor a clip segment here yet, is waited
+         * for before it is given up on: the longest a floor lasts.
+         */
+        const val LIVE_OR_CLIP_WAIT = 60_000L
 
         /** How many segments past the next one to play mean some were missed. */
         const val GAP = 2
