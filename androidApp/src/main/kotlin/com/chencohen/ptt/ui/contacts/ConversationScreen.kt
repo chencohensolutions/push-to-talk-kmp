@@ -163,6 +163,8 @@ class ConversationActions(
     val handOver: ((video: Boolean, urgent: Boolean) -> Boolean)? = null,
     /** Shared media's preview for this screen (2026-11-28, hen): opened, or null when it can't be had now. */
     val mediaPreview: suspend (messageId: String, itemId: String) -> ByteArray? = { _, _ -> null },
+    /** Sets the words above item itemId of my message (after sending: a quiet edit). */
+    val mediaText: (messageId: String, itemId: String, text: String) -> Unit = { _, _, _ -> },
     /** A video's clip (its 1080p HEVC preview, an MP4), opened; null: none, or can't be had now. */
     val mediaClip: suspend (messageId: String, itemId: String) -> ByteArray? = { _, _ -> null },
     /** A shared picture or video tapped: the viewer (its original comes with it). */
@@ -1506,7 +1508,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
-    mediaPreview = a.mediaPreview, mediaClip = a.mediaClip, openMedia = a.openMedia, attach = a.attach, camera = a.camera, mediaDraft = a.mediaDraft, mediaCaption = a.mediaCaption, uploads = a.uploads, transfers = a.transfers, encoding = a.encoding,
+    mediaPreview = a.mediaPreview, mediaClip = a.mediaClip, mediaText = a.mediaText, openMedia = a.openMedia, attach = a.attach, camera = a.camera, mediaDraft = a.mediaDraft, mediaCaption = a.mediaCaption, uploads = a.uploads, transfers = a.transfers, encoding = a.encoding,
 )
 
 
@@ -1857,6 +1859,8 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 editChange = mediaEdit?.change ?: {},
                 editDone = mediaEdit?.done ?: {},
                 editGone = mediaEdit?.gone ?: {},
+                texting = selected && message.outgoing,
+                setText = { itemId, text -> actions.mediaText(message.id, itemId, text) },
             ) }
         }
         if (message.reactions.isNotEmpty()) com.chencohen.ptt.ui.face.Reactions(message.reactions, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))

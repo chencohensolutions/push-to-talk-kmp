@@ -213,8 +213,13 @@ internal fun MediaMessage(
     editChange: (androidx.compose.ui.text.input.TextFieldValue) -> Unit = {},
     editDone: (save: Boolean) -> Unit = {},
     editGone: () -> Unit = {},
+    /** Mine, selected by a long press: Aa on each picture and video, to write the words above it (2026-11-28, hen). */
+    texting: Boolean = false,
+    setText: (itemId: String, text: String) -> Unit = { _, _ -> },
 ) {
     val media = message.media ?: return
+    // The item whose words above it are being written now (after Aa), and what is written so far.
+    var writing by remember(message.id) { mutableStateOf<String?>(null) }
     val mine = message.outgoing
     val failed = mine && message.status == MessageStatus.FAILED
     val time = remember(message.at) { DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at)) }
@@ -258,13 +263,24 @@ internal fun MediaMessage(
                 PictureNote(change, color = muted)
             }
             // Words written above this picture, in a strip of the bubble (2026-11-28, hen: "add text above any image").
-            if (item.text.isNotBlank()) {
+            if (writing == item.id) {
+                Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
+                    TextAbove(item.text, ink) { save, text ->
+                        writing = null
+                        if (save) setText(item.id, text)
+                    }
+                }
+            } else if (item.text.isNotBlank()) {
                 Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
                     Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
                 }
             } else if (index > 0 && change == null) Spacer(Modifier.height(2.dp))
             when (item.kind) {
-                MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = select) {
+                MediaKind.IMAGE, MediaKind.VIDEO -> Picture(
+                    message, item, preview, select = select,
+                    // Aa writes above it; the selection ends so the keyboard and taps belong to the words.
+                    words = if (texting && mine && !media.quiet) ({ writing = item.id; select?.invoke(); Unit }) else null,
+                ) {
                     when {
                         selecting && select != null -> select()
                         failed -> retry(message.id)
@@ -473,7 +489,7 @@ private suspend fun placeName(context: android.content.Context, lat: Double, lon
 
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-internal fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, select: (() -> Unit)?, onClick: () -> Unit) {
+internal fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, select: (() -> Unit)?, words: (() -> Unit)? = null, onClick: () -> Unit) {
     val key = "${message.id}/${item.id}"
     val drawnAs = drawnKey(message.id, item)
     // A new key (a new composition's preview) keeps the state, not its first value: the old picture shows until the
@@ -560,6 +576,15 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
                 },
             )
         }
+        // Aa: write the words above it (my message, selected).
+        words?.let { write ->
+            val label = stringResource(R.string.media_text_above)
+            Box(
+                Modifier.align(Alignment.TopStart).padding(8.dp).size(36.dp).clip(CircleShape).background(Color(0x99000000))
+                    .clickable(onClickLabel = label, onClick = write).semantics { contentDescription = label },
+                contentAlignment = Alignment.Center,
+            ) { Text("Aa", color = Color.White, style = LibraryType.Tiny) }
+        }
         // A video's length (when it was taken is on the top half bubble, the time it was sent on the bottom one).
         item.durationMs.takeIf { it > 0 }?.let { Box(Modifier.align(Alignment.BottomStart).padding(8.dp)) { Chip(com.chencohen.ptt.ui.talk.clipLength(it)) } }
     }
@@ -627,6 +652,36 @@ private fun androidx.compose.foundation.layout.BoxScope.ClipInChat(messageId: St
         ) {
             Icon(if (sound) LibraryIcons.Speaker else LibraryIcons.SpeakerOff, null, tint = Color.White, modifier = Modifier.size(18.dp))
         }
+    }
+}
+
+/**
+ * The words above a picture or video of my sent message, written in place (2026-11-28, hen): the field with the caret
+ * at their end, ✓ saves (empty takes them off), ✕ leaves them as they were.
+ */
+@Composable
+private fun TextAbove(was: String, ink: Color, done: (save: Boolean, text: String) -> Unit) {
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var value by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(was, androidx.compose.ui.text.TextRange(was.length))) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) {
+            if (value.text.isEmpty()) Text(stringResource(R.string.media_text_above_hint), color = ink.copy(alpha = 0.6f), style = LibraryType.Message)
+            androidx.compose.foundation.text.BasicTextField(
+                value = value, onValueChange = { value = it.copy(text = it.text.take(2_000)) },
+                textStyle = LibraryType.Message.copy(color = ink), cursorBrush = androidx.compose.ui.graphics.SolidColor(ink), maxLines = 6,
+                modifier = Modifier.fillMaxWidth().focusRequester(focus),
+            )
+        }
+        val cancel = stringResource(R.string.media_draft_remove)
+        Box(Modifier.size(36.dp).clip(CircleShape).clickable(onClickLabel = cancel) { done(false, was) }, contentAlignment = Alignment.Center) {
+            Icon(LibraryIcons.Close, cancel, tint = ink, modifier = Modifier.size(16.dp))
+        }
+        val save = stringResource(R.string.chat_edit_save)
+        Box(
+            Modifier.size(28.dp).clip(CircleShape).background(LibraryColors.Writing, CircleShape).clickable(onClickLabel = save) { done(true, value.text) },
+            contentAlignment = Alignment.Center,
+        ) { Icon(LibraryIcons.Check, save, tint = Color.White, modifier = Modifier.size(14.dp)) }
     }
 }
 

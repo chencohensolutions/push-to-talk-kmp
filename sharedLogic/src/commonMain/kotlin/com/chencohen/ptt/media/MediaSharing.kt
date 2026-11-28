@@ -546,7 +546,16 @@ internal class MediaSharing(
         val media = message.media ?: return false
         val item = media.items.firstOrNull { it.id == edit.id } ?: return false
         // Only the message's own author edits it (takeEdit checks); the item's key stays the one it was sent with.
-        if (item.kind != com.chencohen.ptt.messaging.MediaKind.IMAGE || edit.kind != item.kind) return false
+        if (edit.kind != item.kind) return false
+        // Only its words above it (2026-11-28, hen: "add text to each image" after sending), a video's too.
+        if (edit.previews.map { it.blob } == item.previews.map { it.blob }) {
+            val words = edit.text.take(MAX_CAPTION)
+            if (words == item.text) return false
+            store.putMessage(message.copy(media = media.copy(items = media.items.map { if (it.id == item.id) item.copy(text = words) else it })))
+            publish()
+            return true
+        }
+        if (item.kind != com.chencohen.ptt.messaging.MediaKind.IMAGE) return false
         val checked = accept(MediaContent(items = listOf(edit.copy(key = item.key))), item.originDevice)?.items?.singleOrNull() ?: return false
         if (checked.previews.isEmpty()) return false
         // Only its look changes: what it is (the original's size, hash, place, words) stays as it was sent.
@@ -556,6 +565,25 @@ internal class MediaSharing(
         val old = item.previews.map { it.blob }.filter { blob -> now.previews.none { it.blob == blob } }
         for (blob in old) if (!named(blob, message.id)) files.delete(blob)
         publish()
+        return true
+    }
+
+    /**
+     * Sets the words above item [itemId] of my message [messageId] (2026-11-28, hen: a long press shows Aa on each of a
+     * message's pictures and videos, "so i can add text to each image"): kept here and, once sent, told to the chat as
+     * a quiet edit (no notification). Empty takes them off. False: not mine, or gone.
+     */
+    suspend fun setText(messageId: String, itemId: String, text: String): Boolean {
+        val message = store.message(messageId)?.takeIf { it.outgoing && !it.deleted } ?: return false
+        val media = message.media ?: return false
+        val item = media.items.firstOrNull { it.id == itemId } ?: return false
+        val now = item.copy(text = text.trim().take(MAX_CAPTION))
+        if (now.text == item.text) return true
+        store.putMessage(message.copy(media = media.copy(items = media.items.map { if (it.id == itemId) now else it })))
+        publish()
+        // Not sent yet: the message goes with them.
+        if (message.status == MessageStatus.PENDING) return true
+        send(message.user, Content(edit = EditContent(messageId, editedAt = now(), item = now)), PushKind.SYNC, "")
         return true
     }
 

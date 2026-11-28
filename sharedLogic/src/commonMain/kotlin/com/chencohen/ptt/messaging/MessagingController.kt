@@ -160,6 +160,11 @@ class MessagingController internal constructor(
      * New compositions for pictures of my messages (2026-11-28, hen), by (message id, item id), null: the whole
      * picture; [done] gets each item as it is now (the same one when it couldn't be changed), on the main thread.
      */
+    /** Sets the words above item [itemId] of my message [messageId] (sent: a quiet edit to the chat). */
+    fun setMediaText(messageId: String, itemId: String, text: String) {
+        scope.launch { withContext(work) { runCatching { messaging.setMediaText(messageId, itemId, text) } } }
+    }
+
     fun recrop(crops: Map<Pair<String, String>, CropContent?>, done: (List<Pair<String, AttachmentContent>>) -> Unit) {
         scope.launch {
             val out = withContext(work) {

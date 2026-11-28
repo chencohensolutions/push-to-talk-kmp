@@ -894,6 +894,9 @@ internal class Messaging(
      */
     suspend fun recrop(messageId: String, itemId: String, crop: CropContent?): AttachmentContent? = media.recrop(messageId, itemId, crop)
 
+    /** The words above item [itemId] of my message [messageId], set after sending (a quiet edit). */
+    suspend fun setMediaText(messageId: String, itemId: String, text: String): Boolean = media.setText(messageId, itemId, text)
+
     /** Sends a draft [draftMedia] made, with [caption]. */
     suspend fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), texts: Map<String, String> = emptyMap()): List<TextMessage> =
         media.keep(drafts, caption, removed, texts = texts).map { deliver(it) }
@@ -2754,7 +2757,7 @@ internal class Messaging(
         if (message == null) return
         when (edit.stage) {
             EditContent.FINAL -> {
-                // A picture's new composition (2026-11-28, hen): only its previews change.
+                // A picture's new composition, or the words above a picture or video (2026-11-28, hen).
                 if (edit.item != null) {
                     media.takeRecrop(message, edit.item)
                     return

@@ -594,7 +594,11 @@ on top, changes only", then "no chip, make the details above the image"): a pict
 above it, or taken 5 minutes or more after it, has what changed ("Jaffa · 21:05", the day too when that changed) in a
 strip of the bubble right above it (in the draft too); the others have none, and follow each other with a 2-dp gap. Words may be
 written above any picture (`AttachmentContent.text`, field 20; "Aa" on the picture in the draft opens a field in a strip
-above it), shown in a strip of the bubble above it; the caption stays under the last. The bottom one holds the caption
+above it), shown in a strip of the bubble above it; the caption stays under the last. After sending too (2026-11-28, hen:
+"when i long tap of an image the text icon appears on all images and videos of that message"): a long press on my
+picture message selects it and shows Aa on each of its pictures and videos; Aa ends the selection and opens the field
+in a strip above that one, ✓ saves (a quiet edit: `MediaSharing.setText`, `EditContent.item` with only its words
+changed, no notification), ✕ leaves it. The bottom one holds the caption
 and the time sent. Mine move as my text bubbles do: dashed while it goes, the dashes growing towards a whole line as
 the previews upload, whole on the server, filled once every phone has it; failed, the time turns red and a tap sends
 it again. While a picture's preview goes up to the server (mine, in the writing colour) or comes down from it (theirs, in

@@ -233,6 +233,24 @@ class MediaSharingTest {
     }
 
     @Test
+    fun wordsAboveEachPictureOrVideoCanBeSetAfterSending() = runTest {
+        val (_, hen, dana) = paired()
+        val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf("a", "video1"), "") }
+        advanceUntilIdle()
+        val message = sent.await().single()
+        val (picture, video) = message.media!!.items
+        assertTrue(hen.work.async { hen.messaging.setMediaText(message.id, video.id, "  the waves ") }.also { advanceUntilIdle() }.await())
+        assertTrue(hen.work.async { hen.messaging.setMediaText(message.id, picture.id, "the sea") }.also { advanceUntilIdle() }.await())
+        assertEquals(listOf("the sea", "the waves"), dana.store.message(message.id)!!.media!!.items.map { it.text })
+        assertEquals(listOf("the sea", "the waves"), hen.store.message(message.id)!!.media!!.items.map { it.text })
+        // Taken off again.
+        hen.work.async { hen.messaging.setMediaText(message.id, picture.id, "") }.also { advanceUntilIdle() }.await()
+        assertEquals("", dana.store.message(message.id)!!.media!!.items.first().text)
+        // Not on someone else's message.
+        assertFalse(dana.work.async { dana.messaging.setMediaText(message.id, picture.id, "mine") }.also { advanceUntilIdle() }.await())
+    }
+
+    @Test
     fun aDraftUploadsWhileWrittenAndGoesOnSend() = runTest {
         val (server, hen, dana) = paired()
         val draft = hen.work.async { hen.messaging.draftMedia("dana", listOf("a", "b")) }
