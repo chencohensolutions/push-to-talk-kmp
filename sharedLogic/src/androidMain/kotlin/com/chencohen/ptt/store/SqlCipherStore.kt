@@ -74,6 +74,13 @@ internal class SqlCipherStore(private val context: Context) : SecureStore {
             keys
         }
 
+    override fun entries(space: String): List<Pair<String, ByteArray>> =
+        db.rawQuery("SELECT k, v FROM kv WHERE space = ? ORDER BY k", arrayOf<String>(space)).use { c ->
+            val entries = ArrayList<Pair<String, ByteArray>>()
+            while (c.moveToNext()) entries += c.getString(0) to c.getBlob(1)
+            entries
+        }
+
     override fun clear(space: String) {
         db.delete("kv", "space = ?", arrayOf<String>(space))
     }

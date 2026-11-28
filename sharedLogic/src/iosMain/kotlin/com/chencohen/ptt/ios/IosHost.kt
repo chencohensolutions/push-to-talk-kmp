@@ -67,6 +67,9 @@ interface IosHost {
     fun trustCredential(challenge: NSURLAuthenticationChallenge): NSURLCredential?
 }
 
+/** One entry of the encrypted store: its key and its opened value. */
+class IosEntry(val key: String, val value: NSData)
+
 /** The encrypted store's one table of (space, key) → value, as SecureStore has it. Called on Messaging's thread only. */
 interface IosDb {
     fun get(space: String, key: String): NSData?
@@ -77,6 +80,9 @@ interface IosDb {
 
     /** The keys of [space], sorted. */
     fun keys(space: String): List<String>
+
+    /** Every key of [space] with its value, sorted by key, in one read (the chats' history at the start). */
+    fun entries(space: String): List<IosEntry>
 
     fun clear(space: String)
 

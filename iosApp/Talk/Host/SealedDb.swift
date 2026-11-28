@@ -116,6 +116,24 @@ final class SealedDb: NSObject, IosDb {
         return keys
     }
 
+    /// A whole space in one query: the chats' history when the app starts.
+    func entries(space: String) -> [IosEntry] {
+        guard let s = statement("SELECT k, v FROM kv WHERE space = ? ORDER BY k"), let sealing = self.key else { return [] }
+        sqlite3_bind_text(s, 1, space, -1, transient)
+        defer { sqlite3_reset(s) }
+        var entries: [IosEntry] = []
+        while sqlite3_step(s) == SQLITE_ROW {
+            let count = Int(sqlite3_column_bytes(s, 1))
+            guard let text = sqlite3_column_text(s, 0), count > 0, let bytes = sqlite3_column_blob(s, 1) else { continue }
+            let key = String(cString: text)
+            guard let box = try? AES.GCM.SealedBox(combined: Data(bytes: bytes, count: count)),
+                  let value = try? AES.GCM.open(box, using: sealing, authenticating: slot(space, key))
+            else { continue }
+            entries.append(IosEntry(key: key, value: value))
+        }
+        return entries
+    }
+
     func clear(space: String) {
         guard let s = statement("DELETE FROM kv WHERE space = ?") else { return }
         sqlite3_bind_text(s, 1, space, -1, transient)

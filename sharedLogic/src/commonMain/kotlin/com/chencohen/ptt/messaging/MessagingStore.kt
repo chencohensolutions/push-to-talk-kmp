@@ -306,12 +306,15 @@ internal class MessagingStore(val store: SecureStore) {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun <T> read(space: String, key: String, serializer: KSerializer<T>): T? =
-        store.get(space, key)?.let { runCatching { json.decodeFromString(serializer, it.decodeToString()) }.getOrNull() }
+        store.get(space, key)?.let { decode(serializer, it) }
 
     private fun <T> write(space: String, key: String, serializer: KSerializer<T>, value: T) =
         store.put(space, key, json.encodeToString(serializer, value).encodeToByteArray())
 
-    private fun <T> all(space: String, serializer: KSerializer<T>): List<T> = store.keys(space).mapNotNull { read(space, it, serializer) }
+    private fun <T> decode(serializer: KSerializer<T>, bytes: ByteArray): T? =
+        runCatching { json.decodeFromString(serializer, bytes.decodeToString()) }.getOrNull()
+
+    private fun <T> all(space: String, serializer: KSerializer<T>): List<T> = store.entries(space).mapNotNull { decode(serializer, it.second) }
 
     var meta: Meta
         get() = read(Spaces.META, "meta", Meta.serializer()) ?: Meta()
@@ -373,7 +376,8 @@ internal class MessagingStore(val store: SecureStore) {
 
     private fun cache(): MutableMap<String, TextMessage> = messageCache ?: run {
         val loaded = mutableMapOf<String, TextMessage>()
-        store.keys(Spaces.MESSAGES).forEach { key -> read(Spaces.MESSAGES, key, TextMessage.serializer())?.let { loaded[key] = it } }
+        // The whole history in one read of the store (a query per message made a long history slow to open).
+        store.entries(Spaces.MESSAGES).forEach { (key, bytes) -> decode(TextMessage.serializer(), bytes)?.let { loaded[key] = it } }
         keyById.clear()
         keysByUser.clear()
         listByUser.clear()

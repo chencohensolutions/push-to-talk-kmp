@@ -17,6 +17,8 @@ internal class IosSecureStore(private val db: IosDb) : SecureStore {
 
     override fun keys(space: String): List<String> = db.keys(space)
 
+    override fun entries(space: String): List<Pair<String, ByteArray>> = db.entries(space).map { it.key to it.value.toByteArray() }
+
     override fun clear(space: String) = db.clear(space)
 
     override fun clearAll() = db.clearAll()
