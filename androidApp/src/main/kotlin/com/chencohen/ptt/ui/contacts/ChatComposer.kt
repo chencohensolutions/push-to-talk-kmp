@@ -367,6 +367,32 @@ internal fun ChatButtons(
             // Hands-free (voice or video, until Stop; 2026-11-26, hen): Voice message is hidden the same way, and comes
             // back when the push stops.
             val aside by androidx.compose.animation.core.animateFloatAsState(if (lifting >= 0f || handsFree) 1f else 0f, tween(180), label = "voice message aside")
+            // +: share pictures, videos or files here (2026-11-28, hen): Gallery (Samsung's, else Android's photo
+            // picker) or File. Out of the way while Push is held or hands-free, as Voice message.
+            actions.attach?.let { attach ->
+                var menu by remember { androidx.compose.runtime.mutableStateOf(false) }
+                Box(Modifier.graphicsLayer { alpha = 1f - aside }) {
+                    if (aside < 0.99f) {
+                        RoundButton(LibraryIcons.Plus, stringResource(R.string.chat_attach), small) { menu = true }
+                    } else {
+                        Spacer(Modifier.size(small))
+                    }
+                    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides reading) {
+                        androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(stringResource(R.string.chat_attach_gallery)) },
+                                leadingIcon = { Icon(LibraryIcons.Photo, null) },
+                                onClick = { menu = false; attach(true) },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(stringResource(R.string.chat_attach_file)) },
+                                leadingIcon = { Icon(LibraryIcons.Paste, null) },
+                                onClick = { menu = false; attach(false) },
+                            )
+                        }
+                    }
+                }
+            }
             Row(Modifier.weight(1f).padding(end = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 val sideLine = pushTo?.takeIf { !handsFree && lifting < 0f }?.let { stringResource(R.string.talk_push_to, android.text.BidiFormatter.getInstance().unicodeWrap(it)) }
                 if (sideLine != null) {

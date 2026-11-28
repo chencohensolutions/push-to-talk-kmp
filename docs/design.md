@@ -693,8 +693,22 @@ https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-
   The key is only on the sender's and recipients' phones, never the server's or Journal's.
 - **Frames.** `Send.push_user` and `PushKind.MEDIA` (7), synced from the server's ptt.proto.
 
-Still to build: the Share target and + button, JPEG XL previews, originals on request, video previews (1080p HEVC at
-3 Mbps, original fps and HDR), files, albums, the viewer and its details. Journal as a source for originals that
+- **Sending (A2).** `MediaSharing.prepare` reads each item through the platform's `MediaPreparer`
+  (`AndroidMediaPreparer`: name, size, type, SHA-256, EXIF time and place with `setRequireOriginal`, a video's own
+  metadata; for pictures one JPEG XL per width, upright, quality 95, effort 7: hen chose Journal's "max" preview
+  quality, and on hen's photos a 1080 × 1440 preview is about 450 to 500 KB). The widths are `PreviewSpec.widths`:
+  each receiving screen's (from `AboutContent`, kept in `contact_screens`; 1080 when a phone didn't say) and this
+  phone's, none wider than the picture, at most three. Each item gets its own key; its previews are sealed and kept in
+  `MediaFiles` (the sender's in app storage, `media-sent`; what came in the cache, `media`). The message is a text
+  (caption, or 📷 / 🎬 / 📎 for older apps) with `media`; `deliver` uploads the previews first, so the outbox retries
+  a broken upload with the message. The original isn't copied: its URI is kept (`media_sources`).
+- **Receiving.** The three text paths (one to one, a copy from another of this user's phones, a group) keep
+  `MediaSharing.accept`'s checked media on the message. `MediaSharing.preview` picks the preview for this screen
+  (`PreviewSpec.pick`), opens it from `MediaFiles`, else downloads it once (several asks share one download), checks
+  its size and every chunk, and keeps it; a cleared cache is fetched again the same way.
+
+Still to build: originals on request, video previews (1080p HEVC at 3 Mbps, original fps and HDR), files' copies,
+albums, the viewer and its details. Journal as a source for originals that
 are gone from the phone is the next phase (shed).
 
 ## Next

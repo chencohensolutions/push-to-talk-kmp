@@ -1,6 +1,8 @@
 # The same versions as journal-client-kmp (Nov 21, 2026); only what phase 1 uses. Add an entry back from there when a
 # phase needs it, at journal's version.
 [versions]
+# Shared media previews (2026-11-28, hen): JPEG XL, journal-client-kmp's version.
+jxl-coder = "2.6.1"
 media3 = "1.8.0"
 agp = "9.5.1"
 android-compileSdk = "37"
@@ -44,6 +46,7 @@ okhttp = "5.3.2"
 okio = "3.16.4"
 
 [libraries]
+jxl-coder = { module = "io.github.awxkee:jxl-coder", version.ref = "jxl-coder" }
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 junit = { module = "junit:junit", version.ref = "junit" }
