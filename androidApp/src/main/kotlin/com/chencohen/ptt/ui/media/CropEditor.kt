@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
@@ -205,7 +206,7 @@ private fun CropArea(target: CropTarget, crop: CropContent, resets: Int, preview
                     }
                 }
                 .pointerInput(target.item.id, boxW, boxH) {
-                    androidx.compose.foundation.gestures.awaitEachGesture {
+                    awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val start = current.value
                         val topY = frameTop
