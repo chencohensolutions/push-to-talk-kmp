@@ -100,6 +100,12 @@ object TalkBubble {
     private const val PEEK_SIDE_DP = 24
     /** Folded, the handle or tab takes touches this much further in than it shows. */
     private const val PEEK_TOUCH_DP = 20
+    /**
+     * The grip (2026-11-27, hen: "make the gripper a little bigger, not visually, just to grip and drag more easily"):
+     * a finger this close to the bar's inside edge, or up to [GRIP_OUT_DP] beyond it, moves the bar at once, no hold.
+     */
+    private const val GRIP_IN_DP = 18
+    private const val GRIP_OUT_DP = 18
 
     // ---- Where the bar rests, and folding (2026-11-27, hen: "drag the floating bar ... along the edges", "auto hide in
     // a smart way", "if docked to the side edges ... hide and be able to return with a gesture") ----
@@ -398,6 +404,24 @@ object TalkBubble {
             private var downX = 0f
             private var downY = 0f
             private var mine = false
+            /** Down on the grip: a move lifts the bar at once. */
+            private var grip = false
+
+            /** How far in from the bar's inside edge (the grip's side) the finger is. */
+            private fun inside(e: MotionEvent): Float = when (dock.edge) {
+                DockEdge.BOTTOM -> e.y
+                DockEdge.TOP -> height - e.y
+                DockEdge.LEFT -> width - e.x
+                DockEdge.RIGHT -> e.x
+            }
+
+            /** Lifted by the grip: counted from here, so the bar doesn't jump by the slop. */
+            private fun liftHere(e: MotionEvent) {
+                main.removeCallbacks(longPress)
+                liftBar()
+                downX = e.rawX
+                downY = e.rawY
+            }
 
             private fun away(e: MotionEvent) = along(e.rawX - downX, e.rawY - downY, awayDir())
             private fun across(e: MotionEvent) = kotlin.math.abs(along(e.rawX - downX, e.rawY - downY, acrossDir()))
@@ -428,11 +452,17 @@ object TalkBubble {
                         // Folded: the whole tab is one target, a tap or a swipe in.
                         if (folded) return true
                         main.removeCallbacks(longPress)
-                        if (!talking && ringing == null && !onPush(e)) main.postDelayed(longPress, LONG_PRESS_MS)
+                        grip = !onPush(e) && inside(e) < dp(context, GRIP_IN_DP)
+                        if (canLift() && !onPush(e)) main.postDelayed(longPress, LONG_PRESS_MS)
                     }
                     MotionEvent.ACTION_MOVE -> {
                         if (moving) return true
                         if (far(e)) main.removeCallbacks(longPress)
+                        // From the grip, any way but toward the edge (that still folds it) moves the bar.
+                        if (grip && far(e) && !swipes(e) && canLift()) {
+                            liftHere(e)
+                            return moving
+                        }
                         if (!barDrag && swipes(e)) {
                             mine = true
                             return true
@@ -681,6 +711,13 @@ object TalkBubble {
             moving = false
             lastActive = System.currentTimeMillis()
             shapePill()
+            applySheet()
+            // A new Chat button (the bar moved to another edge, or shown again): the chat's face on it again (2026-11-27,
+            // hen: "when dragging the bar there is the chat icon instead of the avatar").
+            chatFaceOf = null
+            showChatFace(context)
+            // Touches just beyond the bar (the grip's room, or a folded tab's): they move it, or bring it out.
+            holder.setOnTouchListener { _, e -> edgeTouch(context, e) }
             // Only the pill takes touches (folded: the part of it that shows): the room kept for the lock beside it is
             // the app's beneath.
             row.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (pill === row) touchBar() }
@@ -1264,6 +1301,16 @@ object TalkBubble {
         // Folded: the tab or handle takes touches a little further in than it shows, and at a side Android's back
         // gesture leaves it alone there (2026-11-27, hen: "on the edge and minimized it's hard to interact with because
         // of the Android gesture"; "when floating layout on bottom it is hard to drag it or to close it").
+        // Open: the grip takes touches a little past the bar's inside edge too ([edgeTouch]).
+        if (!folded) {
+            val more = dp(row.context, GRIP_OUT_DP)
+            when (dock.edge) {
+                DockEdge.LEFT -> r.right += more
+                DockEdge.RIGHT -> r.left -= more
+                DockEdge.BOTTOM -> r.top -= more
+                DockEdge.TOP -> r.bottom += more
+            }
+        }
         if (folded) {
             val more = dp(row.context, PEEK_TOUCH_DP)
             when (dock.edge) {
@@ -1273,7 +1320,7 @@ object TalkBubble {
                 DockEdge.TOP -> r.bottom += more
             }
         }
-        if (!r.intersect(inside)) r.setEmpty()
+        if (!r.intersect(inside) || sheetOpen) r.setEmpty()
         holder.rootSurfaceControl?.setTouchableRegion(android.graphics.Region(r))
         holder.systemGestureExclusionRects = if (dock.edge.upright && !r.isEmpty) listOf(android.graphics.Rect(r)) else emptyList()
     }
@@ -1336,12 +1383,20 @@ object TalkBubble {
         }
     }
 
+    /**
+     * The bar can be lifted to move: not while Push is held (the finger is on it) or a call rings, but while I talk
+     * hands-free, yes (2026-11-27, hen: "when transmitting, I can't drag the bar").
+     */
+    private fun canLift(): Boolean = (!talking || locked) && ringing == null && !folded && pill != null
+
     /** Held on the bar: it lifts, and follows the finger to another edge ([moveBar], [dropMove]). */
-    private val longPress = Runnable {
-        val row = pill ?: return@Runnable
-        val holder = pillWindow ?: return@Runnable
-        val params = pillParams ?: return@Runnable
-        if (talking || ringing != null || folded) return@Runnable
+    private val longPress = Runnable { liftBar() }
+
+    private fun liftBar() {
+        val row = pill ?: return
+        val holder = pillWindow ?: return
+        val params = pillParams ?: return
+        if (!canLift() || moving) return
         moving = true
         lastActive = System.currentTimeMillis()
         row.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
@@ -1401,6 +1456,77 @@ object TalkBubble {
         pill = null
         runCatching { context.getSystemService(WindowManager::class.java).removeView(old) }
         if (!addPill(context.applicationContext, from)) remove()
+        // Moved while talking hands-free: Stop again as it was.
+        else if (stopShown) morphPill()
+    }
+
+    /**
+     * The floating chat is open: the bar is out of sight and takes no touches until it closes (2026-11-27, hen: "when
+     * using the floating chat, don't show the bar"). Its window stays, at no opacity, so nothing it holds is lost.
+     */
+    @Volatile private var sheetOpen = false
+
+    fun sheetOpen(open: Boolean) = main.post {
+        if (sheetOpen == open) return@post
+        sheetOpen = open
+        applySheet()
+    }
+
+    private fun applySheet() {
+        val holder = pillWindow ?: return
+        val params = pillParams ?: return
+        val alpha = if (sheetOpen) 0f else 1f
+        if (params.alpha != alpha) {
+            params.alpha = alpha
+            runCatching { holder.context.getSystemService(WindowManager::class.java).updateViewLayout(holder, params) }
+        }
+        touchBar()
+    }
+
+    private var edgeX = 0f
+    private var edgeY = 0f
+    private var edgeFar = false
+
+    /**
+     * A finger on the bar's window beside the bar itself: in the grip's room past its inside edge, or past a folded
+     * tab or handle ([touchBar] lets those in). A move lifts the bar (folded: a swipe in brings it out); a tap brings a
+     * folded bar out.
+     */
+    private fun edgeTouch(context: Context, e: MotionEvent): Boolean {
+        val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                edgeX = e.rawX
+                edgeY = e.rawY
+                edgeFar = false
+                lastActive = System.currentTimeMillis()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = e.rawX - edgeX
+                val dy = e.rawY - edgeY
+                if (moving) {
+                    moveBar(dx, dy)
+                    return true
+                }
+                if (kotlin.math.hypot(dx, dy) <= slop) return true
+                edgeFar = true
+                if (folded) {
+                    if (-along(dx, dy, awayDir()) > slop) unfold()
+                } else if (canLift()) {
+                    liftBar()
+                    edgeX = e.rawX
+                    edgeY = e.rawY
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val cancelled = e.actionMasked == MotionEvent.ACTION_CANCEL
+                when {
+                    moving -> dropMove(context, cancelled)
+                    folded && !edgeFar && !cancelled -> unfold()
+                }
+            }
+        }
+        return true
     }
 
     /** The screen as the bar and the videos see it. */
@@ -1489,7 +1615,7 @@ object TalkBubble {
         if (!animate) {
             params.x = toX
             params.y = toY
-            runCatching { wm.updateViewLayout(window, params) }
+            layoutTop()
             return
         }
         val fromX = params.x
@@ -1502,7 +1628,7 @@ object TalkBubble {
                 val f = it.animatedValue as Float
                 params.x = (fromX + (toX - fromX) * f).toInt()
                 params.y = (fromY + (toY - fromY) * f).toInt()
-                runCatching { wm.updateViewLayout(window, params) }
+                layoutTop()
             }
             start()
         }
@@ -2120,7 +2246,8 @@ object TalkBubble {
         val window = topWindow?.takeIf { it.isAttachedToWindow } ?: return intArrayOf(0, 0)
         val at = IntArray(2).also { window.getLocationOnScreen(it) }
         val params = topParams ?: return at
-        return intArrayOf(at[0] - params.x, at[1] - params.y)
+        val crop = topCrop
+        return intArrayOf(at[0] - params.x - (crop?.left ?: 0), at[1] - params.y - (crop?.top ?: 0))
     }
 
     /**
@@ -2298,8 +2425,10 @@ object TalkBubble {
     }
 
     /**
-     * The window is as wide as the screen, but only the items in it take touches (where they are and where they are
-     * going, and the chip): the rest goes to the app beneath, which stays usable.
+     * Only the items take touches (where they are and where they are going, and the chip), and the window is only as
+     * big as they need: the rest goes to the app beneath, which stays usable. Android drops a touch that reaches
+     * another app through an overlay's frame, whatever region it takes touches in (2026-11-27, hen: "on floating
+     * layout I can't touch anywhere the same height on the screen"), so the window is cut down to the items ([cropTop]).
      */
     private fun touchTop() {
         val window = topWindow?.takeIf { it.isAttachedToWindow } ?: return
@@ -2308,15 +2437,68 @@ object TalkBubble {
             region.union(android.graphics.Rect(r.x.toInt(), (restTop + r.y).toInt().coerceAtLeast(0), (r.x + r.w).toInt() + 1, (restTop + r.bottom).toInt().coerceAtLeast(0) + 1))
         }
         // The group's "+N talking" chip is one of the rects (LiveGroupLayout.MORE), so it takes touches already.
-        bothChip?.takeIf { it.visibility == View.VISIBLE && it.width > 0 }?.let { chip ->
+        val chipAt = bothChip?.takeIf { it.width > 0 }?.let { chip ->
             val top = chip.top + chip.translationY.toInt()
-            region.union(android.graphics.Rect(chip.left, top, chip.right, top + chip.height))
+            android.graphics.Rect(chip.left, top, chip.right, top + chip.height)
         }
+        if (chipAt != null && bothChip?.visibility == View.VISIBLE) region.union(chipAt)
+        val crop = cropTop(window.context, region, chipAt)
+        val inWindow = android.graphics.Region(region).also { it.translate(-crop.left, -crop.top) }
         // Only when it changed: setting it asks the window for a layout.
-        if (region == touchable) return
-        touchable = region
-        window.rootSurfaceControl?.setTouchableRegion(region)
+        if (inWindow == touchable) return
+        touchable = inWindow
+        window.rootSurfaceControl?.setTouchableRegion(inWindow)
     }
+
+    /**
+     * The part of the row's full frame the window keeps: what [region] and the chip need, with room for shadows. While
+     * items move it only grows (their goals are in [region] from the move's start, so it holds the whole way); at rest
+     * it shrinks to them, once.
+     */
+    private fun cropTop(context: Context, region: android.graphics.Region, chip: android.graphics.Rect?): android.graphics.Rect {
+        val full = topFull ?: return android.graphics.Rect()
+        val pad = dp(context, 24)
+        val want = android.graphics.Rect(region.bounds)
+        if (chip != null) want.union(chip)
+        if (want.isEmpty) want.set(0, 0, 1, 1) else want.inset(-pad, -pad)
+        if (!want.intersect(full)) want.set(0, 0, 1, 1)
+        val now = topCrop
+        val next = when {
+            now == null -> want
+            topMotion.running || topTouch?.dragging == true -> android.graphics.Rect(now).also { it.union(want) }
+            // At rest: down to the items, unless that only saves a little.
+            now.contains(want) && now.width() - want.width() < pad / 3 && now.height() - want.height() < pad / 3 -> now
+            else -> want
+        }
+        if (next != now) {
+            topCrop = next
+            layoutTop()
+        }
+        return next
+    }
+
+    /** The row's window where [topParams] puts its full frame, cut to [topCrop] ([topShift] keeps the items in place). */
+    private fun layoutTop() {
+        val window = topWindow ?: return
+        val params = topParams ?: return
+        val real = topReal ?: return
+        val full = topFull ?: return
+        val crop = topCrop ?: full
+        real.x = params.x + crop.left
+        real.y = params.y + crop.top
+        real.width = crop.width()
+        real.height = crop.height()
+        topShift?.let {
+            it.translationX = -crop.left.toFloat()
+            it.translationY = -crop.top.toFloat()
+        }
+        runCatching { window.context.getSystemService(WindowManager::class.java).updateViewLayout(window, real) }
+    }
+
+    private var topReal: WindowManager.LayoutParams? = null
+    private var topShift: FrameLayout? = null
+    private var topFull: android.graphics.Rect? = null
+    private var topCrop: android.graphics.Rect? = null
 
     private var touchable: android.graphics.Region? = null
 
@@ -2589,10 +2771,18 @@ object TalkBubble {
             }
         }
         stage.addView(more, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.LEFT))
-        val holder = FrameLayout(context).apply {
+        // The row as wide as the screen in [shift], which the window shows only the part of that holds the items
+        // ([cropTop]).
+        val fullHeight = restTop + statusTop + topHeight(context) + dp(176)
+        val shift = FrameLayout(context).apply {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             clipChildren = false
             addView(stage, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+        val holder = FrameLayout(context).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            clipChildren = false
+            addView(shift, FrameLayout.LayoutParams(wm.currentWindowMetrics.bounds.width(), fullHeight, Gravity.TOP or Gravity.LEFT))
         }
         val params = WindowManager.LayoutParams(
             // As wide as the screen and tall enough for the tallest row, once: nothing that shows in it moves or
@@ -2600,7 +2790,7 @@ object TalkBubble {
             // items). Only the items take touches ([touchTop]).
             WindowManager.LayoutParams.MATCH_PARENT,
             // A group's: the boxes' row, the pills' and the chip under them.
-            restTop + statusTop + topHeight(context) + dp(176),
+            fullHeight,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -2617,13 +2807,18 @@ object TalkBubble {
         topTouch = touch
         theirItem.view.setOnTouchListener(touch)
         myItem.view.setOnTouchListener(touch)
+        val real = WindowManager.LayoutParams().apply { copyFrom(params) }
         try {
-            wm.addView(holder, params)
+            wm.addView(holder, real)
         } catch (e: Exception) {
             Log.w(TAG, "can't show the top row", e)
             return false
         }
         topParams = params
+        topReal = real
+        topShift = shift
+        topFull = android.graphics.Rect(0, 0, wm.currentWindowMetrics.bounds.width(), fullHeight)
+        topCrop = null
         topWindow = holder
         topCard = stage
         theirCell = theirItem
@@ -2641,7 +2836,7 @@ object TalkBubble {
         holder.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
             if (topWindow !== holder || (left == oldLeft && top == oldTop && right == oldRight && bottom == oldBottom)) return@addOnLayoutChangeListener
             val at = IntArray(2).also { holder.getLocationOnScreen(it) }
-            val low = statusTop + dp(2) - (at[1] - params.y + restTop)
+            val low = statusTop + dp(2) - (at[1] - params.y - (topCrop?.top ?: 0) + restTop)
             if (low > 0) restTop += low
             Log.i(TAG, "top row: window at ${at[0]},${at[1]}, ${right - left} wide, rests at ${at[1] + restTop}, status bar $statusTop, ${if (rtl) "right to left" else "left to right"}")
             holder.post { if (topWindow === holder && !topHiding) placeTop(context) }
@@ -2699,7 +2894,7 @@ object TalkBubble {
                     if (moved) {
                         params.x = px + dx.toInt()
                         params.y = py + dy.toInt()
-                        runCatching { wm.updateViewLayout(window, params) }
+                        layoutTop()
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -2886,6 +3081,10 @@ object TalkBubble {
         roomLive = null
         topCard = null
         topParams = null
+        topReal = null
+        topShift = null
+        topFull = null
+        topCrop = null
         theirCell = null
         myCell = null
         theirBox = null
