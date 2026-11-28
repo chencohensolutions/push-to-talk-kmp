@@ -196,6 +196,9 @@ class MessagingController internal constructor(
     /** A message as kept, for the viewer. */
     fun mediaMessage(id: String): TextMessage? = messaging.media.message(id)
 
+    /** Where a shared item is kept, here and on the others' phones (the viewer's Info). */
+    suspend fun mediaKeeping(messageId: String, itemId: String): com.chencohen.ptt.media.MediaKeeping? = withContext(work) { messaging.mediaKeeping(messageId, itemId) }
+
     /** Stops fetching an original (Cancel). */
     fun cancelOriginal(messageId: String, itemId: String) {
         scope.launch { withContext(work) { messaging.media.cancelOriginal(messageId, itemId) } }

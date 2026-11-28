@@ -106,6 +106,36 @@ sealed interface OriginalState {
  * ([MessagingStore.mediaSource]) when someone opens it. Each phone keeps the sealed previews it sent or got
  * ([MediaFiles]); one that is gone (a cleared cache) is fetched again from the server, quietly.
  */
+/**
+ * Where an item of a shared message is kept, for the viewer's Info (2026-11-28, hen: "what other cached my device saved
+ * about that image and which peer holds what quality of the image").
+ */
+data class MediaKeeping(
+    /** Each preview (and a video's poster) made for it, and whether this phone keeps it; [KeptPart.shown]: the one drawn here. */
+    val parts: List<KeptPart>,
+    /** The original's file on this phone: where the user shared it from (mine), or the copy fetched; null: not here. */
+    val originalPath: String?,
+    /** Mine: the shared file itself (this phone reads it again when someone asks). */
+    val originalIsSource: Boolean,
+    /** The original's size, its picture's size and type, as shared. */
+    val originalBytes: Long,
+    val originalWidth: Int,
+    val originalHeight: Int,
+    val originalMime: String,
+    /** When the original went up to the server for someone who asked (it stays there about a month); 0: never. */
+    val originalUploadedAt: Long,
+    /** Who else holds what, as this phone knows it. */
+    val peers: List<PeerHolds>,
+)
+
+data class KeptPart(val poster: Boolean, val width: Int, val height: Int, val bytes: Long, val mime: String, val here: Boolean, val shown: Boolean)
+
+/**
+ * [user]'s phones: [original] the one who shared it (the file is on their phone); else the preview made for their
+ * screen ([previewWidth]), and [has] whether it reached them (true, false, or null: not known here).
+ */
+data class PeerHolds(val user: String, val original: Boolean, val previewWidth: Int, val has: Boolean?)
+
 internal class MediaSharing(
     private val store: MessagingStore,
     private val files: MediaFiles,
@@ -457,6 +487,23 @@ internal class MediaSharing(
                 setOriginal(key, OriginalState.Failed)
             }
         }
+    }
+
+    /** What this phone keeps of item [itemId] of message [messageId] (its previews, its original); [MediaKeeping.peers] empty. */
+    fun keeping(messageId: String, itemId: String): MediaKeeping? {
+        val message = store.message(messageId) ?: return null
+        val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return null
+        val shown = PreviewSpec.pick(item.previews, myScreen().takeIf { it > 0 } ?: PreviewSpec.DEFAULT_WIDTH)
+        val parts = item.previews.map { KeptPart(false, it.width, it.height, it.size, it.mime, files.read(it.blob) != null, it == shown) } +
+            listOfNotNull(item.poster).map { KeptPart(true, it.width, it.height, it.size, it.mime, files.read(it.blob) != null, false) }
+        val source = store.mediaSource(messageId, itemId)
+        val fetched = store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.let { files.originalPath(it) }
+        return MediaKeeping(
+            parts = parts, originalPath = source ?: fetched, originalIsSource = source != null,
+            originalBytes = item.size, originalWidth = item.width, originalHeight = item.height, originalMime = item.mime,
+            originalUploadedAt = store.mediaSource(messageId, "$itemId$ORIGINAL_UPLOADED")?.toLongOrNull()?.takeIf { it > 0 } ?: 0,
+            peers = emptyList(),
+        )
     }
 
     /** Message [id] as kept (the viewer's). */

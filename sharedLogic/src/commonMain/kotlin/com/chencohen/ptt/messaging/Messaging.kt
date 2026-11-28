@@ -816,6 +816,35 @@ internal class Messaging(
         },
     )
 
+    /**
+     * What this phone keeps of a shared item, and who else holds what (the viewer's Info): the one who shared it has the
+     * original; everyone else the preview made for their screen, reached them when their receipt came (mine), unknown
+     * otherwise.
+     */
+    fun mediaKeeping(messageId: String, itemId: String): com.chencohen.ptt.media.MediaKeeping? {
+        val kept = media.keeping(messageId, itemId) ?: return null
+        val message = store.message(messageId) ?: return kept
+        val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return kept
+        val me = device()?.user
+        val owner = if (message.outgoing) me else message.author ?: message.user
+        val chat = message.user
+        val others = Group.idOf(chat)?.let { id -> store.group(id)?.readers?.map { it.user }.orEmpty() } ?: listOf(chat)
+        val told = settings.contactScreens
+        val peers = (listOfNotNull(owner) + others).distinct().filter { it != me }.map { user ->
+            if (user == owner) com.chencohen.ptt.media.PeerHolds(user, original = true, previewWidth = 0, has = true)
+            else {
+                val width = com.chencohen.ptt.media.PreviewSpec.pick(item.previews, told[user] ?: com.chencohen.ptt.media.PreviewSpec.DEFAULT_WIDTH)?.width ?: 0
+                val has = when {
+                    !message.outgoing -> null
+                    Group.idOf(chat) != null -> user in message.deliveredTo || user in message.readBy
+                    else -> message.deliveredAt != null || message.readAt != null || message.status == MessageStatus.DELIVERED || message.status == MessageStatus.READ
+                }
+                com.chencohen.ptt.media.PeerHolds(user, original = false, previewWidth = width, has = has)
+            }
+        }
+        return kept.copy(peers = peers)
+    }
+
     /** The screen widths of the phones that see [chat]: this phone's, and the contact's or each member's as told. */
     private fun screensIn(chat: String): List<Int> {
         val told = settings.contactScreens

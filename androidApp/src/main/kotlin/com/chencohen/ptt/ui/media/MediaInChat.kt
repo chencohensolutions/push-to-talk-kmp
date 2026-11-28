@@ -61,6 +61,7 @@ import kotlinx.coroutines.Dispatchers
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collectLatest
@@ -87,6 +88,12 @@ internal fun Modifier.bleed(side: androidx.compose.ui.unit.Dp): Modifier = this.
 private val drawn = object : LruCache<String, Bitmap>(maxOf(96L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 8).toInt()) {
     override fun sizeOf(key: String, value: Bitmap) = value.allocationByteCount
 }
+
+/** Where each picture of the chat lies on screen now, by "<message>/<item>" (the viewer's transition). */
+internal val pictureBounds = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.geometry.Rect>()
+
+/** The picture drawn in the chat, if it is kept (the viewer shows it at once). */
+internal fun drawnPicture(messageId: String, itemId: String): Bitmap? = drawn.get("$messageId/$itemId")
 
 /**
  * Pictures are read, decoded and handed to the GPU here, two at a time, never on the main thread (2026-11-28, hen:
@@ -453,7 +460,9 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
     val ratio = if (item.width > 0 && item.height > 0) (item.width.toFloat() / item.height).coerceIn(0.4f, 3f) else 1f
     val label = stringResource(if (item.kind == MediaKind.VIDEO) R.string.media_video else R.string.media_picture)
     Box(
-        Modifier.fillMaxWidth().aspectRatio(ratio).background(LibraryColors.Raised).combinedClickable(onLongClick = select, onClick = onClick).semantics { contentDescription = label },
+        Modifier.fillMaxWidth().aspectRatio(ratio).background(LibraryColors.Raised)
+            // Where it lies on screen: the viewer grows out of here and shrinks back into it.
+            .onGloballyPositioned { if (it.isAttached) pictureBounds[key] = it.boundsInWindow() }.combinedClickable(onLongClick = select, onClick = onClick).semantics { contentDescription = label },
     ) {
         bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         if (item.kind == MediaKind.VIDEO) {

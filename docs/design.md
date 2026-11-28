@@ -733,7 +733,7 @@ https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-
   chunk (`BlobApi.readFrom`), opens each chunk and appends it to `media-originals` in the app's cache (opened, so the
   viewer and the player read it; only Talk can read that folder), and `originals` says how far it got. Waiting for Wi-Fi
   is not built yet; hen chose it off by default (2026-11-28).
-- **The viewer** (`ui/media/MediaViewer.kt`, docs/screens/viewer.md): the preview at once, the original swapped in when
+- **The viewer** (`ui/media/MediaViewer.kt`, docs/screens/viewer.md): growing out of its place in the chat and back into it, an Info sheet (EXIF, what this phone keeps, who has what), the preview at once, the original swapped in when
   it is here, pinch and double tap zoom, swipe between a message's items, a video's original played with ExoPlayer, a
   file opened in an app that reads it (the FileProvider serves `media-originals`). A pill at the bottom says "Getting the
   original · 3 of 8 MB" with ✕, or why it didn't come, with Try again.
@@ -750,7 +750,7 @@ https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-
 
 Still to build: each person's download shown as a ring on their face (mock `sending-progress.png`; needs each phone
 to tell how far it got), the top half bubble's place name (hen to pick what it says), video previews (1080p HEVC at 3 Mbps, original
-fps and HDR), files' copies, albums, the viewer's Share, Save and Info and its details. Journal as a source for originals that
+fps and HDR), files' copies, albums, the viewer's Share and Save. Journal as a source for originals that
 are gone from the phone is the next phase (shed).
 
 ## History from contacts (2026-11-28, hen)

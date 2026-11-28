@@ -521,7 +521,34 @@ fun HomeApp(
     androidx.compose.runtime.SideEffect { com.chencohen.ptt.ui.style.ChatShade.take(messagingState.talkSettings.colorsFor[com.chencohen.ptt.ui.style.ChatShade.KEY]) }
     CompositionLocalProvider(LocalMessages provides messages, com.chencohen.ptt.ui.talk.LocalHear provides hearOf) {
         Box(Modifier.fillMaxSize()) {
-            val page = stack.lastOrNull()
+            @Composable
+            fun Viewer(name: String) {
+                    val (id, item) = name.removePrefix("view/").split('/').let { it[0] to it.getOrElse(1) { "" } }
+                    val message = remember(id) { messaging.mediaMessage(id) }
+                    val originals by messaging.originals.collectAsStateWithLifecycle()
+                    if (message == null) {
+                        LaunchedEffect(Unit) { pop() }
+                    } else {
+                        androidx.compose.runtime.CompositionLocalProvider(com.chencohen.ptt.ui.media.LocalNames provides { u -> if (u == state.device?.user) resources.getString(R.string.group_you) else nameOf(u) }) {
+                        com.chencohen.ptt.ui.media.MediaViewer(
+                            message = message,
+                            startItem = item,
+                            sender = if (message.outgoing) resources.getString(R.string.group_you) else nameOf(message.author ?: message.user),
+                            originals = originals,
+                            preview = { m, i -> messaging.mediaPreview(m, i) },
+                            open = messaging::openOriginal,
+                            cancel = messaging::cancelOriginal,
+                            keeping = { m, i -> messaging.mediaKeeping(m, i) },
+                            back = ::pop,
+                        )
+                        }
+                    }
+                }
+            val top = stack.lastOrNull()
+            // A picture opened from a chat is drawn over it (the chat stays under), so it grows out of its place in
+            // the chat and shrinks back into it (2026-11-28, hen: "seamless transition between chat and the image").
+            val viewing = top?.takeIf { it.startsWith("view/") && stack.size >= 2 && stack[stack.size - 2].startsWith("chat/") }
+            val page = if (viewing != null) stack[stack.size - 2] else top
             val name = page.orEmpty()
             val pageUser = page?.substringAfter('/', "")?.takeIf { it.isNotEmpty() }
             when {
@@ -704,25 +731,7 @@ fun HomeApp(
                     }
                     LinkPhoneScreen(view, back = ::pop, again = ::make)
                 }
-                name.startsWith("view/") -> {
-                    val (id, item) = name.removePrefix("view/").split('/').let { it[0] to it.getOrElse(1) { "" } }
-                    val message = remember(id) { messaging.mediaMessage(id) }
-                    val originals by messaging.originals.collectAsStateWithLifecycle()
-                    if (message == null) {
-                        LaunchedEffect(Unit) { pop() }
-                    } else {
-                        com.chencohen.ptt.ui.media.MediaViewer(
-                            message = message,
-                            startItem = item,
-                            sender = if (message.outgoing) resources.getString(R.string.group_you) else nameOf(message.author ?: message.user),
-                            originals = originals,
-                            preview = { m, i -> messaging.mediaPreview(m, i) },
-                            open = messaging::openOriginal,
-                            cancel = messaging::cancelOriginal,
-                            back = ::pop,
-                        )
-                    }
-                }
+                name.startsWith("view/") -> Viewer(name)
                 name == "share" -> com.chencohen.ptt.ui.media.ShareToScreen(
                     count = sharing.size,
                     contacts = messagingState.contacts,
@@ -1066,6 +1075,7 @@ fun HomeApp(
                 }
                 else -> LaunchedEffect(page) { home() }
             }
+            if (viewing != null) Viewer(viewing)
             MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarRoom().imePadding().padding(bottom = if (page == null) 88.dp else 16.dp))
             // The floating window is on by default (2026-11-22, hen) but needs "Display over other apps": asked once.
             OverlayAskOnce(messagingState.talkSettings.replyBubble)

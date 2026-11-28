@@ -66,6 +66,9 @@ import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -85,39 +88,87 @@ internal fun MediaViewer(
     preview: suspend (messageId: String, itemId: String) -> ByteArray?,
     open: (messageId: String, itemId: String) -> Unit,
     cancel: (messageId: String, itemId: String) -> Unit,
+    /** Where the item is kept, here and on the others' phones (Info). */
+    keeping: suspend (messageId: String, itemId: String) -> com.chencohen.ptt.media.MediaKeeping?,
     back: () -> Unit,
 ) {
     val media = message.media ?: return back()
     val items = media.items.filter { it.kind == MediaKind.IMAGE || it.kind == MediaKind.VIDEO || it.id == startItem }
     val pager = rememberPagerState(initialPage = items.indexOfFirst { it.id == startItem }.coerceAtLeast(0)) { items.size }
-    BackHandler(onBack = back)
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        HorizontalPager(pager, Modifier.fillMaxSize(), key = { items[it].id }) { page ->
+    // Out of the picture's place in the chat and back into it (2026-11-28, hen: "seamless transition between chat and
+    // the image"): the picture moves and grows from where it lies in the chat to the screen as the black comes up,
+    // in one move; closing, the same back to where it lies then.
+    val shown = remember { androidx.compose.animation.core.Animatable(if (pictureBounds["${message.id}/$startItem"] != null) 0f else 1f) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var closing by remember { mutableStateOf(false) }
+    val ease = androidx.compose.animation.core.FastOutSlowInEasing
+    LaunchedEffect(Unit) { shown.animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease)) }
+    fun close() {
+        if (closing) return
+        closing = true
+        scope.launch {
+            val item = items.getOrNull(pager.currentPage)
+            if (item != null && pictureBounds["${message.id}/${item.id}"] != null) shown.animateTo(0f, androidx.compose.animation.core.tween(260, easing = ease))
+            back()
+        }
+    }
+    var info by remember { mutableStateOf(false) }
+    BackHandler { if (info) info = false else close() }
+    var box by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val p = shown.value
+    Box(Modifier.fillMaxSize().onGloballyPositioned { box = it.boundsInWindow() }.background(Color.Black.copy(alpha = p))) {
+        HorizontalPager(pager, Modifier.fillMaxSize(), key = { items[it].id }, userScrollEnabled = p >= 1f) { page ->
             val item = items[page]
             // Each item on screen is asked for: the original comes while the preview shows.
             LaunchedEffect(item.id) { open(message.id, item.id) }
-            ItemPage(message, item, originals["${message.id}/${item.id}"], preview)
+            val current = page == pager.currentPage
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                val at = if (current) p else 1f
+                val from = pictureBounds["${message.id}/${item.id}"]
+                val window = box
+                if (at >= 1f || from == null || window == null) {
+                    alpha = if (from == null && current) p else 1f
+                    return@graphicsLayer
+                }
+                // The picture's place on screen when it fits, and where it lies in the chat.
+                val ratio = if (item.width > 0 && item.height > 0) item.width.toFloat() / item.height else 1f
+                val fitW = minOf(size.width, size.height * ratio)
+                val fitH = fitW / ratio
+                val centre = androidx.compose.ui.geometry.Offset(window.left + size.width / 2, window.top + size.height / 2)
+                fun lerp(a: Float, b: Float) = a + (b - a) * at
+                scaleX = lerp(from.width / fitW, 1f)
+                scaleY = lerp(from.height / fitH, 1f)
+                translationX = lerp(from.center.x - centre.x, 0f)
+                translationY = lerp(from.center.y - centre.y, 0f)
+            }) {
+                ItemPage(message, item, originals["${message.id}/${item.id}"], preview)
+            }
         }
         val item = items.getOrNull(pager.currentPage)
         Row(
-            Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent)))
+            Modifier.fillMaxWidth().graphicsLayer { alpha = p }.background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xAA000000), Color.Transparent)))
                 .statusBarsPadding().padding(horizontal = 4.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = back), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = ::close), contentAlignment = Alignment.Center) {
                 Icon(LibraryIcons.Back, stringResource(R.string.media_back), tint = Color.White)
             }
             Column(Modifier.weight(1f)) {
                 Text(sender, color = Color.White, style = LibraryType.Body)
                 Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(message.at)), color = Color(0xCCFFFFFF), style = LibraryType.Tiny)
             }
-            if (items.size > 1) Text("${pager.currentPage + 1} / ${items.size}", color = Color.White, style = LibraryType.Tiny, modifier = Modifier.padding(end = 12.dp))
+            if (items.size > 1) Text("${pager.currentPage + 1} / ${items.size}", color = Color.White, style = LibraryType.Tiny, modifier = Modifier.padding(end = 4.dp))
+            // Info (2026-11-28, hen): the original's EXIF, what this phone keeps of it, and who holds what.
+            if (item != null) Box(Modifier.size(48.dp).clip(CircleShape).clickable { info = true }, contentAlignment = Alignment.Center) {
+                Icon(LibraryIcons.Info, stringResource(R.string.media_info), tint = Color.White)
+            }
         }
         if (item != null) {
-            Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp)) {
+            Box(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp).graphicsLayer { alpha = p }) {
                 OriginalPill(item, originals["${message.id}/${item.id}"], again = { open(message.id, item.id) }, cancel = { cancel(message.id, item.id) })
             }
         }
+        if (info && item != null) MediaInfoSheet(message, item, originals["${message.id}/${item.id}"], keeping, close = { info = false })
     }
 }
 
@@ -125,7 +176,9 @@ internal fun MediaViewer(
 private fun ItemPage(message: TextMessage, item: AttachmentContent, state: OriginalState?, preview: suspend (String, String) -> ByteArray?) {
     val context = LocalContext.current
     val ready = state as? OriginalState.Ready
-    val small by produceState<Bitmap?>(null, message.id, item.id) {
+    // The picture the chat drew, at once (so it is there as it flies in), else the preview read.
+    val small by produceState<Bitmap?>(drawnPicture(message.id, item.id), message.id, item.id) {
+        if (value != null) return@produceState
         val bytes = preview(message.id, item.id) ?: return@produceState
         value = withContext(Dispatchers.Default) {
             runCatching { if (JxlCoder.isJXL(bytes)) JxlCoder.decode(bytes) else android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
