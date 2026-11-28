@@ -481,13 +481,13 @@ fun HomeApp(
                 mediaDraft = mediaDrafts[user]?.let { drafts ->
                     com.chencohen.ptt.ui.media.MediaDraft(
                         drafts,
-                        send = { caption, removed ->
+                        send = { caption, removed, texts ->
                             mediaDrafts.remove(user)
-                            messaging.sendDraft(drafts, caption, removed)
+                            messaging.sendDraft(drafts, caption, removed, texts)
                         },
-                        sendFirst = { removed ->
+                        sendFirst = { removed, texts ->
                             mediaDrafts.remove(user)
-                            messaging.sendPicturesFirst(drafts, removed) { id -> if (id != null) mediaCaptions[user] = id }
+                            messaging.sendPicturesFirst(drafts, removed, texts) { id -> if (id != null) mediaCaptions[user] = id }
                         },
                         drop = {
                             mediaDrafts.remove(user)

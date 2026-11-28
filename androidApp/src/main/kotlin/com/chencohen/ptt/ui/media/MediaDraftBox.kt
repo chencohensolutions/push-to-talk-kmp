@@ -59,10 +59,10 @@ import com.chencohen.ptt.ui.style.LibraryType
 /** Pictures picked for a chat, not sent yet: shown in the writing bubble, the caption written under them. */
 class MediaDraft(
     val messages: List<TextMessage>,
-    /** Sends them with [caption], less the items taken out ([removed], by item id). */
-    val send: (caption: String, removed: Set<String>) -> Unit,
-    /** Sends them quietly before their caption (Send with the box empty), less [removed]. */
-    val sendFirst: (removed: Set<String>) -> Unit,
+    /** Sends them with [caption], less the items taken out ([removed], by item id), with words above pictures ([texts], by item id). */
+    val send: (caption: String, removed: Set<String>, texts: Map<String, String>) -> Unit,
+    /** Sends them quietly before their caption (Send with the box empty), less [removed], with [texts]. */
+    val sendFirst: (removed: Set<String>, texts: Map<String, String>) -> Unit,
     /** Drops them all. */
     val drop: () -> Unit,
 )
@@ -98,6 +98,9 @@ internal fun MediaDraftBox(
     }
     var caption by rememberSaveable(draft.messages.firstOrNull()?.id) { mutableStateOf("") }
     var removed by remember(draft.messages.firstOrNull()?.id) { mutableStateOf(emptySet<String>()) }
+    // Words above a picture (2026-11-28, hen: "add text above any image"), by item id, and the one being written.
+    var texts by remember(draft.messages.firstOrNull()?.id) { mutableStateOf(emptyMap<String, String>()) }
+    var writingAbove by remember(draft.messages.firstOrNull()?.id) { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(draft.messages.firstOrNull()?.id) { runCatching { focus.requestFocus() } }
     val coral = LibraryColors.Writing
@@ -131,15 +134,26 @@ internal fun MediaDraftBox(
         }
         Column(
             Modifier.fillMaxWidth().heightIn(max = maxPictures).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
+            val several = items.size > 1
             items.forEachIndexed { index, (message, item) ->
-                if (index > 0) changeOver(item, items[index - 1].second)?.let {
-                    // In a strip of the writing outline, as on the message it becomes.
+                // Words above this picture: a field in a strip of the writing outline, as on the message it becomes.
+                val above = texts[item.id].orEmpty()
+                if (writingAbove == item.id || above.isNotEmpty()) {
+                    val aboveFocus = remember(item.id) { FocusRequester() }
+                    LaunchedEffect(writingAbove == item.id) { if (writingAbove == item.id) runCatching { aboveFocus.requestFocus() } }
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(it) }
+                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral).padding(horizontal = 14.dp, vertical = 8.dp)) {
+                            if (above.isEmpty()) Text(stringResource(R.string.media_text_above_hint), color = LibraryColors.Muted, style = LibraryType.Message)
+                            BasicTextField(
+                                above, { v -> texts = texts + (item.id to v) }, Modifier.fillMaxWidth().focusRequester(aboveFocus),
+                                textStyle = LibraryType.Message.copy(color = LibraryColors.OnBackground),
+                                cursorBrush = SolidColor(LibraryColors.OnBackground),
+                                maxLines = 6,
+                            )
+                        }
                     }
-                }
+                } else if (index > 0 && takenLine(items[index - 1].second) == null) androidx.compose.foundation.layout.Spacer(Modifier.height(2.dp))
                 Box {
                     when (item.kind) {
                         MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = null) {}
@@ -151,6 +165,20 @@ internal fun MediaDraftBox(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(LibraryIcons.Close, stringResource(R.string.media_draft_remove), tint = Color.White, modifier = Modifier.size(16.dp))
+                    }
+                    // Write above this picture.
+                    if (above.isEmpty() && writingAbove != item.id) Box(
+                        Modifier.align(Alignment.TopStart).padding(8.dp).size(28.dp).clip(CircleShape).background(Color(0x99000000))
+                            .clickable(onClickLabel = stringResource(R.string.media_text_above)) { writingAbove = item.id },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Aa", color = Color.White, style = LibraryType.Tiny)
+                    }
+                }
+                // Of several, each one's place and time under it, as on the message it becomes.
+                if (several) takenLine(item)?.let { line ->
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                        Box(Modifier.padding(horizontal = 12.dp).width(width).writingSides(coral)) { PictureNote(line) }
                     }
                 }
             }
@@ -172,7 +200,7 @@ internal fun MediaDraftBox(
                 )
             }
             Box(
-                Modifier.size(40.dp).clip(CircleShape).background(coral).clickable { sendNow(caption.isNotBlank()) { if (caption.isBlank()) draft.sendFirst(removed) else draft.send(caption, removed) } },
+                Modifier.size(40.dp).clip(CircleShape).background(coral).clickable { sendNow(caption.isNotBlank()) { if (caption.isBlank()) draft.sendFirst(removed, texts) else draft.send(caption, removed, texts) } },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(LibraryIcons.ArrowUp, stringResource(R.string.media_draft_send), tint = Color.White, modifier = Modifier.size(20.dp))

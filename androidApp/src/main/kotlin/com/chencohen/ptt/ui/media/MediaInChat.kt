@@ -237,16 +237,14 @@ internal fun MediaMessage(
             if (author != null) Text(author, color = if (com.chencohen.ptt.ui.contacts.LocalMemberHues.current.isEmpty()) LibraryColors.Accent else LibraryColors.OnTheirs, style = LibraryType.Small)
             if (taken != null) Text(taken, color = muted, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
+        val several = media.items.size > 1
         media.items.forEachIndexed { index, item ->
-            // Between the pictures only: the half bubbles touch the first and the last (2026-11-28, hen).
-            if (index > 0) {
-                val note = changeOver(item, media.items[index - 1])
-                // Where or when the next was taken, in a strip of the bubble between them, so the message reads as one
-                // long bubble with the pictures in it (2026-11-28, hen); else a thin gap.
-                if (note != null) {
-                    Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) { PictureNote(note, color = muted) }
-                } else Spacer(Modifier.height(2.dp))
-            }
+            // Words written above this picture, in a strip of the bubble (2026-11-28, hen: "add text above any image").
+            if (item.text.isNotBlank()) {
+                Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) {
+                    Text(item.text, color = ink, style = LibraryType.Message, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+                }
+            } else if (index > 0 && takenLine(media.items[index - 1]) == null) Spacer(Modifier.height(2.dp))
             when (item.kind) {
                 MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = select) {
                     when {
@@ -256,6 +254,11 @@ internal fun MediaMessage(
                     }
                 }
                 else -> FileRow(item) { if (!selecting) open(message.id, item.id) }
+            }
+            // Of several, each one's place and time under it, in a strip of the bubble, so the message reads as one
+            // long bubble with the pictures in it (2026-11-28, hen).
+            if (several) takenLine(item)?.let { line ->
+                Box(Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).middle()) { PictureNote(line, color = muted) }
             }
         }
         // Mine sent before the caption: the caption box under the chat is its bottom half while I write it.
@@ -357,31 +360,38 @@ private fun CaptionEdit(edit: com.chencohen.ptt.ui.contacts.Editing, change: (an
 private fun halfShape(top: Boolean) = if (top) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp) else RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
 
 /**
- * Where and when the pictures were taken, for the top half bubble (2026-11-28, hen: "add date taken and location data
- * in the top of the bubble"): "Tel Aviv · Yesterday 18:40". The place is named on this phone, in its own language, by
- * Android's Geocoder from the first item's coordinates (they came end to end); either part alone when only it is known.
+ * The top half bubble's line (2026-11-28, hen: "make the first row with time span and locations of all included
+ * images"): one picture's place and when it was taken ("Tel Aviv · Yesterday 18:40"); several pictures' places, each
+ * once in the order taken (three, then "+2"), and the span from the first taken to the last ("Yesterday 18:40 – 21:05",
+ * the day again when it changed). Places are named on this phone, in its own language, by Android's Geocoder from the
+ * items' coordinates (they came end to end).
  */
 @Composable
 internal fun takenAndWhere(items: List<AttachmentContent>): String? {
     val first = items.firstOrNull() ?: return null
-    return listOfNotNull(placeOf(first), first.takenAt.takeIf { it > 0 }?.let { dayAndClock(first) }).joinToString(" · ").ifEmpty { null }
+    if (items.size == 1) return takenLine(first)
+    val places = items.map { placeOf(it) }.filterNotNull().distinct()
+    val where = when {
+        places.isEmpty() -> null
+        places.size <= 3 -> places.joinToString(", ")
+        else -> places.take(3).joinToString(", ") + " +" + (places.size - 3)
+    }
+    val timed = items.filter { it.takenAt > 0 }
+    val earliest = timed.minByOrNull { it.takenAt }
+    val latest = timed.maxByOrNull { it.takenAt }
+    val span = when {
+        earliest == null || latest == null -> null
+        latest.takenAt - earliest.takenAt < CHANGE_MS -> dayAndClock(earliest)
+        localDay(earliest) == localDay(latest) -> dayAndClock(earliest) + " – " + clockOf(latest)
+        else -> dayAndClock(earliest) + " – " + dayAndClock(latest)
+    }
+    return listOfNotNull(where, span).joinToString(" · ").ifEmpty { null }
 }
 
-/**
- * Over a picture after the first, when it differs from the one before (2026-11-28, hen: "if image taken after 5
- * minutes than the previous image show date taken above the image, if location is different than previous images,
- * show location"): its place when that differs, its time when more than five minutes apart (the day too when that
- * changed). Null: nothing new.
- */
+/** Under each picture of several (2026-11-28, hen: "move the date and location below each image"): its own. */
 @Composable
-internal fun changeOver(item: AttachmentContent, before: AttachmentContent): String? {
-    val place = placeOf(item)
-    val newPlace = place != null && place != placeOf(before)
-    val apart = item.takenAt > 0 && before.takenAt > 0 && kotlin.math.abs(item.takenAt - before.takenAt) > CHANGE_MS
-    if (!newPlace && !apart) return null
-    val time = if (!apart) null else if (localDay(item) == localDay(before)) clockOf(item) else dayAndClock(item)
-    return listOfNotNull(place.takeIf { newPlace }, time).joinToString(" · ")
-}
+internal fun takenLine(item: AttachmentContent): String? =
+    listOfNotNull(placeOf(item), item.takenAt.takeIf { it > 0 }?.let { dayAndClock(item) }).joinToString(" · ").ifEmpty { null }
 
 private const val CHANGE_MS = 5 * 60_000L
 

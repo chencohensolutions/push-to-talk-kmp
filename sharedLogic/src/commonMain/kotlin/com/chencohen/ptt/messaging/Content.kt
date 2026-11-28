@@ -147,13 +147,15 @@ data class AttachmentContent(
     @ProtoNumber(18) val originDevice: Int = 0,
     /** A ThumbHash, about 25 bytes, drawn while the preview downloads. */
     @ProtoNumber(19) val thumb: ByteArray = ByteArray(0),
+    /** Words written above this picture in the message (2026-11-28, hen: "add text above any image"). */
+    @ProtoNumber(20) val text: String = "",
 ) {
     override fun equals(other: Any?): Boolean = other is AttachmentContent && id == other.id && kind == other.kind &&
         key.contentEquals(other.key) && sha256.contentEquals(other.sha256) && size == other.size && mime == other.mime &&
         name == other.name && width == other.width && height == other.height && durationMs == other.durationMs &&
         takenAt == other.takenAt && takenOffsetMin == other.takenOffsetMin && latE7 == other.latE7 &&
         lonE7 == other.lonE7 && hasPlace == other.hasPlace && previews == other.previews && poster == other.poster &&
-        originDevice == other.originDevice && thumb.contentEquals(other.thumb)
+        originDevice == other.originDevice && thumb.contentEquals(other.thumb) && text == other.text
     override fun hashCode(): Int = id.hashCode()
 }
 

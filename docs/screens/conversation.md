@@ -587,10 +587,13 @@ laid out, and 200 more each time the scroll comes within 40 rows of the oldest s
 messages in order and hands out unchanged chats' lists again, so nothing sorts the whole history on a change (2026-11-28, hen:
 "load images just before scroll reveals the image"; `PrefetchPictures`). The top one says who sent them, only in a group and only on
 other members' pictures, and where and when they were taken ("Tel Aviv · Yesterday 18:40": the place named on each phone by Android's
-Geocoder from the item's coordinates, the date from the EXIF or else the gallery's date taken); of the first item. Over each picture after
-the first, in a strip of the bubble between the two (its sides carried on, so the message reads as one long bubble
-with the pictures in it), a quiet line says its place when it differs from the one before and its time when more than five minutes
-apart (the day too when it changed), 2026-11-28, hen; the bottom one holds the caption
+Geocoder from the item's coordinates, the date from the EXIF or else the gallery's date taken). With several pictures
+the top line holds all their places (each once, in order, three then "+2") and the span from the first taken to the last
+("Yesterday 18:40 – 21:05"), and each picture's own place and time sit under it, in a strip of the bubble (its sides
+carried on, so the message reads as one long bubble with the pictures in it) (2026-11-28, hen: "move the date and
+location below each image, make the first row with time span and locations of all included images"). Words may be
+written above any picture (`AttachmentContent.text`, field 20; "Aa" on the picture in the draft opens a field in a strip
+above it), shown in a strip of the bubble above it; the caption stays under the last. The bottom one holds the caption
 and the time sent. Mine move as my text bubbles do: dashed while it goes, the dashes growing towards a whole line as
 the previews upload, whole on the server, filled once every phone has it; failed, the time turns red and a tap sends
 it again. While a picture's preview goes up to the server (mine, in the writing colour) or comes down from it (theirs, in

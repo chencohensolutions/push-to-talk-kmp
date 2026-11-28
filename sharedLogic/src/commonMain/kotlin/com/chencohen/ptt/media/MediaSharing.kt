@@ -179,7 +179,7 @@ internal class MediaSharing(
      * Messages [prepare]d without keeping them (a draft the user writes a caption on first, 2026-11-28, hen), now kept
      * to be sent: [caption] on the first, their time now.
      */
-    fun keep(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), quiet: Boolean = false): List<TextMessage> {
+    fun keep(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), quiet: Boolean = false, texts: Map<String, String> = emptyMap()): List<TextMessage> {
         val at = now()
         // Only what was taken out is dropped: the upload of the rest goes on, and Send waits for it.
         for (m in drafts) {
@@ -188,7 +188,8 @@ internal class MediaSharing(
         }
         val out = drafts.mapNotNull { m ->
             this.drafts.remove(m.id)
-            val items = m.media!!.items.filter { it.id !in removed }
+            // Words above a picture go with it (2026-11-28, hen).
+            val items = m.media!!.items.filter { it.id !in removed }.map { item -> texts[item.id]?.trim()?.take(MAX_CAPTION)?.let { item.copy(text = it) } ?: item }
             if (items.isEmpty()) null else m to items
         }.mapIndexed { i, (m, items) ->
             val media = m.media!!.copy(sentAt = at, caption = if (i == 0) caption.trim().take(MAX_CAPTION) else "", items = items, quiet = quiet && i == 0)
@@ -334,7 +335,7 @@ internal class MediaSharing(
         val items = media.items.take(MAX_ITEMS).filter { item ->
             item.key.size == MediaCrypto.KEY_BYTES && item.id.isNotEmpty() && item.previews.size <= PreviewSpec.MAX_PREVIEWS + 1 &&
                 (item.previews + listOfNotNull(item.poster)).all { validBlob(it.blob) && it.size >= 0 }
-        }.map { it.copy(name = it.name.take(MAX_NAME), originDevice = if (it.originDevice == 0) originDevice else it.originDevice) }
+        }.map { it.copy(name = it.name.take(MAX_NAME), text = it.text.take(MAX_CAPTION), originDevice = if (it.originDevice == 0) originDevice else it.originDevice) }
         if (items.isEmpty()) return null
         return media.copy(caption = media.caption.take(MAX_CAPTION), items = items)
     }

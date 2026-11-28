@@ -244,6 +244,22 @@ class MediaSharingTest {
     }
 
     @Test
+    fun wordsAboveAPictureGoWithIt() = runTest {
+        val (_, hen, dana) = paired()
+        val draft = hen.work.async { hen.messaging.draftMedia("dana", listOf("a")) }
+        advanceUntilIdle()
+        val drafts = draft.await()
+        val item = drafts.single().media!!.items.single()
+        val sent = hen.work.async { hen.messaging.sendDraft(drafts, "the end", texts = mapOf(item.id to " first the sea ")) }
+        advanceUntilIdle()
+        val message = sent.await().single()
+        assertEquals("first the sea", dana.store.message(message.id)?.media?.items?.single()?.text)
+        assertEquals("the end", dana.store.message(message.id)?.media?.caption)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun aSentCaptionIsEditedQuietly() = runTest {
         val (_, hen, dana) = paired()
         val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf("a"), "the sea") }

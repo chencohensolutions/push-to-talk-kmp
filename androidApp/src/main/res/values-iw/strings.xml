@@ -972,6 +972,8 @@
     <string name="media_loading">התמונה נטענת</string>
     <string name="media_back">חזרה</string>
     <string name="media_caption_hint">הוספת כיתוב…</string>
+    <string name="media_text_above_hint">טקסט מעל התמונה…</string>
+    <string name="media_text_above">כתיבה מעל התמונה</string>
     <string name="media_draft_drop">לא לשלוח</string>
     <string name="media_draft_send">שליחה</string>
     <string name="media_draft_remove">להוציא את זו</string>

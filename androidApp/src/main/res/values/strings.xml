@@ -969,6 +969,8 @@
     <string name="media_loading">Loading picture</string>
     <string name="media_back">Back</string>
     <string name="media_caption_hint">Add a caption…</string>
+    <string name="media_text_above_hint">Text above this picture…</string>
+    <string name="media_text_above">Write above this picture</string>
     <string name="media_draft_drop">Don\'t send</string>
     <string name="media_draft_send">Send</string>
     <string name="media_draft_remove">Take this one out</string>

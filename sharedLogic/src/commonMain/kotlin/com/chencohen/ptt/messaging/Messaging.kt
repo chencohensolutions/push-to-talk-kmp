@@ -833,16 +833,16 @@ internal class Messaging(
     suspend fun draftMedia(chat: String, sources: List<String>): List<TextMessage> = media.prepare(chat, sources, "", keep = false)
 
     /** Sends a draft [draftMedia] made, with [caption]. */
-    suspend fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet()): List<TextMessage> =
-        media.keep(drafts, caption, removed).map { deliver(it) }
+    suspend fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), texts: Map<String, String> = emptyMap()): List<TextMessage> =
+        media.keep(drafts, caption, removed, texts = texts).map { deliver(it) }
 
     /**
      * Sends a draft's pictures before their caption (2026-11-28, hen, option A): they come in quietly (no notification,
      * a silent push); [commitCaption] sends the caption, and that notifies. Answers the messages, kept at once (their
      * delivery goes on in the background), so the caption box can join the first.
      */
-    fun sendPicturesFirst(drafts: List<TextMessage>, removed: Set<String> = emptySet()): List<TextMessage> {
-        val kept = media.keep(drafts, "", removed, quiet = true)
+    fun sendPicturesFirst(drafts: List<TextMessage>, removed: Set<String> = emptySet(), texts: Map<String, String> = emptyMap()): List<TextMessage> {
+        val kept = media.keep(drafts, "", removed, quiet = true, texts = texts)
         scope.launch { for (m in kept) deliver(m) }
         return kept
     }
