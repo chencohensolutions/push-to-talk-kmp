@@ -58,8 +58,20 @@ Milestone 1, the app in the foreground:
 
 ## What is next
 
-- **Live talk** (push-to-talk and push-to-video in LiveKit rooms): `TalkTransport` over LiveKit's Swift SDK, the
-  microphone and speaker (`TalkCapture`, `TalkPlayer`), the Push button, the floating bar's iOS form.
+- **Live talk** (push-to-talk in LiveKit rooms), being built. The shared side is there: `IosTalkTransport` keeps
+  Android's rules (joined listening only; the microphone's track published muted while a Push button is on screen, so
+  a press only unmutes it; muted 300 ms after the release; never taken from a call or another app) over
+  `IosTalkRoom`, which Swift implements with LiveKit's Swift SDK (`IosPtt.setTalkRoom`). `IosViews.push`, `talking`
+  and `inRoom` are what the Push button and the pills show.
+  - **The pipe to `/rtc`.** The server takes LiveKit's signalling only from an enrolled phone (its certificate, as on
+    `/ws`), and a home server's certificate is known by its pinned key or its own CA, not by the system's roots.
+    LiveKit's SDK opens its own WebSocket and can do neither, so Swift listens on a loopback port and pipes its bytes
+    into a TLS connection to the server made with this phone's key and checked by `IosPtt.serverCheck()`; the SDK is
+    pointed at `ws://localhost:<port>`. The audio itself goes straight to LiveKit's media ports, encrypted with the
+    talk keys.
+  - A push goes into the room only (hen, 2026-11-27), so nothing is recorded on the phone: the transport's
+    `capture` gives no packets. Still to come: push-to-video's camera, playing clips and voice messages
+    (`TalkPlayer`, Opus), the floating bar's iOS form.
 - **Calls** in CallKit (`CallTransport`, `CallHost`), saved calls.
 - **Media**: pictures and videos in chats (`MediaPreparer`, the viewer, the share extension).
 - **Notifications.** The server pushes through FCM only. iOS needs APNs: a notification service extension that

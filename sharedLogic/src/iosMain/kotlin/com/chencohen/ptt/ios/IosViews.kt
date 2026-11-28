@@ -1,5 +1,6 @@
 package com.chencohen.ptt.ios
 
+import com.chencohen.ptt.talk.TalkPhase
 import com.chencohen.ptt.messaging.Contact
 import com.chencohen.ptt.messaging.Group
 import com.chencohen.ptt.messaging.MessagingState
@@ -70,6 +71,34 @@ object IosViews {
 
     /** A name for [user] in a group: the contact's name when they are one, else the user name. */
     fun nameOf(state: MessagingState, user: String): String = contact(state, user)?.name ?: user
+
+    /**
+     * This phone's own push in [chat], for its pill and the Push button: [PUSH_IDLE]; [PUSH_CONNECTING] (pressed, the
+     * room not ready: shown without words, never as live); [PUSH_LIVE] (the voice is going out now); [PUSH_REFUSED]
+     * (the microphone is someone else's, or the room couldn't be reached). Live only when it really is (2026-11-25,
+     * hen: transmit only while the UI shows live, and whenever it shows live really be sending).
+     */
+    fun push(state: MessagingState, chat: String): Int {
+        val own = state.talk.own?.takeIf { it.chat == chat } ?: return PUSH_IDLE
+        return when (own.phase) {
+            TalkPhase.REQUESTING -> PUSH_CONNECTING
+            TalkPhase.TALKING -> PUSH_LIVE
+            TalkPhase.REFUSED -> PUSH_REFUSED
+            else -> PUSH_IDLE
+        }
+    }
+
+    const val PUSH_IDLE = 0
+    const val PUSH_CONNECTING = 1
+    const val PUSH_LIVE = 2
+    const val PUSH_REFUSED = 3
+
+    /** Who is talking in [chat] now (users, in the order they started), without this phone's user [me]. */
+    fun talking(state: MessagingState, chat: String, me: String): List<String> =
+        state.talk.talking[chat].orEmpty().map { it.user }.filter { it != me }.distinct()
+
+    /** This phone is in [chat]'s live room (the header's ring), or joining it. */
+    fun inRoom(state: MessagingState, chat: String): Boolean = state.live.room == chat && !state.live.joining
 
     /** [settings] with Live typing [on] (Swift has no copy with one changed field). */
     fun withLiveTyping(settings: TalkSettings, on: Boolean): TalkSettings = settings.copy(liveTyping = on)

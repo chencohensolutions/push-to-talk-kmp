@@ -10,6 +10,10 @@ import com.chencohen.ptt.enrollment.HttpRenewApi
 import com.chencohen.ptt.enrollment.IosDeviceKeyStore
 import com.chencohen.ptt.ios.IosFolders
 import com.chencohen.ptt.ios.IosHost
+import com.chencohen.ptt.ios.IosServerCheck
+import com.chencohen.ptt.ios.IosTalkRoom
+import com.chencohen.ptt.talk.IosTalkTransport
+import com.chencohen.ptt.tls.decodePemCertificates
 import com.chencohen.ptt.ios.SecureRandom
 import com.chencohen.ptt.ios.toNSData
 import com.chencohen.ptt.media.IosMediaFiles
@@ -134,6 +138,27 @@ class IosPtt(
         }
         messaging = MessagingController(hub, messagingWork)
         pairing = PairingController(hub, messagingWork, now = { IosFolders.nowMillis() })
+    }
+
+    /**
+     * Live talk's room (LiveKit's Swift SDK, in Swift): from now on a chat on screen joins its room, and a press goes
+     * out through it. Set once, when the app starts.
+     */
+    fun setTalkRoom(room: IosTalkRoom) {
+        val transport = IosTalkTransport(room)
+        hub.live.transport = transport
+        // Never taken from a call or another app (2026-11-25, hen: "don't hijack it").
+        hub.talk.micBusy = { transport.micBusy() }
+    }
+
+    /**
+     * How Swift's own connection to the server (LiveKit's signalling, piped to `/rtc`) knows the server and shows this
+     * phone's certificate; null before enrolling. Read anew for each connection: the kept key and CA may change.
+     */
+    fun serverCheck(): IosServerCheck? {
+        val alias = settings.identityAlias ?: return null
+        val cas = settings.serverCa?.let(::decodePemCertificates).orEmpty().map { it.toNSData() }
+        return IosServerCheck(alias, settings.serverFingerprint, cas)
     }
 
     /** This phone's user name (empty before enrolling). */

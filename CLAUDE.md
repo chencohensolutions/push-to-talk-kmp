@@ -33,7 +33,7 @@ exists there, copy it and adapt it rather than invent a new one, and keep journa
   libsignal (`crypto/LibsignalCryptoEngine.kt`,
   `SignalStore.kt`), SQLCipher (`store/SqlCipherStore.kt`, its key wrapped in the Keystore), and the factories
   (`AndroidPtt.kt`). `androidHostTest`: libsignal itself on the JVM. `iosMain`: iOS's implementations
-  (`IosPtt.kt`, the entry; `ios/IosHost.kt`, `IosSignal.kt`, `IosDb`: what Swift implements; `ios/IosViews.kt`: what the
+  (`IosPtt.kt`, the entry; `ios/IosHost.kt`, `IosSignal.kt`, `IosDb`, `IosTalkRoom.kt` (a LiveKit room): what Swift implements; `talk/IosTalkTransport.kt`, the live path's rules over that room; `ios/IosViews.kt`: what the
   SwiftUI screens read out of the state; `crypto/IosCryptoEngine.kt`, `network/IosMtlsHttpClientFactory.kt`,
   `store/IosSecureStore.kt`).
 - `iosApp/` — the SwiftUI app (docs/ios.md). `project.yml` (XcodeGen writes `Talk.xcodeproj`), `Talk/App/` (`TalkApp`,
