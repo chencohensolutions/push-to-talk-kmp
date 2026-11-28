@@ -86,7 +86,13 @@ interface MediaPreparer {
      * an MP4, telling [progress] (0 to 1) as it is made; null when it is too long for one or can't be made.
      */
     suspend fun clip(source: String, width: Int, height: Int, durationMs: Long, progress: (Float) -> Unit): PreparedPreview? = null
+
+    /** When and where the picture or video at [source] was taken, read again without making anything; null: unknown. */
+    suspend fun takenWhere(source: String): TakenWhere? = null
 }
+
+/** When and where a picture or video was taken, as [AttachmentContent] carries it. */
+class TakenWhere(val takenAt: Long = 0, val takenOffsetMin: Int = 0, val latE7: Int = 0, val lonE7: Int = 0, val hasPlace: Boolean = false)
 
 /** A shared file read again from where it is on this phone, with its SHA-256 worked out as it is read. */
 interface OriginalReader {
@@ -297,7 +303,7 @@ internal class MediaSharing(
             try {
                 // Shared before (in this chat or another): sent again as the same item, nothing made or uploaded again
                 // (2026-11-28, hen: "share images between groups without doubling the storage").
-                earlier(source, mine)?.let { (m, item) -> Again(m, item, source) } ?: preparer.prepare(source) { PreviewSpec.widths(widths, it) }
+                earlier(source, mine)?.let { (m, item) -> Again(m, withTakenWhere(item, source), source) } ?: preparer.prepare(source) { PreviewSpec.widths(widths, it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -627,6 +633,21 @@ internal class MediaSharing(
             previews = item.previews.map { keyed(it, MediaCrypto.Part.PREVIEW) },
             poster = item.poster?.let { keyed(it, MediaCrypto.Part.POSTER) },
             clip = item.clip?.let { keyed(it, MediaCrypto.Part.CLIP) },
+        )
+    }
+
+    /**
+     * [item], shared before, with when and where it was taken read again from its file where it has neither (2026-11-28,
+     * hen: "why no time above image?": a picture first shared before they were read right came again without them).
+     */
+    private suspend fun withTakenWhere(item: AttachmentContent, source: String): AttachmentContent {
+        if (item.takenAt > 0 && item.hasPlace) return item
+        val read = preparer?.takenWhere(source) ?: return item
+        val time = item.takenAt <= 0 && read.takenAt > 0
+        val place = !item.hasPlace && read.hasPlace
+        return item.copy(
+            takenAt = if (time) read.takenAt else item.takenAt, takenOffsetMin = if (time) read.takenOffsetMin else item.takenOffsetMin,
+            latE7 = if (place) read.latE7 else item.latE7, lonE7 = if (place) read.lonE7 else item.lonE7, hasPlace = item.hasPlace || place,
         )
     }
 

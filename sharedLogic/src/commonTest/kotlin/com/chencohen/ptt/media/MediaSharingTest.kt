@@ -54,6 +54,12 @@ private class FakePreparer : MediaPreparer {
     /** What is at each source now (gone: absent); starts as [originalOf]. */
     val files = mutableMapOf<String, ByteArray>()
     var opened = 0
+    /** Reads no time or place (as an app before they were read right). */
+    var untimed = false
+
+    override suspend fun takenWhere(source: String): TakenWhere? =
+        if (untimed || (files[source] ?: files["content://media/$source"]) == null) null
+        else TakenWhere(takenAt = 1_790_000_000_000, hasPlace = true, latE7 = 320_000_000, lonE7 = 340_000_000)
 
     override suspend fun prepare(source: String, widths: (originalWidth: Int) -> List<Int>): PreparedItem? {
         if (source == "gone") return null
@@ -63,7 +69,7 @@ private class FakePreparer : MediaPreparer {
             kind = if (source.startsWith("video")) MediaKind.VIDEO else MediaKind.IMAGE,
             mime = if (source.startsWith("video")) "video/mp4" else "image/jpeg", name = "$source.jpg", size = original.size.toLong(), width = 4000, height = 3000,
             sha256 = sha256(original),
-            takenAt = 1_790_000_000_000, hasPlace = true, latE7 = 320_000_000, lonE7 = 340_000_000,
+            takenAt = if (untimed) 0 else 1_790_000_000_000, hasPlace = !untimed, latE7 = if (untimed) 0 else 320_000_000, lonE7 = if (untimed) 0 else 340_000_000,
             previews = w.map { PreparedPreview(it, PreviewSpec.heightAt(4000, 3000, it), "preview $source $it".encodeToByteArray()) },
             source = "content://media/$source",
         )
@@ -403,6 +409,48 @@ class MediaSharingTest {
         advanceUntilIdle()
         assertNull(assertNotNull(whole.await()).crop)
         assertNull(dana.store.message(message.id)!!.media!!.items.single().crop)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun whenAndWhereAPictureWasTakenStayThroughCropsBeforeAndAfterItGoes() = runTest {
+        val (_, hen, dana) = paired()
+        val draft = hen.work.async { hen.messaging.draftMedia("dana", listOf("a")) }
+        advanceUntilIdle()
+        val drafts = draft.await()
+        val item = drafts.single().media!!.items.single()
+        assertTrue(item.takenAt > 0 && item.hasPlace, "the draft has them")
+        for (crop in listOf(com.chencohen.ptt.messaging.CropContent(top = 389, bottom = 4_361), com.chencohen.ptt.messaging.CropContent(top = 739, bottom = 618))) {
+            hen.work.async { hen.messaging.recrop(drafts[0].id, item.id, crop) }.also { advanceUntilIdle() }.await()
+        }
+        val sent = hen.work.async { hen.messaging.sendDraft(drafts, "a dog") }
+        advanceUntilIdle()
+        val message = sent.await().single()
+        hen.work.async { hen.messaging.recrop(message.id, item.id, null) }.also { advanceUntilIdle() }.await()
+        for ((who, phone) in listOf("mine" to hen, "theirs" to dana)) {
+            val there = phone.store.message(message.id)!!.media!!.items.single()
+            assertEquals(item.takenAt, there.takenAt, "$who: when")
+            assertTrue(there.hasPlace && there.latE7 == item.latE7 && there.lonE7 == item.lonE7, "$who: where")
+        }
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aPictureSharedAgainGetsTheTimeAndPlaceItWasFirstSentWithout() = runTest {
+        val (_, hen, dana) = paired()
+        val preparer = hen.messaging.media.preparer as FakePreparer
+        preparer.untimed = true
+        val first = hen.work.async { hen.messaging.shareMedia("dana", listOf("a"), "") }.also { advanceUntilIdle() }.await().single()
+        assertEquals(0, first.media!!.items.single().takenAt)
+        preparer.untimed = false
+        val again = hen.work.async { hen.messaging.shareMedia("dana", listOf("a"), "") }.also { advanceUntilIdle() }.await().single()
+        assertEquals(1, preparer.asked.size, "shared again as the same item, nothing made again")
+        val there = dana.store.message(again.id)!!.media!!.items.single()
+        assertEquals(first.media!!.items.single().previews.map { it.blob }, there.previews.map { it.blob })
+        assertEquals(1_790_000_000_000, there.takenAt)
+        assertTrue(there.hasPlace && there.latE7 == 320_000_000)
         hen.stop()
         dana.stop()
     }

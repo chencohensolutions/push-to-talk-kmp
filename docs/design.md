@@ -865,7 +865,10 @@ docs/messaging.md, "Blobs"), and only if they are gone from there are they uploa
 answered with the original already uploaded for the first sharing when it is still on the server, shared the same way.
 Deleting it in one chat takes the blobs out of that chat only (`DELETE /blob/<id>?peer=`): the server deletes a blob
 when no chat is left, and this phone keeps a preview while another message names it. The previews are the widths made
-for the first chat's screens. (`MediaSharingTest.aPictureSharedToAnotherChatIsStoredOnce`.)
+for the first chat's screens. (`MediaSharingTest.aPictureSharedToAnotherChatIsStoredOnce`.) An item first shared
+without when or where it was taken (before HEIC's EXIF was read right) gets them read again from its file
+(`MediaPreparer.takenWhere`, `withTakenWhere`; 2026-11-28, hen: "why no time above image?";
+`aPictureSharedAgainGetsTheTimeAndPlaceItWasFirstSentWithout`).
 
 Each picture may have a composition of its own (2026-11-28, hen: "pick the point of interest of every image i send ...
 when composing an image, by default its the full width of the image and the top and bottom border can be trimmed";
