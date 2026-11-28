@@ -26,6 +26,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.core.content.edit
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -199,6 +200,9 @@ fun HomeApp(
     onTalkSettings: (com.chencohen.ptt.messaging.TalkSettings) -> Unit = { messaging.setTalkSettings(it) },
     /** A talk notification's Play: the clip to play once home shows its chat. */
     openedClip: String? = null,
+    /** Pictures, videos or files shared to Talk from another app (MainActivity), until Send to took them. */
+    openedShare: List<String>? = null,
+    onShareTaken: () -> Unit = {},
 ) {
     val state by connection.state.collectAsStateWithLifecycle()
     val messagingState by messaging.state.collectAsStateWithLifecycle()
@@ -254,6 +258,34 @@ fun HomeApp(
         val keyguard = context.getSystemService(android.app.KeyguardManager::class.java)
         if (activity != null && keyguard.isKeyguardLocked) keyguard.requestDismissKeyguard(activity, null) else messaging.pressTalk(chat)
     }
+    // Shared to Talk from another app's Share menu (2026-11-28, hen): Send to picks the chat.
+    var sharing by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(openedShare) {
+        val shared = openedShare ?: return@LaunchedEffect
+        onShareTaken()
+        if (shared.isEmpty()) return@LaunchedEffect
+        sharing = shared
+        saved = "share"
+    }
+    fun sendShared(chat: String, uris: List<String>) {
+        messaging.shareMedia(chat, uris, "") { sent -> if (sent == 0) messages.post(resources.getString(R.string.share_failed)) }
+    }
+    // The phone's pictures and videos, with their place: the sender keeps no copy, so the original is read again from
+    // there when someone opens it (asked once, the first time something is shared; it goes either way).
+    var askedFor by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
+    val askMedia = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) {
+        askedFor?.let { (chat, uris) -> sendShared(chat, uris) }
+        askedFor = null
+    }
+    fun shareIn(chat: String, uris: List<String>) {
+        val wanted = listOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO, android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+        val missing = wanted.filter { context.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+        val prefs = context.getSharedPreferences("media", android.content.Context.MODE_PRIVATE)
+        if (missing.isEmpty() || prefs.getBoolean("asked", false)) return sendShared(chat, uris)
+        prefs.edit { putBoolean("asked", true) }
+        askedFor = chat to uris
+        askMedia.launch(missing.toTypedArray())
+    }
     // A talk notification's Play: the burst plays from the chat's history.
     LaunchedEffect(openedClip) { if (openedClip != null) messaging.playClip(openedClip) }
     // Your picture, once after enrolling (or after the update that brought pictures; 2026-11-24, hen), unless an
@@ -304,6 +336,10 @@ fun HomeApp(
         // "typing…" ends by itself when its time is up.
         var now by remember { mutableStateOf(System.currentTimeMillis()) }
         val group = Group.idOf(user)?.let { id -> messagingState.groups.firstOrNull { it.id == id } }
+        // The composer's + (2026-11-28, hen): what is picked is shared here.
+        val writable = if (Group.idOf(user) != null) group != null && !group.gone && group.isReader(state.device?.user.orEmpty())
+            else messagingState.contacts.firstOrNull { it.user == user }?.let { it.paired && !it.blocked } == true
+        val attachPicker = com.chencohen.ptt.ui.media.rememberMediaPicker { uris -> shareIn(user, uris.map { it.toString() }) }
         val groupTyping = messagingState.typing.filterKeys { it.startsWith("$user/") }
         val typingUntil = if (Group.idOf(user) != null) groupTyping.values.maxOrNull() else messagingState.typing[user]
         LaunchedEffect(typingUntil) {
@@ -429,6 +465,8 @@ fun HomeApp(
                 edit = { id, body -> messaging.editText(id, body) },
                 editLive = { id, text, s, e -> messaging.editLive(id, text, s, e) },
                 delete = { ids, everyone -> messaging.deleteMessages(ids, everyone) },
+                mediaPreview = { id, item -> messaging.mediaPreview(id, item) },
+                attach = if (writable) attachPicker else null,
             ),
             talk = messagingState.talk,
             talkLine = com.chencohen.ptt.ui.talk.talkLine(user, messagingState.talk, nameOf, state.device?.user.orEmpty()),
@@ -621,6 +659,22 @@ fun HomeApp(
                     }
                     LinkPhoneScreen(view, back = ::pop, again = ::make)
                 }
+                name == "share" -> com.chencohen.ptt.ui.media.ShareToScreen(
+                    count = sharing.size,
+                    contacts = messagingState.contacts,
+                    groups = messagingState.groups,
+                    me = state.device?.user.orEmpty(),
+                    conversations = messagingState.conversations,
+                    back = {
+                        sharing = emptyList()
+                        pop()
+                    },
+                    pick = { chat ->
+                        shareIn(chat, sharing)
+                        sharing = emptyList()
+                        saved = "chat/$chat"
+                    },
+                )
                 name == "new" -> NewChatScreen(
                     contacts = messagingState.contacts,
                     back = ::pop,

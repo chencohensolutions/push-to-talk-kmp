@@ -73,6 +73,8 @@ internal class Groups(
     /** A member chose the group's chat colours (2026-11-27, hen: "it also should be working in groups"). */
     private val onColors: (group: Group, author: String, colors: ColorsContent) -> Unit = { _, _, _ -> },
     private val attempts: Int = 3,
+    /** Shared media in a message, checked (MediaSharing.accept). */
+    private val acceptMedia: (MediaContent?, Int) -> MediaContent? = { _, _ -> null },
 ) {
     private fun self(): EnrolledDevice = me() ?: throw IllegalStateException("This phone isn't registered")
 
@@ -433,7 +435,7 @@ internal class Groups(
             val message = TextMessage(
                 id, group.chat, outgoing = author == self.user, body = text.body,
                 at = if (author == self.user) text.sentAt else envelope.serverTimestamp, author = author,
-                read = author == self.user, face = text.face,
+                read = author == self.user, face = text.face, media = acceptMedia(content.media, envelope.senderDevice),
             )
             onText(group, message)
         }

@@ -404,6 +404,7 @@ internal class Messaging(
     private val onRevoked: () -> Unit = {},
     clipFiles: ClipFiles = MemoryClipFiles(),
     blobApi: BlobApi? = null,
+    mediaFiles: com.chencohen.ptt.media.MediaFiles = com.chencohen.ptt.media.MemoryMediaFiles(),
 ) {
     /** Android's notifications; set by the app. */
     var notifier: MessageNotifier? = null
@@ -682,6 +683,7 @@ internal class Messaging(
     private val sender: Sender = Sender(engine, api, socket::send, { settings.device })
 
     val groups: Groups = Groups(
+        acceptMedia = { m, d -> media.accept(m, d) },
         engine = engine, store = store, api = api, sender = sender, send = socket::send, scope = scope, now = now, random = random,
         me = ::device, publish = ::publish,
         onText = { group, message ->
@@ -784,6 +786,34 @@ internal class Messaging(
         publish = ::publish,
         awake = { foreground || stayConnected },
     ).also { it.hearNow = { hearNow } }
+
+    /** This phone's screen, physical pixels, short side first (the platform sets it): told to contacts (AboutContent). */
+    var screenWidthPx = 0
+    var screenHeightPx = 0
+
+    /** Shared pictures, videos and files (2026-11-28, hen). */
+    val media: com.chencohen.ptt.media.MediaSharing = com.chencohen.ptt.media.MediaSharing(
+        store = store, files = mediaFiles, blobs = blobs, random = random, now = now,
+        screens = ::screensIn, myScreen = { screenWidthPx }, publish = ::publish, newId = ::newId,
+    )
+
+    /** The screen widths of the phones that see [chat]: this phone's, and the contact's or each member's as told. */
+    private fun screensIn(chat: String): List<Int> {
+        val told = settings.contactScreens
+        val others = Group.idOf(chat)?.let { id -> store.group(id)?.readers?.map { it.user }.orEmpty() } ?: listOf(chat)
+        val me = device()?.user
+        return (others.filter { it != me }.map { told[it] ?: com.chencohen.ptt.media.PreviewSpec.DEFAULT_WIDTH } +
+            (screenWidthPx.takeIf { it > 0 } ?: com.chencohen.ptt.media.PreviewSpec.DEFAULT_WIDTH)).distinct()
+    }
+
+    /**
+     * Shares [sources] (content URIs the user picked or shared to Talk) in [chat]: read, previews made for the screens
+     * there, kept as messages and sent (uploaded first). Answers the messages.
+     */
+    suspend fun shareMedia(chat: String, sources: List<String>, caption: String): List<TextMessage> {
+        val messages = media.prepare(chat, sources, caption)
+        return messages.map { deliver(it) }
+    }
 
     val live: com.chencohen.ptt.talk.LiveTalk = com.chencohen.ptt.talk.LiveTalk(
         scope = scope,
@@ -904,14 +934,16 @@ internal class Messaging(
     /** Tells each paired contact this phone's app version, when it isn't the one last told them. */
     internal fun shareAbout() {
         val version = appVersion.ifEmpty { return }
+        // The screen goes with it (2026-11-28): told again when either changes.
+        val said = if (screenWidthPx > 0) "$version|${screenWidthPx}x$screenHeightPx" else version
         val told = settings.versionToldTo
-        val contacts = store.contacts().filter { it.paired && !it.blocked && told[it.user] != version }
+        val contacts = store.contacts().filter { it.paired && !it.blocked && told[it.user] != said }
         if (contacts.isEmpty()) return
         scope.launch {
             for (c in contacts) {
                 try {
-                    sender.send(c.user, Content(about = AboutContent(version)), pushKind = PushKind.NONE)
-                    settings.versionToldTo = settings.versionToldTo + (c.user to version)
+                    sender.send(c.user, Content(about = AboutContent(version, screenWidthPx, screenHeightPx)), pushKind = PushKind.NONE)
+                    settings.versionToldTo = settings.versionToldTo + (c.user to said)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -921,7 +953,8 @@ internal class Messaging(
     }
 
     /** [user]'s phone [device] runs [version] (it said so now). */
-    internal fun takeAbout(user: String, device: Int, version: String) {
+    internal fun takeAbout(user: String, device: Int, version: String, screenWidth: Int = 0) {
+        if (screenWidth in 240..8192 && settings.contactScreens[user] != screenWidth) settings.contactScreens = settings.contactScreens + (user to screenWidth)
         val v = version.trim().take(32).ifEmpty { return }
         val all = settings.contactVersions
         val mine = all[user].orEmpty() + (device.toString() to listOf(v, now().toString()))
@@ -2029,7 +2062,9 @@ internal class Messaging(
             return store.message(message.id) ?: message
         }
         val status = try {
-            val text = Content(text = TextContent(message.body, message.at, message.id, face = message.face))
+            // Shared media: its previews go up first (again after a broken upload), then the message that names them.
+            if (message.outgoing && message.media != null) media.upload(message)
+            val text = Content(text = TextContent(message.body, message.at, message.id, face = message.face), media = message.media)
             val group = Group.idOf(message.user)
             if (group != null) groups.send(group, text, PushKind.MESSAGE) else sender.send(message.user, text, pushKind = PushKind.MESSAGE)
             MessageStatus.SENT
@@ -2039,6 +2074,11 @@ internal class Messaging(
             MessageStatus.PENDING
         } catch (e: GroupUnavailableException) {
             MessageStatus.FAILED
+        } catch (e: com.chencohen.ptt.media.MissingPreviewException) {
+            MessageStatus.FAILED
+        } catch (e: BlobException) {
+            // Refused for good (not allowed now, too big); otherwise (no network, the server down) tried again later.
+            if (e.status in 400..499 && e.status != 408 && e.status != 409 && e.status != 429) MessageStatus.FAILED else MessageStatus.PENDING
         } catch (e: SendRefusedException) {
             if (e.status == com.chencohen.ptt.relay.SendStatus.NOT_MEMBER || e.toPairingError() != PairingError.UNREACHABLE) MessageStatus.FAILED else MessageStatus.PENDING
         } catch (e: Exception) {
@@ -2485,7 +2525,7 @@ internal class Messaging(
             val to = content.destination.takeIf { it.isNotEmpty() } ?: return
             content.text?.let { text ->
                 val id = text.id.ifEmpty { envelope.id }
-                if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt, face = text.face))
+                if (store.message(id) == null) store.putMessage(TextMessage(id, to, outgoing = true, body = text.body, at = text.sentAt, face = text.face, media = media.accept(content.media, envelope.senderDevice)))
             }
             content.reaction?.let { takeReaction(to, null, it) }
             content.edit?.let { takeEdit(to, null, mine = true, it) }
@@ -2506,7 +2546,7 @@ internal class Messaging(
             val id = text.id.ifEmpty { envelope.id }
             if (store.message(id) != null) return
             val read = readsAtOnce(contact.user)
-            store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read, face = text.face))
+            store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read, face = text.face, media = media.accept(content.media, envelope.senderDevice)))
             _state.update { it.copy(typing = it.typing - contact.user, drafts = it.drafts - contact.user) }
             scope.launch {
                 sendReceipt(contact.user, read = false, listOf(id))
@@ -2556,7 +2596,7 @@ internal class Messaging(
             }
         }
         content.reaction?.let { takeReaction(contact.user, contact.user, it) }
-        content.about?.let { takeAbout(contact.user, envelope.senderDevice, it.version) }
+        content.about?.let { takeAbout(contact.user, envelope.senderDevice, it.version, it.screenWidthPx) }
         content.colors?.let { takeColors(contact.user, it) }
         content.profile?.let { profile ->
             if (profile.needPicture) {

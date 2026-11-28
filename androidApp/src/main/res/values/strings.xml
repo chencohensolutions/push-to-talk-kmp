@@ -955,4 +955,16 @@
     <string name="push_hearing_f">%1$s is hearing you</string>
     <string name="push_group_hear">%1$d hearing · %2$d get it later</string>
     <string name="push_cant_hear_group">%1$s · %2$s · gets it later</string>
+    <!-- Sharing media (2026-11-28, hen; docs/screens/share.md). -->
+    <string name="share_title">Send to</string>
+    <string name="share_count">%1$d to send</string>
+    <string name="share_none">No chats yet. Add a contact first.</string>
+    <string name="share_failed">Couldn\'t read what was shared</string>
+    <string name="chat_attach">Attach</string>
+    <string name="chat_attach_gallery">Gallery</string>
+    <string name="chat_attach_file">File</string>
+    <string name="media_picture">Picture</string>
+    <string name="media_video">Video</string>
+    <string name="media_file">File</string>
+    <string name="media_loading">Loading picture</string>
 </resources>

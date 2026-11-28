@@ -127,7 +127,15 @@ private fun hub(context: Context): Messaging {
         onRevoked = { onRevokedNow() },
         clipFiles = com.chencohen.ptt.talk.AndroidClipFiles(context.applicationContext),
         blobApi = com.chencohen.ptt.talk.KtorBlobApi(http),
+        mediaFiles = com.chencohen.ptt.media.AndroidMediaFiles(context.applicationContext),
     ).also {
+        // Shared media (2026-11-28, hen): previews as wide as each screen, so this one's is told to contacts.
+        it.media.preparer = com.chencohen.ptt.media.AndroidMediaPreparer(context)
+        runCatching {
+            val bounds = context.getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds
+            it.screenWidthPx = minOf(bounds.width(), bounds.height())
+            it.screenHeightPx = maxOf(bounds.width(), bounds.height())
+        }
         // This phone's app version, told to contacts (AboutContent).
         it.appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
         it.talk.capture = com.chencohen.ptt.talk.AndroidTalkCapture(com.chencohen.ptt.talk.SpeakerphoneMic(context))
