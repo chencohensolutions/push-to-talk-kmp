@@ -11,7 +11,8 @@ https://claude.ai/artifact/CPewKaHcVw4FeLyKthu2Cm; this page only keeps what the
 - **The launcher icon is "One roof"** (hen chose it 2026-11-27): two speech bubbles, white with a voice and mint,
   under one teal roof, on Talk's coral. Its layers are PNGs per density (`drawable-*/ic_launcher_foreground`,
   `_background`, `_monochrome` for themed icons), rendered from `docs/screens/mocks/app-icon-one-roof.html` (the soft
-  shadows need a raster; a vector drawable can't blur). Re-render from that file to change it.
+  shadows need a raster; a vector drawable can't blur). Re-render from that file to change it. The iOS icon is the same
+  drawing's middle at 1024 px (`tools/ios-icon.js`).
 - **iOS is being built** (2026-11-28): `iosApp` is a SwiftUI app over the same `sharedLogic`, whose `iosMain` holds
   iOS's implementations. [ios.md](ios.md) says how it is put together, what is built (enrollment, chats, contacts,
   groups, settings, in the foreground) and what is next (live talk, calls, media, notifications, TestFlight).
