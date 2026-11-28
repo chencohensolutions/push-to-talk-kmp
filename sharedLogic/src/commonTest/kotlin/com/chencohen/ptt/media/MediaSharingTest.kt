@@ -330,10 +330,11 @@ class MediaSharingTest {
         advanceUntilIdle()
         assertTrue(bytes.await()!!.decodeToString().startsWith("crop "))
 
-        // Only the sender can, and only with the item's own key.
+        // Only the sender can (takeEdit checks the author), and an edit never changes the item's key.
         val forged = there.copy(key = ByteArray(32) { 7 }, crop = com.chencohen.ptt.messaging.CropContent(top = 5_000))
         val theirs = dana.store.message(message.id)!!
-        assertTrue(!dana.messaging.media.takeRecrop(theirs, forged), "another key is refused")
+        dana.messaging.media.takeRecrop(theirs, forged)
+        assertContentEquals(item.key, dana.store.message(message.id)!!.media!!.items.single().key, "the item's key stays")
         val mine = dana.work.async { dana.messaging.recrop(message.id, item.id, null) }
         advanceUntilIdle()
         assertNull(mine.await(), "not theirs to crop")
@@ -768,6 +769,10 @@ class MediaOriginalTest {
         val first = hen.store.message(toDana)!!.media!!.items.single()
         assertEquals(first.previews.map { it.blob }, erinItem.previews.map { it.blob })
         assertTrue(erinItem.id != first.id)
+        // Not dana's chat's item key: erin's message carries the key of each file it names, and only those.
+        assertTrue(erinItem.key.isEmpty(), "the item key stays in dana's chat")
+        assertTrue(erinItem.previews.all { it.key.size == MediaCrypto.KEY_BYTES })
+        assertTrue(erin.store.message(toErin.id)!!.media!!.items.single().key.isEmpty())
         assertEquals(1, preparer.asked.size, "prepared once")
         assertEquals(blobsBefore, server.files.keys, "nothing new on the server")
         assertTrue(first.previews.all { "erin" in server.shares[it.blob].orEmpty() })
@@ -780,6 +785,7 @@ class MediaOriginalTest {
         assertTrue(erin.messaging.media.originals.value["${toErin.id}/${erinItem.id}"] is OriginalState.Ready)
         assertEquals(opened, preparer.opened)
         assertEquals(blobsBefore, server.files.keys)
+        assertContentEquals(originalOf("a"), erin.files.originals.values.single())
 
         // Deleted in dana's chat: gone for dana, still erin's.
         assertTrue(hen.messaging.deleteMessage(toDana))
@@ -789,6 +795,16 @@ class MediaOriginalTest {
         assertTrue(first.previews.all { hen.files.has(it.blob) }, "hen's phone keeps what erin's message names")
         assertNull(dana.store.message(toDana)?.media)
         assertNotNull(erin.store.message(toErin.id)?.media)
+        // A new crop in erin's chat: new previews with keys of their own, which dana's chat's key doesn't open.
+        val crop = com.chencohen.ptt.messaging.CropContent(top = 1000, bottom = 9000)
+        val recropped = assertNotNull(hen.work.async { hen.messaging.media.recrop(toErin.id, erinItem.id, crop) }.also { advanceUntilIdle() }.await())
+        for (p in recropped.previews) {
+            assertEquals(MediaCrypto.KEY_BYTES, p.key.size)
+            val sealed = assertNotNull(server.files[p.blob])
+            assertNull(MediaCrypto.openAll(MediaCrypto.partKey(first.key, p.blob, MediaCrypto.Part.PREVIEW), p.blob, sealed))
+        }
+        assertNotNull(erin.messaging.media.preview(toErin.id, erinItem.id))
+
         // And then in erin's: gone from the server.
         assertTrue(hen.messaging.deleteMessage(toErin.id))
         advanceUntilIdle()

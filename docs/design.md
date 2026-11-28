@@ -803,8 +803,16 @@ server's `media_total_gb`, 1 TB, lets what was fetched longest ago go): previews
 apps means 30 days), so a phone that got it lets its previews go from the cache, to be fetched again. On Wi-Fi (a network that isn't metered) an original goes up right after its message is on the server
 (`uploadAhead`; off Wi-Fi, `uploadPending` sends it on the next start on Wi-Fi), and the chat is told with a READY
 reply as if someone had asked: it then opens for anyone straight from the server, even with my phone off or the file
-gone from it. Media is still sealed with each item's own key (2026-11-28, hen chose it over a chat key): shared to
-several chats it is stored once.
+gone from it.
+
+Every file has its own key, and a chat gets the keys of exactly the files it may read (2026-11-28, hen chose "a key
+per file, inside each chat's message" after Fable's review found that a re-share handed chat B the item key chat A
+has, which would open what is made later for B). A first share sends the item's key, from which each part's is
+derived (`MediaCrypto.partKey`, salted by its blob id). Shared again to another chat (`again`), the item goes
+without its key: each preview and the poster carry their own (`PartContent.key`), the same blobs, so it is still
+stored once; its original's key goes in the READY reply (`#okey`, the first chat's original's own key, or a new random
+one when it is uploaded for this chat). A new crop's previews get random keys of their own in every chat, and an
+edit never changes an item's key. A fetched original is checked against the SHA-256 its message named.
 
 Original videos can stream (2026-11-28, hen): a video bigger than the cache limit always does, and with Settings ›
 Storage › Stream original videos (off by default) every one does. Opening one gets its blob as usual (asking the

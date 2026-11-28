@@ -487,7 +487,8 @@ internal class MediaSharing(
             null
         } ?: return null
         if (made.previews.isEmpty()) return null
-        val previews = made.previews.map { sealPreview(item.key, it) }
+        // Each new preview with its own key, told only to this chat (2026-11-28, hen: a key per file).
+        val previews = made.previews.map { sealPreview(null, it) }
         val now = item.copy(previews = previews, thumb = made.thumb.takeIf { it.isNotEmpty() } ?: item.thumb, crop = wanted)
         val updated = message.copy(media = media.copy(items = media.items.map { if (it.id == itemId) now else it }))
         val old = item.previews.map { it.blob }
@@ -523,8 +524,9 @@ internal class MediaSharing(
     internal fun takeRecrop(message: TextMessage, edit: AttachmentContent): Boolean {
         val media = message.media ?: return false
         val item = media.items.firstOrNull { it.id == edit.id } ?: return false
-        if (item.kind != com.chencohen.ptt.messaging.MediaKind.IMAGE || edit.kind != item.kind || !edit.key.contentEquals(item.key)) return false
-        val checked = accept(MediaContent(items = listOf(edit)), item.originDevice)?.items?.singleOrNull() ?: return false
+        // Only the message's own author edits it (takeEdit checks); the item's key stays the one it was sent with.
+        if (item.kind != com.chencohen.ptt.messaging.MediaKind.IMAGE || edit.kind != item.kind) return false
+        val checked = accept(MediaContent(items = listOf(edit.copy(key = item.key))), item.originDevice)?.items?.singleOrNull() ?: return false
         if (checked.previews.isEmpty()) return false
         // Only its look changes: what it is (the original's size, hash, place, words) stays as it was sent.
         val now = item.copy(previews = checked.previews, thumb = checked.thumb.takeIf { it.isNotEmpty() } ?: item.thumb, crop = checked.crop?.clean())
@@ -548,21 +550,57 @@ internal class MediaSharing(
         }
     }
 
-    /** [preview] sealed with item key [key] under a new blob id, and kept. */
-    private fun sealPreview(key: ByteArray, p: PreparedPreview): PartContent {
+    /**
+     * [preview] sealed under a new blob id, and kept: with a key derived from item key [key], or (null) a random key of
+     * its own, carried in the part.
+     */
+    private fun sealPreview(key: ByteArray?, p: PreparedPreview): PartContent {
         val blob = blobId()
-        val sealed = MediaCrypto.sealAll(MediaCrypto.partKey(key, blob, MediaCrypto.Part.PREVIEW), blob, p.bytes)
+        val own = if (key == null) random.nextBytes(MediaCrypto.KEY_BYTES) else null
+        val sealed = MediaCrypto.sealAll(own ?: MediaCrypto.partKey(key!!, blob, MediaCrypto.Part.PREVIEW), blob, p.bytes)
         files.write(blob, sealed, sent = true)
-        return PartContent(blob = blob, size = p.bytes.size.toLong(), width = p.width, height = p.height, mime = p.mime)
+        return PartContent(blob = blob, size = p.bytes.size.toLong(), width = p.width, height = p.height, mime = p.mime, key = own ?: ByteArray(0))
     }
 
-    /** [again]'s item in message [message]: the same key, previews and poster (the same blobs), its own id. */
+    /**
+     * [again]'s item in message [message]: the same previews and poster (the same blobs), its own id, and not the
+     * item's key (2026-11-28, Fable's review: chat A's key mustn't open what is made later for chat B): each part
+     * carries its own key, so this chat gets the keys of exactly those files. Its original gets its own key too.
+     */
     private fun again(message: String, again: Again): AttachmentContent {
         val itemId = newId()
         store.putMediaSource(message, itemId, again.source)
         store.putMediaSource(message, "$itemId$FROM", "${again.message.id}/${again.item.id}")
-        return again.item.copy(id = itemId, text = "", originDevice = 0)
+        val item = again.item
+        fun keyed(part: PartContent, kind: MediaCrypto.Part) = part.copy(key = keyOf(item, part, kind), growing = false)
+        return item.copy(
+            id = itemId, text = "", originDevice = 0, key = ByteArray(0),
+            previews = item.previews.map { keyed(it, MediaCrypto.Part.PREVIEW) },
+            poster = item.poster?.let { keyed(it, MediaCrypto.Part.POSTER) },
+        )
     }
+
+    /** The key of [part] of [item]: its own, else derived from the item's. */
+    private fun keyOf(item: AttachmentContent, part: PartContent, kind: MediaCrypto.Part): ByteArray =
+        part.key.takeIf { it.size == MediaCrypto.KEY_BYTES } ?: MediaCrypto.partKey(item.key, part.blob, kind)
+
+    /**
+     * The key of the original [blob] of [itemId] in [messageId]: its own (a re-shared item's, kept when it went up or
+     * came in its reply), else derived from the item's key. Null: neither is known.
+     */
+    private fun originalKey(messageId: String, item: AttachmentContent, blob: String): ByteArray? {
+        store.mediaSource(messageId, "${item.id}$ORIGINAL_KEY")?.split(':')?.takeIf { it.size == 2 && it[0] == blob }?.let { (_, hex) ->
+            return hexBytes(hex)?.takeIf { it.size == MediaCrypto.KEY_BYTES }
+        }
+        return item.key.takeIf { it.size == MediaCrypto.KEY_BYTES }?.let { MediaCrypto.partKey(it, blob, MediaCrypto.Part.ORIGINAL) }
+    }
+
+    private fun keepOriginalKey(messageId: String, itemId: String, blob: String, key: ByteArray) {
+        store.putMediaSource(messageId, "$itemId$ORIGINAL_KEY", "$blob:" + key.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') })
+    }
+
+    private fun hexBytes(hex: String): ByteArray? =
+        if (hex.length % 2 != 0) null else runCatching { ByteArray(hex.length / 2) { hex.substring(it * 2, it * 2 + 2).toInt(16).toByte() } }.getOrNull()
 
     /** [item] with its own key; its previews sealed and kept (this phone shows them, and uploads them). */
     private fun seal(message: String, item: PreparedItem): AttachmentContent {
@@ -625,7 +663,7 @@ internal class MediaSharing(
                             while (store.message(message.id)?.status == MessageStatus.PENDING) delay(RETRY_WAIT)
                         }
                         if (waited != null) {
-                            val reply = MediaReplyContent(message.id, item.id, MediaPart.ORIGINAL, MediaReplyStatus.READY, part(id, item, growing = false))
+                            val reply = MediaReplyContent(message.id, item.id, MediaPart.ORIGINAL, MediaReplyStatus.READY, part(message.id, id, item, growing = false))
                             runCatching { send(message.user, Content(mediaReply = reply), PushKind.NONE, "") }
                         }
                     }
@@ -700,8 +738,11 @@ internal class MediaSharing(
     fun accept(media: MediaContent?, originDevice: Int): MediaContent? {
         media ?: return null
         val items = media.items.take(MAX_ITEMS).filter { item ->
-            item.key.size == MediaCrypto.KEY_BYTES && item.id.isNotEmpty() && item.previews.size <= PreviewSpec.MAX_PREVIEWS + 1 &&
-                (item.previews + listOfNotNull(item.poster)).all { validBlob(it.blob) && it.size >= 0 }
+            val parts = item.previews + listOfNotNull(item.poster)
+            // A key for the item, or one of its own for every part (shared again from another chat).
+            (item.key.size == MediaCrypto.KEY_BYTES || parts.all { it.key.size == MediaCrypto.KEY_BYTES }) &&
+                item.id.isNotEmpty() && item.previews.size <= PreviewSpec.MAX_PREVIEWS + 1 &&
+                parts.all { validBlob(it.blob) && it.size >= 0 && (it.key.isEmpty() || it.key.size == MediaCrypto.KEY_BYTES) }
         }.map { it.copy(name = it.name.take(MAX_NAME), text = it.text.take(MAX_CAPTION), originDevice = if (it.originDevice == 0) originDevice else it.originDevice) }
         if (items.isEmpty()) return null
         return media.copy(caption = media.caption.take(MAX_CAPTION), items = items)
@@ -760,7 +801,7 @@ internal class MediaSharing(
     }
 
     private suspend fun part(item: AttachmentContent, part: PartContent, kind: MediaCrypto.Part, sent: Boolean): ByteArray? {
-        val key = MediaCrypto.partKey(item.key, part.blob, kind)
+        val key = keyOf(item, part, kind)
         files.read(part.blob)?.let { sealed ->
             MediaCrypto.openAll(key, part.blob, sealed)?.let { return it }
             files.delete(part.blob) // Changed on this phone's storage: fetched again.
@@ -926,7 +967,7 @@ internal class MediaSharing(
         val item = store.message(messageId)?.media?.items?.firstOrNull { it.id == itemId } ?: return null
         val blob = store.mediaSource(messageId, "$itemId$ORIGINAL_BLOB")?.takeIf { validBlob(it) } ?: return null
         if (position < 0 || position > item.size) return null
-        val partKey = MediaCrypto.partKey(item.key, blob, MediaCrypto.Part.ORIGINAL)
+        val partKey = originalKey(messageId, item, blob) ?: return null
         val chunks = MediaCrypto.chunkCount(item.size)
         val lastSize = (MediaCrypto.sealedSize(item.size) - (chunks - 1) * MediaCrypto.SEALED).toInt()
         val first = minOf(position / MediaCrypto.CHUNK, chunks - 1)
@@ -977,7 +1018,7 @@ internal class MediaSharing(
 
     /** The original [blob] of [item] fetched as it grows, opened chunk by chunk into this phone's cache. */
     private suspend fun download(blob: String, item: AttachmentContent, key: String) {
-        val partKey = MediaCrypto.partKey(item.key, blob, MediaCrypto.Part.ORIGINAL)
+        val partKey = originalKey(key.substringBefore('/'), item, blob) ?: return setOriginal(key, OriginalState.Failed)
         val chunks = MediaCrypto.chunkCount(item.size)
         val lastSize = (MediaCrypto.sealedSize(item.size) - (chunks - 1) * MediaCrypto.SEALED).toInt()
         // A broken fetch goes on from its last whole chunk.
@@ -1063,6 +1104,8 @@ internal class MediaSharing(
             if (owner != null && (owner != author || (item.originDevice != 0 && item.originDevice != device))) return@let
             if (reply.status == MediaReplyStatus.READY) {
                 val blob = reply.upload?.blob?.takeIf { validBlob(it) } ?: return@let
+                // The original's own key (an item shared again from another chat has no item key here).
+                reply.upload.key.takeIf { it.size == MediaCrypto.KEY_BYTES }?.let { keepOriginalKey(message.id, item.id, blob, it) }
                 store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", blob)
                 store.putMediaSource(message.id, "${item.id}$ORIGINAL_UPLOADED", now().toString())
             }
@@ -1108,11 +1151,15 @@ internal class MediaSharing(
             if (theirs != null && uploading["${first[0]}/${first[1]}"]?.isActive != true) {
                 scope.launch {
                     val (peer, grp) = conversationOf(chat)
-                    if (blobs.share(theirs, peer, grp)) {
+                    val firstItem = store.message(first[0])?.media?.items?.firstOrNull { it.id == first[1] }
+                    val theirKey = firstItem?.let { originalKey(first[0], it, theirs) }
+                    if (theirKey != null && blobs.share(theirs, peer, grp)) {
+                        // This chat gets the key of that one file, not the first chat's item key.
+                        keepOriginalKey(message.id, item.id, theirs, theirKey)
                         store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", theirs)
                         store.putMediaSource(message.id, "${item.id}$ORIGINAL_UPLOADED", now().toString())
                         log(RequestResult.ON_SERVER)
-                        runCatching { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(theirs, item, growing = false))), PushKind.NONE, "") }
+                        runCatching { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(message.id, theirs, item, growing = false))), PushKind.NONE, "") }
                     } else {
                         store.removeMediaSource(message.id, "${item.id}$FROM")
                         answer(chat, author, device, request)
@@ -1123,13 +1170,13 @@ internal class MediaSharing(
         }
         if (blob != null && (uploading[key]?.isActive == true || uploadedRecently(message.id, item.id))) {
             log(RequestResult.ON_SERVER)
-            scope.launch { runCatching { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(blob, item, growing = uploading[key]?.isActive == true))), PushKind.NONE, "") } }
+            scope.launch { runCatching { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(message.id, blob, item, growing = uploading[key]?.isActive == true))), PushKind.NONE, "") } }
             return
         }
         uploading[key] = scope.launch {
             val id = blobId()
             val result = try {
-                uploadOriginal(chat, message, item, source, id) { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(id, item, growing = true))), PushKind.NONE, "") }
+                uploadOriginal(chat, message, item, source, id) { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(message.id, id, item, growing = true))), PushKind.NONE, "") }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -1173,8 +1220,12 @@ internal class MediaSharing(
             OriginalRequest(f[0].toLongOrNull() ?: 0, f[1], f[2], f[3].toIntOrNull() ?: 0, f[4], f[5], f[6].toIntOrNull() ?: 0)
         }?.filter { chat == null || it.chat == chat }?.toList().orEmpty()
 
-    private fun part(blob: String, item: AttachmentContent, growing: Boolean) =
-        PartContent(blob = blob, size = item.size, width = item.width, height = item.height, mime = item.mime, growing = growing)
+    /** The original [blob] of [item] in [messageId], as a reply names it: with its own key when the item has none here. */
+    private fun part(messageId: String, blob: String, item: AttachmentContent, growing: Boolean) =
+        PartContent(
+            blob = blob, size = item.size, width = item.width, height = item.height, mime = item.mime, growing = growing,
+            key = if (item.key.isEmpty()) originalKey(messageId, item, blob) ?: ByteArray(0) else ByteArray(0),
+        )
 
     /**
      * Reads the file at [source] again and uploads it sealed as blob [id], telling the chat ([started]) once its first
@@ -1186,7 +1237,9 @@ internal class MediaSharing(
         val reader = preparer?.open(source) ?: return MediaReplyStatus.GONE
         try {
             if (reader.size >= 0 && reader.size != item.size) return MediaReplyStatus.CHANGED
-            val partKey = MediaCrypto.partKey(item.key, id, MediaCrypto.Part.ORIGINAL)
+            // A re-shared item has no item key in this chat: its original gets a key of its own, kept and told.
+            val partKey = if (item.key.size == MediaCrypto.KEY_BYTES) MediaCrypto.partKey(item.key, id, MediaCrypto.Part.ORIGINAL)
+            else random.nextBytes(MediaCrypto.KEY_BYTES).also { keepOriginalKey(message.id, item.id, id, it) }
             val group = Group.idOf(chat)
             val peer = if (group == null) chat else null
             val total = MediaCrypto.sealedSize(item.size)
@@ -1559,6 +1612,9 @@ internal class MediaSharing(
         /** Where an item's original blob id and its upload time are kept beside its source (MessagingStore.mediaSource). */
         private const val ORIGINAL_BLOB = "#original"
         private const val ORIGINAL_UPLOADED = "#uploaded"
+
+        /** An original's own key, "blob:hex" (a re-shared item's: its item key isn't in that chat). */
+        private const val ORIGINAL_KEY = "#okey"
 
         /** An item shared again: the "message/item" it was first shared as (its original can be shared from there). */
         private const val FROM = "#from"

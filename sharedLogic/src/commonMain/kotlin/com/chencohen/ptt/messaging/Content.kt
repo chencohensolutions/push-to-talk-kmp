@@ -244,7 +244,20 @@ data class PartContent(
     /** One of [MediaHdr]. */
     @ProtoNumber(7) val hdr: Int = 0,
     @ProtoNumber(8) val growing: Boolean = false,
-)
+    /**
+     * This part's own key (2026-11-28, hen chose "a key per file, inside each chat's message"): a part shared again in
+     * another chat, a new crop, or an original that went up for a re-shared item carry theirs, so a chat gets the keys
+     * of exactly the files it may read. Empty: derived from the item's key (MediaCrypto.partKey).
+     */
+    @ProtoNumber(9) val key: ByteArray = ByteArray(0),
+) {
+    override fun equals(other: Any?): Boolean = other is PartContent && blob == other.blob && size == other.size &&
+        width == other.width && height == other.height && mime == other.mime && codec == other.codec && hdr == other.hdr &&
+        growing == other.growing && key.contentEquals(other.key)
+
+    override fun hashCode(): Int = blob.hashCode() * 31 + size.hashCode()
+}
+
 
 /** `PartContent.codec`. */
 object MediaCodec {
