@@ -979,4 +979,7 @@
     <string name="media_original_failed">The original didn\'t come</string>
     <string name="media_original_again">Try again</string>
     <string name="media_original_stop">Stop getting the original</string>
+    <string name="media_videos_title">Videos</string>
+    <string name="media_videos_at_once">Download videos at once</string>
+    <string name="media_videos_at_once_body">Off: a video comes when you open this chat. Pictures always come at once.</string>
 </resources>

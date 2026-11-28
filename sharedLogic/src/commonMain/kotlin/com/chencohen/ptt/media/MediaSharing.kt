@@ -348,7 +348,33 @@ internal class MediaSharing(
         val message = store.message(messageId) ?: drafts[messageId] ?: return null
         val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return null
         val part = PreviewSpec.pick(item.previews, myScreen().takeIf { it > 0 } ?: PreviewSpec.DEFAULT_WIDTH) ?: return null
-        return part(item, part, MediaCrypto.Part.PREVIEW, sent = message.outgoing)
+        return part(item, part, MediaCrypto.Part.PREVIEW, sent = message.outgoing).also { if (it != null) checkAll(messageId) }
+    }
+
+    /** Fetches message [messageId]'s pictures' previews now (its videos' too when [videos]); those that fail come later. */
+    suspend fun fetchPreviews(messageId: String, videos: Boolean) {
+        val items = store.message(messageId)?.media?.items.orEmpty()
+        for (item in items) {
+            if (item.kind == com.chencohen.ptt.messaging.MediaKind.VIDEO && !videos) continue
+            if (item.previews.isEmpty()) continue
+            preview(messageId, item.id)
+        }
+        checkAll(messageId)
+    }
+
+    private val waitingAll = mutableMapOf<String, CompletableDeferred<Unit>>()
+
+    /** Returns once every item of message [messageId] that has a preview has it on this phone (the receipt waits for it). */
+    suspend fun allPreviews(messageId: String) {
+        val wait = fetching.withLock { waitingAll.getOrPut(messageId) { CompletableDeferred() } }
+        checkAll(messageId)
+        wait.await()
+    }
+
+    private suspend fun checkAll(messageId: String) {
+        val items = store.message(messageId)?.media?.items ?: return
+        if (!items.all { it.previews.isEmpty() || hasPreview(messageId, it.id) }) return
+        fetching.withLock { waitingAll.remove(messageId) }?.complete(Unit)
     }
 
     /** Whether the preview this phone would show of [itemId] is kept here (drawn at once, no spinner). */

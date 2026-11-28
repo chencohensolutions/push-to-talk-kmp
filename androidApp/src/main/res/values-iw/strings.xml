@@ -982,4 +982,7 @@
     <string name="media_original_failed">המקור לא הגיע</string>
     <string name="media_original_again">נסה שוב</string>
     <string name="media_original_stop">הפסק לקבל את המקור</string>
+    <string name="media_videos_title">סרטונים</string>
+    <string name="media_videos_at_once">הורדת סרטונים מיד</string>
+    <string name="media_videos_at_once_body">כבוי: סרטון יורד כשפותחים את הצ׳אט. תמונות תמיד יורדות מיד.</string>
 </resources>

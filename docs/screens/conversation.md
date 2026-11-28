@@ -586,7 +586,9 @@ the previews upload, whole on the server, filled once every phone has it; failed
 it again. While a picture's preview goes up to the server (mine, in the writing colour) or comes down from it (theirs, in
 the accent colour), a small cloud (the server) in its end corner, with an arrow up or down, fills with colour from the bottom (mock
 `transfer-icon.png`, B) (hen, 2026-11-28: "i want to see upload progress and download
-progress from server"; `MediaSharing.transfers`, previews uploaded in 64 KiB pieces). A video shows its length in a chip. A file is a row with its name and size in the same frame. A long press
+progress from server"; `MediaSharing.transfers`, previews uploaded in 64 KiB pieces). Their phone fetches a message's pictures as it comes, and says it got the message (my received face) only once their
+previews are on it; a video's preview comes when the chat is opened, unless the chat has Download videos at once (its
+page, off by default), 2026-11-28, hen. A video shows its length in a chip. A file is a row with its name and size in the same frame. A long press
 selects it, as any message; a tap opens the viewer (docs/screens/viewer.md). Until the preview is there
 (downloading, or fetched again after the cache was cleared), the picture's shape is held in the Raised colour, so
 nothing moves when it comes.

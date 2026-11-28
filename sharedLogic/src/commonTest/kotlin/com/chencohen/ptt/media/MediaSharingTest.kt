@@ -253,6 +253,9 @@ class MediaSharingTest {
         val item = message.media!!.items.single()
         val blob = PreviewSpec.pick(item.previews, 1080)!!.blob
         server.files[blob] = server.files[blob]!!.copyOf().also { it[3] = (it[3] + 1).toByte() }
+        // Dana's phone fetched it as it came (its receipt waits for that): gone from her phone, it is fetched again.
+        assertNotNull(dana.files.read(blob))
+        dana.files.delete(blob)
         val picture = dana.work.async { dana.messaging.media.preview(message.id, item.id) }
         advanceUntilIdle()
         assertNull(picture.await())

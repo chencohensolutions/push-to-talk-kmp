@@ -427,6 +427,20 @@ internal fun LiveTypingCard(on: Boolean, set: (Boolean) -> Unit) {
     }
 }
 
+/**
+ * A chat's Download videos at once (2026-11-28, hen): off by default, a shared video's preview comes when the chat is
+ * opened; on, as soon as it comes (pictures always come at once).
+ */
+@Composable
+internal fun VideosAtOnceCard(chat: String, talk: com.chencohen.ptt.messaging.TalkSettings, set: (com.chencohen.ptt.messaging.TalkSettings) -> Unit) {
+    com.chencohen.ptt.ui.style.SectionTitle(stringResource(R.string.media_videos_title))
+    com.chencohen.ptt.ui.style.SettingsCard {
+        SwitchRow(stringResource(R.string.media_videos_at_once), stringResource(R.string.media_videos_at_once_body), chat in talk.videosAtOnce) { on ->
+            set(talk.copy(videosAtOnce = if (on) talk.videosAtOnce + chat else talk.videosAtOnce - chat))
+        }
+    }
+}
+
 /** A contact's or group's Chat direction (2026-11-24, hen): follow the phone (the default), right to left, left to right. */
 @Composable
 internal fun ChatDirectionCard(direction: Int, set: (Int) -> Unit) {

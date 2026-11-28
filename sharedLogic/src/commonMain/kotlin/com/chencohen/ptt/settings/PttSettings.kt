@@ -138,6 +138,11 @@ internal class PttSettings(private val store: KeyValueStore) {
         set(value) = store.putString(KEY_HEAR_VISIBLE, value.toString())
 
     /** The chats set to When I'm away: Notify only (the rest play aloud). */
+    /** Chats whose videos are fetched as they come (TalkSettings.videosAtOnce); else when the chat opens. */
+    var videosAtOnceChats: Set<String>
+        get() = store.getString(KEY_VIDEOS_AT_ONCE)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
+        set(value) = store.putString(KEY_VIDEOS_AT_ONCE, json.encodeToString(value.sorted()))
+
     var notifyOnlyChats: Set<String>
         get() = store.getString(KEY_NOTIFY_ONLY)?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }?.toSet().orEmpty()
         set(value) = store.putString(KEY_NOTIFY_ONLY, json.encodeToString(value.sorted()))
@@ -392,6 +397,7 @@ internal class PttSettings(private val store: KeyValueStore) {
         private const val KEY_DEFAULT_TALK = "talk_default_chat"
         private const val KEY_HARDWARE_BUTTONS = "talk_hardware_buttons"
         private const val KEY_NOTIFY_ONLY = "talk_notify_only"
+        private const val KEY_VIDEOS_AT_ONCE = "talk_videos_at_once"
         private const val KEY_KEEP_VOICE = "talk_keep_voice"
         private const val KEY_KEEP_VIDEO = "talk_keep_video"
         private const val KEY_BOTH_LIVE_CALL = "talk_both_live_call"

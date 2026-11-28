@@ -830,6 +830,7 @@ fun HomeApp(
                         inChat = {
                             com.chencohen.ptt.ui.talk.KeepInChatCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
                             com.chencohen.ptt.ui.talk.ChatColorsCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.talk.VideosAtOnceCard(Group.chatOf(id), messagingState.talkSettings, onTalkSettings)
                         },
                         liveTyping = messagingState.talkSettings.liveTypingTo(Group.chatOf(id)),
                         direction = messagingState.talkSettings.directionOf(Group.chatOf(id)),
@@ -984,6 +985,7 @@ fun HomeApp(
                         inChat = {
                             com.chencohen.ptt.ui.talk.KeepInChatCard(user, messagingState.talkSettings, onTalkSettings)
                             com.chencohen.ptt.ui.talk.ChatColorsCard(user, messagingState.talkSettings, onTalkSettings)
+                            com.chencohen.ptt.ui.talk.VideosAtOnceCard(user, messagingState.talkSettings, onTalkSettings)
                         },
                         versions = messagingState.versions[user].orEmpty(),
                         quickTalk = user in messagingState.talkSettings.quickTalk,

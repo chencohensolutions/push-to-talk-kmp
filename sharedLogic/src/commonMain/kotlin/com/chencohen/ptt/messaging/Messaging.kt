@@ -113,6 +113,11 @@ data class TalkSettings(
     val hardwareButtons: Boolean = false,
     /** Chats set to Notify only. */
     val notifyOnly: Set<String> = emptySet(),
+    /**
+     * Chats whose shared videos are fetched as soon as they come (their page, off by default, 2026-11-28, hen); else a
+     * video's preview comes when the chat is opened. Pictures always come at once.
+     */
+    val videosAtOnce: Set<String> = emptySet(),
     /** Contacts whose urgent pushes play through Do Not Disturb (their page; off unless turned on). */
     val urgentThroughDnd: Set<String> = emptySet(),
     /** Kept calls already downloaded from the server (by id): their Download button is gone. */
@@ -697,7 +702,10 @@ internal class Messaging(
             store.putMessage(message.copy(read = read))
             _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty()), drafts = it.drafts - typingKey(group.chat, message.author.orEmpty())) }
             if (!read && message.media?.quiet != true) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
-            if (!message.outgoing) scope.launch { sendGroupDelivered(group, message.id) }
+            if (!message.outgoing) scope.launch {
+                previewsHere(group.chat, message.id)
+                sendGroupDelivered(group, message.id)
+            }
         },
         onClip = { group, author, clip, at ->
             val mine = author == device()?.user
@@ -1103,6 +1111,7 @@ internal class Messaging(
         defaultChat = settings.defaultTalkChat,
         hardwareButtons = settings.hardwareButtons,
         notifyOnly = settings.notifyOnlyChats,
+        videosAtOnce = settings.videosAtOnceChats,
         urgentThroughDnd = settings.urgentThroughDndChats,
         downloadedCalls = settings.downloadedCalls,
         saveCalls = settings.saveCalls?.let { name -> com.chencohen.ptt.calls.SaveCalls.entries.firstOrNull { it.name == name } } ?: com.chencohen.ptt.calls.SaveCalls.OFF,
@@ -1148,6 +1157,7 @@ internal class Messaging(
         settings.defaultTalkChat = talk.defaultChat
         settings.hardwareButtons = talk.hardwareButtons
         settings.notifyOnlyChats = talk.notifyOnly
+        settings.videosAtOnceChats = talk.videosAtOnce
         settings.urgentThroughDndChats = talk.urgentThroughDnd
         settings.downloadedCalls = talk.downloadedCalls
         settings.saveCalls = talk.saveCalls.name
@@ -2225,6 +2235,16 @@ internal class Messaging(
     /** Read receipts that couldn't go yet (not connected), by user; sent once connected. */
     private val pendingReads = mutableMapOf<String, MutableSet<String>>()
 
+    /**
+     * Waits until message [id]'s previews are on this phone, if it shares media: its pictures fetched now, its videos
+     * now too when [chat] has Download videos at once, else when the chat is opened and shows them.
+     */
+    private suspend fun previewsHere(chat: String, id: String) {
+        if (store.message(id)?.media == null) return
+        media.fetchPreviews(id, videos = chat in talkSettings().videosAtOnce)
+        media.allPreviews(id)
+    }
+
     private suspend fun sendReceipt(user: String, read: Boolean, ids: List<String>) {
         try {
             sender.send(user, Content(receipt = ReceiptContent(read, ids)), pushKind = PushKind.SYNC)
@@ -2646,6 +2666,8 @@ internal class Messaging(
             store.putMessage(TextMessage(id, contact.user, outgoing = false, body = text.body, at = envelope.serverTimestamp, read = read, face = text.face, media = media.accept(content.media, envelope.senderDevice)))
             _state.update { it.copy(typing = it.typing - contact.user, drafts = it.drafts - contact.user) }
             scope.launch {
+                // Shared media is received once its previews are on this phone (2026-11-28, hen): only then the face.
+                previewsHere(contact.user, id)
                 sendReceipt(contact.user, read = false, listOf(id))
                 if (read) sendReceipt(contact.user, read = true, listOf(id))
             }

@@ -57,6 +57,10 @@ On a paired contact's page, before Chat direction: **Keep voice in chat**, **Kee
 becomes a call**, all off by default (docs/screens/conversation.md, "Live in the chat"). This phone's only; never
 sent.
 
+**Videos › Download videos at once** (a contact's page and a group's page, after Chat colours; off by default,
+2026-11-28, hen): off, a shared video's preview is fetched when the chat is opened (and only then does it count as
+received); on, as soon as it comes. Pictures always come at once.
+
 ## Urgent pushes and the shield (2026-11-25/26, hen)
 
 - **Urgent pushes › Let urgent pushes through Do Not Disturb**: see talk.md, "Who can hear you".
