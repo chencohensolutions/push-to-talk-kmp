@@ -269,6 +269,34 @@ fun HomeApp(
     }
     // Pictures picked for a chat, not sent yet: in its writing bubble, the caption written under them (2026-11-28, hen).
     val mediaDrafts = remember { androidx.compose.runtime.mutableStateMapOf<String, List<com.chencohen.ptt.messaging.TextMessage>>() }
+    // Crop and focus open (2026-11-28, hen), over everything: the pictures, the first shown, and what Done does.
+    var cropping by remember { mutableStateOf<CropSession?>(null) }
+    // Bumped when a sent picture's composition changed, so an open viewer reads its message again.
+    var recropped by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    fun cropDraft(chat: String, messageId: String, itemId: String) {
+        val drafts = mediaDrafts[chat].orEmpty()
+        val targets = drafts.flatMap { m -> m.media?.items.orEmpty().filter { it.kind == com.chencohen.ptt.messaging.MediaKind.IMAGE }.map { com.chencohen.ptt.ui.media.CropTarget(m.id, it, messaging.mediaSource(m.id, it.id)) } }
+        cropping = CropSession(targets, targets.indexOfFirst { it.messageId == messageId && it.item.id == itemId }.coerceAtLeast(0)) { crops ->
+            messaging.recrop(crops) { now ->
+                // The draft as it is now: each changed picture with its new previews.
+                mediaDrafts[chat]?.let { list ->
+                    mediaDrafts[chat] = list.map { m ->
+                        val mine = now.filter { it.first == m.id }.associate { it.second.id to it.second }
+                        if (mine.isEmpty()) m else m.copy(media = m.media?.copy(items = m.media!!.items.map { mine[it.id] ?: it }))
+                    }
+                }
+            }
+        }
+    }
+    fun cropSent(message: com.chencohen.ptt.messaging.TextMessage, itemId: String) {
+        val targets = message.media?.items.orEmpty().filter { it.kind == com.chencohen.ptt.messaging.MediaKind.IMAGE }.map { com.chencohen.ptt.ui.media.CropTarget(message.id, it, messaging.mediaSource(message.id, it.id)) }
+        cropping = CropSession(targets, targets.indexOfFirst { it.item.id == itemId }.coerceAtLeast(0)) { crops ->
+            messaging.recrop(crops) { now ->
+                recropped++
+                if (now.size < crops.size) messages.post(resources.getString(R.string.crop_failed))
+            }
+        }
+    }
     // Pictures sent before their caption, by chat: the message whose caption is being written.
     val mediaCaptions = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
     fun sendShared(chat: String, uris: List<String>) {
@@ -496,6 +524,7 @@ fun HomeApp(
                             mediaDrafts.remove(user)
                             messaging.dropDraft(drafts)
                         },
+                        crop = { m, i -> cropDraft(user, m, i) },
                     )
                 },
                 mediaCaption = mediaCaptions[user]?.let { id ->
@@ -527,7 +556,7 @@ fun HomeApp(
             @Composable
             fun Viewer(name: String) {
                     val (id, item) = name.removePrefix("view/").split('/').let { it[0] to it.getOrElse(1) { "" } }
-                    val message = remember(id) { messaging.mediaMessage(id) }
+                    val message = remember(id, recropped) { messaging.mediaMessage(id) }
                     val originals by messaging.originals.collectAsStateWithLifecycle()
                     if (message == null) {
                         LaunchedEffect(Unit) { pop() }
@@ -543,6 +572,7 @@ fun HomeApp(
                             cancel = messaging::cancelOriginal,
                             keeping = { m, i -> messaging.askHoldings(m, i); messaging.mediaKeeping(m, i) },
                             back = ::pop,
+                            crop = if (message.outgoing && messaging.mediaSource(message.id, item) != null) { i -> cropSent(message, i) } else null,
                         )
                         }
                     }
@@ -1081,6 +1111,17 @@ fun HomeApp(
                 else -> LaunchedEffect(page) { home() }
             }
             if (viewing != null) Viewer(viewing)
+            cropping?.let { session ->
+                com.chencohen.ptt.ui.media.CropEditor(
+                    session.targets, session.start,
+                    preview = { m, i -> messaging.mediaPreview(m, i) },
+                    done = { crops ->
+                        cropping = null
+                        if (crops.isNotEmpty()) session.apply(crops)
+                    },
+                    close = { cropping = null },
+                )
+            }
             MessageHost(messages, Modifier.align(Alignment.BottomCenter).navigationBarRoom().imePadding().padding(bottom = if (page == null) 88.dp else 16.dp))
             // The floating window is on by default (2026-11-22, hen) but needs "Display over other apps": asked once.
             OverlayAskOnce(messagingState.talkSettings.replyBubble)
@@ -1702,3 +1743,10 @@ internal fun liveDrafts(drafts: Map<String, com.chencohen.ptt.messaging.Draft>, 
     } else {
         listOfNotNull(drafts[chat]?.takeIf { now - it.at < com.chencohen.ptt.messaging.Draft.FRESH_MS }?.let { null as String? to it.text })
     }
+
+/** Crop and focus, open: [targets], the one shown first, and what Done does with the crops that changed. */
+private class CropSession(
+    val targets: List<com.chencohen.ptt.ui.media.CropTarget>,
+    val start: Int,
+    val apply: (Map<Pair<String, String>, com.chencohen.ptt.messaging.CropContent?>) -> Unit,
+)

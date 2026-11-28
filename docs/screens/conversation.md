@@ -633,3 +633,8 @@ once, as before.
 pictures and videos in Samsung's Gallery (Android's photo picker on phones without it), File picks files (Open
 document, kept readable). What is picked is shared in this chat at once. The first time, Android asks for the phone's
 pictures and videos and their places: the original is read again from there when someone opens it.
+
+Pictures in the writing bubble each have a crop icon in their bottom start corner (teal once set): it opens crop and
+focus (docs/screens/viewer.md, "Crop and focus") on the draft's pictures; their previews are made again before Send.
+A picture in the chat is drawn at its composition's shape, cut around its point of interest. Of several pictures, each
+one's place and time sit right under it, the room before the next picture below the line (2026-11-28, hen).

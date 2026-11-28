@@ -66,6 +66,12 @@ private class FakePreparer : MediaPreparer {
         )
     }
 
+    override suspend fun crop(source: String, crop: com.chencohen.ptt.messaging.CropContent, widths: (croppedWidth: Int) -> List<Int>): PreparedCrop? {
+        if ((files[source] ?: files["content://media/$source"]) == null) return null
+        val height = 3000 * crop.kept / com.chencohen.ptt.messaging.CropContent.WHOLE
+        return PreparedCrop(widths(4000).map { PreparedPreview(it, PreviewSpec.heightAt(4000, height, it), "crop $source ${crop.top} ${crop.bottom} $it".encodeToByteArray()) })
+    }
+
     override suspend fun sizeOf(source: String): Long = (files[source] ?: files["content://media/$source"])?.size?.toLong() ?: -1
 
     override suspend fun open(source: String): OriginalReader? {
@@ -263,6 +269,90 @@ class MediaSharingTest {
         assertEquals("the end", dana.store.message(message.id)?.media?.caption)
         hen.stop()
         dana.stop()
+    }
+
+    @Test
+    fun aDraftsPictureIsCroppedBeforeItGoes() = runTest {
+        val (server, hen, dana) = paired()
+        val draft = hen.work.async { hen.messaging.draftMedia("dana", listOf("a", "b")) }
+        advanceUntilIdle()
+        val drafts = draft.await()
+        val item = drafts.single().media!!.items[0]
+        val old = item.previews.map { it.blob }
+        val crop = com.chencohen.ptt.messaging.CropContent(top = 2_000, bottom = 3_000, focusX = 6_200, focusY = 4_000, hasFocus = true)
+        val cropped = hen.work.async { hen.messaging.recrop(drafts[0].id, item.id, crop) }
+        advanceUntilIdle()
+        val now = assertNotNull(cropped.await())
+        assertEquals(crop, now.crop)
+        assertEquals(1500, now.shownHeight, "the chat shows half its height")
+        assertTrue(now.previews.none { it.blob in old }, "new previews")
+        assertTrue(now.previews.all { it.blob in server.files }, "and they go up")
+        assertTrue(old.none { it in server.files } && old.all { hen.files.read(it) == null }, "the old ones are gone")
+        // Sent from the list the screen held, made before the crop.
+        val sent = hen.work.async { hen.messaging.sendDraft(drafts, "") }
+        advanceUntilIdle()
+        val message = sent.await().single()
+        val there = dana.store.message(message.id)!!.media!!.items[0]
+        assertEquals(crop, there.crop)
+        assertEquals(now.previews.map { it.blob }, there.previews.map { it.blob })
+        assertEquals(3000, there.height, "the original's size stays")
+        assertNull(dana.store.message(message.id)!!.media!!.items[1].crop, "the other one is whole")
+        val bytes = dana.work.async { dana.messaging.media.preview(message.id, there.id) }
+        advanceUntilIdle()
+        assertTrue(bytes.await()!!.decodeToString().startsWith("crop "), "their preview is the cropped one")
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aSentPicturesCompositionChangesQuietlyOnTheirPhone() = runTest {
+        val (server, hen, dana) = paired()
+        val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf("a"), "the sea") }
+        advanceUntilIdle()
+        val message = sent.await().single()
+        val item = message.media!!.items.single()
+        val shown = dana.work.async { dana.messaging.media.preview(message.id, item.id) }
+        advanceUntilIdle()
+        assertNotNull(shown.await())
+        val old = item.previews.map { it.blob }
+        val crop = com.chencohen.ptt.messaging.CropContent(top = 1_000)
+        val cropped = hen.work.async { hen.messaging.recrop(message.id, item.id, crop) }
+        advanceUntilIdle()
+        val now = assertNotNull(cropped.await())
+        val there = dana.store.message(message.id)!!.media!!.items.single()
+        assertEquals(crop, there.crop)
+        assertEquals(now.previews.map { it.blob }, there.previews.map { it.blob })
+        assertTrue(old.none { dana.files.read(it) != null }, "the old previews are gone from their phone")
+        assertTrue(old.none { it in server.files }, "and from the server")
+        assertEquals("the sea", dana.store.message(message.id)?.media?.caption)
+        val bytes = dana.work.async { dana.messaging.media.preview(message.id, item.id) }
+        advanceUntilIdle()
+        assertTrue(bytes.await()!!.decodeToString().startsWith("crop "))
+
+        // Only the sender can, and only with the item's own key.
+        val forged = there.copy(key = ByteArray(32) { 7 }, crop = com.chencohen.ptt.messaging.CropContent(top = 5_000))
+        val theirs = dana.store.message(message.id)!!
+        assertTrue(!dana.messaging.media.takeRecrop(theirs, forged), "another key is refused")
+        val mine = dana.work.async { dana.messaging.recrop(message.id, item.id, null) }
+        advanceUntilIdle()
+        assertNull(mine.await(), "not theirs to crop")
+
+        // Back to the whole picture.
+        val whole = hen.work.async { hen.messaging.recrop(message.id, item.id, null) }
+        advanceUntilIdle()
+        assertNull(assertNotNull(whole.await()).crop)
+        assertNull(dana.store.message(message.id)!!.media!!.items.single().crop)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
+    fun aCropKeepsATenthAtLeast() {
+        val c = com.chencohen.ptt.messaging.CropContent(top = 8_000, bottom = 5_000).clean()!!
+        assertEquals(8_000, c.top)
+        assertEquals(1_000, c.bottom)
+        assertNull(com.chencohen.ptt.messaging.CropContent().clean(), "nothing trimmed and no point: no crop")
+        assertEquals(0.5f to 0.25f, com.chencohen.ptt.messaging.CropContent(top = 2_000, bottom = 0, focusX = 5_000, focusY = 4_000, hasFocus = true).focusInCrop)
     }
 
     @Test

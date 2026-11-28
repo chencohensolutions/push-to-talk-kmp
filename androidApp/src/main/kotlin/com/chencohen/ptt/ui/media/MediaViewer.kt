@@ -61,6 +61,8 @@ import com.chencohen.ptt.R
 import com.chencohen.ptt.media.OriginalState
 import com.chencohen.ptt.messaging.AttachmentContent
 import com.chencohen.ptt.messaging.MediaKind
+import androidx.compose.ui.draw.drawBehind
+import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.messaging.TextMessage
 import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryType
@@ -93,6 +95,8 @@ internal fun MediaViewer(
     /** Where the item is kept, here and on the others' phones (Info). */
     keeping: suspend (messageId: String, itemId: String) -> com.chencohen.ptt.media.MediaKeeping?,
     back: () -> Unit,
+    /** My own picture's composition changed after it was sent (2026-11-28, hen); null: not mine. */
+    crop: ((itemId: String) -> Unit)? = null,
 ) {
     val media = message.media ?: return back()
     val items = media.items.filter { it.kind == MediaKind.IMAGE || it.kind == MediaKind.VIDEO || it.id == startItem }
@@ -195,6 +199,10 @@ internal fun MediaViewer(
                 Text(DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(message.at)), color = Color(0xCCFFFFFF), style = LibraryType.Tiny)
             }
             if (items.size > 1) Text("${pager.currentPage + 1} / ${items.size}", color = Color.White, style = LibraryType.Tiny, modifier = Modifier.padding(end = 4.dp))
+            // Crop and focus, on my own pictures (2026-11-28, hen: "edit the composition after message sent").
+            if (item != null && crop != null && item.kind == MediaKind.IMAGE) Box(Modifier.size(48.dp).clip(CircleShape).clickable { crop(item.id) }, contentAlignment = Alignment.Center) {
+                Icon(LibraryIcons.Crop, stringResource(R.string.media_crop), tint = if (item.crop != null) LibraryColors.Accent else Color.White)
+            }
             // Info (2026-11-28, hen): the original's EXIF, what this phone keeps of it, and who holds what.
             if (item != null) Box(Modifier.size(48.dp).clip(CircleShape).clickable { info = true }, contentAlignment = Alignment.Center) {
                 Icon(LibraryIcons.Info, stringResource(R.string.media_info), tint = Color.White)
@@ -226,7 +234,7 @@ private fun ItemPage(message: TextMessage, item: AttachmentContent, state: Origi
     val context = LocalContext.current
     val ready = state as? OriginalState.Ready
     // The picture the chat drew, at once (so it is there as it flies in), else the preview read.
-    val small by produceState<Bitmap?>(drawnPicture(message.id, item.id), message.id, item.id) {
+    val small by produceState<Bitmap?>(drawnPicture(message.id, item), message.id, item.id, item.previews.firstOrNull()?.blob) {
         if (value != null) return@produceState
         val bytes = preview(message.id, item.id) ?: return@produceState
         value = withContext(Dispatchers.Default) {
@@ -270,7 +278,17 @@ private fun ItemPage(message: TextMessage, item: AttachmentContent, state: Origi
                         detectTapGestures(onTap = { tap() }, onDoubleTap = { at -> zoom.step(at - Offset(size.width / 2f, size.height / 2f)) })
                     },
             ) {
-                image?.let { Image(remember(it) { it.asImageBitmap() }, null, Modifier.zoomedLayout(zoom, ratio).detailOver(detail), contentScale = ContentScale.FillBounds) }
+                // Until the original is here, a cropped preview sits where its part lies in the whole picture.
+                val cropped = item.crop?.takeIf { image != null && image === small }
+                image?.let {
+                    val bitmap = remember(it) { it.asImageBitmap() }
+                    if (cropped == null) Image(bitmap, null, Modifier.zoomedLayout(zoom, ratio).detailOver(detail), contentScale = ContentScale.FillBounds)
+                    else Box(Modifier.zoomedLayout(zoom, ratio).drawBehind {
+                        val top = size.height * cropped.top / com.chencohen.ptt.messaging.CropContent.WHOLE
+                        val tall = size.height * cropped.kept / com.chencohen.ptt.messaging.CropContent.WHOLE
+                        drawImage(bitmap, dstOffset = androidx.compose.ui.unit.IntOffset(0, top.toInt()), dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), tall.toInt().coerceAtLeast(1)))
+                    })
+                }
             }
         }
         item.kind == MediaKind.VIDEO -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -354,7 +372,7 @@ private fun uriOf(path: String): Uri = if (path.startsWith("content:") || path.s
 
 /** The original picture, upright, no bigger than 4096 on its long side (a 200 MP photo would not fit in memory). */
 /** The original, its longer side at most [side], in graphics memory (drawn without a copy). */
-private fun decodeOriginal(context: Context, path: String, side: Int): Bitmap? = runCatching {
+internal fun decodeOriginal(context: Context, path: String, side: Int): Bitmap? = runCatching {
     val source = if (path.startsWith("content:")) ImageDecoder.createSource(context.contentResolver, Uri.parse(path)) else ImageDecoder.createSource(File(path))
     ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
         decoder.allocator = ImageDecoder.ALLOCATOR_HARDWARE

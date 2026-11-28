@@ -93,7 +93,10 @@ private val drawn = object : LruCache<String, Bitmap>(maxOf(96L * 1024 * 1024, R
 internal val pictureBounds = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.geometry.Rect>()
 
 /** The picture drawn in the chat, if it is kept (the viewer shows it at once). */
-internal fun drawnPicture(messageId: String, itemId: String): Bitmap? = drawn.get("$messageId/$itemId")
+internal fun drawnPicture(messageId: String, item: AttachmentContent): Bitmap? = drawn.get(drawnKey(messageId, item))
+
+/** A drawn picture's key: its message, item and preview (a new composition makes new previews, 2026-11-28). */
+private fun drawnKey(messageId: String, item: AttachmentContent) = "$messageId/${item.id}/${item.previews.firstOrNull()?.blob.orEmpty()}"
 
 /**
  * Pictures are read, decoded and handed to the GPU here, two at a time, never on the main thread (2026-11-28, hen:
@@ -109,8 +112,9 @@ private val loading = java.util.concurrent.ConcurrentHashMap<String, kotlinx.cor
  * hardware bitmap is made from it on this background thread, so its upload to the GPU doesn't stall a frame the first
  * time it is drawn.
  */
-private suspend fun loadPicture(messageId: String, itemId: String, preview: suspend (String, String) -> ByteArray?): Bitmap? {
-    val key = "$messageId/$itemId"
+private suspend fun loadPicture(messageId: String, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?): Bitmap? {
+    val itemId = item.id
+    val key = drawnKey(messageId, item)
     drawn.get(key)?.let { return it }
     // Started only once it is in the map, so its own removal can't run before it is put there.
     val job = loading.computeIfAbsent(key) {
@@ -166,7 +170,7 @@ internal fun PrefetchPictures(list: androidx.compose.foundation.lazy.LazyListSta
                 for (i in order) {
                     val message = all.getOrNull(i) ?: continue
                     message.media?.items?.forEach { item ->
-                        if (item.kind == MediaKind.IMAGE || item.kind == MediaKind.VIDEO) loadPicture(message.id, item.id, preview)
+                        if (item.kind == MediaKind.IMAGE || item.kind == MediaKind.VIDEO) loadPicture(message.id, item, preview)
                     }
                 }
             }
@@ -453,18 +457,23 @@ private suspend fun placeName(context: android.content.Context, lat: Double, lon
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 internal fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, select: (() -> Unit)?, onClick: () -> Unit) {
     val key = "${message.id}/${item.id}"
-    val bitmap by produceState(drawn.get(key), key) {
+    val drawnAs = drawnKey(message.id, item)
+    val bitmap by produceState(drawn.get(drawnAs), drawnAs) {
         if (value != null) return@produceState
-        value = loadPicture(message.id, item.id, preview)
+        value = loadPicture(message.id, item, preview)
     }
-    val ratio = if (item.width > 0 && item.height > 0) (item.width.toFloat() / item.height).coerceIn(0.4f, 3f) else 1f
+    // Its composition (2026-11-28, hen): the part of the original the sender kept, cut around their point of interest
+    // where this box is another shape.
+    val ratio = if (item.width > 0 && item.height > 0) (item.width.toFloat() / item.shownHeight).coerceIn(0.4f, 3f) else 1f
+    val focus = item.crop?.focusInCrop
+    val align = if (focus == null) Alignment.Center else androidx.compose.ui.BiasAlignment(focus.first * 2 - 1, focus.second * 2 - 1)
     val label = stringResource(if (item.kind == MediaKind.VIDEO) R.string.media_video else R.string.media_picture)
     Box(
         Modifier.fillMaxWidth().aspectRatio(ratio).background(LibraryColors.Raised)
             // Where it lies on screen: the viewer grows out of here and shrinks back into it.
             .onGloballyPositioned { if (it.isAttached) pictureBounds[key] = it.boundsInWindow() }.combinedClickable(onLongClick = select, onClick = onClick).semantics { contentDescription = label },
     ) {
-        bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+        bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), alignment = align, contentScale = ContentScale.Crop) }
         if (item.kind == MediaKind.VIDEO) {
             Box(Modifier.align(Alignment.Center).size(56.dp).background(Color(0x99000000), CircleShape), contentAlignment = Alignment.Center) {
                 Icon(LibraryIcons.Play, null, tint = Color.White, modifier = Modifier.size(28.dp))
@@ -525,9 +534,11 @@ internal fun Picture(message: TextMessage, item: AttachmentContent, preview: sus
 /** A line over a picture saying where or when it was taken, when that changed from the one before. */
 @Composable
 internal fun PictureNote(text: String, color: Color = LibraryColors.Muted) {
+    // Right under the picture it tells of, the room before the next one below it (2026-11-28, hen: "the time needs to
+    // be closer to the related image, to the upper image").
     Text(
         text, color = color, style = LibraryType.Tiny, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 5.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 1.dp, bottom = 12.dp),
     )
 }
 

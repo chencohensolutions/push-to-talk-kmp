@@ -73,6 +73,33 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         }
     }
 
+    /**
+     * New previews of the picture at [source] from the part of the original [crop] keeps (2026-11-28, hen: "make the
+     * cropped preview from the original image"): decoded upright again, just sharp enough for the widest preview.
+     */
+    override suspend fun crop(source: String, crop: com.chencohen.ptt.messaging.CropContent, widths: (croppedWidth: Int) -> List<Int>): PreparedCrop? = withContext(Dispatchers.IO) {
+        val uri = Uri.parse(source)
+        var sample = 1
+        val full = runCatching {
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(resolver, uri)) { decoder, info, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                // ImageDecoder gives it upright; its size here may still be the sensor's, so the shorter turn is safe.
+                val most = widths(info.size.width).maxOrNull() ?: info.size.width
+                sample = maxOf(1, minOf(info.size.width, info.size.height) / most.coerceAtLeast(1)).let { s -> Integer.highestOneBit(s) }
+                if (sample > 1) decoder.setTargetSampleSize(sample)
+            }
+        }.getOrNull() ?: return@withContext null
+        val top = (full.height.toLong() * crop.top / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt()
+        val kept = (full.height.toLong() * crop.kept / com.chencohen.ptt.messaging.CropContent.WHOLE).toInt().coerceIn(1, full.height - top)
+        val part = if (top == 0 && kept == full.height) full else Bitmap.createBitmap(full, 0, top, full.width, kept)
+        val started = System.nanoTime()
+        val previews = previews(part, widths(full.width * sample))
+        if (part !== full) part.recycle()
+        full.recycle()
+        Log.i(TAG, "Cropped ${crop.top}/${crop.bottom}: previews " + previews.joinToString { "${it.width}px ${it.bytes.size / 1024} KB" } + " in ${(System.nanoTime() - started) / 1_000_000} ms")
+        PreparedCrop(previews)
+    }
+
     override suspend fun sizeOf(source: String): Long = withContext(Dispatchers.IO) {
         runCatching { nameAndSize(Uri.parse(source)).second }.getOrDefault(-1L)
     }

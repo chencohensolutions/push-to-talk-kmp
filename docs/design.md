@@ -818,6 +818,20 @@ Deleting it in one chat takes the blobs out of that chat only (`DELETE /blob/<id
 when no chat is left, and this phone keeps a preview while another message names it. The previews are the widths made
 for the first chat's screens. (`MediaSharingTest.aPictureSharedToAnotherChatIsStoredOnce`.)
 
+Each picture may have a composition of its own (2026-11-28, hen: "pick the point of interest of every image i send ...
+when composing an image, by default its the full width of the image and the top and bottom border can be trimmed";
+"edit the composition after message sent"). `AttachmentContent.crop` (`CropContent`, in 1/10000 of the original) says
+how much is trimmed off the top and the bottom (a tenth stays at least) and the point of interest; `width` and `height`
+stay the original's, and `shownHeight` is what the chat shows. `MediaSharing.recrop` makes the previews again from the
+original's kept part (`MediaPreparer.crop`; Android decodes it upright again and cuts it before encoding), seals them
+with the item's own key under new blob ids, and drops the old ones here and on the server. A draft's go up with the
+rest (`keep` and `drop` read the draft as this phone holds it now); a sent message's go up first, then the chat is told
+with a quiet edit (`EditContent.item`: the same item id, kind and key, its new crop and previews; `takeRecrop` refuses
+anything else and keeps what the item is, so only its look changes). Opening it still shows the whole original; until
+the original is here, the cropped preview sits where its part lies. Where a box is another shape than the crop, the
+picture is cut around the point of interest. (`MediaSharingTest.aDraftsPictureIsCroppedBeforeItGoes`,
+`aSentPicturesCompositionChangesQuietlyOnTheirPhone`.)
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.

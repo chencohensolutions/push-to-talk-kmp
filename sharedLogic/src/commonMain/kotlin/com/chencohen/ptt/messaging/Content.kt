@@ -155,14 +155,60 @@ data class AttachmentContent(
     @ProtoNumber(19) val thumb: ByteArray = ByteArray(0),
     /** Words written above this picture in the message (2026-11-28, hen: "add text above any image"). */
     @ProtoNumber(20) val text: String = "",
+    /**
+     * A picture's composition (2026-11-28, hen: "pick the composition of an image"): its previews show only this part
+     * of the original, which [width] and [height] still describe; opening it shows the whole original. Null: all of it.
+     */
+    @ProtoNumber(21) val crop: CropContent? = null,
 ) {
+    /** The height of what the chat shows of it: the original's, less what [crop] trims. */
+    val shownHeight: Int get() = crop?.let { (height.toLong() * it.kept / CropContent.WHOLE).toInt().coerceAtLeast(1) } ?: height
+
     override fun equals(other: Any?): Boolean = other is AttachmentContent && id == other.id && kind == other.kind &&
         key.contentEquals(other.key) && sha256.contentEquals(other.sha256) && size == other.size && mime == other.mime &&
         name == other.name && width == other.width && height == other.height && durationMs == other.durationMs &&
         takenAt == other.takenAt && takenOffsetMin == other.takenOffsetMin && latE7 == other.latE7 &&
         lonE7 == other.lonE7 && hasPlace == other.hasPlace && previews == other.previews && poster == other.poster &&
-        originDevice == other.originDevice && thumb.contentEquals(other.thumb) && text == other.text
+        originDevice == other.originDevice && thumb.contentEquals(other.thumb) && text == other.text &&
+        crop == other.crop
     override fun hashCode(): Int = id.hashCode()
+}
+
+/**
+ * The part of a picture its previews show, and its point of interest (2026-11-28, hen: "by default its the full width
+ * of the image and the top and bottom border can be trimmed"), in 1/[WHOLE] of the original: [top] and [bottom] trimmed
+ * off it, and the point at [focusX], [focusY] (of the whole original), set when [hasFocus]. Where a strip shows the
+ * picture smaller than its crop (a grid, a reply), it is cut around that point.
+ */
+@Serializable
+data class CropContent(
+    @ProtoNumber(1) val top: Int = 0,
+    @ProtoNumber(2) val bottom: Int = 0,
+    @ProtoNumber(3) val focusX: Int = WHOLE / 2,
+    @ProtoNumber(4) val focusY: Int = WHOLE / 2,
+    @ProtoNumber(5) val hasFocus: Boolean = false,
+) {
+    /** How much of the height is kept, in 1/[WHOLE]. */
+    val kept: Int get() = WHOLE - top - bottom
+
+    /** Within bounds (at least [MIN_KEPT] kept, the point inside the picture); null when it changes nothing. */
+    fun clean(): CropContent? {
+        val t = top.coerceIn(0, WHOLE - MIN_KEPT)
+        val b = bottom.coerceIn(0, WHOLE - MIN_KEPT - t)
+        val c = CropContent(t, b, focusX.coerceIn(0, WHOLE), focusY.coerceIn(0, WHOLE), hasFocus)
+        return c.takeIf { it.top > 0 || it.bottom > 0 || it.hasFocus }?.let { if (it.hasFocus) it else it.copy(focusX = WHOLE / 2, focusY = WHOLE / 2) }
+    }
+
+    /** The point of interest within the kept part, 0 to 1 across and down (the middle when none is set). */
+    val focusInCrop: Pair<Float, Float>
+        get() = if (!hasFocus) 0.5f to 0.5f
+        else (focusX.toFloat() / WHOLE).coerceIn(0f, 1f) to ((focusY - top).toFloat() / kept.coerceAtLeast(1)).coerceIn(0f, 1f)
+
+    companion object {
+        const val WHOLE = 10_000
+        /** A tenth of the height stays, at least. */
+        const val MIN_KEPT = 1_000
+    }
 }
 
 /** `AttachmentContent.kind`. */
@@ -365,6 +411,11 @@ internal data class EditContent(
     @ProtoNumber(7) val selEnd: Int = -1,
     /** FINAL, on pictures sent [MediaContent.quiet]: their caption (empty: none), which notifies as a new message. */
     @ProtoNumber(8) val notify: Boolean = false,
+    /**
+     * FINAL: a picture of the message with a new composition after it was sent (2026-11-28, hen: "edit the composition
+     * after message sent"): the same item (its id and key), its new [AttachmentContent.crop] and the previews made for it.
+     */
+    @ProtoNumber(9) val item: AttachmentContent? = null,
 ) {
     companion object {
         const val FINAL = 0

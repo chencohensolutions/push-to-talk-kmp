@@ -65,6 +65,8 @@ class MediaDraft(
     val sendFirst: (removed: Set<String>, texts: Map<String, String>) -> Unit,
     /** Drops them all. */
     val drop: () -> Unit,
+    /** Opens crop and focus on picture [itemId] of [messageId] (2026-11-28, hen); null: not offered. */
+    val crop: ((messageId: String, itemId: String) -> Unit)? = null,
 )
 
 /**
@@ -173,6 +175,16 @@ internal fun MediaDraftBox(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text("Aa", color = Color.White, style = LibraryType.Tiny)
+                    }
+                    // Crop and focus (2026-11-28, hen): teal once this picture has a composition of its own.
+                    val crop = draft.crop
+                    if (crop != null && item.kind == MediaKind.IMAGE) Box(
+                        Modifier.align(Alignment.BottomStart).padding(10.dp).size(44.dp).clip(CircleShape)
+                            .background(if (item.crop != null) LibraryColors.Accent else Color(0x9E141414))
+                            .clickable(onClickLabel = stringResource(R.string.media_crop)) { crop(message.id, item.id) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(LibraryIcons.Crop, stringResource(R.string.media_crop), tint = Color.White, modifier = Modifier.size(18.dp))
                     }
                 }
                 // Of several, each one's place and time under it, as on the message it becomes.

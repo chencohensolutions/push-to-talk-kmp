@@ -11,6 +11,8 @@ import com.chencohen.ptt.messaging.TextMessage
 import com.chencohen.ptt.talk.BlobApi
 import com.chencohen.ptt.talk.BlobException
 import com.chencohen.ptt.messaging.Content
+import com.chencohen.ptt.messaging.CropContent
+import com.chencohen.ptt.messaging.EditContent
 import com.chencohen.ptt.messaging.MediaPart
 import com.chencohen.ptt.messaging.MediaReplyContent
 import com.chencohen.ptt.messaging.MediaReplyStatus
@@ -58,6 +60,9 @@ class PreparedItem(
 
 class PreparedPreview(val width: Int, val height: Int, val bytes: ByteArray, val mime: String = "image/jxl")
 
+/** A picture's previews made again for a new [CropContent], and its ThumbHash of that part. */
+class PreparedCrop(val previews: List<PreparedPreview>, val thumb: ByteArray = ByteArray(0))
+
 /** Reads what the user shares (Android: MediaStore, EXIF, the JPEG XL encoder). */
 interface MediaPreparer {
     /** [source] read and its previews made, one per width [widths] gives for its own width; null when it can't be read. */
@@ -68,6 +73,12 @@ interface MediaPreparer {
 
     /** The size of the file at [source] without reading it (-1: not known). */
     suspend fun sizeOf(source: String): Long = -1
+
+    /**
+     * New previews of the picture at [source], made from the original's part [crop] keeps (its whole width), one per
+     * width [widths] gives for that part's width; null when it can't be read.
+     */
+    suspend fun crop(source: String, crop: CropContent, widths: (croppedWidth: Int) -> List<Int>): PreparedCrop? = null
 }
 
 /** A shared file read again from where it is on this phone, with its SHA-256 worked out as it is read. */
@@ -293,6 +304,8 @@ internal class MediaSharing(
     fun keep(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), quiet: Boolean = false, texts: Map<String, String> = emptyMap()): List<TextMessage> {
         val at = now()
         // Only what was taken out is dropped: the upload of the rest goes on, and Send waits for it.
+        // As this phone holds them now (a picture's composition changed while the caption was written).
+        val drafts = drafts.map { this.drafts[it.id] ?: it }
         for (m in drafts) {
             val gone = m.media?.items.orEmpty().filter { it.id in removed }
             for (item in gone) for (p in item.previews) forget(p.blob, m)
@@ -312,7 +325,8 @@ internal class MediaSharing(
 
     /** A draft dropped: its previews are deleted. */
     fun drop(drafts: List<TextMessage>) {
-        for (m in drafts) {
+        for (d in drafts) {
+            val m = this.drafts[d.id] ?: d
             this.drafts.remove(m.id)
             val job = draftUploads.remove(m.id)
             val parts = m.media?.items.orEmpty().flatMap { it.previews }.map { it.blob }
@@ -428,6 +442,105 @@ internal class MediaSharing(
         return same.lastOrNull { it.second.sha256.contentEquals(sha) }
     }
 
+    /** Where item [itemId] of my message [messageId] was shared from (a content URI); null: not mine, or not known. */
+    fun sourceOf(messageId: String, itemId: String): String? = store.mediaSource(messageId, itemId)
+
+    /** Message [id], a draft's as this phone holds it now. */
+    fun draftOrMessage(id: String): TextMessage? = drafts[id] ?: store.message(id)
+
+    /**
+     * Picture [itemId] of my message [messageId] (a draft, or sent) given the composition [crop] (null: the whole
+     * picture), 2026-11-28, hen: its previews made again from the original, sealed with the item's own key. A draft's
+     * go up with the rest; a sent one's go up now, then the chat is told with a quiet edit and the old previews go.
+     * Answers the item as it is now; null when it couldn't be done (not mine, the original can't be read, no network).
+     */
+    suspend fun recrop(messageId: String, itemId: String, crop: CropContent?): AttachmentContent? {
+        val preparer = preparer ?: return null
+        val draft = drafts[messageId]
+        val message = draft ?: store.message(messageId)?.takeIf { it.outgoing } ?: return null
+        val media = message.media ?: return null
+        val item = media.items.firstOrNull { it.id == itemId && it.kind == com.chencohen.ptt.messaging.MediaKind.IMAGE } ?: return null
+        val wanted = crop?.clean()
+        if (wanted == item.crop) return item
+        val source = store.mediaSource(messageId, itemId) ?: return null
+        val widths = screens(message.user)
+        val made = try {
+            preparer.crop(source, wanted ?: CropContent()) { PreviewSpec.widths(widths, it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        if (made.previews.isEmpty()) return null
+        val previews = made.previews.map { sealPreview(item.key, it) }
+        val now = item.copy(previews = previews, thumb = made.thumb.takeIf { it.isNotEmpty() } ?: item.thumb, crop = wanted)
+        val updated = message.copy(media = media.copy(items = media.items.map { if (it.id == itemId) now else it }))
+        val old = item.previews.map { it.blob }
+        if (draft != null) {
+            // A draft: the new previews go up with the rest, the old ones are deleted here and on the server.
+            drafts[messageId] = updated
+            draftUploads.remove(messageId)?.cancel()
+            for (blob in old) forget(blob, updated)
+            scope?.let { scope -> draftUploads[messageId] = scope.launch { runCatching { putPreviews(updated) } } }
+            return now
+        }
+        try {
+            putPreviews(updated)
+            send(message.user, Content(edit = EditContent(messageId, editedAt = now(), item = now)), PushKind.SYNC, "")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            println("TalkMedia: new crop of $messageId/$itemId not sent: $e")
+            for (p in previews) if (!named(p.blob, messageId)) files.delete(p.blob)
+            return null
+        }
+        store.putMessage(updated)
+        publish()
+        dropOld(updated, old)
+        changed(updated, itemId)
+        return now
+    }
+
+    /**
+     * Picture [edit] of [message] (someone's, or mine from another phone) given a new composition by its sender: the
+     * same item (its id, kind and key) with new previews; the old previews go. Answers whether it was taken.
+     */
+    internal fun takeRecrop(message: TextMessage, edit: AttachmentContent): Boolean {
+        val media = message.media ?: return false
+        val item = media.items.firstOrNull { it.id == edit.id } ?: return false
+        if (item.kind != com.chencohen.ptt.messaging.MediaKind.IMAGE || edit.kind != item.kind || !edit.key.contentEquals(item.key)) return false
+        val checked = accept(MediaContent(items = listOf(edit)), item.originDevice)?.items?.singleOrNull() ?: return false
+        if (checked.previews.isEmpty()) return false
+        // Only its look changes: what it is (the original's size, hash, place, words) stays as it was sent.
+        val now = item.copy(previews = checked.previews, thumb = checked.thumb.takeIf { it.isNotEmpty() } ?: item.thumb, crop = checked.crop?.clean())
+        val updated = message.copy(media = media.copy(items = media.items.map { if (it.id == item.id) now else it }))
+        store.putMessage(updated)
+        val old = item.previews.map { it.blob }.filter { blob -> now.previews.none { it.blob == blob } }
+        for (blob in old) if (!named(blob, message.id)) files.delete(blob)
+        publish()
+        return true
+    }
+
+    /** The previews [blobs] my sent [message] no longer names: gone from this phone and from its chat on the server. */
+    private fun dropOld(message: TextMessage, blobs: List<String>) {
+        for (blob in blobs) if (!named(blob, message.id)) files.delete(blob)
+        val (peer, group) = conversationOf(message.user)
+        scope?.launch {
+            for (blob in blobs) {
+                uploaded.remove("$blob@${message.user}")
+                runCatching { this@MediaSharing.blobs.unshare(blob, peer, group) }
+            }
+        }
+    }
+
+    /** [preview] sealed with item key [key] under a new blob id, and kept. */
+    private fun sealPreview(key: ByteArray, p: PreparedPreview): PartContent {
+        val blob = blobId()
+        val sealed = MediaCrypto.sealAll(MediaCrypto.partKey(key, blob, MediaCrypto.Part.PREVIEW), blob, p.bytes)
+        files.write(blob, sealed, sent = true)
+        return PartContent(blob = blob, size = p.bytes.size.toLong(), width = p.width, height = p.height, mime = p.mime)
+    }
+
     /** [again]'s item in message [message]: the same key, previews and poster (the same blobs), its own id. */
     private fun again(message: String, again: Again): AttachmentContent {
         val itemId = newId()
@@ -440,12 +553,7 @@ internal class MediaSharing(
     private fun seal(message: String, item: PreparedItem): AttachmentContent {
         val key = random.nextBytes(MediaCrypto.KEY_BYTES)
         val itemId = newId()
-        val previews = item.previews.map { p ->
-            val blob = blobId()
-            val sealed = MediaCrypto.sealAll(MediaCrypto.partKey(key, blob, MediaCrypto.Part.PREVIEW), blob, p.bytes)
-            files.write(blob, sealed, sent = true)
-            PartContent(blob = blob, size = p.bytes.size.toLong(), width = p.width, height = p.height, mime = p.mime)
-        }
+        val previews = item.previews.map { sealPreview(key, it) }
         if (item.source.isNotEmpty()) store.putMediaSource(message, itemId, item.source)
         return AttachmentContent(
             id = itemId, kind = item.kind, key = key, sha256 = item.sha256, size = item.size, mime = item.mime,

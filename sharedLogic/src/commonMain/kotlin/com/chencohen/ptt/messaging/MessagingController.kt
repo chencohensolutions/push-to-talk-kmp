@@ -156,6 +156,24 @@ class MessagingController internal constructor(
         scope.launch { withContext(work) { runCatching { messaging.commitCaption(id, caption) } } }
     }
 
+    /**
+     * New compositions for pictures of my messages (2026-11-28, hen), by (message id, item id), null: the whole
+     * picture; [done] gets each item as it is now (the same one when it couldn't be changed), on the main thread.
+     */
+    fun recrop(crops: Map<Pair<String, String>, CropContent?>, done: (List<Pair<String, AttachmentContent>>) -> Unit) {
+        scope.launch {
+            val out = withContext(work) {
+                crops.mapNotNull { (at, crop) ->
+                    runCatching { messaging.recrop(at.first, at.second, crop) }.getOrNull()?.let { at.first to it }
+                }
+            }
+            done(out)
+        }
+    }
+
+    /** Where item [itemId] of my message [messageId] was shared from, to show its original in the crop editor. */
+    fun mediaSource(messageId: String, itemId: String): String? = messaging.media.sourceOf(messageId, itemId)
+
     /** Drops a draft. */
     fun dropDraft(drafts: List<TextMessage>) {
         scope.launch { withContext(work) { messaging.media.drop(drafts) } }

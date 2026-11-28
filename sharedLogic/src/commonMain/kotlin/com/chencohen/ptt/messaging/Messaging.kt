@@ -874,6 +874,12 @@ internal class Messaging(
     /** Reads [sources] for [chat] into a draft: shown in the chat with its caption written in place, not sent yet. */
     suspend fun draftMedia(chat: String, sources: List<String>): List<TextMessage> = media.prepare(chat, sources, "", keep = false)
 
+    /**
+     * Picture [itemId] of my message [messageId] (a draft, or sent) given the composition [crop] (null: all of it):
+     * previews made again from the original; a sent one's chat is told quietly. Answers the item now; null: not done.
+     */
+    suspend fun recrop(messageId: String, itemId: String, crop: CropContent?): AttachmentContent? = media.recrop(messageId, itemId, crop)
+
     /** Sends a draft [draftMedia] made, with [caption]. */
     suspend fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), texts: Map<String, String> = emptyMap()): List<TextMessage> =
         media.keep(drafts, caption, removed, texts = texts).map { deliver(it) }
@@ -2720,6 +2726,11 @@ internal class Messaging(
         if (message == null) return
         when (edit.stage) {
             EditContent.FINAL -> {
+                // A picture's new composition (2026-11-28, hen): only its previews change.
+                if (edit.item != null) {
+                    media.takeRecrop(message, edit.item)
+                    return
+                }
                 if (edit.notify && message.media != null) return takeCaption(chat, mine, message, edit)
                 if (edit.body.isBlank() && message.media == null) return
                 editEnded[edit.id] = maxOf(editEnded[edit.id] ?: 0L, edit.editedAt)
