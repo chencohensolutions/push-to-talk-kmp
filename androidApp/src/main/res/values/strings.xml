@@ -968,6 +968,10 @@
     <string name="media_file">File</string>
     <string name="media_loading">Loading picture</string>
     <string name="media_back">Back</string>
+    <string name="media_caption_hint">Add a caption…</string>
+    <string name="media_draft_drop">Don\'t send</string>
+    <string name="media_draft_send">Send</string>
+    <string name="media_draft_remove">Take this one out</string>
     <string name="media_original_asking">Asking for the original</string>
     <string name="media_original_coming">Getting the original · %1$s of %2$s MB</string>
     <string name="media_original_gone">The original is no longer on their phone</string>

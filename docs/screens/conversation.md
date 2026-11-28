@@ -573,14 +573,23 @@ until someone else's comes; the bubble's time is in the same colour as the name 
 
 ## Shared pictures, videos and files (2026-11-28, hen; being built)
 
-`ui/media/MediaInChat.kt`. Shared media isn't in a bubble: each picture or video is as wide as the screen (out through
-the chat's side padding), in its own shape (kept between 0.4 and 3 wide to high), drawn from its JPEG XL preview made
-for this screen's width. Over its bottom edge, small dark chips: at the start when it was taken (and, next, the place's
-name) and a video's length; at the end the time it was sent, orange when it failed (a tap tries again). A video shows its
-first picture with a Play circle until its own preview is built. A caption comes under them in a bubble of its own; a
-file is a bubble with its name, its size and the time. A long press selects it, as any message; a tap opens the
-viewer (docs/screens/viewer.md). Until the preview is there (downloading, or fetched again after the cache was cleared), the picture's shape is
-held in the Raised colour, so nothing moves when it comes.
+`ui/media/MediaInChat.kt`. Each picture or video is as wide as the screen (out through the chat's side padding), in
+its own shape (kept between 0.4 and 3 wide to high), drawn from its JPEG XL preview made for this screen's width,
+between two half bubbles on the sender's side in their bubble's colour (2026-11-28, hen; mock
+`mockups/share-media/picture-sender.png`, option A). The top one says who sent them, only in a group and only on
+other members' pictures, and when they were taken ("Yesterday 18:40", or a span); the bottom one holds the caption
+and the time sent. Mine move as my text bubbles do: dashed while it goes, the dashes growing towards a whole line as
+the previews upload, whole on the server, filled once every phone has it; failed, the time turns red and a tap sends
+it again. A video shows its length in a chip. A file is a row with its name and size in the same frame. A long press
+selects it, as any message; a tap opens the viewer (docs/screens/viewer.md). Until the preview is there
+(downloading, or fetched again after the cache was cleared), the picture's shape is held in the Raised colour, so
+nothing moves when it comes.
+
+**Writing a caption first** (`ui/media/MediaDraftBox.kt`; hen: "feel inside the textbox, the image just above it",
+mock `mockups/share-media/caption-in-box.png`). What is picked (the + button, or Talk in Android's Share menu) isn't
+sent at once: it sits in the writing bubble, which widens to the chat's width with one outline in the writing colour
+round the pictures (each as wide as the box, ✕ takes one out; more than half the screen scrolls inside), and under
+them the caption, a bin (don't send) and Send. Send sends them as one message with the caption.
 
 **The + button** (left of Voice message in the bottom row, hidden while Push is held or hands-free): Gallery picks
 pictures and videos in Samsung's Gallery (Android's photo picker on phones without it), File picks files (Open

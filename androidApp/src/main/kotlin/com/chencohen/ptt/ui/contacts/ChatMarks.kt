@@ -40,6 +40,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
@@ -179,6 +180,58 @@ internal fun Modifier.myBubble(look: BubbleLook, radius: Dp = 16.dp): Modifier {
                 drawRoundRect(fillColor.copy(alpha = fillColor.alpha * f), cornerRadius = CornerRadius(r))
             }
             drawMorphLine(line, length, androidx.compose.ui.graphics.lerp(lineColor, fillColor, f), w, look.line.value, 9.dp.toPx())
+        }
+    }
+}
+
+/**
+ * Half of my bubble round shared pictures (2026-11-28, hen): above them ([top]) or below them, rounded on its far
+ * side and open where the pictures meet it. Its line and fill move as [myBubble]'s; while its previews upload, the
+ * dashes grow towards a whole line with [progress] (0 to 1).
+ */
+@Composable
+internal fun Modifier.myHalfBubble(look: BubbleLook, top: Boolean, progress: Float? = null, radius: Dp = 16.dp): Modifier {
+    val lineColor = LibraryColors.MineLine
+    val fillColor = LibraryColors.Mine
+    return drawWithCache {
+        val w = 1.5.dp.toPx()
+        val r = radius.toPx()
+        val h = size.height
+        val x0 = w / 2f
+        val x1 = size.width - w / 2f
+        val round = RoundRect(
+            x0, if (top) w / 2f else -r, x1, if (top) h + r else h - w / 2f,
+            topLeftCornerRadius = if (top) CornerRadius(r) else CornerRadius.Zero, topRightCornerRadius = if (top) CornerRadius(r) else CornerRadius.Zero,
+            bottomRightCornerRadius = if (top) CornerRadius.Zero else CornerRadius(r), bottomLeftCornerRadius = if (top) CornerRadius.Zero else CornerRadius(r),
+        )
+        // The outline without the side the pictures touch: down one side, round the far edge, back up the other.
+        val line = Path().apply {
+            if (top) {
+                moveTo(x0, h)
+                lineTo(x0, r)
+                quadraticBezierTo(x0, w / 2f, r, w / 2f)
+                lineTo(x1 - r, w / 2f)
+                quadraticBezierTo(x1, w / 2f, x1, r)
+                lineTo(x1, h)
+            } else {
+                moveTo(x0, 0f)
+                lineTo(x0, h - r)
+                quadraticBezierTo(x0, h - w / 2f, r, h - w / 2f)
+                lineTo(x1 - r, h - w / 2f)
+                quadraticBezierTo(x1, h - w / 2f, x1, h - r)
+                lineTo(x1, 0f)
+            }
+        }
+        val length = PathMeasure().apply { setPath(line, false) }.length
+        val area = Path().apply { addRoundRect(round) }
+        onDrawBehind {
+            val f = look.fill.value
+            clipRect(0f, 0f, size.width, size.height) {
+                if (f > 0f) drawPath(area, fillColor.copy(alpha = fillColor.alpha * f))
+            }
+            if (f >= 1f) return@onDrawBehind
+            val drawn = progress?.let { LINE_DASHED + (1f - LINE_DASHED) * it } ?: look.line.value
+            drawMorphLine(line, length, androidx.compose.ui.graphics.lerp(lineColor, fillColor, f), w, drawn, 9.dp.toPx())
         }
     }
 }

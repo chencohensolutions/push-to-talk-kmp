@@ -122,6 +122,35 @@ class MessagingController internal constructor(
      * Shares [sources] (content URIs: pictures, videos, files) in [chat] with [caption] (2026-11-28, hen): previews made
      * for the screens there, then sent. [done] gets how many messages went (0: nothing could be read).
      */
+    /** Reads what the user picked for [chat] into a draft (shown in the chat, its caption written there); [done] gets it. */
+    fun draftMedia(chat: String, sources: List<String>, done: (List<TextMessage>) -> Unit) {
+        scope.launch {
+            val drafts = withContext(work) {
+                try {
+                    messaging.draftMedia(chat, sources)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+            done(drafts)
+        }
+    }
+
+    /** Sends a draft with [caption]. */
+    fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet()) {
+        scope.launch { withContext(work) { runCatching { messaging.sendDraft(drafts, caption, removed) } } }
+    }
+
+    /** Drops a draft. */
+    fun dropDraft(drafts: List<TextMessage>) {
+        scope.launch { withContext(work) { messaging.media.drop(drafts) } }
+    }
+
+    /** How far each of this phone's media messages being sent got uploading (0 to 1), by message id. */
+    val uploads: kotlinx.coroutines.flow.StateFlow<Map<String, Float>> get() = messaging.media.uploads
+
     fun shareMedia(chat: String, sources: List<String>, caption: String, done: (Int) -> Unit = {}) {
         scope.launch {
             val sent = withContext(work) {

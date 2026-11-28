@@ -166,6 +166,10 @@ class ConversationActions(
     val openMedia: (messageId: String, itemId: String) -> Unit = { _, _ -> },
     /** The composer's +: pick pictures and videos ([gallery]) or files to share here; null: not here. */
     val attach: ((gallery: Boolean) -> Unit)? = null,
+    /** Pictures picked here, not sent yet: in the writing bubble, the caption written under them. */
+    val mediaDraft: com.chencohen.ptt.ui.media.MediaDraft? = null,
+    /** How far each of my media messages being sent got uploading, by message id (0 to 1). */
+    val uploads: Map<String, Float> = emptyMap(),
 )
 
 /** A video call shown inside the chat (2026-11-24, hen): theirs under the header, mine with the call's bar at the bottom. */
@@ -1457,7 +1461,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
-    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach,
+    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach, mediaDraft = a.mediaDraft, uploads = a.uploads,
 )
 
 
@@ -1717,7 +1721,12 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
     // Shared media (2026-11-28, hen): as wide as the screen, outside a bubble.
     if (message.media != null && !message.deleted) {
         Box(Modifier.fillMaxWidth().bleed(12.dp).background(if (selected) LibraryColors.Accent.copy(alpha = 0.16f) else Color.Transparent)) {
-            com.chencohen.ptt.ui.media.MediaMessage(message, actions.mediaPreview, actions.openMedia, actions.retry, select = select, selecting = selecting)
+            com.chencohen.ptt.ui.media.MediaMessage(
+                message, actions.mediaPreview, actions.openMedia, actions.retry, select = select, selecting = selecting,
+                reach = if (message.outgoing) (if (held) ReadMarks.Reach.SENDING else reach ?: ReadMarks.Reach.RECEIVED) else null,
+                progress = actions.uploads[message.id],
+                author = if (showAuthor && !message.outgoing) message.author else null,
+            )
         }
         if (message.reactions.isNotEmpty()) com.chencohen.ptt.ui.face.Reactions(message.reactions, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
         return
@@ -2579,6 +2588,11 @@ private fun PinnedDraft(
                 draft.lastTyping = 0L
             }
         }
+    }
+    // Pictures picked here: the writing bubble holds them, the caption written under them (2026-11-28, hen).
+    actions.mediaDraft?.let { mediaDraft ->
+        com.chencohen.ptt.ui.media.MediaDraftBox(mediaDraft, actions.mediaPreview)
+        return
     }
     var faces by remember { mutableStateOf(false) }
     val sendFace = actions.sendFace

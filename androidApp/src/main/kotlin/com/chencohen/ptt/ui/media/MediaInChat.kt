@@ -3,6 +3,13 @@ package com.chencohen.ptt.ui.media
 import android.graphics.Bitmap
 import android.util.LruCache
 import androidx.compose.foundation.Image
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +46,8 @@ import com.chencohen.ptt.messaging.AttachmentContent
 import com.chencohen.ptt.messaging.MediaKind
 import com.chencohen.ptt.messaging.MessageStatus
 import com.chencohen.ptt.messaging.TextMessage
+import com.chencohen.ptt.ui.contacts.ink
+import com.chencohen.ptt.ui.contacts.myHalfBubble
 import com.chencohen.ptt.ui.style.LibraryColors
 import com.chencohen.ptt.ui.style.LibraryIcons
 import com.chencohen.ptt.ui.style.LibraryType
@@ -66,9 +75,12 @@ private val drawn = object : LruCache<String, Bitmap>(48 * 1024 * 1024) {
 }
 
 /**
- * Shared pictures, videos and files in the chat (2026-11-28, hen; docs/screens/chat.md, "Shared media"): each picture
- * or video as wide as the screen, its own shape, with the time it was sent and a hint of when it was taken; a file as
- * a bubble with its name and size. The preview comes from what the phone keeps, or quietly from the server.
+ * Shared pictures, videos and files in the chat (2026-11-28, hen; docs/screens/conversation.md, "Shared pictures"):
+ * each picture or video as wide as the screen, its own shape, between two half bubbles on the sender's side, in their
+ * bubble's colour. The top one says who sent them in a group (theirs), else when they were taken; the bottom one holds
+ * the caption and the time, and on mine moves as my text bubbles do (dashed while it goes, the dashes growing as its
+ * previews upload, whole on the server, filled once every phone has it). A file is a row in the same frame. The preview comes from what the phone
+ * keeps, or quietly from the server.
  */
 @Composable
 internal fun MediaMessage(
@@ -81,38 +93,92 @@ internal fun MediaMessage(
     select: (() -> Unit)? = null,
     /** Selecting: a tap adds or removes it. */
     selecting: Boolean = false,
+    /** Mine: how far it got (the half bubbles' line and fill). */
+    reach: com.chencohen.ptt.messaging.ReadMarks.Reach? = null,
+    /** Mine, uploading its previews: how far (0 to 1). */
+    progress: Float? = null,
+    /** Theirs in a group: the sender's name, on the top half bubble. */
+    author: String? = null,
 ) {
     val media = message.media ?: return
     val mine = message.outgoing
+    val failed = mine && message.status == MessageStatus.FAILED
     val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(message.at))
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        media.items.forEachIndexed { i, item ->
-            val last = i == media.items.lastIndex && media.caption.isBlank()
+    val look = if (mine) com.chencohen.ptt.ui.contacts.rememberBubbleLook(reach ?: com.chencohen.ptt.messaging.ReadMarks.Reach.RECEIVED) else null
+    val ink = when {
+        look != null -> look.ink()
+        else -> LibraryColors.OnTheirs
+    }
+    val muted = ink.copy(alpha = 0.7f)
+    val side = if (mine) Alignment.End else Alignment.Start
+    @Composable
+    fun Modifier.half(top: Boolean): Modifier = when {
+        look != null -> this.myHalfBubble(look, top, progress)
+        else -> this.background(LibraryColors.Theirs, halfShape(top))
+    }
+    Column(modifier.fillMaxWidth(), horizontalAlignment = side) {
+        // The top half bubble: who, in a group; else when they were taken.
+        val taken = takenLine(media.items)
+        Column(Modifier.padding(horizontal = 12.dp).fillMaxWidth(HALF).half(top = true).padding(horizontal = 14.dp, vertical = if (author != null || taken != null) 6.dp else 5.dp)) {
+            if (author != null) Text(author, color = if (com.chencohen.ptt.ui.contacts.LocalMemberHues.current.isEmpty()) LibraryColors.Accent else LibraryColors.OnTheirs, style = LibraryType.Small)
+            if (taken != null) Text(taken, color = muted, style = LibraryType.Tiny, maxLines = 1)
+        }
+        media.items.forEach { item ->
             when (item.kind) {
-                MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, if (last) time else null, failed = mine && message.status == MessageStatus.FAILED, select = select) {
+                MediaKind.IMAGE, MediaKind.VIDEO -> Picture(message, item, preview, select = select) {
                     when {
                         selecting && select != null -> select()
-                        mine && message.status == MessageStatus.FAILED -> retry(message.id)
+                        failed -> retry(message.id)
                         else -> open(message.id, item.id)
                     }
                 }
-                else -> FileRow(item, mine, if (last) time else null)
+                else -> FileRow(item) { if (!selecting) open(message.id, item.id) }
             }
+            Spacer(Modifier.height(2.dp))
         }
-        if (media.caption.isNotBlank()) {
-            Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
-                Column(Modifier.background(if (mine) LibraryColors.Mine else LibraryColors.Theirs, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp)) {
-                    Text(media.caption, color = if (mine) LibraryColors.OnMine else LibraryColors.OnTheirs, style = LibraryType.Message)
-                    Text(time, color = if (mine) LibraryColors.OnMineMuted else LibraryColors.OnTheirsMuted, style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End))
-                }
-            }
+        // The bottom half bubble: the caption and the time.
+        Column(
+            Modifier.padding(horizontal = 12.dp).fillMaxWidth(HALF).half(top = false)
+                .then(if (failed) Modifier.clickable { retry(message.id) } else Modifier)
+                .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 7.dp),
+        ) {
+            if (media.caption.isNotBlank()) Text(media.caption, color = ink, style = LibraryType.Message)
+            Text(
+                if (failed) stringResource(R.string.chat_status_failed) + " · " + time else time,
+                color = if (failed) LibraryColors.Warning else muted, style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End),
+            )
         }
+    }
+}
+
+/** The half bubbles' width: a text bubble's, about two thirds of the chat. */
+private const val HALF = 0.64f
+
+private fun halfShape(top: Boolean) = if (top) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp) else RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+
+/** When the pictures were taken, at the place's own time: "Yesterday 18:40", or a span "18:40–18:52". Null: not known. */
+@Composable
+private fun takenLine(items: List<AttachmentContent>): String? {
+    val times = items.filter { it.takenAt > 0 }.map { it.takenAt + it.takenOffsetMin * 60_000L }.sorted()
+    if (times.isEmpty()) return null
+    val utc = java.util.TimeZone.getTimeZone("UTC")
+    val clock = DateFormat.getTimeInstance(DateFormat.SHORT).apply { timeZone = utc }
+    val day = android.text.format.DateUtils.getRelativeTimeSpanString(
+        times.first() - java.util.TimeZone.getDefault().getOffset(times.first()), System.currentTimeMillis(), android.text.format.DateUtils.DAY_IN_MILLIS,
+    ).toString()
+    val first = clock.format(Date(times.first()))
+    val last = clock.format(Date(times.last()))
+    val sameDay = times.last() / 86_400_000L == times.first() / 86_400_000L
+    return when {
+        first == last -> "$day $first"
+        sameDay -> "$day $first–$last"
+        else -> "$day $first – " + DateFormat.getDateInstance(DateFormat.MEDIUM).apply { timeZone = utc }.format(Date(times.last()))
     }
 }
 
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, time: String?, failed: Boolean, select: (() -> Unit)?, onClick: () -> Unit) {
+internal fun Picture(message: TextMessage, item: AttachmentContent, preview: suspend (String, String) -> ByteArray?, select: (() -> Unit)?, onClick: () -> Unit) {
     val key = "${message.id}/${item.id}"
     val bitmap by produceState(drawn.get(key), key) {
         if (value != null) return@produceState
@@ -132,14 +198,8 @@ private fun Picture(message: TextMessage, item: AttachmentContent, preview: susp
                 Icon(LibraryIcons.Play, null, tint = Color.White, modifier = Modifier.size(28.dp))
             }
         }
-        // When and (later, the place) where it was taken, and the time it was sent (2026-11-27, hen).
-        Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            val taken = item.takenAt.takeIf { it > 0 }?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) }
-            val length = item.durationMs.takeIf { it > 0 }?.let { com.chencohen.ptt.ui.talk.clipLength(it) }
-            listOfNotNull(length, taken).joinToString(" · ").takeIf { it.isNotEmpty() }?.let { Chip(it) }
-            Spacer(Modifier.weight(1f))
-            time?.let { Chip(it, warn = failed) }
-        }
+        // A video's length (when it was taken is on the top half bubble, the time it was sent on the bottom one).
+        item.durationMs.takeIf { it > 0 }?.let { Box(Modifier.align(Alignment.BottomStart).padding(8.dp)) { Chip(com.chencohen.ptt.ui.talk.clipLength(it)) } }
     }
 }
 
@@ -152,19 +212,16 @@ private fun Chip(text: String, warn: Boolean = false) {
 }
 
 @Composable
-private fun FileRow(item: AttachmentContent, mine: Boolean, time: String?) {
-    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
-        Row(
-            Modifier.background(if (mine) LibraryColors.Mine else LibraryColors.Theirs, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(LibraryIcons.Paste, null, tint = if (mine) LibraryColors.OnMine else LibraryColors.OnTheirs, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text(item.name.ifBlank { stringResource(R.string.media_file) }, color = if (mine) LibraryColors.OnMine else LibraryColors.OnTheirs, style = LibraryType.Message, maxLines = 2)
-                val size = android.text.format.Formatter.formatShortFileSize(androidx.compose.ui.platform.LocalContext.current, item.size)
-                Text(listOfNotNull(size, time).joinToString(" · "), color = if (mine) LibraryColors.OnMineMuted else LibraryColors.OnTheirsMuted, style = LibraryType.Tiny)
-            }
+private fun FileRow(item: AttachmentContent, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(LibraryColors.Raised).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(LibraryIcons.Paste, null, tint = LibraryColors.OnBackground, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(item.name.ifBlank { stringResource(R.string.media_file) }, color = LibraryColors.OnBackground, style = LibraryType.Message, maxLines = 2)
+            Text(android.text.format.Formatter.formatShortFileSize(androidx.compose.ui.platform.LocalContext.current, item.size), color = LibraryColors.Muted, style = LibraryType.Tiny)
         }
     }
 }

@@ -179,6 +179,34 @@ class MediaSharingTest {
     }
 
     @Test
+    fun aDraftIsWrittenOnBeforeItGoes() = runTest {
+        val (server, hen, dana) = paired()
+        val draft = hen.work.async { hen.messaging.draftMedia("dana", listOf("a", "b")) }
+        advanceUntilIdle()
+        val drafts = draft.await()
+        assertEquals(1, drafts.size)
+        assertNull(hen.store.message(drafts[0].id), "a draft isn't a message yet")
+        assertTrue(server.files.isEmpty(), "nothing uploaded")
+        val sent = hen.work.async { hen.messaging.sendDraft(drafts, " the sea ") }
+        advanceUntilIdle()
+        val message = sent.await().single()
+        assertEquals("the sea", message.media?.caption)
+        assertEquals("the sea", dana.store.message(message.id)?.media?.caption)
+        assertTrue(hen.messaging.media.uploads.value.isEmpty())
+
+        // A dropped draft leaves nothing behind.
+        val other = hen.work.async { hen.messaging.draftMedia("dana", listOf("c")) }
+        advanceUntilIdle()
+        val dropped = other.await()
+        val blob = dropped[0].media!!.items[0].previews[0].blob
+        assertNotNull(hen.files.read(blob))
+        hen.messaging.media.drop(dropped)
+        assertNull(hen.files.read(blob))
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun aChangedPreviewOnTheServerIsRefused() = runTest {
         val (server, hen, dana) = paired()
         val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf("a"), "") }

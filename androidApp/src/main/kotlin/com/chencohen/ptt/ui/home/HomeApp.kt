@@ -267,9 +267,15 @@ fun HomeApp(
         sharing = shared
         saved = "share"
     }
+    // Pictures picked for a chat, not sent yet: in its writing bubble, the caption written under them (2026-11-28, hen).
+    val mediaDrafts = remember { androidx.compose.runtime.mutableStateMapOf<String, List<com.chencohen.ptt.messaging.TextMessage>>() }
     fun sendShared(chat: String, uris: List<String>) {
-        messaging.shareMedia(chat, uris, "") { sent -> if (sent == 0) messages.post(resources.getString(R.string.share_failed)) }
+        messaging.draftMedia(chat, uris) { drafts ->
+            if (drafts.isEmpty()) messages.post(resources.getString(R.string.share_failed))
+            else mediaDrafts[chat] = mediaDrafts[chat].orEmpty() + drafts
+        }
     }
+    val uploads by messaging.uploads.collectAsStateWithLifecycle()
     // The phone's pictures and videos, with their place: the sender keeps no copy, so the original is read again from
     // there when someone opens it (asked once, the first time something is shared; it goes either way).
     var askedFor by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
@@ -469,6 +475,20 @@ fun HomeApp(
                 delete = { ids, everyone -> messaging.deleteMessages(ids, everyone) },
                 mediaPreview = { id, item -> messaging.mediaPreview(id, item) },
                 openMedia = { id, item -> push("view/$id/$item") },
+                mediaDraft = mediaDrafts[user]?.let { drafts ->
+                    com.chencohen.ptt.ui.media.MediaDraft(
+                        drafts,
+                        send = { caption, removed ->
+                            mediaDrafts.remove(user)
+                            messaging.sendDraft(drafts, caption, removed)
+                        },
+                        drop = {
+                            mediaDrafts.remove(user)
+                            messaging.dropDraft(drafts)
+                        },
+                    )
+                },
+                uploads = uploads,
                 attach = if (writable) attachPicker else null,
             ),
             talk = messagingState.talk,

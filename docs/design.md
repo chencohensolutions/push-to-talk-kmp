@@ -738,8 +738,15 @@ https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-
   file opened in an app that reads it (the FileProvider serves `media-originals`). A pill at the bottom says "Getting the
   original · 3 of 8 MB" with ✕, or why it didn't come, with Try again.
 
-Still to build: who sent a picture (hen 2026-11-28: the name on a half bubble above the first picture, the time on
-one below the last; mock `mockups/share-media/picture-sender.png`), video previews (1080p HEVC at 3 Mbps, original
+- **Drafts and half bubbles** (2026-11-28, hen). `Messaging.draftMedia` prepares what was picked without keeping it
+  (`MediaSharing.prepare(keep = false)`; its previews show from `MediaSharing.drafts`), the writing bubble shows it
+  (`MediaDraftBox`), and `sendDraft` keeps it with the caption, less the items taken out, and delivers it;
+  `MediaSharing.drop` deletes a dropped draft's previews. `MediaSharing.uploads` says how far each message's previews
+  uploaded, which my half bubbles' dashes show. Pictures in the chat sit between half bubbles
+  (docs/screens/conversation.md).
+
+Still to build: each person's download shown as a ring on their face (mock `sending-progress.png`; needs each phone
+to tell how far it got), the top half bubble's place name (hen to pick what it says), video previews (1080p HEVC at 3 Mbps, original
 fps and HDR), files' copies, albums, the viewer's Share, Save and Info and its details. Journal as a source for originals that
 are gone from the phone is the next phase (shed).
 

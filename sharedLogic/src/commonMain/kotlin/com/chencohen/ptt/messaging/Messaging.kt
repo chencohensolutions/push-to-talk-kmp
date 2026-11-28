@@ -821,6 +821,13 @@ internal class Messaging(
      * Shares [sources] (content URIs the user picked or shared to Talk) in [chat]: read, previews made for the screens
      * there, kept as messages and sent (uploaded first). Answers the messages.
      */
+    /** Reads [sources] for [chat] into a draft: shown in the chat with its caption written in place, not sent yet. */
+    suspend fun draftMedia(chat: String, sources: List<String>): List<TextMessage> = media.prepare(chat, sources, "", keep = false)
+
+    /** Sends a draft [draftMedia] made, with [caption]. */
+    suspend fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet()): List<TextMessage> =
+        media.keep(drafts, caption, removed).map { deliver(it) }
+
     suspend fun shareMedia(chat: String, sources: List<String>, caption: String): List<TextMessage> {
         val messages = media.prepare(chat, sources, caption)
         return messages.map { deliver(it) }

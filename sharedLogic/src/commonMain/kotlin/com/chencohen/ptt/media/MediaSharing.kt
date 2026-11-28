@@ -145,7 +145,7 @@ internal class MediaSharing(
      * Reads [sources] and keeps them as messages to [chat] (pending; [deliver] uploads and sends them), at most
      * [MAX_ITEMS] items each, [caption] on the first. Answers the messages; empty when nothing could be read.
      */
-    suspend fun prepare(chat: String, sources: List<String>, caption: String): List<TextMessage> {
+    suspend fun prepare(chat: String, sources: List<String>, caption: String, keep: Boolean = true): List<TextMessage> {
         val preparer = preparer ?: return emptyList()
         val widths = screens(chat)
         val items = sources.mapNotNull { source ->
@@ -165,12 +165,47 @@ internal class MediaSharing(
             val attachments = chunk.map { item -> seal(id, item) }
             val media = MediaContent(id, at, text, attachments)
             val message = TextMessage(id, chat, outgoing = true, body = fallback(media), at = at, status = MessageStatus.PENDING, media = media)
-            store.putMessage(message)
+            if (keep) store.putMessage(message) else drafts[id] = message
             out += message
+        }
+        if (keep) publish()
+        return out
+    }
+
+    /**
+     * Messages [prepare]d without keeping them (a draft the user writes a caption on first, 2026-11-28, hen), now kept
+     * to be sent: [caption] on the first, their time now.
+     */
+    fun keep(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet()): List<TextMessage> {
+        val at = now()
+        drop(drafts.map { m -> m.copy(media = m.media?.copy(items = m.media.items.filter { it.id in removed })) })
+        val out = drafts.mapNotNull { m ->
+            this.drafts.remove(m.id)
+            val items = m.media!!.items.filter { it.id !in removed }
+            if (items.isEmpty()) null else m to items
+        }.mapIndexed { i, (m, items) ->
+            val media = m.media!!.copy(sentAt = at, caption = if (i == 0) caption.trim().take(MAX_CAPTION) else "", items = items)
+            m.copy(at = at, media = media, body = fallback(media)).also { store.putMessage(it) }
         }
         publish()
         return out
     }
+
+    /** A draft dropped: its previews are deleted. */
+    fun drop(drafts: List<TextMessage>) {
+        for (m in drafts) {
+            if (m.media?.items?.size == this.drafts[m.id]?.media?.items?.size) this.drafts.remove(m.id)
+            for (item in m.media?.items.orEmpty()) for (p in item.previews) files.delete(p.blob)
+        }
+    }
+
+    /** Drafts not sent yet, by message id (their previews show while the caption is written). */
+    private val drafts = mutableMapOf<String, TextMessage>()
+
+    private val _uploads = MutableStateFlow<Map<String, Float>>(emptyMap())
+
+    /** How far each message of this phone's being sent got uploading its previews (0 to 1), by message id. */
+    val uploads: StateFlow<Map<String, Float>> = _uploads.asStateFlow()
 
     /** [item] with its own key; its previews sealed and kept (this phone shows them, and uploads them). */
     private fun seal(message: String, item: PreparedItem): AttachmentContent {
@@ -199,11 +234,20 @@ internal class MediaSharing(
     suspend fun upload(message: TextMessage) {
         val media = message.media ?: return
         val group = Group.idOf(message.user)
-        for (item in media.items) {
-            for (part in item.previews) {
-                val sealed = files.read(part.blob) ?: throw MissingPreviewException()
-                blobs.put(part.blob, if (group == null) message.user else null, group, sealed)
+        val total = media.items.sumOf { item -> item.previews.sumOf { MediaCrypto.sealedSize(it.size) } }.coerceAtLeast(1)
+        var done = 0L
+        _uploads.update { it + (message.id to 0f) }
+        try {
+            for (item in media.items) {
+                for (part in item.previews) {
+                    val sealed = files.read(part.blob) ?: throw MissingPreviewException()
+                    blobs.put(part.blob, if (group == null) message.user else null, group, sealed)
+                    done += sealed.size
+                    _uploads.update { it + (message.id to (done.toFloat() / total).coerceAtMost(1f)) }
+                }
             }
+        } finally {
+            _uploads.update { it - message.id }
         }
     }
 
@@ -224,7 +268,7 @@ internal class MediaSharing(
      * changed bytes).
      */
     suspend fun preview(messageId: String, itemId: String): ByteArray? {
-        val message = store.message(messageId) ?: return null
+        val message = store.message(messageId) ?: drafts[messageId] ?: return null
         val item = message.media?.items?.firstOrNull { it.id == itemId } ?: return null
         val part = PreviewSpec.pick(item.previews, myScreen().takeIf { it > 0 } ?: PreviewSpec.DEFAULT_WIDTH) ?: return null
         return part(item, part, MediaCrypto.Part.PREVIEW, sent = message.outgoing)

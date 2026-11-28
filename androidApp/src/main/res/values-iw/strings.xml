@@ -971,6 +971,10 @@
     <string name="media_file">קובץ</string>
     <string name="media_loading">התמונה נטענת</string>
     <string name="media_back">חזרה</string>
+    <string name="media_caption_hint">הוספת כיתוב…</string>
+    <string name="media_draft_drop">לא לשלוח</string>
+    <string name="media_draft_send">שליחה</string>
+    <string name="media_draft_remove">להוציא את זו</string>
     <string name="media_original_asking">מבקש את המקור</string>
     <string name="media_original_coming">מקבל את המקור · %1$s מתוך %2$s MB</string>
     <string name="media_original_gone">המקור כבר לא בטלפון שלהם</string>
