@@ -213,6 +213,37 @@ class MediaSharingTest {
     }
 
     @Test
+    fun picturesSentFirstComeQuietlyAndTheCaptionNotifies() = runTest {
+        val (_, hen, dana) = paired()
+        val notified = mutableListOf<String>()
+        dana.messaging.notifier = object : com.chencohen.ptt.messaging.MessageNotifier {
+            override fun incoming(contact: com.chencohen.ptt.messaging.Contact, unread: List<com.chencohen.ptt.messaging.TextMessage>) {
+                notified += unread.joinToString("|") { it.body }
+            }
+
+            override fun read(user: String) {}
+        }
+        val draft = hen.work.async { hen.messaging.draftMedia("dana", listOf("a")) }
+        advanceUntilIdle()
+        val first = hen.messaging.sendPicturesFirst(draft.await()).single()
+        advanceUntilIdle()
+        val got = dana.store.message(first.id)
+        assertNotNull(got, "the pictures are there")
+        assertEquals(true, got.media?.quiet)
+        assertTrue(notified.isEmpty(), "but no notification yet")
+
+        val sent = hen.work.async { hen.messaging.commitCaption(first.id, " the sea ") }
+        advanceUntilIdle()
+        assertTrue(sent.await())
+        assertEquals("the sea", dana.store.message(first.id)?.media?.caption)
+        assertEquals(false, dana.store.message(first.id)?.media?.quiet)
+        assertEquals(listOf("the sea"), notified, "the caption notifies")
+        assertEquals(false, hen.store.message(first.id)?.media?.quiet)
+        hen.stop()
+        dana.stop()
+    }
+
+    @Test
     fun aChangedPreviewOnTheServerIsRefused() = runTest {
         val (server, hen, dana) = paired()
         val sent = hen.work.async { hen.messaging.shareMedia("dana", listOf("a"), "") }

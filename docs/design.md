@@ -743,7 +743,8 @@ https://claude.ai/artifact/K8LQASQNarMxVAYKQdMQoQ. The server side is done (ptt-
   (`MediaDraftBox`), and `sendDraft` keeps it with the caption, less the items taken out, and delivers it;
   the previews start uploading on `prepare` (`draftUploads`; `upload` on Send waits for that job and skips what
   went up), and `MediaSharing.drop` (or an item taken out) deletes the previews here and, with `BlobApi.delete`, on
-  the server. `MediaSharing.uploads` says how far each message's previews
+  the server. `Messaging.sendPicturesFirst` sends them `quiet` (PushKind.SYNC, no notification) and
+  `commitCaption` sends the caption as an `EditContent` with `notify`, which `takeCaption` keeps and notifies. `MediaSharing.uploads` says how far each message's previews
   uploaded, which my half bubbles' dashes show. Pictures in the chat sit between half bubbles
   (docs/screens/conversation.md).
 

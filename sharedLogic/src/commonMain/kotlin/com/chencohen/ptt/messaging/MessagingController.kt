@@ -143,6 +143,19 @@ class MessagingController internal constructor(
         scope.launch { withContext(work) { runCatching { messaging.sendDraft(drafts, caption, removed) } } }
     }
 
+    /** Sends a draft's pictures before their caption (quietly); [done] gets the first message's id. */
+    fun sendPicturesFirst(drafts: List<TextMessage>, removed: Set<String> = emptySet(), done: (String?) -> Unit) {
+        scope.launch {
+            val kept = withContext(work) { runCatching { messaging.sendPicturesFirst(drafts, removed) }.getOrDefault(emptyList()) }
+            done(kept.firstOrNull()?.id)
+        }
+    }
+
+    /** The caption of pictures sent first (empty: none); it notifies them. */
+    fun commitCaption(id: String, caption: String) {
+        scope.launch { withContext(work) { runCatching { messaging.commitCaption(id, caption) } } }
+    }
+
     /** Drops a draft. */
     fun dropDraft(drafts: List<TextMessage>) {
         scope.launch { withContext(work) { messaging.media.drop(drafts) } }

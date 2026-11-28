@@ -179,7 +179,7 @@ internal class MediaSharing(
      * Messages [prepare]d without keeping them (a draft the user writes a caption on first, 2026-11-28, hen), now kept
      * to be sent: [caption] on the first, their time now.
      */
-    fun keep(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet()): List<TextMessage> {
+    fun keep(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet(), quiet: Boolean = false): List<TextMessage> {
         val at = now()
         // Only what was taken out is dropped: the upload of the rest goes on, and Send waits for it.
         for (m in drafts) {
@@ -191,7 +191,7 @@ internal class MediaSharing(
             val items = m.media!!.items.filter { it.id !in removed }
             if (items.isEmpty()) null else m to items
         }.mapIndexed { i, (m, items) ->
-            val media = m.media!!.copy(sentAt = at, caption = if (i == 0) caption.trim().take(MAX_CAPTION) else "", items = items)
+            val media = m.media!!.copy(sentAt = at, caption = if (i == 0) caption.trim().take(MAX_CAPTION) else "", items = items, quiet = quiet && i == 0)
             m.copy(at = at, media = media, body = fallback(media)).also { store.putMessage(it) }
         }
         publish()

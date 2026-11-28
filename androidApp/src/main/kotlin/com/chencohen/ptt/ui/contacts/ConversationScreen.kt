@@ -168,6 +168,8 @@ class ConversationActions(
     val attach: ((gallery: Boolean) -> Unit)? = null,
     /** Pictures picked here, not sent yet: in the writing bubble, the caption written under them. */
     val mediaDraft: com.chencohen.ptt.ui.media.MediaDraft? = null,
+    /** Pictures sent before their caption: the caption box under them, until it is sent. */
+    val mediaCaption: com.chencohen.ptt.ui.media.MediaCaption? = null,
     /** How far each of my media messages being sent got uploading, by message id (0 to 1). */
     val uploads: Map<String, Float> = emptyMap(),
 )
@@ -1461,7 +1463,7 @@ private fun ConversationActionsWith(a: ConversationActions, playVideo: (String) 
     playVideo = playVideo, finishVoice = a.finishVoice, micDenied = a.micDenied, call = a.call, shareCall = a.shareCall, playKept = a.playKept,
     setPushVideo = a.setPushVideo, answering = a.answering, edit = a.edit, editLive = a.editLive, delete = a.delete,
     sendFace = a.sendFace, react = a.react, sendLiveWaiting = a.sendLiveWaiting, callInChat = a.callInChat, fullScreen = a.fullScreen, handOver = a.handOver, takeBack = a.takeBack,
-    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach, mediaDraft = a.mediaDraft, uploads = a.uploads,
+    mediaPreview = a.mediaPreview, openMedia = a.openMedia, attach = a.attach, mediaDraft = a.mediaDraft, mediaCaption = a.mediaCaption, uploads = a.uploads,
 )
 
 
@@ -1726,6 +1728,7 @@ private fun Bubble(message: TextMessage, actions: ConversationActions, playing: 
                 reach = if (message.outgoing) (if (held) ReadMarks.Reach.SENDING else reach ?: ReadMarks.Reach.RECEIVED) else null,
                 progress = actions.uploads[message.id],
                 author = if (showAuthor && !message.outgoing) message.author else null,
+                liveEdit = liveEdit,
             )
         }
         if (message.reactions.isNotEmpty()) com.chencohen.ptt.ui.face.Reactions(message.reactions, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
@@ -2592,6 +2595,10 @@ private fun PinnedDraft(
     // Pictures picked here: the writing bubble holds them, the caption written under them (2026-11-28, hen).
     actions.mediaDraft?.let { mediaDraft ->
         com.chencohen.ptt.ui.media.MediaDraftBox(mediaDraft, actions.mediaPreview)
+        return
+    }
+    actions.mediaCaption?.let { caption ->
+        com.chencohen.ptt.ui.media.MediaCaptionBox(caption)
         return
     }
     var faces by remember { mutableStateOf(false) }

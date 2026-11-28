@@ -696,7 +696,7 @@ internal class Messaging(
             val read = message.outgoing || readsAtOnce(group.chat)
             store.putMessage(message.copy(read = read))
             _state.update { it.copy(typing = it.typing - typingKey(group.chat, message.author.orEmpty()), drafts = it.drafts - typingKey(group.chat, message.author.orEmpty())) }
-            if (!read) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
+            if (!read && message.media?.quiet != true) notifier?.incomingGroup(group, store.messagesWith(group.chat).filter { !it.outgoing && !it.read })
             if (!message.outgoing) scope.launch { sendGroupDelivered(group, message.id) }
         },
         onClip = { group, author, clip, at ->
@@ -827,6 +827,48 @@ internal class Messaging(
     /** Sends a draft [draftMedia] made, with [caption]. */
     suspend fun sendDraft(drafts: List<TextMessage>, caption: String, removed: Set<String> = emptySet()): List<TextMessage> =
         media.keep(drafts, caption, removed).map { deliver(it) }
+
+    /**
+     * Sends a draft's pictures before their caption (2026-11-28, hen, option A): they come in quietly (no notification,
+     * a silent push); [commitCaption] sends the caption, and that notifies. Answers the messages, kept at once (their
+     * delivery goes on in the background), so the caption box can join the first.
+     */
+    fun sendPicturesFirst(drafts: List<TextMessage>, removed: Set<String> = emptySet()): List<TextMessage> {
+        val kept = media.keep(drafts, "", removed, quiet = true)
+        scope.launch { for (m in kept) deliver(m) }
+        return kept
+    }
+
+    /**
+     * The caption of pictures sent with [sendPicturesFirst] (empty: none): here at once, then to the chat as an edit
+     * that notifies. If the pictures haven't gone yet, they go with it (deliver reads the message again).
+     */
+    suspend fun commitCaption(id: String, caption: String): Boolean {
+        val message = store.message(id)?.takeIf { it.outgoing && it.media?.quiet == true } ?: return false
+        val text = caption.trim().take(com.chencohen.ptt.media.MediaSharing.MAX_CAPTION)
+        val shared = message.media!!.copy(caption = text, quiet = false)
+        store.putMessage(message.copy(media = shared, body = com.chencohen.ptt.media.MediaSharing.fallback(shared)))
+        publish()
+        editWanted.remove(id)
+        if (message.status != MessageStatus.SENT && message.status != MessageStatus.DELIVERED && message.status != MessageStatus.READ) return true
+        return sendCaption(message.user, id, text)
+    }
+
+    private suspend fun sendCaption(chat: String, id: String, text: String): Boolean {
+        val at = now()
+        val content = Content(edit = EditContent(id, text, at, EditContent.FINAL, notify = true))
+        return try {
+            val group = Group.idOf(chat)
+            if (group != null) groups.send(group, content, PushKind.MESSAGE) else sender.send(chat, content, pushKind = PushKind.MESSAGE)
+            sendEdit(chat, EditContent(id, editedAt = at, stage = EditContent.CANCEL))
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            println("TalkEdit: caption of $id not sent: $e")
+            false
+        }
+    }
 
     suspend fun shareMedia(chat: String, sources: List<String>, caption: String): List<TextMessage> {
         val messages = media.prepare(chat, sources, caption)
@@ -2086,6 +2128,7 @@ internal class Messaging(
 
     /** Sends one kept text; answers it with its new status. */
     private suspend fun deliver(message: TextMessage): TextMessage {
+        var sentMedia: MediaContent? = null
         if (message.clip != null) {
             talk.deliverVoice(message.id)
             return store.message(message.id) ?: message
@@ -2093,9 +2136,13 @@ internal class Messaging(
         val status = try {
             // Shared media: its previews go up first (again after a broken upload), then the message that names them.
             if (message.outgoing && message.media != null) media.upload(message)
-            val text = Content(text = TextContent(message.body, message.at, message.id, face = message.face), media = message.media)
+            // Read again: pictures sent first may have had their caption written while they uploaded.
+            val going = store.message(message.id) ?: message
+            sentMedia = going.media
+            val text = Content(text = TextContent(going.body, going.at, going.id, face = going.face), media = going.media)
+            val push = if (going.media?.quiet == true) PushKind.SYNC else PushKind.MESSAGE
             val group = Group.idOf(message.user)
-            if (group != null) groups.send(group, text, PushKind.MESSAGE) else sender.send(message.user, text, pushKind = PushKind.MESSAGE)
+            if (group != null) groups.send(group, text, push) else sender.send(message.user, text, pushKind = push)
             MessageStatus.SENT
         } catch (e: CancellationException) {
             throw e
@@ -2119,6 +2166,10 @@ internal class Messaging(
         val updated = now.copy(status = if (now.status.ordinal > status.ordinal && status != MessageStatus.FAILED) now.status else status)
         store.putMessage(updated)
         publish()
+        // Quiet pictures whose caption was committed while they were going: the caption follows, and notifies.
+        if (status == MessageStatus.SENT && sentMedia?.quiet == true && updated.media?.quiet == false) {
+            sendCaption(updated.user, updated.id, updated.media.caption)
+        }
         return updated
     }
 
@@ -2484,6 +2535,7 @@ internal class Messaging(
         if (message == null) return
         when (edit.stage) {
             EditContent.FINAL -> {
+                if (edit.notify && message.media != null) return takeCaption(chat, mine, message, edit)
                 if (edit.body.isBlank()) return
                 editEnded[edit.id] = maxOf(editEnded[edit.id] ?: 0L, edit.editedAt)
                 if ((message.editedAt ?: 0L) <= edit.editedAt) store.putMessage(message.copy(body = edit.body.take(4_000), editedAt = edit.editedAt))
@@ -2506,6 +2558,19 @@ internal class Messaging(
                 _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
             }
         }
+    }
+
+    /** The caption of pictures that came quietly: kept, and notified now as the new message it is (unless read). */
+    private fun takeCaption(chat: String, mine: Boolean, message: TextMessage, edit: EditContent) {
+        val shared = message.media!!.copy(caption = edit.body.take(com.chencohen.ptt.media.MediaSharing.MAX_CAPTION), quiet = false)
+        store.putMessage(message.copy(media = shared, body = com.chencohen.ptt.media.MediaSharing.fallback(shared), at = if (mine) message.at else maxOf(message.at, now())))
+        editEnded[edit.id] = maxOf(editEnded[edit.id] ?: 0L, edit.editedAt)
+        _state.update { it.copy(liveEdits = it.liveEdits - edit.id) }
+        publish()
+        if (mine || message.read) return
+        val group = Group.idOf(chat)
+        if (group != null) store.group(group)?.let { g -> notifier?.incomingGroup(g, store.messagesWith(chat).filter { !it.outgoing && !it.read }) }
+        else store.contact(chat)?.let { c -> notifier?.incoming(c, store.messagesWith(chat).filter { !it.outgoing && !it.read }) }
     }
 
     private fun newId(): String = random.nextBytes(12).joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
@@ -2581,7 +2646,7 @@ internal class Messaging(
                 sendReceipt(contact.user, read = false, listOf(id))
                 if (read) sendReceipt(contact.user, read = true, listOf(id))
             }
-            if (!read) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
+            if (!read && content.media?.quiet != true) notifier?.incoming(contact, store.messagesWith(contact.user).filter { !it.outgoing && !it.read })
         }
         content.edit?.let { takeEdit(contact.user, null, mine = false, it) }
         content.delete?.let { takeDelete(contact.user, null, mine = false, it) }

@@ -7,6 +7,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -40,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.chencohen.ptt.ui.contacts.liveCaret
 import com.awxkee.jxlcoder.JxlCoder
 import com.chencohen.ptt.R
 import com.chencohen.ptt.messaging.AttachmentContent
@@ -99,6 +101,8 @@ internal fun MediaMessage(
     progress: Float? = null,
     /** Theirs in a group: the sender's name, on the top half bubble. */
     author: String? = null,
+    /** Theirs, sent before its caption: the caption as they write it (Live typing), with their caret. */
+    liveEdit: com.chencohen.ptt.messaging.LiveEdit? = null,
 ) {
     val media = message.media ?: return
     val mine = message.outgoing
@@ -114,6 +118,8 @@ internal fun MediaMessage(
     @Composable
     fun Modifier.half(top: Boolean): Modifier = when {
         look != null -> this.myHalfBubble(look, top, progress)
+        // Theirs sent before the caption: outlined like their live draft while they write it; solid once sent.
+        media.quiet -> this.border(1.dp, LibraryColors.Muted.copy(alpha = 0.6f), halfShape(top))
         else -> this.background(LibraryColors.Theirs, halfShape(top))
     }
     Column(modifier.fillMaxWidth(), horizontalAlignment = side) {
@@ -136,14 +142,22 @@ internal fun MediaMessage(
             }
             Spacer(Modifier.height(2.dp))
         }
+        // Mine sent before the caption: the caption box under the chat is its bottom half while I write it.
+        if (mine && media.quiet) return@Column
         // The bottom half bubble: the caption and the time.
         Column(
             Modifier.padding(horizontal = 12.dp).width(com.chencohen.ptt.ui.contacts.bubbleMaxWidth()).half(top = false)
                 .then(if (failed) Modifier.clickable { retry(message.id) } else Modifier)
                 .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 7.dp),
         ) {
-            if (media.caption.isNotBlank()) Text(media.caption, color = ink, style = LibraryType.Message)
-            Text(
+            val live = liveEdit?.text
+            var layout by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+            if (live != null || media.caption.isNotBlank()) Text(
+                live ?: media.caption, color = ink, style = LibraryType.Message, onTextLayout = { layout = it },
+                modifier = if (live != null && liveEdit.selEnd >= 0) Modifier.liveCaret(layout, liveEdit.selStart, liveEdit.selEnd) else Modifier,
+            )
+            if (liveEdit != null || (!mine && media.quiet)) Text(stringResource(R.string.chat_draft), color = muted, style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End))
+            else Text(
                 if (failed) stringResource(R.string.chat_status_failed) + " · " + time else time,
                 color = if (failed) LibraryColors.Warning else muted, style = LibraryType.Tiny, modifier = Modifier.align(Alignment.End),
             )

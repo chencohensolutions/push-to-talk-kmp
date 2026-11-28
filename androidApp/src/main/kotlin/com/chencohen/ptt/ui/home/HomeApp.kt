@@ -269,6 +269,8 @@ fun HomeApp(
     }
     // Pictures picked for a chat, not sent yet: in its writing bubble, the caption written under them (2026-11-28, hen).
     val mediaDrafts = remember { androidx.compose.runtime.mutableStateMapOf<String, List<com.chencohen.ptt.messaging.TextMessage>>() }
+    // Pictures sent before their caption, by chat: the message whose caption is being written.
+    val mediaCaptions = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
     fun sendShared(chat: String, uris: List<String>) {
         messaging.draftMedia(chat, uris) { drafts ->
             if (drafts.isEmpty()) messages.post(resources.getString(R.string.share_failed))
@@ -482,9 +484,23 @@ fun HomeApp(
                             mediaDrafts.remove(user)
                             messaging.sendDraft(drafts, caption, removed)
                         },
+                        sendFirst = { removed ->
+                            mediaDrafts.remove(user)
+                            messaging.sendPicturesFirst(drafts, removed) { id -> if (id != null) mediaCaptions[user] = id }
+                        },
                         drop = {
                             mediaDrafts.remove(user)
                             messaging.dropDraft(drafts)
+                        },
+                    )
+                },
+                mediaCaption = mediaCaptions[user]?.let { id ->
+                    com.chencohen.ptt.ui.media.MediaCaption(
+                        id,
+                        live = { text, s, e -> messaging.editLive(id, text, s, e) },
+                        commit = { caption ->
+                            mediaCaptions.remove(user)
+                            messaging.commitCaption(id, caption)
                         },
                     )
                 },

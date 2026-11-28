@@ -595,6 +595,16 @@ The previews start uploading as soon as they are picked (hen: "start sending the
 the message that names them reaches the others only on Send, which waits for whatever is still uploading. A picture
 taken out, or the whole draft dropped, is deleted from the server too.
 
+**Pictures first, then the text** (2026-11-28, hen: "first send the pictures, then write the text", one button; mock
+`mockups/share-media/send-pictures-first.png`, B). Send with the box empty sends the pictures quietly
+(`MediaContent.quiet`: a silent push, no notification) and leaves the box open under them as their bottom half
+(`MediaCaptionBox`); on their phones the pictures come in at once between outlined half bubbles, like a live draft, and
+with Live typing on the caption forms under them with my caret ("Writing…"). Send then sends the caption (an edit with
+`notify`), their bubbles turn solid as a message, and only that notifies them. Left empty (the chat closed, or two
+minutes without a letter), they are notified of the pictures alone. Send with text written first still sends both at
+once, as before.
+
+
 **The + button** (left of Voice message in the bottom row, hidden while Push is held or hands-free): Gallery picks
 pictures and videos in Samsung's Gallery (Android's photo picker on phones without it), File picks files (Open
 document, kept readable). What is picked is shared in this chat at once. The first time, Android asks for the phone's

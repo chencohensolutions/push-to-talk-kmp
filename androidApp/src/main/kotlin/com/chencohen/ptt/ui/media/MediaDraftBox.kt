@@ -53,6 +53,8 @@ class MediaDraft(
     val messages: List<TextMessage>,
     /** Sends them with [caption], less the items taken out ([removed], by item id). */
     val send: (caption: String, removed: Set<String>) -> Unit,
+    /** Sends them quietly before their caption (Send with the box empty), less [removed]. */
+    val sendFirst: (removed: Set<String>) -> Unit,
     /** Drops them all. */
     val drop: () -> Unit,
 )
@@ -118,7 +120,7 @@ internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: Strin
                 )
             }
             Box(
-                Modifier.size(40.dp).clip(CircleShape).background(coral).clickable { draft.send(caption, removed) },
+                Modifier.size(40.dp).clip(CircleShape).background(coral).clickable { if (caption.isBlank()) draft.sendFirst(removed) else draft.send(caption, removed) },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(LibraryIcons.ArrowUp, stringResource(R.string.media_draft_send), tint = Color.White, modifier = Modifier.size(20.dp))
@@ -126,6 +128,72 @@ internal fun MediaDraftBox(draft: MediaDraft, preview: suspend (messageId: Strin
         }
     }
 }
+
+/** Pictures sent before their caption (2026-11-28, hen: "first send the pictures, then write the text", one button). */
+class MediaCaption(
+    val messageId: String,
+    /** The caption as it stands (Live typing shows it under the pictures on their phones). */
+    val live: (text: String, selStart: Int, selEnd: Int) -> Unit,
+    /** Sends the caption (empty: none); this is what notifies them. */
+    val commit: (caption: String) -> Unit,
+)
+
+/**
+ * The caption box after the pictures went (one Send, hen 2026-11-28): the bottom half bubble of my pictures, outlined in
+ * the writing colour, a bubble wide on my side, right under them at the end of the chat. Send sends the caption and
+ * notifies them; empty, it notifies them of the pictures alone. Left empty (the chat closed, or [IDLE_NOTIFY] without a
+ * letter), they are notified of the pictures then.
+ */
+@Composable
+internal fun MediaCaptionBox(caption: MediaCaption, modifier: Modifier = Modifier) {
+    var text by rememberSaveable(caption.messageId, stateSaver = androidx.compose.ui.text.input.TextFieldValue.Saver) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
+    var done by remember(caption.messageId) { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    val coral = LibraryColors.Writing
+    fun commit(value: String) {
+        if (done) return
+        done = true
+        caption.commit(value)
+    }
+    LaunchedEffect(caption.messageId) { runCatching { focus.requestFocus() } }
+    LaunchedEffect(caption.messageId, text.text.isEmpty()) {
+        if (text.text.isEmpty()) {
+            kotlinx.coroutines.delay(IDLE_NOTIFY)
+            commit("")
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(caption.messageId) { onDispose { commit("") } }
+    Column(modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalAlignment = Alignment.End) {
+        Row(
+            Modifier.padding(horizontal = 12.dp).width(bubbleMaxWidth()).writingHalf(coral, top = false).padding(start = 14.dp, end = 6.dp, top = 2.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Box(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                if (text.text.isEmpty()) Text(stringResource(R.string.media_caption_hint), color = LibraryColors.Muted, style = LibraryType.Message)
+                BasicTextField(
+                    text,
+                    { value ->
+                        text = value
+                        caption.live(value.text, value.selection.start, value.selection.end)
+                    },
+                    Modifier.fillMaxWidth().focusRequester(focus),
+                    textStyle = LibraryType.Message.copy(color = LibraryColors.OnBackground),
+                    cursorBrush = SolidColor(LibraryColors.OnBackground),
+                    maxLines = 6,
+                )
+            }
+            Box(
+                Modifier.size(40.dp).clip(CircleShape).background(coral).clickable { commit(text.text) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(LibraryIcons.ArrowUp, stringResource(R.string.media_draft_send), tint = Color.White, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+/** How long an empty caption box waits before telling them of the pictures alone. */
+private const val IDLE_NOTIFY = 120_000L
 
 /** A half bubble's outline in [color], open on the side the pictures touch (the writing look of myHalfBubble). */
 private fun Modifier.writingHalf(color: Color, top: Boolean, radius: Dp = 16.dp): Modifier = drawWithCache {

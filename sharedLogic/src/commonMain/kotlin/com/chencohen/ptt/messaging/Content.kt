@@ -99,6 +99,11 @@ data class MediaContent(
     @ProtoNumber(2) val sentAt: Long = 0,
     @ProtoNumber(3) val caption: String = "",
     @ProtoNumber(4) val items: List<AttachmentContent> = emptyList(),
+    /**
+     * Sent before its caption (2026-11-28, hen: "first send the pictures, then write the text"): it comes in without a
+     * notification; the caption, an [EditContent] with `notify`, notifies. Older apps skip it.
+     */
+    @ProtoNumber(5) val quiet: Boolean = false,
 )
 
 /**
@@ -309,6 +314,8 @@ internal data class EditContent(
     /** LIVE: where the editor's caret is in [body], and the selection's end (2026-11-24, hen); -1: not said. */
     @ProtoNumber(6) val selStart: Int = -1,
     @ProtoNumber(7) val selEnd: Int = -1,
+    /** FINAL, on pictures sent [MediaContent.quiet]: their caption (empty: none), which notifies as a new message. */
+    @ProtoNumber(8) val notify: Boolean = false,
 ) {
     companion object {
         const val FINAL = 0
