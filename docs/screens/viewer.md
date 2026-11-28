@@ -72,5 +72,6 @@ move the kept part, tap to set the point of interest (a ring with a dot). With s
 Opening a cropped picture (2026-11-28, hen: "the transition should be seamless", "make expanding animation when full
 image arrives", "preferred as one move when the full image arrives"): its kept part starts exactly where the chat shows
 it and grows to fill the screen as far as it can. When the whole original is drawn, the picture opens out above and below
-while it fits to the screen, in one move (300 ms). An original already on the phone does this as the picture opens.
+while it fits to the screen, in one move (300 ms). When the original is already on the phone (mine, or a copy kept), the picture opens straight to the whole of it in one
+move (hen: "preferred as one move if the full image exists"; its decoding is waited for, at most 0.4 s).
 Closing folds it back into the crop.

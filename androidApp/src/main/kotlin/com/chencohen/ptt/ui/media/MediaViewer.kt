@@ -108,7 +108,21 @@ internal fun MediaViewer(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var closing by remember { mutableStateOf(false) }
     val ease = androidx.compose.animation.core.FastOutSlowInEasing
-    LaunchedEffect(Unit) { shown.animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease)) }
+    // How far each cropped picture has opened out to the whole original (0: its crop), once the original is drawn.
+    val unfolds = remember { mutableMapOf<String, androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>>() }
+    fun unfoldOf(id: String) = unfolds.getOrPut(id) { androidx.compose.animation.core.Animatable(0f) }
+    // Opening has begun: a cropped picture whose original is drawn after this opens out in a move of its own.
+    var opening by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        // A cropped picture whose original is already on this phone opens straight to the whole picture, in one move
+        // (2026-11-28, hen: "preferred as one move if the full image exists"): its decoding is waited for, briefly.
+        val first = items.firstOrNull { it.id == startItem }
+        if (first?.crop != null && (message.outgoing || originals["${message.id}/${first.id}"] is OriginalState.Ready)) {
+            kotlinx.coroutines.withTimeoutOrNull(400) { androidx.compose.runtime.snapshotFlow { unfoldOf(first.id).value >= 1f }.first { it } }
+        }
+        opening = true
+        shown.animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease))
+    }
     fun close() {
         if (closing) return
         closing = true
@@ -126,9 +140,6 @@ internal fun MediaViewer(
     val zoomScope = androidx.compose.runtime.rememberCoroutineScope()
     val zooms = remember { mutableMapOf<String, PhotoZoom>() }
     fun zoomOf(id: String) = zooms.getOrPut(id) { PhotoZoom(zoomScope, keptZooms["${message.id}/$id"]) }
-    // How far each cropped picture has opened out to the whole original (0: its crop), once the original is drawn.
-    val unfolds = remember { mutableMapOf<String, androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>>() }
-    fun unfoldOf(id: String) = unfolds.getOrPut(id) { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(pager.currentPage) { val now = items.getOrNull(pager.currentPage)?.id; zooms.forEach { (id, z) -> if (id != now) z.reset() } }
     // Leaving a picture (a swipe, or closing): where it was zoomed is kept; fitted forgets it.
     val currentId = items.getOrNull(pager.currentPage)?.id
@@ -241,7 +252,9 @@ internal fun MediaViewer(
                 clipTo(minOf(at, unfolded))
             }) {
                 ItemPage(message, item, originals["${message.id}/${item.id}"], preview, zoomOf(item.id), tap = { chrome = !chrome }, whole = {
-                    zoomScope.launch { unfoldOf(item.id).animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease)) }
+                    zoomScope.launch {
+                        if (!opening) unfoldOf(item.id).snapTo(1f) else unfoldOf(item.id).animateTo(1f, androidx.compose.animation.core.tween(300, easing = ease))
+                    }
                 })
             }
         }
