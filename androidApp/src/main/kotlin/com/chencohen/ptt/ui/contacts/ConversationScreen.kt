@@ -421,6 +421,9 @@ private fun ConversationScreenIn(
                 }
             }
         }
+        // From here on, in parts of their own (Isolated): the screen in one method was too big for Android to compile
+        // (ART's limit is 10,000 instructions; it was 21,584), so it always ran interpreted.
+        Isolated {
         val videoPanel = (talk.playing?.let { it.chat == user && it.video && it.live } == true) ||
             (talk.talkers[user]?.let { t -> messages.firstOrNull { it.id == t.clip }?.clip?.video } == true) ||
             (pushVideo && talk.own?.chat == user && talk.own?.phase != TalkPhase.VOICE)
@@ -625,6 +628,7 @@ private fun ConversationScreenIn(
                 warning = true,
             )
         }
+        Isolated {
         // The newest is item 0 (the list is upside down). At the bottom (or one item from it) a new message scrolls into
         // view; scrolled up, a "New message" chip shows instead; what this phone sends always scrolls (2026-11-22, hen).
         // Rows a screen ahead of the scroll (half a screen behind) are composed and measured between frames, so a tall
@@ -692,6 +696,7 @@ private fun ConversationScreenIn(
                 if (!newest.outgoing) unseenCount++
             }
         }
+        Isolated {
         // How far they read: their face beside the last message of mine they read (one-to-one; not when they hide
         // their presence).
         // Sent while they had the chat in view (2026-11-24, hen): taken as read at once, so their face is beside the new
@@ -797,6 +802,7 @@ private fun ConversationScreenIn(
                 list.scrollToItem(0)
             }
         }
+        Isolated {
         // The message sent from the draft: its slot is kept, unseen, while the draft flies into it.
         flight.claim(newest)
         val sentMorph = flight.id
@@ -814,6 +820,7 @@ private fun ConversationScreenIn(
         }
         // Leaving the chat ends a live draft (it fades on the other phone).
         androidx.compose.runtime.DisposableEffect(user) { onDispose { actions.draft("", -1, -1) } }
+        Isolated {
         // Push-to-video from the chat (2026-11-23, hen): the camera kept open while the chat shows, so a press sends
         // it at once; what this phone sends shows live in its bubble at the end of the chat, and stays as the video.
         // Released after a minute untouched (2026-11-24, hen), opened again at the next touch.
@@ -994,6 +1001,7 @@ private fun ConversationScreenIn(
             }
         }
         }
+        Isolated {
         val pairs = remember(messages, talk.own?.clip, talk.playing?.clip) { ReadMarks.overlappingVideos(messages.filter(keeps), System.currentTimeMillis()) }
         val pairedEarlier = remember(pairs) { pairs.values.toSet() }
         val byId = remember(messages) { messages.associateBy { it.id } }
@@ -1021,6 +1029,7 @@ private fun ConversationScreenIn(
                 !shown || other != null
             }.collect { leave -> if (leave) actions.stopClip() }
         }
+        Isolated {
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { autoplay.viewport = it.boundsInWindow() }) {
           androidx.compose.runtime.CompositionLocalProvider(LocalVideoAutoplay provides autoplay) {
             // The Talk tab: its stage where the messages are, clear of the strip.
@@ -1391,6 +1400,13 @@ private fun ConversationScreenIn(
                 }
             }
         }
+        }
+        }
+        }
+        }
+        }
+        }
+        }
     }
     SendFlightOverlay(flight)
     if (editing != null && androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current != null) {
@@ -1461,7 +1477,7 @@ private fun traceRunsOf(messages: List<TextMessage>, keeps: (TextMessage) -> Boo
         run += m
     }
     close()
-    shownAt to hidden
+    return shownAt to hidden
 }
 
 /** Runs [content] as a composable of its own: a part of a big screen that compiles as its own method (ART won't compile
