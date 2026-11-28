@@ -617,7 +617,13 @@ private fun ConversationScreenIn(
         }
         // The newest is item 0 (the list is upside down). At the bottom (or one item from it) a new message scrolls into
         // view; scrolled up, a "New message" chip shows instead; what this phone sends always scrolls (2026-11-22, hen).
-        val list = androidx.compose.foundation.lazy.rememberLazyListState()
+        // Rows a screen ahead of the scroll (half a screen behind) are composed and measured between frames, so a tall
+        // picture row is ready before it comes in instead of being built in the frame that shows it (2026-11-28, hen:
+        // "the scroll is jaggy"; the S25 lost 14-26 ms building rows on 4% of frames).
+        @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+        val list = androidx.compose.foundation.lazy.rememberLazyListState(
+            cacheWindow = androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow(aheadFraction = 1f, behindFraction = 0.5f),
+        )
         // The pictures about to scroll in are loaded first, in the background (2026-11-28, hen).
         com.chencohen.ptt.ui.media.PrefetchPictures(list, messages, actions.mediaPreview)
         val scope = androidx.compose.runtime.rememberCoroutineScope()
