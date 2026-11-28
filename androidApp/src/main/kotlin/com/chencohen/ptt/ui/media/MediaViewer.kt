@@ -318,7 +318,10 @@ private fun ItemPage(message: TextMessage, item: AttachmentContent, state: Origi
         item.kind == MediaKind.IMAGE -> {
             val full by produceState<Bitmap?>(null, ready?.path) {
                 val path = ready?.path ?: return@produceState
-                value = withContext(Dispatchers.IO) { decodeOriginal(context, path, OPEN_SIDE) }
+                // At the screen's size, so it is quick (2026-11-28, hen: "why it takes a little time to open the image?"):
+                // zooming in decodes it again, sharper.
+                val side = minOf(OPEN_SIDE, context.resources.displayMetrics.let { maxOf(it.widthPixels, it.heightPixels) })
+                value = withContext(Dispatchers.IO) { decodeOriginal(context, path, side) }
             }
             // Zoomed in for the first time: the original at its own pixels (as many as can be drawn), as Journal does.
             var wantSharp by remember(item.id) { mutableStateOf(false) }
