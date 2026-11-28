@@ -128,3 +128,43 @@ interface DndGate {
     /** Puts it back as it was. */
     fun close()
 }
+
+/**
+ * Each contact's "can hear" as shown (2026-11-27, hen: Sharon's Do Not Disturb badge flickered on and off while her
+ * phone kept reconnecting): a contact's first state shows at once; a change shows only once it has held for [holdMs],
+ * so a moment offline, or connected before their phone said its state again, doesn't flash the badge.
+ */
+class SteadyHear(private val holdMs: Long = HOLD_MS) {
+    private class Seen(var shown: Hear, var next: Hear?, var since: Long)
+
+    private val seen = mutableMapOf<String, Seen>()
+
+    /** [user]'s state is [hear] now ([now], ms): what shows, and whether a change waits to be [settle]d. */
+    fun offer(user: String, hear: Hear, now: Long): Pair<Hear, Boolean> {
+        val s = seen[user] ?: return Seen(hear, null, now).also { seen[user] = it }.shown to false
+        if (hear == s.shown) {
+            s.next = null
+        } else if (hear != s.next) {
+            s.next = hear
+            s.since = now
+        }
+        return s.shown to (s.next != null)
+    }
+
+    /** At [now]: [user]'s waiting change shows if it has held long enough. Their state as shown. */
+    fun settle(user: String, now: Long): Hear? {
+        val s = seen[user] ?: return null
+        val next = s.next
+        if (next != null && now - s.since >= holdMs) {
+            s.shown = next
+            s.next = null
+        }
+        return s.shown
+    }
+
+    fun shown(user: String): Hear? = seen[user]?.shown
+
+    companion object {
+        const val HOLD_MS = 2_000L
+    }
+}

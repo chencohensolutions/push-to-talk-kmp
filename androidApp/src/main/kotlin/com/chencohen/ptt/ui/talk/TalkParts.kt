@@ -251,17 +251,26 @@ internal fun Modifier.holdOrLock(
         down.consume()
         onPress()
         var up = 0f
-        while (true) {
-            val event = awaitPointerEvent(PointerEventPass.Main)
-            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-            up = (down.position.y - change.position.y).coerceAtLeast(0f)
-            // Sideways first, so the lift knows which way the thumb is going (towards the side target, or up to the lock).
-            onSide((down.position.x - change.position.x).coerceAtLeast(0f))
-            onLift(up)
-            change.consume()
-            if (!change.pressed) break
+        var released = false
+        try {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Main)
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                up = (down.position.y - change.position.y).coerceAtLeast(0f)
+                // Sideways first, so the lift knows which way the thumb is going (towards the side target, or up to the lock).
+                onSide((down.position.x - change.position.x).coerceAtLeast(0f))
+                onLift(up)
+                change.consume()
+                if (!change.pressed) break
+            }
+            released = true
+            onRelease(up >= lockAt)
+        } finally {
+            // The gesture went away under the finger (the button left the screen, the press was cancelled): a held press
+            // is let go as if the finger came up, so it can't stay open until the server's limit (2026-11-27: Sharon's
+            // push stayed live for 60 s after she had let go). Not at the lock: that one already went hands-free.
+            if (!released) onRelease(false)
         }
-        onRelease(up >= lockAt)
     }
 }
 

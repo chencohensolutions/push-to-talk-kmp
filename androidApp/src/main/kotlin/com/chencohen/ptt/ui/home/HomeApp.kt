@@ -328,8 +328,10 @@ fun HomeApp(
         call(user, video)
     }
     // Who can hear now (2026-11-25, hen): each contact's Do Not Disturb, silent or call, from their presence.
+    // As shown: a change only once it held 2 s (hearShown), so a phone reconnecting doesn't flash the badges.
     val presence = messagingState.presence
-    val hearOf = remember(presence) { { u: String -> presence[u]?.let { com.chencohen.ptt.talk.Hear.of(it.online, it.hear) } ?: com.chencohen.ptt.talk.Hear.UNKNOWN } }
+    val hearShown = messagingState.hearShown
+    val hearOf = remember(presence, hearShown) { { u: String -> hearShown[u] ?: presence[u]?.let { com.chencohen.ptt.talk.Hear.of(it.online, it.hear) } ?: com.chencohen.ptt.talk.Hear.UNKNOWN } }
     // A chat's own screen: the chat page, and the Talk tab's stage (2026-11-26, hen) with its faces row as [header].
     @Composable
     fun ChatScreenFor(user: String, header: (@Composable () -> Unit)? = null, stage: (@Composable (live: Boolean, overlay: @Composable () -> Unit) -> Unit)? = null, pushTo: String? = null, writeHint: String? = null, writeOpens: (() -> Unit)? = null) {
