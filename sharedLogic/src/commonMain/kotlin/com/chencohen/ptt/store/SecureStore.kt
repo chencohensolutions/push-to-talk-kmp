@@ -55,6 +55,8 @@ object Spaces {
     const val PICTURES = "pictures"
     const val PICTURE_IDS = "picture_ids"
     const val PICTURE_SENT = "picture_sent"
+    /** Shared media (2026-11-28, hen): where each item this phone shared is on it ("<message>/<item>" → its URI). */
+    const val MEDIA_SOURCES = "media_sources"
 }
 
 /** A [SecureStore] in memory: the tests', and a fallback that keeps nothing. */
