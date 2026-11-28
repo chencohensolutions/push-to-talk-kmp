@@ -66,8 +66,10 @@ private class FakePreparer : MediaPreparer {
         )
     }
 
+    override suspend fun sizeOf(source: String): Long = (files[source] ?: files["content://media/$source"])?.size?.toLong() ?: -1
+
     override suspend fun open(source: String): OriginalReader? {
-        val bytes = files[source] ?: return null
+        val bytes = files[source] ?: files["content://media/$source"] ?: return null
         opened++
         return object : OriginalReader {
             var at = 0
@@ -507,6 +509,63 @@ class MediaOriginalTest {
         assertNull(dana.messaging.media.originals.value["$message/$item"])
         hen.stop()
         dana.stop()
+    }
+
+    @Test
+    fun aPictureSharedToAnotherChatIsStoredOnce() = runTest {
+        val (server, hen, dana) = paired()
+        val erin = MediaPhone(server, "erin", this, 3, screen = 1080)
+        erin.controller.start()
+        advanceUntilIdle()
+        val (code, _) = hen.messaging.newPairCode()
+        erin.messaging.pairWith(code, verified = true)
+        advanceUntilIdle()
+        assertTrue(hen.messaging.accept("erin"))
+        advanceUntilIdle()
+
+        val (toDana, danaItem) = shared(hen)
+        dana.messaging.media.openOriginal(toDana, danaItem)
+        advanceUntilIdle()
+        val preparer = hen.messaging.media.preparer as FakePreparer
+        val blobsBefore = server.files.keys.toSet()
+
+        // The same picture to erin (picked again, so known by its size and SHA-256): the same sealed previews,
+        // nothing made or uploaded again.
+        val sent = hen.work.async { hen.messaging.shareMedia("erin", listOf("a"), "") }
+        advanceUntilIdle()
+        val toErin = sent.await().single()
+        val erinItem = toErin.media!!.items.single()
+        val first = hen.store.message(toDana)!!.media!!.items.single()
+        assertEquals(first.previews.map { it.blob }, erinItem.previews.map { it.blob })
+        assertTrue(erinItem.id != first.id)
+        assertEquals(1, preparer.asked.size, "prepared once")
+        assertEquals(blobsBefore, server.files.keys, "nothing new on the server")
+        assertTrue(first.previews.all { "erin" in server.shares[it.blob].orEmpty() })
+        assertNotNull(erin.messaging.media.preview(toErin.id, erinItem.id))
+        val opened = preparer.opened
+
+        // Erin's original is the one already on the server for dana: shared, not read from the file again.
+        erin.messaging.media.openOriginal(toErin.id, erinItem.id)
+        advanceUntilIdle()
+        assertTrue(erin.messaging.media.originals.value["${toErin.id}/${erinItem.id}"] is OriginalState.Ready)
+        assertEquals(opened, preparer.opened)
+        assertEquals(blobsBefore, server.files.keys)
+
+        // Deleted in dana's chat: gone for dana, still erin's.
+        assertTrue(hen.messaging.deleteMessage(toDana))
+        advanceUntilIdle()
+        assertTrue(first.previews.all { it.blob in server.files }, "erin's chat still has them")
+        assertTrue(first.previews.all { "dana" !in server.shares[it.blob].orEmpty() })
+        assertTrue(first.previews.all { hen.files.has(it.blob) }, "hen's phone keeps what erin's message names")
+        assertNull(dana.store.message(toDana)?.media)
+        assertNotNull(erin.store.message(toErin.id)?.media)
+        // And then in erin's: gone from the server.
+        assertTrue(hen.messaging.deleteMessage(toErin.id))
+        advanceUntilIdle()
+        assertTrue(first.previews.none { it.blob in server.files })
+        hen.stop()
+        dana.stop()
+        erin.stop()
     }
 }
 

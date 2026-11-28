@@ -73,6 +73,10 @@ class AndroidMediaPreparer(context: Context) : MediaPreparer {
         }
     }
 
+    override suspend fun sizeOf(source: String): Long = withContext(Dispatchers.IO) {
+        runCatching { nameAndSize(Uri.parse(source)).second }.getOrDefault(-1L)
+    }
+
     private fun nameAndSize(uri: Uri): Pair<String, Long> {
         var name = uri.lastPathSegment.orEmpty()
         var size = -1L

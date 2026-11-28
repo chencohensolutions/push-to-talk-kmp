@@ -550,6 +550,7 @@ internal class FakeServer {
         override suspend fun put(id: String, peer: String?, group: String?, bytes: ByteArray) {
             if (peer != null && setOf(device.user, peer) !in pairs) throw com.chencohen.ptt.talk.BlobException(403, "not paired")
             files[id] = bytes
+            shares.getOrPut(id) { mutableSetOf() } += (group ?: peer.orEmpty())
         }
 
         override suspend fun readFrom(id: String, offset: Long, follow: Boolean, onBytes: suspend (ByteArray) -> Unit) {
@@ -563,14 +564,33 @@ internal class FakeServer {
             if (offset != have.size.toLong()) return have.size.toLong()
             if (have.size + bytes.size > total) throw com.chencohen.ptt.talk.BlobException(413, "too large")
             files[id] = have + bytes
+            shares.getOrPut(id) { mutableSetOf() } += (group ?: peer.orEmpty())
             kept[id] = keepMedia
             return offset + bytes.size
         }
 
         override suspend fun delete(id: String) {
             files.remove(id)
+            shares.remove(id)
+        }
+
+        override suspend fun share(id: String, peer: String?, group: String?): Boolean {
+            if (id !in files) return false
+            shareCalls += id
+            shares.getOrPut(id) { mutableSetOf() } += (group ?: peer.orEmpty())
+            return true
+        }
+
+        override suspend fun unshare(id: String, peer: String?, group: String?) {
+            val left = shares[id] ?: return delete(id)
+            left -= (group ?: peer.orEmpty())
+            if (left.isEmpty()) delete(id)
         }
     }
+
+    /** The conversations each blob is readable in (its upload's and the shares'), and every share asked for. */
+    val shares = mutableMapOf<String, MutableSet<String>>()
+    val shareCalls = mutableListOf<String>()
 
     /** Whether each blob was uploaded as a shared original (?keep=media). */
     val kept = mutableMapOf<String, Boolean>()

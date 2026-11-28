@@ -65,6 +65,9 @@ interface MediaPreparer {
 
     /** The file at [source] opened again, to send its untouched original; null when it is gone or can't be read. */
     suspend fun open(source: String): OriginalReader? = null
+
+    /** The size of the file at [source] without reading it (-1: not known). */
+    suspend fun sizeOf(source: String): Long = -1
 }
 
 /** A shared file read again from where it is on this phone, with its SHA-256 worked out as it is read. */
@@ -253,9 +256,12 @@ internal class MediaSharing(
     suspend fun prepare(chat: String, sources: List<String>, caption: String, keep: Boolean = true): List<TextMessage> {
         val preparer = preparer ?: return emptyList()
         val widths = screens(chat)
-        val items = sources.mapNotNull { source ->
+        val mine = sharedHere()
+        val items: List<Any> = sources.mapNotNull { source ->
             try {
-                preparer.prepare(source) { PreviewSpec.widths(widths, it) }
+                // Shared before (in this chat or another): sent again as the same item, nothing made or uploaded again
+                // (2026-11-28, hen: "share images between groups without doubling the storage").
+                earlier(source, mine)?.let { (m, item) -> Again(m, item, source) } ?: preparer.prepare(source) { PreviewSpec.widths(widths, it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -267,7 +273,7 @@ internal class MediaSharing(
             val id = newId()
             val at = now()
             val text = if (i == 0) caption.trim().take(MAX_CAPTION) else ""
-            val attachments = chunk.map { item -> seal(id, item) }
+            val attachments = chunk.map { item -> if (item is Again) again(id, item) else seal(id, item as PreparedItem) }
             val media = MediaContent(id, at, text, attachments)
             val message = TextMessage(id, chat, outgoing = true, body = fallback(media), at = at, status = MessageStatus.PENDING, media = media)
             if (keep) store.putMessage(message) else drafts[id] = message
@@ -289,7 +295,7 @@ internal class MediaSharing(
         // Only what was taken out is dropped: the upload of the rest goes on, and Send waits for it.
         for (m in drafts) {
             val gone = m.media?.items.orEmpty().filter { it.id in removed }
-            for (item in gone) for (p in item.previews) forget(p.blob)
+            for (item in gone) for (p in item.previews) forget(p.blob, m)
         }
         val out = drafts.mapNotNull { m ->
             this.drafts.remove(m.id)
@@ -311,11 +317,13 @@ internal class MediaSharing(
             val job = draftUploads.remove(m.id)
             val parts = m.media?.items.orEmpty().flatMap { it.previews }.map { it.blob }
             job?.cancel()
-            for (blob in parts) files.delete(blob)
+            // A preview another message names too stays (the same picture in another chat).
+            for (blob in parts) if (!named(blob, m.id)) files.delete(blob)
             // What already went up is deleted from the server, once the upload has stopped.
             scope?.launch {
                 job?.join()
-                for (blob in parts) if (uploaded.remove(blob)) runCatching { blobs.delete(blob) }
+                val (peer, group) = conversationOf(m.user)
+                for (blob in parts) if (uploaded.remove("$blob@${m.user}")) runCatching { blobs.unshare(blob, peer, group) }
             }
         }
     }
@@ -333,8 +341,10 @@ internal class MediaSharing(
             uploading.remove("${message.id}/${item.id}")?.cancel()
             store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")?.let { files.deleteOriginal(it) }
         }
-        for (blob in blobsGone) files.delete(blob)
-        scope?.launch { for (blob in blobsGone) runCatching { blobs.delete(blob) } }
+        for (blob in blobsGone) if (!named(blob, message.id)) files.delete(blob)
+        // Out of this chat only: the server keeps it while another chat it was shared to has it.
+        val (peer, group) = conversationOf(message.user)
+        scope?.launch { for (blob in blobsGone) runCatching { blobs.unshare(blob, peer, group) } }
         _originals.update { all -> all.filterKeys { !it.startsWith("${message.id}/") } }
     }
 
@@ -342,26 +352,33 @@ internal class MediaSharing(
     fun forgetTaken(message: TextMessage) {
         for (item in message.media?.items.orEmpty()) {
             opening.remove("${message.id}/${item.id}")?.cancel()
-            for (part in item.previews + listOfNotNull(item.poster)) files.delete(part.blob)
+            for (part in item.previews + listOfNotNull(item.poster)) if (!named(part.blob, message.id)) files.delete(part.blob)
             store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")?.let { files.deleteOriginal(it) }
         }
         _originals.update { all -> all.filterKeys { !it.startsWith("${message.id}/") } }
     }
 
-    /** A preview taken out of a draft: gone from this phone, and from the server if it went up. */
-    private fun forget(blob: String) {
-        files.delete(blob)
+    /** A preview taken out of draft [message]: gone from this phone (unless another names it), and from the chat on the server. */
+    private fun forget(blob: String, message: TextMessage) {
+        if (!named(blob, message.id)) files.delete(blob)
+        val (peer, group) = conversationOf(message.user)
         scope?.launch {
             for (job in draftUploads.values.toList()) job.join()
-            if (uploaded.remove(blob)) runCatching { blobs.delete(blob) }
+            if (uploaded.remove("$blob@${message.user}")) runCatching { blobs.unshare(blob, peer, group) }
         }
     }
 
     /** The drafts' preview uploads, started on [prepare], by message id. */
     private val draftUploads = mutableMapOf<String, Job>()
 
-    /** The previews this phone has put on the server (an upload after a draft's skips them). */
+    /** The previews this phone has put on the server, as "blob@chat" (an upload after a draft's skips them). */
     private val uploaded = mutableSetOf<String>()
+
+    private fun conversationOf(chat: String): Pair<String?, String?> = Group.idOf(chat).let { group -> (if (group == null) chat else null) to group }
+
+    /** Whether a message other than [except] names [blob] (a picture shared to several chats: one sealed file). */
+    private fun named(blob: String, except: String): Boolean =
+        (mediaMessages() + drafts.values).any { m -> m.id != except && m.media?.items.orEmpty().any { item -> (item.previews + listOfNotNull(item.poster)).any { it.blob == blob } } }
 
     /** Drafts not sent yet, by message id (their previews show while the caption is written). */
     private val drafts = mutableMapOf<String, TextMessage>()
@@ -381,6 +398,42 @@ internal class MediaSharing(
 
     private fun transfer(item: String, done: Long, total: Long) {
         _transfers.update { it + (item to (done.toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f)) }
+    }
+
+    /** An item this phone shared before ([message]'s [item]), from [source], shared again. */
+    private class Again(val message: TextMessage, val item: AttachmentContent, val source: String)
+
+    /** The items this phone shared and still has: their file readable when last checked, their previews kept. */
+    private fun sharedHere(): List<Pair<TextMessage, AttachmentContent>> =
+        mediaMessages().filter { it.outgoing }.flatMap { m -> m.media?.items.orEmpty().map { m to it } }.filter { (m, item) ->
+            store.mediaSource(m.id, item.id) != null && store.mediaSource(m.id, "${item.id}$SOURCE_GONE") == null &&
+                item.previews.isNotEmpty() && (item.previews + listOfNotNull(item.poster)).all { files.has(it.blob) }
+        }
+
+    /** The item this phone shared before that is the file at [source]: the same source, else the same size and SHA-256. */
+    private suspend fun earlier(source: String, mine: List<Pair<TextMessage, AttachmentContent>>): Pair<TextMessage, AttachmentContent>? {
+        if (mine.isEmpty()) return null
+        mine.lastOrNull { (m, item) -> store.mediaSource(m.id, item.id) == source }?.let { return it }
+        val preparer = preparer ?: return null
+        val size = preparer.sizeOf(source)
+        val same = mine.filter { it.second.size == size && size > 0 }
+        if (same.isEmpty()) return null
+        val reader = preparer.open(source) ?: return null
+        val sha = try {
+            while (reader.read(MediaCrypto.CHUNK) != null) Unit
+            reader.sha256()
+        } finally {
+            reader.close()
+        }
+        return same.lastOrNull { it.second.sha256.contentEquals(sha) }
+    }
+
+    /** [again]'s item in message [message]: the same key, previews and poster (the same blobs), its own id. */
+    private fun again(message: String, again: Again): AttachmentContent {
+        val itemId = newId()
+        store.putMediaSource(message, itemId, again.source)
+        store.putMediaSource(message, "$itemId$FROM", "${again.message.id}/${again.item.id}")
+        return again.item.copy(id = itemId, text = "", originDevice = 0)
     }
 
     /** [item] with its own key; its previews sealed and kept (this phone shows them, and uploads them). */
@@ -423,9 +476,13 @@ internal class MediaSharing(
             for (item in media.items) {
                 val itemTotal = item.previews.sumOf { MediaCrypto.sealedSize(it.size) }
                 var itemDone = 0L
+                val reused = store.mediaSource(message.id, "${item.id}$FROM") != null
                 for (part in item.previews) {
-                    if (part.blob !in uploaded) transfer(item.id, itemDone, itemTotal)
-                    if (part.blob in uploaded) {
+                    val mark = "${part.blob}@${message.user}"
+                    // Shared before: made readable in this chat too, nothing uploaded (gone from the server: uploaded).
+                    if (reused && mark !in uploaded && blobs.share(part.blob, if (group == null) message.user else null, group)) uploaded += mark
+                    if (mark !in uploaded) transfer(item.id, itemDone, itemTotal)
+                    if (mark in uploaded) {
                         itemDone += MediaCrypto.sealedSize(part.size)
                         done += MediaCrypto.sealedSize(part.size)
                         _uploads.update { it + (message.id to (done.toFloat() / total).coerceAtMost(1f)) }
@@ -450,7 +507,7 @@ internal class MediaSharing(
                         if (e.status != 0) throw e
                         blobs.put(part.blob, peer, group, sealed)
                     }
-                    uploaded += part.blob
+                    uploaded += mark
                     itemDone += sealed.size
                     transfer(item.id, itemDone, itemTotal)
                     done += sealed.size
@@ -783,6 +840,26 @@ internal class MediaSharing(
         val key = "${message.id}/${item.id}"
         val blob = store.mediaSource(message.id, "${item.id}$ORIGINAL_BLOB")
         val reply = { status: Int, part: PartContent? -> MediaReplyContent(message.id, item.id, MediaPart.ORIGINAL, status, part) }
+        // Shared again: the original already on the server for the first sharing is made readable here too.
+        val first = store.mediaSource(message.id, "${item.id}$FROM")?.split('/')
+        if ((blob == null || !uploadedRecently(message.id, item.id)) && first?.size == 2 && uploadedRecently(first[0], first[1])) {
+            val theirs = store.mediaSource(first[0], "${first[1]}$ORIGINAL_BLOB")
+            if (theirs != null && uploading["${first[0]}/${first[1]}"]?.isActive != true) {
+                scope.launch {
+                    val (peer, grp) = conversationOf(chat)
+                    if (blobs.share(theirs, peer, grp)) {
+                        store.putMediaSource(message.id, "${item.id}$ORIGINAL_BLOB", theirs)
+                        store.putMediaSource(message.id, "${item.id}$ORIGINAL_UPLOADED", now().toString())
+                        log(RequestResult.ON_SERVER)
+                        runCatching { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(theirs, item, growing = false))), PushKind.NONE, "") }
+                    } else {
+                        store.removeMediaSource(message.id, "${item.id}$FROM")
+                        answer(chat, author, device, request)
+                    }
+                }
+                return
+            }
+        }
         if (blob != null && (uploading[key]?.isActive == true || uploadedRecently(message.id, item.id))) {
             log(RequestResult.ON_SERVER)
             scope.launch { runCatching { send(chat, Content(mediaReply = reply(MediaReplyStatus.READY, part(blob, item, growing = uploading[key]?.isActive == true))), PushKind.NONE, "") } }
@@ -1152,6 +1229,9 @@ internal class MediaSharing(
         /** Where an item's original blob id and its upload time are kept beside its source (MessagingStore.mediaSource). */
         private const val ORIGINAL_BLOB = "#original"
         private const val ORIGINAL_UPLOADED = "#uploaded"
+
+        /** An item shared again: the "message/item" it was first shared as (its original can be shared from there). */
+        private const val FROM = "#from"
 
         /** Where the log of requests for originals is kept (beside the sources, under a key no message has). */
         private const val REQUESTS = "#requests"

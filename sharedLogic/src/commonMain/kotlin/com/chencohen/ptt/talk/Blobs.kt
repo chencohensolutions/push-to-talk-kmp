@@ -4,6 +4,7 @@ import com.chencohen.ptt.server.ServerHttp
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
+import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
@@ -39,6 +40,16 @@ internal interface BlobApi {
 
     /** Deletes blob [id] this phone made (an upload given up, or one that turned out not to be the shared file). */
     suspend fun delete(id: String): Unit = Unit
+
+    /**
+     * Makes blob [id] this phone made readable in the conversation with [peer] or in [group] too (a picture shared
+     * again, 2026-11-28, hen: "without doubling the storage"). Answers false when it isn't on the server (gone: upload
+     * it again) or the server can't share (older).
+     */
+    suspend fun share(id: String, peer: String?, group: String?): Boolean = false
+
+    /** Takes blob [id] this phone made out of one conversation; the server deletes it when none is left. */
+    suspend fun unshare(id: String, peer: String?, group: String?): Unit = delete(id)
 }
 
 /** The server refused a blob request. */
@@ -117,6 +128,19 @@ internal class KtorBlobApi(private val http: ServerHttp) : BlobApi {
     override suspend fun delete(id: String) {
         val client = http.client() ?: return
         runCatching { client.delete(http.url("/blob/$id")) }
+    }
+
+    private fun conversation(peer: String?, group: String?) =
+        if (group != null) "group=${group.encodeURLParameter()}" else "peer=${peer.orEmpty().encodeURLParameter()}"
+
+    override suspend fun share(id: String, peer: String?, group: String?): Boolean {
+        val client = http.client() ?: return false
+        return runCatching { client.post(http.url("/blob/$id", conversation(peer, group))).status.isSuccess() }.getOrDefault(false)
+    }
+
+    override suspend fun unshare(id: String, peer: String?, group: String?) {
+        val client = http.client() ?: return
+        runCatching { client.delete(http.url("/blob/$id", conversation(peer, group))) }
     }
 
     private companion object {

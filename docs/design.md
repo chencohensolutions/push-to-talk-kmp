@@ -806,6 +806,18 @@ server and the sender's phone (`revoke`), the others' phones delete what they ke
 from this phone. (`MediaOriginalTest`.) Next, the last phase: a Journal server's copy counts as existing, and the
 originals sent to me can be backed up there.
 
+A picture shared again, to another chat or the same one, is stored once (2026-11-28, hen: "share images between groups
+without doubling the storage"). When it is picked, `prepare` looks for an item this phone shared before that is the same
+file (`earlier`: the same source, else the same size and then the same SHA-256) whose file was readable when last
+checked and whose previews are still here; it is sent again as that item with its own id (`again`: the same key,
+previews and poster, so the same blobs; `#from` names the first item). Its previews aren't made or uploaded again: the
+server is asked to let the new chat read them too (`POST /blob/<id>?peer=` or `?group=`, the server's
+docs/messaging.md, "Blobs"), and only if they are gone from there are they uploaded. A request for its original is
+answered with the original already uploaded for the first sharing when it is still on the server, shared the same way.
+Deleting it in one chat takes the blobs out of that chat only (`DELETE /blob/<id>?peer=`): the server deletes a blob
+when no chat is left, and this phone keeps a preview while another message names it. The previews are the widths made
+for the first chat's screens. (`MediaSharingTest.aPictureSharedToAnotherChatIsStoredOnce`.)
+
 ## Next
 
 iOS, as the plan says, once phases 5b and 6 are tried on phones.
